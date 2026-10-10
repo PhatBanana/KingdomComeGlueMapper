@@ -74,7 +74,7 @@ forced hostility script or never-flee override. The native faction can make
 this actor hostile; spawning 39 metres from the return coachman separates the
 test from the travel interaction but does not guarantee combat isolation.
 
-Fritz is placed at the terrain height at an offset of (-35, -18) metres from
+The original isolated build placed Fritz at the terrain height at an offset of (-35, -18) metres from
 the return coachman. Test targeted attacks, blocking, disengagement and any
 flee/surrender transition against Matthew and the coachman. The existing
 combat logging console files can capture the results. Do not claim that a
@@ -118,7 +118,8 @@ and `trosecko_enemies`. The latter carries `Labels="publicEnemy"` and
 `e2771416-6e56-4543-9079-ac3973a1c0b3`, which is absent from the KCD1
 destination's registered location memberships. These are confirmed source-map
 dependencies; their effect on runtime hostility and the combat lock is not
-yet verified. The current clone does not rebind them.
+yet verified. That isolated clone did not rebind them; the local camp test
+below now does.
 
 A complete destination bandit adapter must:
 
@@ -138,6 +139,39 @@ A complete destination bandit adapter must:
    recognition, attack/crime classification, on-foot and mounted combat,
    disengagement/flee/surrender, and save/load plus return visits.
 
-The immediate next scope is destination faction/location binding and a
-controlled aggression/crime test. This document records the required work;
-it does not claim that the destination bandit adapter is implemented.
+### Local camp test, 2026-10-11
+
+The optional bandit build now binds Fritz to the authored `q_epilogue_camp`
+beside the return coachman. `character_bandit_camp` resolves its `inside` link
+to `epilogue_camp_inside`, uses its original six-point boundary, registers a
+new hidden location in level 1001, and binds that location in both the AI and
+RPG location managers. Placement uses the imported terrain height.
+
+The helper clones the template's faction ancestry under independent names,
+preserves `publicEnemy`/`camp` labels and native outgoing relationships, and
+replaces its region/location references. The leaf explicitly has reputation
+-1 toward `player`, an intentional hostile test-camp policy. It leaves native
+faction records untouched. Native incoming relationships to the original
+faction are not automatically replicated; wider settlement diplomacy remains
+outside this controlled test.
+
+The NPC's compiled native home link now points to a local scheduler hub whose
+`home_area` is the registered camp boundary. His native brain, crime role,
+equipment and interruptible idle remain intact. This does not yet convert the
+source work/rest/healing schedule or destination flee/exit dependencies, and
+the build receipt explicitly lists those as pending. No never-flee override
+or forced attack loop is installed.
+
+This is the faction/location/home test, not a claim of a complete bandit AI
+port or a solution to the intermittent combat lock. In retail, approach Fritz
+at the camp before striking him; then check crime classification, continuous
+on-foot combat, mounting/dismounting and a return visit. The coach and Matthew
+are nearby, so they can participate if native relationship rules make them
+hostile to Fritz. Use a test save.
+
+Build evidence: `outputs/BuildWork/fritz-local-camp` contains the combined
+single-mod package and travel receipt. All 303 unit tests and all 15 table
+files passed the official database reader. Packaged cross-reference checks
+also verified the soul/faction/location chain, AI and RPG area memberships,
+six-point compiled camp boundary, home link, and scheduler targets. These
+checks do not establish live aggression or successful combat transitions.

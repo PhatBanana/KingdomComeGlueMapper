@@ -24,7 +24,7 @@ def inside_mesh(points, triangles):
     return True
 
 
-def road_spawn_points(terrain, arrival, obstacles, height):
+def road_spawn_points(terrain, arrival, obstacles, height, *, min_distance=5, max_distance=12, preferred_distance=6):
     """Sample road centrelines, checking a horse-sized footprint and clearance.
 
     KCD2 road records contain half-float vertices relative to their bounds centre,
@@ -43,7 +43,7 @@ def road_spawn_points(terrain, arrival, obstacles, height):
             return
         bounds = np.asarray(struct.unpack_from('<6f', data, offset+4))
         delta = np.maximum(np.maximum(bounds[:2]-origin, origin-bounds[3:5]), 0)
-        if np.linalg.norm(delta) > 14:
+        if np.linalg.norm(delta) > max_distance+2:
             return
         v, i, t, p, s = struct.unpack_from('<5I', data, offset+84)
         if v < 3 or i < 3 or i % 3 or t != v or s < 4 or s % 2:
@@ -77,7 +77,7 @@ def road_spawn_points(terrain, arrival, obstacles, height):
             for fraction in np.linspace(0, 1, math.ceil(length/.5)+1):
                 xy = a[:2]*(1-fraction)+b[:2]*fraction
                 distance = np.linalg.norm(xy-origin)
-                if not 5 <= distance <= 12:
+                if not min_distance <= distance <= max_distance:
                     continue
                 if any(np.linalg.norm(xy-np.asarray(pt[:2])) < clearance for pt, clearance in obstacles):
                     continue
@@ -89,7 +89,7 @@ def road_spawn_points(terrain, arrival, obstacles, height):
                 if max(heights)-min(heights) > .9:
                     continue
                 position = [float(xy[0]), float(xy[1]), float(height(*xy)+.25)]
-                candidates.append((abs(distance-6), {
+                candidates.append((abs(distance-preferred_distance), {
                     'position': position, 'direction': direction.tolist(),
                     'road_record_offset': offset, 'material': paths[material],
                     'road_width': float(min(widths[j:j+2])),

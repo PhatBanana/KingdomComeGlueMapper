@@ -374,12 +374,21 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                     theresa_names=merge_localization(theresa_names,clone_names)
                     clone_report.update(source_person=test_person,character=clone_character)
                 if test_bandit_person:
-                    actor=ET.fromstring(replacements['objects_mission0.xml']).find(f"Entity[@Name='{driver.NAME}']")
-                    x,y,_=map(float,actor.get('Pos').split(','))
-                    position=(x-35.,y-18.,ground(x-35.,y-18.)+.02)
+                    from character_bandit_camp import resolve_camp, register as register_bandit_camp
+                    camp=resolve_camp(source,'q_epilogue_camp')
+                    x,y,_=camp['position']
+                    position=(x,y,ground(x,y)+.02)
                     replacements,bandit_report=bandit_clone.register_world(replacements,source,target,
                         bandit_native,bandit_namespace,position)
+                    replacements,dialogue_files,camp_report=register_bandit_camp(
+                        replacements,dialogue_files,target,bandit_namespace,camp,LEVEL_ID,bandit_native)
+                    bandit_report['camp']=camp_report
                     bandit_report.update(source_person=test_bandit_person,character=bandit_character)
+            if side=='kcd1':
+                from world_runtime_contracts import apply as apply_world_contracts
+                with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_contracts:
+                    replacements,contract_report=apply_world_contracts(replacements,native_contracts)
+                entry_report['runtime_contracts']=contract_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
