@@ -9,14 +9,14 @@ HELPERS = 'smartobjecthelpersetanimations.xml'
 ANIMATIONS = 'tables/ai/smartobjectanimations.xml'
 
 
-def install(files, native):
+def install(files, native, prefixes=('gm_chair_', 'gm_bench_')):
     result = dict(files)
     helpers = ET.fromstring(files.get(HELPERS, b'<SmartObjectAnimationCollections/>'))
     native_helpers = ET.fromstring(read(native, HELPERS))
     if helpers.tag != 'SmartObjectAnimationCollections' or native_helpers.tag != helpers.tag:
         raise ValueError('Unexpected animation helper format')
     seats = [e for e in ET.fromstring(files['objects_mission0.xml']).iter('Entity')
-             if e.get('EntityClass') == 'StanceSmartObject' and e.get('Name', '').startswith(('gm_chair_', 'gm_bench_'))]
+             if e.get('EntityClass') == 'StanceSmartObject' and e.get('Name', '').startswith(prefixes)]
     families = {e.find('Properties').get('soclass_SmartObjectHelpers') for e in seats}
     available = {e.get('HelperSetName'): e for e in native_helpers}
     for family in sorted(families):

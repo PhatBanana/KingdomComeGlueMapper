@@ -416,6 +416,12 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                     helper_name=next(n for n in source_game.namelist() if n.lower()=='libs/smartobjects.xml')
                     replacements,bench_report=convert_benches(replacements,source_benches,native_benches,read(source_game,helper_name),guid)
                 entry_report['benches']=bench_report
+                from room_rental import build as build_room_rental
+                replacements,rental_resources,rental_report=build_room_rental(
+                    replacements,{**dialogue_files,**graphs},source,target,guid)
+                graphs={name:rental_resources.pop(name) for name in graphs}
+                dialogue_files=rental_resources
+                entry_report['room_rental']=rental_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
