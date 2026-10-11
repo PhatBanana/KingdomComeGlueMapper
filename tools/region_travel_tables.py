@@ -14,7 +14,7 @@ KEYS = {
     'levels': 'LevelId', 'LevelSwitches': 'Name',
     'locations': 'location_id', 'poi_types': 'poi_type_id',
     'ui_map_labels': 'ui_map_label_id', 'ui_local_mapss': 'ui_local_map_id',
-    'FactionTree': 'Name',
+    'FactionTree': 'Name', 'skald_characters': 'skald_character_name',
 }
 
 # RequiredAttribute fields from KCD2Mod's GeneratedDatabase reader. The XML
