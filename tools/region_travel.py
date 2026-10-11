@@ -422,6 +422,14 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 graphs={name:rental_resources.pop(name) for name in graphs}
                 dialogue_files=rental_resources
                 entry_report['room_rental']=rental_report
+                from washing_troughs import convert as convert_washing_troughs
+                with zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as wash_source, \
+                     zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as wash_native, \
+                     zipfile.ZipFile(source/'Data/GameData.pak') as wash_source_game, \
+                     zipfile.ZipFile(target/'Data/IPL_GameData.pak') as wash_native_game:
+                    replacements,wash_report=convert_washing_troughs(
+                        replacements,wash_source,wash_native,wash_source_game,wash_native_game,guid)
+                entry_report['washing_troughs']=wash_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

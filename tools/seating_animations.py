@@ -18,7 +18,8 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_')):
     seats = [e for e in ET.fromstring(files['objects_mission0.xml']).iter('Entity')
              if (e.get('EntityClass') == 'StanceSmartObject' and e.get('Name', '').startswith(prefixes))
              or (e.get('EntityClass') == 'DetailMovementSmartObject'
-                 and e.get('Name', '').startswith(('gm_', 'gmtravel_')))]
+                 and e.get('Name', '').startswith(('gm_', 'gmtravel_')))
+             or (e.get('EntityClass') == 'SmartObjectHolder' and e.get('Name', '').startswith('gm_wash_'))]
     families = {e.find('Properties').get('soclass_SmartObjectHelpers') for e in seats}
     available = {e.get('HelperSetName'): e for e in native_helpers}
     for family in sorted(families):
