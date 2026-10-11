@@ -8,6 +8,9 @@ from character_person_world import register_person_world
 from character_person_shop import register_shop_service, register_shop_activity
 from region_travel import guid
 from upgrade_map import xml
+from merchant_stash import source_stash, apply_stash_placement
+
+STASH_PREFIX = 'objects/gluemapper/neuhof_stash/'
 
 
 def register(files, resources, person, horses, source, target, entry_path):
@@ -54,6 +57,7 @@ def register(files, resources, person, horses, source, target, entry_path):
     props = ET.SubElement(stash, 'Properties')
     ET.SubElement(props, 'Database', sGeneratedInventory='inventory_shop_horseTraderSemin')
     ET.SubElement(props, 'Lock', bLocked='1', bLockDifficultyOverride='1', fLockDifficulty='1')
+    apply_stash_placement(stash, source_stash(source, person['shop_entity']), STASH_PREFIX)
     link(seller, shop, 'owner'); link(seller, shop, 'shopKeeper'); link(shop, stash, 'shopStash')
     points = [tuple(map(float, h['actor'].get('Pos').split(','))) for h in horses]
     low = [min(p[i] for p in points) for i in range(3)]

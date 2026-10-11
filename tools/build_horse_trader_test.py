@@ -18,7 +18,8 @@ from region_travel_dialogue import merge_localization
 from region_travel_tables import managed_patches
 from horse_trader import roster, horse_resources
 from horse_trader_dialogue import attach, ROLE
-from horse_trader_world import register
+from horse_trader_world import register, STASH_PREFIX
+from merchant_stash import source_stash, stash_assets
 from upgrade_map import read, xml
 
 ENTRY = 'Quests/GlueTravel/entry/kcd1_travel.xml'
@@ -77,7 +78,7 @@ def build(source, target, mod, output):
     files, resources, schedules = register(files, resources, person, horses, source, target, ENTRY)
     with zipfile.ZipFile(target/'Data/Scripts.pak') as scripts:
         resources, strings = attach(resources, ENTRY, horses, person['soul']['soul_id'], scripts, person['name'])
-    character_assets = {}
+    character_assets = stash_assets(source, source_stash(source, person['shop_entity']), STASH_PREFIX)
     for path in character_dir.rglob('*'):
         if path.is_file() and not path.relative_to(character_dir).as_posix().startswith('Localization/'):
             name = path.relative_to(character_dir).as_posix()

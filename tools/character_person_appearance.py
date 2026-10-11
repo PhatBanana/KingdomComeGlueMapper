@@ -245,9 +245,9 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         ET.SubElement(ids, 'Guid').text = item.get('Id')
         item_report.append(dict(source_id=part['armor_id'], item_id=item.get('Id'), component=name,
             source_model=part['model'], source_material=part['material'], native_role=armor_type))
-    # KCD1's female base is limbs only. Its innermost dress supplies the torso
-    # underneath the outer garment, including the neckline. Use that source
-    # geometry for native underwear instead of borrowing a KCD2 torso.
+    # Retain the source innermost dress as underwear. The complete native body
+    # is attached separately after material conversion; underwear must not be
+    # relied upon to supply skin exposed by an outer garment's neckline.
     torso = [g for g in garments if garment_layout(g['part'])[1] == 2]
     if torso:
         inner = min(torso, key=lambda g: garment_layout(g['part'])[2])
@@ -272,8 +272,10 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         dest.write_bytes(data.read_bytes() if isinstance(data, Path) else data)
     material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
                                                   native, namespace, 'female')
+    from character_female_body import complete_female_body
+    body_report = complete_female_body(output, document.find('CharacterComponents/Component'), native)
     (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender='female',
         archetype=native_soul_archetype(archetypes, 'Female'), parts=evidence, rig=rig,
         items=item_report, outfit_mode='Source female items and complete garment meshes', runtime_verified=False,
-        localization='Localization/English/text_ui_items.xml', materials=material_report)
+        localization='Localization/English/text_ui_items.xml', materials=material_report, body=body_report)
