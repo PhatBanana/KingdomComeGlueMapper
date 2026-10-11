@@ -19,6 +19,7 @@ from campaign_sources import audit_opening, opening_spawn
 from upgrade_map import read
 from retail_menu import menu_assets
 from setup_progress import progress
+from herb_pickup import build_registration
 from campaign_package import LEVEL, LEVEL_ID, level_registration, package_world, package_opening, write_asset_shards, add_level_tables, mounted_level_tables
 
 MOD_ID = 'kingdomcomegluemapper'
@@ -132,6 +133,11 @@ def build_campaign(source, target, converted_data, source_level, output, diagnos
         world['empty_level_tables'] = add_level_tables(level_pak, tables_pak, target, spawn)
         tables_pak.replace(level_pak)
         opening = package_opening(source, stage)
+        herb_patch, herb_report = build_registration(source, target, converted_data,
+                                                     stage / f'Data/Levels/{LEVEL}/terrain.pak')
+        (stage / 'herb-pickup-report.json').write_text(json.dumps(herb_report, indent=2), encoding='utf-8')
+        with zipfile.ZipFile(stage / 'Data/gluemapper_herb_pickup.pak', 'x', zipfile.ZIP_STORED) as herbs:
+            herbs.writestr('Libs/Tables/item/pickable_area_material__' + MOD_ID + '.xml', herb_patch)
         with zipfile.ZipFile(stage / 'Data' / (MOD_ID + '.pak'), 'a', zipfile.ZIP_STORED) as pak:
             pak.writestr('Libs/Tables/level__' + MOD_ID + '.xml', level_registration(target))
             for name, data in mounted_level_tables(level_pak, MOD_ID).items():

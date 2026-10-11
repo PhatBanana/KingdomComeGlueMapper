@@ -54,6 +54,9 @@ def main():
         if before.get(2) != len(inherited) or len(old_groups) != len(baseline.tables['vegetation']['paths']):
             raise ValueError('Base does not match inherited vegetation report')
         group_map = {g:i for i,g in enumerate(old_groups)}
+        herb_model_map = [{'source': source.tables['vegetation']['paths'][g],
+                           'target': baseline.tables['vegetation']['paths'][i]}
+                          for g, i in group_map.items()]
         group_start = baseline.tables['vegetation']['offset']
         group_data = bytearray(baseline.data[group_start:group_start+len(old_groups)*360])
         for group, mapped in group_map.items():
@@ -93,6 +96,7 @@ def main():
                 emitted[target+f'_lod{lod}.cgf'] = blob
             mapped = len(group_map)
             group_map[group] = mapped
+            herb_model_map.append({'source': original, 'target': target + '.cgf'})
             record[:256] = (target+'.cgf').encode().ljust(256,b'\0')
             struct.pack_into('<i',record,320,mapped+1)
             # Preserve per-group material overrides instead of discarding them.
@@ -147,6 +151,7 @@ def main():
                       excluded_layers=dict(Counter(r['layer'] for r in records if r['offset'] not in offsets and r['layer'] not in allowed)),
                       note='Source positions, scale, rotation bytes and existing HLOD prefix preserved; visual LOD alignment still needs checking')
         (dest/'instances-report.json').write_text(json.dumps(report,indent=2))
+        (root/'herb-model-map.json').write_text(json.dumps(herb_model_map, indent=2), encoding='utf-8')
         Path('reports/instances-probe.json').write_text(json.dumps(report,indent=2))
         print(json.dumps(report),flush=True)
 

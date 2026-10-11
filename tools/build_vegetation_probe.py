@@ -139,10 +139,12 @@ def main():
 
         groups = sorted(set(r["group"] for r in selected) | merged_groups)
         group_map = {g:i for i,g in enumerate(groups)}
+        herb_model_map = []
         group_bytes = bytearray()
         for group in groups:
             original = source.tables["vegetation"]["paths"][group].lower()
             target = prefix + "mesh" + str(group_map[group])
+            herb_model_map.append({'source': original, 'target': target + '.cgf'})
             emitted[target+".cgf"] = mesh_bytes(original)
             for lod in range(1,7):
                 path = original[:-4]+f"_lod{lod}.cgf"
@@ -230,6 +232,7 @@ def main():
                                  "Source trailing instance word omitted; target high render flag bits zero",
                                  "Source billboard atlases and advanced wind compatibility unverified"]}
         (destination/"vegetation-report.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
+        (data_root/'herb-model-map.json').write_text(json.dumps(herb_model_map, indent=2), encoding='utf-8')
         Path("reports").mkdir(exist_ok=True)
         Path("reports/vegetation-probe.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
         print(f"Built {args.level}: {len(selected)} original instances, {len(groups)} groups, {len(emitted)} asset files",flush=True)

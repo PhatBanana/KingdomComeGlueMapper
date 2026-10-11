@@ -69,8 +69,12 @@ class CampaignSetupTests(unittest.TestCase):
         self.pak(self.target / 'Data/Tables.pak', {
             'Libs/Tables/level.xml': b'<database name="barbora"><levels version="1"><LevelData LevelId="2" LevelName="trosecko"/></levels></database>'})
         output = self.root / 'campaign'
-        with patch('setup_campaign.menu_assets', return_value=({}, {'synthetic': True})):
+        herb_xml = b'<database name="barbora"><pickable_area_materials version="1"><pickable_area_material material_name="glueveg/test/mesh1.cgf" pickable_area_id="2"/></pickable_area_materials></database>'
+        with patch('setup_campaign.menu_assets', return_value=({}, {'synthetic': True})), patch(
+                'setup_campaign.build_registration', return_value=(herb_xml, {'runtime_verified': False})):
             build_campaign(self.source, self.target, converted, 'probe', output)
+        with zipfile.ZipFile(output / 'Data/gluemapper_herb_pickup.pak') as herbs:
+            self.assertEqual(herbs.read('Libs/Tables/item/pickable_area_material__' + MOD_ID + '.xml'), herb_xml)
         receipt = verify_package(output)
         self.assertEqual(receipt['campaign_level'], 'kcd1_rataje')
         self.assertFalse(receipt['ready_to_play'])
@@ -93,6 +97,8 @@ class CampaignSetupTests(unittest.TestCase):
         self.assertEqual(updated['files']['campaign.json'], receipt['files']['campaign.json'])
         self.assertEqual(verify_package(output), receipt)
         self.assertEqual(verify_package(refreshed), updated)
+        self.assertEqual((refreshed / 'Data/gluemapper_herb_pickup.pak').read_bytes(),
+                         (output / 'Data/gluemapper_herb_pickup.pak').read_bytes())
         backup = self.root / 'runtime-backup'
         before = (refreshed / 'Data/Levels/kcd1_rataje/level.pak').read_bytes()
         with patch('setup_campaign.menu_assets', return_value=({}, {'synthetic': True})):
