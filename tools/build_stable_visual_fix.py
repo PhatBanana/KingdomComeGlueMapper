@@ -1,14 +1,14 @@
 """Stage a targeted stable repair without rebuilding the installed world or audio."""
 import argparse
-from contextlib import ExitStack
+import copy
 import json
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import zipfile
 
-from audit_character_bodies import Assets
 from build_horse_trader_test import digest, rewrite
-from character_female_body import complete_female_body
+from character_person_appearance import build_appearance
+from region_travel_services import resolve_merchant
 from horse_trader_world import STASH_PREFIX
 from merchant_stash import source_stash, stash_assets, apply_stash_placement
 from upgrade_map import read, xml
@@ -27,14 +27,24 @@ def build(source, target, mod, output):
         components = ET.fromstring(read(archive, table))
     component = next(n for n in components.iter('Component') if n.get('Name') == 'gm_neuhof_zora_root')
     workspace = output / 'assets'
-    folder = workspace / 'objects/characters' / component.get('FilePath')
-    folder.mkdir(parents=True)
-    old_mat = component.find('DerivedComponents/Body/Elements/SkinElement').get('Material')
-    with zipfile.ZipFile(mod / paths[1]) as archive:
-        (folder / old_mat).write_bytes(read(archive, (folder / old_mat).relative_to(workspace).as_posix()))
-    with ExitStack() as stack:
-        body = complete_female_body(workspace, component, Assets(target, stack))
-    assets = {p.relative_to(workspace).as_posix(): p.read_bytes() for p in folder.glob('native_body*')}
+    person = resolve_merchant(source, 'neu_zdena')
+    body = build_appearance(source, target, person, 'gm_neuhof_zora', workspace)
+    built = ET.parse(workspace / 'Libs/Tables/Character/CharacterComponent__gm_neuhof_zora.xml')
+    corrected = built.find('.//Component')
+    container = components.find('CharacterComponents')
+    container.remove(component)
+    container.append(copy.deepcopy(corrected))
+    hiding_path = f'Libs/Tables/Character/ClothingHidingGroup__{modid}.xml'
+    hiding = ET.parse(workspace / 'Libs/Tables/Character/ClothingHidingGroup__gm_neuhof_zora.xml').getroot()
+    with zipfile.ZipFile(mod / paths[0]) as archive:
+        if hiding_path in archive.namelist():
+            existing = ET.fromstring(read(archive, hiding_path))
+            names = {n.get('Name') for n in hiding[0]}
+            for row in existing[0]:
+                if row.get('Name') not in names:
+                    hiding[0].append(copy.deepcopy(row))
+    assets = {p.relative_to(workspace).as_posix(): p.read_bytes()
+              for p in (workspace / 'objects').rglob('*') if p.is_file()}
     with zipfile.ZipFile(source / 'Data/Levels/rataje/level.pak') as archive:
         mission = ET.fromstring(read(archive, 'objects_mission0.xml'))
     shop = next(e for e in mission.iter('Entity') if e.get('EntityClass') == 'Shop'
@@ -47,12 +57,13 @@ def build(source, target, mod, output):
     before = dict(stash.attrib)
     apply_stash_placement(stash, authored, STASH_PREFIX)
     package = output / 'package'
-    rewrite(mod / paths[0], package / paths[0], {table: xml(components)})
+    rewrite(mod / paths[0], package / paths[0], {table: xml(components), hiding_path: xml(hiding)})
     rewrite(mod / paths[1], package / paths[1], assets)
     rewrite(mod / paths[2], package / paths[2], {'objects_mission0.xml': xml(mission)})
     validation = output / 'validation' / table
     validation.parent.mkdir(parents=True)
     validation.write_bytes(xml(components))
+    (output / 'validation' / hiding_path).write_bytes(xml(hiding))
     report = dict(baseline=baseline, body=body, stash_before=before, stash_after=dict(stash.attrib),
                   runtime_verified=False, terrain_changed=False,
                   files={p: digest(package / p) for p in paths})

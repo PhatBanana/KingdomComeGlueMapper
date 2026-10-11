@@ -9,7 +9,7 @@ from upgrade_map import xml
 KEYS = {
     'souls': 'soul_id', 'roles': 'role_name', 'Shops': 'shop_id',
     'InventoryPresets': 'Name', 'CharacterComponents': 'Name',
-    'ClothingMaterials': 'Name',
+    'ClothingMaterials': 'Name', 'ClothingHidingGroups': 'Name',
     'clothing_presets': 'clothing_preset_id', 'ItemClasses': 'Id',
     'levels': 'LevelId', 'LevelSwitches': 'Name',
     'locations': 'location_id', 'poi_types': 'poi_type_id',

@@ -104,7 +104,11 @@ def build_appearance(source, target, person, namespace, output):
         for number, part in enumerate(parts):
             kind = part['kind']; stem = 'part' + str(number)
             model = asset_path(index, part, 'model', '.skin')
-            mat = material(asset_path(index, part, 'material', '.mtl'))
+            if sex == 'female' and kind == 'body':
+                from character_female_body import complete_source_body
+                model = complete_source_body(model, index)
+            source_material = asset_path(index, part, 'material', '.mtl')
+            mat = material(source_material)
             if kind == 'cloth':
                 tinted = prefix + stem + '_tinted'
                 emitted[tinted + '.mtl'] = xml(apply_armor_colorization(ET.parse(emitted[mat + '.mtl']).getroot(), part['armor_settings']))
@@ -112,11 +116,19 @@ def build_appearance(source, target, person, namespace, output):
             blob, mat = bind_material(mesh(model), mat, emitted, prefix + stem + '_slots')
             blob, internal_offset = align_internal_translation(blob)
             fitting = None
+            morphs = [m['name'] for c in read_chunks(blob) if c.kind == 0x2002 for m in read_morphs(c)]
+            if sex == 'female' and kind == 'body' and any(
+                    p['kind'] == 'cloth' and garment_layout(p)[1] == 2 for p in parts):
+                # Use the source's authored chest fit, not a larger native body.
+                chest = [name for name in morphs if name.split(':')[-1].lstrip('#') == 'A_Chest']
+                if len(chest) > 1:
+                    raise ValueError('Ambiguous source chest fitting morph')
+                if chest:
+                    fitting = {chest[0]: 1.0}
             if sex == 'female' and kind == 'cloth':
                 _, source_region, source_layer = garment_layout(part)
                 covered = any(p['kind'] == 'cloth' and garment_layout(p)[1] == source_region
                               and garment_layout(p)[2] > source_layer for p in parts)
-                morphs = [m['name'] for c in read_chunks(blob) if c.kind == 0x2002 for m in read_morphs(c)]
                 if covered and '#A_Shrink' in morphs:
                     fitting = {'#A_Shrink': 1.0}
             blob, detail = upgrade_skin(blob, skeleton, variant=part.get('morph_target') or None,
@@ -130,6 +142,7 @@ def build_appearance(source, target, person, namespace, output):
                     raise ValueError('Unmapped source garment body part: ' + part['model'])
                 region = {'1': 'head', '2': 'torso', '3': 'legs', '4': 'feet'}[match[1]]
                 garments.append(dict(name=part['clothing_name'], skin=blob, region=region, part=part, stem=stem,
+                    source_model=model, source_material=source_material,
                     material=ET.parse(emitted[prefix + stem + '.mtl']).getroot()))
             else:
                 name = namespace + '_' + kind; appearance[kind] = name
@@ -245,8 +258,8 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         ET.SubElement(ids, 'Guid').text = item.get('Id')
         item_report.append(dict(source_id=part['armor_id'], item_id=item.get('Id'), component=name,
             source_model=part['model'], source_material=part['material'], native_role=armor_type))
-    # Retain the source innermost dress as underwear. The complete native body
-    # is attached separately after material conversion; underwear must not be
+    # Retain the source innermost dress as underwear. The complete source body
+    # is converted with the same field as the garments; underwear must not be
     # relied upon to supply skin exposed by an outer garment's neckline.
     torso = [g for g in garments if garment_layout(g['part'])[1] == 2]
     if torso:
@@ -272,10 +285,10 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         dest.write_bytes(data.read_bytes() if isinstance(data, Path) else data)
     material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
                                                   native, namespace, 'female')
-    from character_female_body import complete_female_body
-    body_report = complete_female_body(output, document.find('CharacterComponents/Component'), native)
+    from clothing_coverage import register_coverage
+    coverage = register_coverage(output, document.find('CharacterComponents/Component'), garments, tables, namespace)
     (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender='female',
         archetype=native_soul_archetype(archetypes, 'Female'), parts=evidence, rig=rig,
         items=item_report, outfit_mode='Source female items and complete garment meshes', runtime_verified=False,
-        localization='Localization/English/text_ui_items.xml', materials=material_report, body=body_report)
+        localization='Localization/English/text_ui_items.xml', materials=material_report, coverage=coverage)

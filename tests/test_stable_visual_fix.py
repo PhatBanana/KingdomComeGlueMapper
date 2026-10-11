@@ -5,32 +5,21 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from character_female_body import complete_female_body
+from character_female_body import complete_source_body
 from merchant_stash import apply_stash_placement
 
 
 class StableVisualTests(unittest.TestCase):
-    def test_complete_body_keeps_native_uv_texture_pair_and_source_colour(self):
-        class Assets:
-            index = {}
-            def get(self, path):
-                if path.endswith('.skin'):
-                    return b'native body geometry', []
-                return b'<Material Diffuse="1,1,1"><Textures><Texture Map="Diffuse" File="./native.dds"/></Textures><PublicParams Melanin="0"/></Material>', []
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            folder = root / 'objects/characters/test'
-            folder.mkdir(parents=True)
-            (folder / 'source.mtl').write_text('<Material Diffuse=".8,.7,.6"><Textures><Texture Map="Diffuse" File="source.dds"/></Textures><PublicParams Melanin=".2"/></Material>')
-            component = ET.fromstring('<Component Race="Human" Gender="Female" FilePath="test/"><DerivedComponents><Body Name="any_person"><Elements><SkinElement Model="limbs.skin" Material="source.mtl"/></Elements></Body></DerivedComponents></Component>')
-            complete_female_body(root, component, Assets())
-            element = component.find('.//SkinElement')
-            self.assertEqual(element.get('Model'), 'native_body.skin')
-            self.assertEqual((folder / 'native_body.skin').read_bytes(), b'native body geometry')
-            material = ET.parse(folder / 'native_body.mtl').getroot()
-            self.assertEqual(material.get('Diffuse'), '.8,.7,.6')
-            self.assertEqual(material.find('PublicParams').get('Melanin'), '.2')
-            self.assertEqual(material.find('.//Texture').get('File'), 'objects/characters/humans/female/body/native.dds')
+    def test_complete_body_uses_matching_source_family_for_any_actor(self):
+        source = 'objects/characters/humans/body/s2_body.skin'
+        complete = source.replace('s2_body.skin', 's2_body_v2.skin')
+        self.assertEqual(complete_source_body(source, {complete}), complete)
+        self.assertEqual(complete_source_body(source.upper(), {complete}), complete)
+        # Bespoke bodies and male imports must not be substituted.
+        for name in ('s2_body_tereza.skin', 's1_body.skin'):
+            self.assertEqual(complete_source_body(name, {}), name)
+        with self.assertRaises(ValueError):
+            complete_source_body(source, {})
 
     def test_stash_uses_authored_placement_without_losing_shop_stock_or_identity(self):
         stash = ET.fromstring('<Entity Pos="1,2,30" EntityGuid="stable-id"><Properties><Database sGeneratedInventory="shop-stock"/><Lock bLocked="1"/></Properties><EntityLinks><Link Name="shop"/></EntityLinks></Entity>')
