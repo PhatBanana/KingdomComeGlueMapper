@@ -161,12 +161,14 @@ def build_campaign(source, target, converted_data, source_level, output, diagnos
         receipt['files'] = {p.relative_to(stage).as_posix(): digest(p)
                             for p in sorted(stage.rglob('*')) if p.is_file() and p.name != RECEIPT}
         (stage / RECEIPT).write_text(json.dumps(receipt, indent=2), encoding='utf-8')
-        verify_package(stage)
+        # The digests above were just read from these files; check the layout only.
+        verify_package(stage, hashes=False)
         stage.rename(output)
     return receipt
 
 
-def verify_package(package):
+def verify_package(package, hashes=True):
+    """Check ownership, layout and receipt; hashes=False when the caller hashes the bytes itself."""
     package = Path(package).resolve()
     receipt = json.loads((package / RECEIPT).read_text(encoding='utf-8'))
     if receipt.get('owner') != MOD_ID or receipt.get('schema') != 1:
@@ -188,6 +190,8 @@ def verify_package(package):
         path = package / relative
         if not path.resolve().is_relative_to(package) or path.is_symlink():
             raise ValueError(f'Invalid package path: {relative}')
+        if not hashes:
+            continue
         if digest(path) != expected:
             raise ValueError(f'Package changed: {relative}')
         checked += path.stat().st_size

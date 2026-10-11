@@ -1,6 +1,7 @@
 """Desktop setup backend. All conversion output stays in a private job directory."""
 from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime
+import hashlib
 import importlib
 import io
 import json
@@ -128,7 +129,8 @@ def conversion_plan(library, build):
 def install_transaction(package, target, notify=lambda *args: None, cancelled=lambda: False):
     """Stage and verify first, then swap only the owned mod, preserving rollback."""
     package, target = Path(package).resolve(), Path(target).resolve()
-    receipt = verify_package(package)
+    # Package bytes are hashed while staging below, so the package is read only once.
+    receipt = verify_package(package, hashes=False)
     if receipt.get('kind') != 'retail-campaign-package':
         raise ValueError('Select a full campaign package, not a loader-only probe')
     from setup_campaign import game_version
@@ -171,11 +173,14 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
         for name in [*receipt['files'], RECEIPT]:
             if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
             dest = stage / name; dest.parent.mkdir(parents=True, exist_ok=True)
+            hashed = hashlib.sha256()
             with (package / name).open('rb') as inp, dest.open('xb') as out:
                 while chunk := inp.read(4 * 1024 ** 2):
                     if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
-                    out.write(chunk); count += len(chunk)
+                    out.write(chunk); hashed.update(chunk); count += len(chunk)
                     notify('Copying mod files', min(count, total), total, name)
+            if name != RECEIPT and hashed.hexdigest() != receipt['files'][name]:
+                raise ValueError(f'Package changed: {name}')
         verify_package(stage)
         if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
         if game_running(): raise ValueError('Game started during setup; close it and retry installation')

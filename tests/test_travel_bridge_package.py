@@ -70,6 +70,20 @@ class BridgePackageTests(unittest.TestCase):
         with zipfile.ZipFile(self.base/f'Data/{MOD_ID}.pak') as z:
             self.assertIn('Libs/UI/Menu.gfx', z.namelist())
 
+    def test_linked_world_matches_copy_and_never_changes_base(self):
+        files = lambda root: {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
+        before = files(self.base)
+        with patch('travel_bridge_package.level_registration', return_value=self.native_level):
+            linked = combine(self.base, self.bridge, 'target', self.root/'linked')
+            with patch('travel_bridge_package.os.link', side_effect=OSError('no hard links')):
+                copied = combine(self.base, self.bridge, 'target', self.root/'copied')
+        self.assertEqual(files(self.base), before)
+        self.assertEqual(files(linked), files(copied))
+        world = 'Data/Levels/kcd1_rataje/terrain.pak'
+        self.assertTrue((linked/world).samefile(self.base/world))
+        for rewritten in (f'Data/{MOD_ID}.pak', 'mod.manifest', RECEIPT):
+            self.assertFalse((linked/rewritten).samefile(self.base/rewritten))
+
     def test_separate_mod_identity_rejected_before_copy(self):
         (self.bridge/'mod.manifest').write_text('<kcd_mod><info><modid>gluemappertravel</modid></info></kcd_mod>')
         with self.assertRaisesRegex(ValueError, 'modid='):
