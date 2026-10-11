@@ -15,6 +15,7 @@ from entity_visuals import world_transform, quaternion_product as qmul
 from room_rental_dialogue import attach, PROJECT
 from seating_animations import install as install_animations
 from static_assets import asset_pack
+from bed_alignment import alignment as bed_alignment
 from upgrade_map import read, xml
 
 
@@ -43,7 +44,7 @@ def door_assets(source, target, door):
         return result_model, {n: b.read_bytes() if isinstance(b, Path) else b for n,b in assets.items()}, contract, report
 
 
-def register(files, source_entities, room, furniture, native, model, contract, guid):
+def register(files, source_entities, room, furniture, native, model, contract, guid, bed_frame):
     files = dict(files)
     root = ET.fromstring(files['objects_mission0.xml'])
     if any(e.get('Name', '').startswith('gm_rental_') for e in root.iter('Entity')): raise ValueError('Rental room already installed')
@@ -70,6 +71,10 @@ def register(files, source_entities, room, furniture, native, model, contract, g
     # The native bed is a stance object plus BedTrigger; source geometry stays.
     dp,dq,_ = world_transform(natives['8449'],natives)
     sp,sq,_ = world_transform(furniture['bed'],source_entities)
+    offset,correction=bed_frame
+    translated=rotate(sq,offset)
+    sp=tuple(sp[i]+translated[i] for i in range(3))
+    sq=qmul(sq,correction)
     delta=qmul(sq,(dq[0],-dq[1],-dq[2],-dq[3]))
     bed=add('bed',natives['8449'],sp,sq)
     tp,tq,_=world_transform(natives['8450'],natives)
@@ -119,15 +124,18 @@ def register(files, source_entities, room, furniture, native, model, contract, g
     files,animations=install_animations(files,native,prefixes=('gm_chair_','gm_bench_','gm_rental_'))
     return files, {'source_room':room.get('Name'),'source_ids':{k:v.get('EntityId') for k,v in furniture.items()},
                    'door_model':model,'bed_position':bed.get('Pos'),'chest_guid':chest.get('EntityGuid'),
-                   'service_guid':service.get('EntityGuid'),'animations':animations}
+                   'service_guid':service.get('EntityGuid'),'animations':animations,
+                   'bed_alignment':{'offset':bed_frame[0],'rotation':bed_frame[1]}}
 
 
 def build(files, resources, source, target, guid, keeper='rato_innkeeper1'):
     with zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as archive: entities,_,_=inventory(archive)
     room,furniture=source_room(entities,keeper)
     model,assets,contract,door_report=door_assets(source,target,furniture['door'])
+    with zipfile.ZipFile(source/'Data/GameData.pak') as source_game, zipfile.ZipFile(target/'Data/IPL_GameData.pak') as native_game:
+        bed_frame=bed_alignment(read(source_game,'Libs/SmartObjects.xml'),read(native_game,'Libs/SmartObjects.xml'))
     with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native:
-        files,report=register(files,entities,room,furniture,native,model,contract,guid)
+        files,report=register(files,entities,room,furniture,native,model,contract,guid,bed_frame)
     project=ET.fromstring(resources[PROJECT]).find('Skald/Project')
     soul=project.find("Assets/SoulAsset[@Name='rattay_innkeeper']").get('SharedSoulGuids')
     with zipfile.ZipFile(target/'Data/Scripts.pak') as scripts:resources,dialogue=attach(resources,scripts,soul)

@@ -87,3 +87,29 @@ console reports failed SitDown and LieDown animation requests for the player.
 Room purchase is confirmed; successful bed sitting/sleeping is not. Fixing
 the bed animation contract is outstanding. Chest use, door operation, expiry,
 save/reload and return travel still require explicit interaction validation.
+
+## Build07: bed interaction alignment
+
+Compared the shipped helper definitions: source Bed sittingLeft/Right use
+local Y offsets -/+0.48 and rotations 0/180 degrees, while native
+Bed_1Place_High uses local X offsets +/-0.48 and rotations +/-90 degrees.
+Copying the source furniture rotation directly therefore puts the native
+interaction helpers on the wrong sides of the bed.
+
+The builder now derives a rigid alignment from both named sitting helpers,
+checks that both agree, and applies it to the bed smart object and its
+relative trigger. The shipped definitions yield a -90-degree local Z
+correction with effectively zero translation. Furniture geometry is unchanged.
+This avoids introducing copied Trosky world-space animation projections.
+
+Three alignment tests and five rental tests pass. Build07 is installed.
+On 2026-10-12 the user confirmed that sleeping, sitting, and the door work,
+and requested commit/push. Room purchase was confirmed previously.
+
+The same test exposed repeated player switching errors:
+`player:switch:switch.xml:root/(N)EnableRoleOnHubDecorator:107` reports
+`Hub must be actual scheduler hub.` This is an unresolved scheduler-hub
+contract issue, separate from the now-confirmed bed animation alignment.
+Other log warnings include the existing innkeeper leaning failure,
+gm_neuhof_stable_work schedulerWait target, and empty OSH preset dictionary.
+These are not claimed fixed by this change.
