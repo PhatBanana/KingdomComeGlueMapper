@@ -5,6 +5,7 @@ from campaign_entity_links import append_links
 from character_person_activity import source_lean_point, register_lean_activity
 from character_person import actor_resources as person_resources, register_person
 from character_person_shop import register_shop_activity, register_shop_service
+from lean_alignment import native_placement
 from upgrade_map import xml
 
 ROLE = 'GMTRAVEL_RATTAY_INNKEEPER'
@@ -89,7 +90,9 @@ def register_world(files, graphs, graph_path, source, target, merchant, shop, id
         names.add(name); ids.add(guid)
         return entity
     point, helper = source_lean_point(source, merchant, merchant['area'])
-    npc = register_person(add, wh, merchant, placement=point)
+    point = native_placement(point, source, target, helper)
+    # The actor starts at its authored NPC position, not inside the lean anchor.
+    npc = register_person(add, wh, merchant)
     home = add('gmtravel_rattay_home', 'SchedulerHub', point.get('Pos'))
     files['tables/ai/scheduler.xml'], lean = register_lean_activity(
         files['tables/ai/scheduler.xml'], add, npc, home, point, helper, target, 'gmtravel_rattay_lean')

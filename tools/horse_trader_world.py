@@ -5,7 +5,7 @@ from campaign_entity_links import append_links, guid_value, native_guid
 from campaign_trigger_areas import TriggerArea, read_areas, write_areas
 from character_person import register_person
 from character_person_world import register_person_world
-from character_person_shop import register_shop_service, register_shop_activity
+from character_person_shop import register_shop_service, register_shop_activity, route_idle_through_work
 from region_travel import guid
 from upgrade_map import xml
 from merchant_stash import source_stash, apply_stash_placement
@@ -80,12 +80,6 @@ def register(files, resources, person, horses, source, target, entry_path):
     # Staff the stash-backed shop through the same native scheduler initializer
     # used by ordinary merchants. Owner/context links alone do not open it.
     scheduler = ET.fromstring(files['tables/ai/scheduler.xml'])
-    rows = scheduler.find('Schedulers')
-    actor_row = next(r for r in rows if r.get('EntityGuid') == str(guid_value(seller.get('EntityGuid'))))
-    incoming = actor_row.find('Links/S_ActivityLink')
-    if incoming is None: raise ValueError('Stable seller has no idle work activity')
-    work_guid = str(guid_value(work.get('EntityGuid')))
-    incoming.set('TargetGuid', work_guid)
-    ET.SubElement(rows, 'C_SmartHub', EntityGuid=work_guid, IgnoreDeadEnds='false', StupidHub='false')
+    route_idle_through_work(scheduler, seller, work)
     files['tables/ai/scheduler.xml'] = register_shop_activity(xml(scheduler), target, seller, work, shop, role='seller')
     return files, resources, schedules

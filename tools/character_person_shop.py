@@ -10,6 +10,29 @@ from character_person_activity import validate_scheduler_targets
 from upgrade_map import read, xml
 
 
+def route_idle_through_work(scheduler, npc, hub):
+    """Insert a work hub above an idle activity, retaining its smart target.
+
+    SchedulerHub provides shop lifecycle effects; sa_land executes schedulerWait.
+    Routing directly to the hub with schedulerWait loses that executable leaf.
+    """
+    rows = scheduler.find('Schedulers')
+    npc_id, hub_id = (str(guid_value(e.get('EntityGuid'))) for e in (npc, hub))
+    actor = unique((r for r in rows if r.get('EntityGuid') == npc_id), 'person scheduler')
+    incoming = unique(actor.findall('Links/S_ActivityLink'), 'person idle activity')
+    params = incoming.find('Parameters')
+    if params is None or params.get('BehaviorName') != 'schedulerWait':
+        raise ValueError('Expected native schedulerWait before inserting work hub')
+    if any(r.get('EntityGuid') == hub_id for r in rows):
+        raise ValueError('Work hub already registered')
+    work = ET.SubElement(rows, 'C_SmartHub', EntityGuid=hub_id, IgnoreDeadEnds='false', StupidHub='false')
+    ET.SubElement(work, 'Links').append(copy.deepcopy(incoming))
+    incoming.set('TargetGuid', hub_id)
+    incoming.set('PositioningDelegate', '0')
+    params.attrib.pop('BehaviorName')
+    validate_scheduler_targets(scheduler)
+
+
 def register_shop_service(level_graph, soul_guid, shop_alias):
     """Native spawned_shop contract, owned by the destination Level lifecycle.
 

@@ -1,4 +1,4 @@
-"""Supply native stance animation helpers and validate new seat locations at runtime."""
+"""Supply native seat/lean animation helpers and validate imported locations."""
 import copy
 import xml.etree.ElementTree as ET
 
@@ -16,11 +16,13 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_')):
     if helpers.tag != 'SmartObjectAnimationCollections' or native_helpers.tag != helpers.tag:
         raise ValueError('Unexpected animation helper format')
     seats = [e for e in ET.fromstring(files['objects_mission0.xml']).iter('Entity')
-             if e.get('EntityClass') == 'StanceSmartObject' and e.get('Name', '').startswith(prefixes)]
+             if (e.get('EntityClass') == 'StanceSmartObject' and e.get('Name', '').startswith(prefixes))
+             or (e.get('EntityClass') == 'DetailMovementSmartObject'
+                 and e.get('Name', '').startswith(('gm_', 'gmtravel_')))]
     families = {e.find('Properties').get('soclass_SmartObjectHelpers') for e in seats}
     available = {e.get('HelperSetName'): e for e in native_helpers}
     for family in sorted(families):
-        if family not in available: raise ValueError('Missing native sitting animations: ' + family)
+        if family not in available: raise ValueError('Missing native smart-object animations: ' + str(family))
         for old in list(helpers):
             if old.get('HelperSetName') == family: helpers.remove(old)
         helpers.append(copy.deepcopy(available[family]))

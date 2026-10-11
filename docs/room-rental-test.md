@@ -132,3 +132,34 @@ to verify that the reported runtime error no longer occurs. Other existing
 innkeeper/stable/OSH warnings are outside this correction.
 
 Build08 user validation (2026-10-12): the user confirmed the scheduler fix works and requested commit/push. Remaining innkeeper leaning and stable-work warnings are the next task.
+
+## Activity contracts: innkeeper leaning and horse-trader waiting
+
+The horse seller's schedulerWait link had been retargeted from sa_land to a
+SchedulerHub when the shop was added. SchedulerHub cannot execute that behavior.
+The normal builder now inserts the shop hub above the original wait activity,
+preserving its smart-area target and positioning delegate. Shop role and native
+OpenShop/AddContext lifecycle effects remain on the work route/hub.
+
+The innkeeper's DetailMovementSmartObject was omitted from animation-helper
+registration. It now receives the native leaning collection and runtime
+validation at its imported position, without reusing Trosky's baked projections.
+Registration alone did not fix the first test: the NPC still spawned inside
+the pillar. The source LeaningSpot/align helper is 0.242 m along local Y,
+whereas the native leaning_right helper is at its object origin. The converter
+now derives the helper-transform correction from both installed games'
+SmartObjects.xml and starts the NPC at his original KCD1 actor position.
+
+ActivityContracts/Build02 is installed in the developer client. The current
+run contains zero LeaningRight_In errors and zero schedulerWait/non-smart-target
+errors; the user confirmed it works and requested commit/push on 2026-10-12.
+Three new regression tests cover the preserved idle target/delegate, lean
+helper registration and authored transform correction. The existing shop,
+bed, rental, chair, bench and region-travel tests also pass (34 tests total).
+
+Remaining developer-client diagnostics are not claimed fixed: its Data/Facials
+directory is absent and the log reports failure to open the English facial
+archive. Retail contains three Facials_english-part*.pak files, with
+Animations/FacialAnimations.img in part0. No archive mounting changes were
+made during this fix. Loading-progress 'characters' and SqcbLoad thread-config
+warnings also remain separate from the repaired activity contracts.
