@@ -306,7 +306,7 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
     row=ET.SubElement(trade_strings,'Row')
     for value in ('ui_gm_miller_trade','(Trade)','(Trade)'):ET.SubElement(row,'Cell').text=value
     dialogue_strings=merge_localization(dialogue_strings,xml(trade_strings))
-    graphs={};stations={}
+    graphs={};stations={};world_item_strings={}
     needed={model.lower() for name,model,p,q in prefab_geometry(prefab) if name.startswith('wheel_')}
     wheel_bounds={}
     for path in sorted((target/'Data').glob('*Objects*.pak')):
@@ -460,6 +460,12 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 graphs={name:miller_resources.pop(name) for name in graphs}
                 dialogue_files=miller_resources
                 entry_report['miller']=dict(world=miller_report,shop=miller_shop,character=miller_character)
+                import world_items
+                replacements,item_resources,world_item_strings,item_assets,item_report=world_items.build(
+                    replacements,dialogue_files,source,target,output/'world-item-conversion')
+                dialogue_files=item_resources
+                world_items.pack_assets(data/'gluemapper_world_items.pak',item_assets)
+                entry_report['world_items']=item_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
@@ -516,6 +522,8 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
             for name,blob in location_strings.items():
                 base=texts[name] if name in texts else read(native_strings,name)
                 texts[name]=merge_missing_strings(base,blob)
+        for name,blob in world_item_strings.items():
+            texts[name]=merge_localization(texts.get(name,b'<Table/>'),blob)
         for name,blob in texts.items(): z.writestr(name,blob)
     report={'schema':1,'mod':modid,'level':LEVEL,'level_id':LEVEL_ID,'departure':evidence,'stations':stations,
         'person_world':person_world_report,'test_person':clone_report,'test_bandit':bandit_report,

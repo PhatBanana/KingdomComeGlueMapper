@@ -183,6 +183,10 @@ def character_definition(index, emitted, material, mesh_bytes, name, target):
         raise ValueError('Character definition has no model')
     refs = [(model, 'File')]
     for attachment in doc.findall('AttachmentList/Attachment'):
+        if attachment.get('Type') == 'CA_BONE' and not attachment.get('Binding') and attachment.get('BoneName'):
+            # Authored attachment socket, e.g. a bow's Arrow bone. It has no
+            # external geometry; removing it breaks runtime arrow attachment.
+            continue
         if attachment.get('Type') == 'CA_PROX' and not attachment.get('Binding'):
             # Inline bone proxy parameters have no external asset dependency.
             # Keep their authored bone, rotation and position unchanged.
