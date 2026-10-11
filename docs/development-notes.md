@@ -623,3 +623,43 @@ links and confirm 139 animation-validation records and the animation helper
 file. Build02 is installed and launched at (2891,729,108). The report, package
 and install receipt are under outputs/Chairs/Build02. Sit/get-up success is not
 yet confirmed; do not treat successful startup as interaction acceptance.
+
+### Architectural door locks (2026-10-12)
+
+`tools/world_doors.py` replaces 948 active static door visuals with native
+AnimDoor entities and preserves the already working rental-service door.
+Source CDF/skin geometry, physical collision, placement, key GUIDs, lock sides,
+reversed locks, lockpick permission and authored locked state are retained.
+KCD1's model-based difficulty function is read from the installed source script;
+its result becomes an explicit native difficulty override. KCD2 owns the
+minigame and skill checks. Never-lock doors have no locking sides. Ordinary
+converted doors have unknown ownership and do not infer native home/crime
+links; the existing rental-room service keeps its own ownership contract.
+
+Native rigs are matched by joint names and hierarchy, with nearest bind pose
+resolving normal versus low-door variants. A uniform stale origin in a few
+source internal skin buffers is corrected without moving rendered vertices;
+nonuniform mismatches fail conversion. Native animation helper collections and
+per-door runtime validation records are installed. Two lowered-back approach
+families retain their source Back helper while inheriting native door helpers.
+
+The 255 referenced item identities are registered as native MiscItem Type 4
+keys with the native key icon and source models/text. One dangling source GUID
+has no source item row; the converter creates a normal key under that exact
+GUID and records the repair. This registers key definitions; it does not give
+every key to Henry or populate unconverted NPC inventories.
+
+Inactive quest layers (76 door entries) remain inactive. The library quest
+cabinet using a CGA and bespoke quest animation is explicitly reported outside
+architectural door conversion. These are not claimed as interactive converted
+doors. Source map entities have no saved open-state payload: initial model pose
+is closed; authored locking policy is preserved. Native AnimDoor save/load
+handles subsequent state, but KCD1 save/quest state is not imported here.
+
+`tools/build_doors_test.py` stages incremental packages. Build01 passes 24
+focused regression tests, native deserialization of all 16 table patches,
+unique entity identity checks, original-visual removal, key reference checks,
+and identical level/mod-qualified animation table checks. The developer client
+reached `Game claims it's ready` at the Rattay inn. Actual lockpick/key use and
+save/reload still require live testing. Existing navigation, UI Hub and horse
+arrival diagnostics remain; startup is not proof of minigame success.

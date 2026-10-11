@@ -9,7 +9,7 @@ HELPERS = 'smartobjecthelpersetanimations.xml'
 ANIMATIONS = 'tables/ai/smartobjectanimations.xml'
 
 
-def install(files, native, prefixes=('gm_chair_', 'gm_bench_')):
+def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collections=()):
     result = dict(files)
     helpers = ET.fromstring(files.get(HELPERS, b'<SmartObjectAnimationCollections/>'))
     native_helpers = ET.fromstring(read(native, HELPERS))
@@ -19,9 +19,12 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_')):
              if (e.get('EntityClass') == 'StanceSmartObject' and e.get('Name', '').startswith(prefixes))
              or (e.get('EntityClass') == 'DetailMovementSmartObject'
                  and e.get('Name', '').startswith(('gm_', 'gmtravel_')))
-             or (e.get('EntityClass') == 'SmartObjectHolder' and e.get('Name', '').startswith('gm_wash_'))]
+             or (e.get('EntityClass') == 'SmartObjectHolder' and e.get('Name', '').startswith('gm_wash_'))
+             or (e.get('EntityClass') == 'AnimDoor' and e.get('Name', '').startswith('gm_door_'))]
     families = {e.find('Properties').get('soclass_SmartObjectHelpers') for e in seats}
     available = {e.get('HelperSetName'): e for e in native_helpers}
+    available.update({e.get('HelperSetName'): e for e in helpers if e.get('HelperSetName','').startswith('gm_Door')})
+    available.update({e.get('HelperSetName'): e for e in extra_collections})
     for family in sorted(families):
         if family not in available: raise ValueError('Missing native smart-object animations: ' + str(family))
         for old in list(helpers):

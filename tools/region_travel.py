@@ -430,6 +430,10 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                     replacements,wash_report=convert_washing_troughs(
                         replacements,wash_source,wash_native,wash_source_game,wash_native_game,guid)
                 entry_report['washing_troughs']=wash_report
+                from world_doors import build as build_world_doors
+                replacements,door_resources,door_strings,door_report=build_world_doors(replacements,source,target)
+                dialogue_files.update(door_resources)
+                entry_report['doors']=door_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
@@ -477,6 +481,7 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
             soul_strings=merge_localization(read(native_strings,'text_ui_soul.xml'),theresa_names)
         texts={'text_ui_dialog.xml':dialogue_strings,'text_ui_quest.xml':quest_strings,'text_ui_soul.xml':soul_strings}
         with zipfile.ZipFile(target/'Localization/English_xml.pak') as native_strings:
+            texts['text_ui_items.xml']=merge_localization(read(native_strings,'text_ui_items.xml'),door_strings)
             for character_dir in character_directories:
                 item_strings = character_dir/'Localization/English/text_ui_items.xml'
                 if item_strings.is_file():

@@ -18,6 +18,7 @@ from campaign_quest_graph import xml
 from character_skin_upgrade import upgrade_skin, limit_skin_influences
 from clothing_regions import read_chunks
 from upgrade_map import read
+from door_skin import align_internal_origin
 
 
 def normalized(value):
@@ -117,28 +118,51 @@ class AnimatedDoorAssetAdapter:
         root, rig, provenance = self.source_definition(identity)
         if not rig.endswith('.chr'):
             raise ValueError('Door character definition has no skeleton')
-        native_rig, target_provenance = self.native.assets.get(rig)
+        pack = self.assets.adapter
+        archive, entry = pack.index[rig]
+        source_rig = read(archive, entry.filename)
+        original_rig = rig
+        try:
+            native_rig, target_provenance = self.native.assets.get(rig)
+        except KeyError:
+            # KCD1's church/castle variants use the same named door hierarchy.
+            # Resolve by a complete joint/parent match, never by mesh basename.
+            candidates = []
+            for candidate in sorted({key[0] for key in self.native.contracts}):
+                blob, evidence = self.native.assets.get(candidate)
+                try: mapping = rig_mapping(source_rig, blob)
+                except ValueError: continue
+                source_bones = bone_table(read_chunks(source_rig))
+                target_bones = {b['name']: b for b in bone_table(read_chunks(blob))}
+                distance = sum((x-y)**2 for bone in source_bones
+                               for x,y in zip(bone['bind'],target_bones[mapping[bone['name']]]['bind']))
+                candidates.append((distance, candidate, blob, evidence))
+            candidates.sort(key=lambda row:row[0])
+            if not candidates or (len(candidates)>1 and abs(candidates[0][0]-candidates[1][0])<1e-6):
+                raise ValueError('Ambiguous native replacement for door rig: '+rig)
+            _, rig, native_rig, target_provenance = candidates[0]
         # The native skeleton owns its animation database. Keep this path so
         # loading the CDF loads the corresponding retail CHRPARAMS as well.
         params, _ = self.native.assets.get(str(PurePosixPath(rig).with_suffix('.chrparams')))
         if ET.fromstring(params).find('AnimationList') is None:
             raise ValueError('Native door skeleton has no animation list')
-        pack = self.assets.adapter
-        archive, entry = pack.index[rig]
-        mapping = rig_mapping(read(archive, entry.filename), native_rig)
+        mapping = rig_mapping(source_rig, native_rig)
         dependencies = []
         for element in root.iter():
             if element.get('Material'):
                 material = normalized(element.get('Material')).removesuffix('.mtl') + '.mtl'
                 dependencies.append(('assets', material))
         for attachment in root.findall('AttachmentList/Attachment'):
+            if attachment.get('Type') == 'CA_PROX' and attachment.get('BoneName') in mapping:
+                continue
             if attachment.get('Type') != 'CA_SKIN' or not attachment.get('Binding', '').lower().endswith('.skin'):
                 raise ValueError('Door attachment requires a separate transform adapter')
-        return ImportPlan(dependencies, dict(model=identity, rig=rig, bone_mapping=mapping,
+        return ImportPlan(dependencies, dict(model=identity, rig=rig, source_rig=original_rig, bone_mapping=mapping,
             source=provenance, native_rig=target_provenance))
 
     def convert(self, identity, plan, registered):
-        root, rig, _ = self.source_definition(identity)
+        root, _, _ = self.source_definition(identity)
+        rig = plan.source['rig']
         native_rig, _ = self.native.assets.get(rig)
         pack = self.assets.adapter
         # Native AnimDoor:IsRightDoor reads the model filename, so a digest
@@ -152,14 +176,19 @@ class AnimatedDoorAssetAdapter:
                 source = normalized(element.get('Material')).removesuffix('.mtl') + '.mtl'
                 element.set('Material', registered['assets'][source].removesuffix('.mtl'))
         for index, attachment in enumerate(root.findall('AttachmentList/Attachment')):
+            if attachment.get('Type') == 'CA_PROX':
+                attachment.set('BoneName', plan.source['bone_mapping'][attachment.get('BoneName')])
+                continue
             source = normalized(attachment.get('Binding'))
-            upgraded, evidence = upgrade_skin(pack.mesh(source), native_rig,
+            mesh, origin = align_internal_origin(pack.mesh(source))
+            upgraded, evidence = upgrade_skin(mesh, native_rig,
                 bone_mapping=plan.source['bone_mapping'], geometry_mode='preserve', clear_hiding=False)
             upgraded, influences = limit_skin_influences(upgraded)
             destination = prefix + str(index) + '_' + PurePosixPath(source).name
             attachment.set('Binding', destination)
             files[destination] = upgraded
-            meshes.append(dict(source=source, output=destination, geometry=evidence, influences=influences))
+            meshes.append(dict(source=source, output=destination, geometry=evidence, influences=influences,
+                               internal_origin_correction=origin))
         files[target] = xml(root)
         # mesh() can discover embedded materials beyond CDF overrides.
         files.update(pack.emitted)
