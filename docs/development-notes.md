@@ -524,3 +524,44 @@ and approved committing it. This accepts the tested interaction/effect setup;
 it does not establish exhaustive coverage of all 303 locations, every legacy
 item-filter category, or save/load persistence. The OSH log issue remains
 separate and is not claimed fixed by this change.
+
+## Player chest conversion (2026-10-11)
+
+`tools/player_chests.py` classifies personal storage from the source
+`sharedStash`, `sharedStash_master`, `sleepoverStash`, and quest-authored
+`playerChest` links. It does not infer player ownership from a chest model or
+from a name containing "player". Nine chests are active in the current initial
+world; two more belong to inactive conditional layers and remain in the report.
+
+Native Trosky and Kuttenberg both bind the `player_stash` campaign asset to
+entity GUID `204857b4-ae5f-04ba`. The converter verifies this agreement and
+retains that native identity on the source master chest at Rattay mill. The
+other eight active personal chests use native `masterStash` links. All nine
+receive `owner` links from the real destination player in waitinglinks.xml.
+This is storage within a playthrough, not an account-wide inventory shared
+between separate playthroughs. No inventory contents are copied or cleared.
+
+Source chest models, placements and open/close animations are retained in an
+isolated asset namespace. The old static displays are replaced with native
+Stash entities. Restocking, destocking, lockpicking and automatic household
+ownership are disabled for personal storage. Ordinary loot, merchant stock
+and the getting-started supply chest retain their separate inventories.
+For the test world, designated personal chests are accessible; source inn
+rental and quest-unlock gates have not been implemented by this conversion.
+
+The normal region-travel build includes this conversion. The incremental
+`tools/build_player_chests_test.py` preserves the current world and stages only
+the level and additional asset PAK inside the existing single mod.
+`outputs/PlayerChests/Build01/` contains hashes, classification, positions and
+an install receipt. The previous level is in `outputs/PlayerChests/Baseline/`.
+Seven chest tests plus twenty cooking/travel/link tests passed. Package checks
+resolved the nine ownership links, eight master links and all chest models;
+all other level entries and the 2,121 cooking entities were retained. Runtime
+opening, shared contents, save/load and cross-region persistence remain tests
+to perform with the installed developer build. Startup mounted the new asset
+PAK, loaded all three converted chest CGA models, reached the ready state and
+remained responsive. The startup log is retained beside the build report.
+
+The subsequent user test confirmed the personal-chest build works and approved
+committing it. Exhaustive testing of every location and save/travel scenario
+is not implied by that confirmation.

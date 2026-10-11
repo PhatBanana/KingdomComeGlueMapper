@@ -400,6 +400,10 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                      zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_pots:
                     replacements,pots_report=convert_cooking_pots(replacements,source_pots,native_pots,guid)
                 entry_report['cooking_pots']=pots_report
+                from player_chests import build as build_player_chests
+                replacements,chest_assets,chest_report=build_player_chests(replacements,source,target,guid)
+                dialogue_files.update(chest_assets)
+                entry_report['player_chests']=chest_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
