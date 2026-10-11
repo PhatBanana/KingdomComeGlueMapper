@@ -7,8 +7,22 @@ import collections
 import copy
 import json
 from pathlib import Path
+import re
 import struct
 import zipfile
+
+
+def texture_families(names):
+    """Map each base DDS to its numbered streaming mips and split alpha (.a/.1a) members.
+
+    Build this once per index rather than scanning every archive name for each texture.
+    """
+    families = {}
+    for name in names:
+        match = re.fullmatch(r"(.+\.dds)(\.(?:a|[0-9]+a?))?", name)
+        if match:
+            families.setdefault(match[1], []).append((name, match[2] or ""))
+    return families
 
 
 def open_entry(archive, entry):

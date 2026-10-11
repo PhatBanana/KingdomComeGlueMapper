@@ -10,6 +10,7 @@ import struct
 import xml.etree.ElementTree as ET
 import zipfile
 
+from audit_maps import texture_families
 from compiled_terrain import parse
 from upgrade_map import read, xml
 from water_volumes import read_water, convert_water, append_water
@@ -119,6 +120,7 @@ def main():
                     target_shader = shader_features(read(archive, name).decode())
         if not source_shader or not target_shader:
             raise ValueError("Installed water shader feature definitions missing")
+        families = texture_families(index)
         emitted = {}
         mapping = {}
         material_paths = []
@@ -151,12 +153,10 @@ def main():
                 if compiled not in index:
                     raise FileNotFoundError(compiled)
                 texture.set("File", prefix + compiled)
-                for member, (archive, entry) in index.items():
-                    suffix = member[len(compiled):] if member.startswith(compiled) else "INVALID"
-                    if suffix == "" or re.fullmatch(r"\.(?:a|[0-9]+a?)", suffix):
-                        target = prefix + member
-                        if target not in emitted:
-                            emitted[target] = read(archive, entry)
+                for member, _ in families[compiled]:
+                    target = prefix + member
+                    if target not in emitted:
+                        emitted[target] = read(*index[member])
             target = prefix + "m" + str(len(material_paths))
             mapping[identifier] = len(material_paths)
             material_paths.append(target)
