@@ -1,15 +1,17 @@
 param(
     [string]$EditorRoot = 'D:\SteamLibrary\steamapps\common\KCD2Mod',
-    [string]$EvidenceRoot = 'D:\KingdomComeGlueMapper\outputs\BuildWork\fritz-editor-control'
+    [string]$EvidenceRoot = 'D:\KingdomComeGlueMapper\outputs\BuildWork\fritz-editor-control',
+    [string]$LevelName = 'fritz_editor_control'
 )
 $ErrorActionPreference = 'Stop'
-$levelRoot = Join-Path $EditorRoot 'Data\Levels\fritz_editor_control'
+if ($LevelName -notmatch '^[a-z0-9_]+$') { throw 'Invalid control level name' }
+$levelRoot = Join-Path $EditorRoot "Data\Levels\$LevelName"
 $exe = Join-Path $EditorRoot 'Bin\Win64ReleaseSteamLTO_DLL\Editor.exe'
 if (Get-Process Editor -ErrorAction SilentlyContinue) { throw 'Close Sandbox before exporting.' }
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $runRoot = Join-Path $EvidenceRoot "export-$stamp"
 New-Item -ItemType Directory -Path $runRoot | Out-Null
-$cry = 'Data\Levels\fritz_editor_control\fritz_editor_control.cry'
+$cry = "Data\Levels\$LevelName\$LevelName.cry"
 $stages = @{
     hlod = "-layerExportProfile game -exportHLodTree $cry -unattended -ignoreAssert -TraceNoServer"
     level = "-useHDDForILAO -useILAOFolder AOData_builder -unattended -noSourceControl -noRender -mandatoryPaks -TraceNoServer -ignoreAssert +s_AudioSystemImplementationName nic ++sys_parallel_processing 0 ++wh_concept_strictPortValidation 0 ++wh_ai_PathMNMValidationFailIsError 1 ++r_BreakOnError 0 ++wh_sys_PakExportEmbedZlibHeader 1 ++wh_sys_PakExportAlignmentUsingZlibHeader 1 -layerExportProfile game -export $cry"
@@ -25,10 +27,10 @@ foreach ($stage in @('hlod','level')) {
     Copy-Item -LiteralPath "$EditorRoot\editor.log" -Destination "$runRoot\$stage.log"
     if ($proc.ExitCode -ne 0) { throw "$stage exit code $($proc.ExitCode)" }
     $log = Get-Content -LiteralPath "$runRoot\$stage.log" -Raw
-    if ($log -match 'HLodTree generation error|Unable to export|Export failed|NPC without Home link') { throw "$stage failed; inspect log" }
+    if ($log -match 'HLodTree generation error|Unable to export|Export failed|NPC without Home link|Area has multiple incoming home_area links|Private area without HomeAreaLink') { throw "$stage failed; inspect log" }
     Write-Output "Completed $stage"
 }
-$rcArgs = '/ZlibHeaderMaintainAlignment=1 /threads=8 /crashOnAssert /p=PC /zip_encrypt=0 /branch=main /verbose=0 /EmbedZlibHeader=1 /jobtarget= /job=Tools/rc/RcJob_WH_level.xml /LevelPath=Data/Levels/fritz_editor_control'
+$rcArgs = "/ZlibHeaderMaintainAlignment=1 /threads=8 /crashOnAssert /p=PC /zip_encrypt=0 /branch=main /verbose=0 /EmbedZlibHeader=1 /jobtarget= /job=Tools/rc/RcJob_WH_level.xml /LevelPath=Data/Levels/$LevelName"
 $rc = Start-Process -FilePath "$EditorRoot\Tools\rc\rc.exe" -WorkingDirectory $EditorRoot -ArgumentList $rcArgs -WindowStyle Hidden -Wait -PassThru -RedirectStandardOutput "$runRoot\rc.log" -RedirectStandardError "$runRoot\rc-error.log"
 if ($rc.ExitCode -ne 0) { throw "Resource Compiler exit code $($rc.ExitCode)" }
 foreach ($required in @('hlodtree.xml','level.pak','terrain.pak','recast.pak')) {

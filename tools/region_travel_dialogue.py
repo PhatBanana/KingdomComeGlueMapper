@@ -32,31 +32,47 @@ def merge_localization(native, additions):
     return native[:at]+b'\n'.join(rows)+b'\n'+native[at:]
 
 
-def patch(dialogue, host):
+def patch_destination(dialogue, host, *, port, string, label, route, prefix):
+    """Add an independent destination through the normal dialogue/transfer path."""
     d=ET.fromstring(dialogue);h=ET.fromstring(host)
     dialog=d.find('./Skald/FaderDialog');gameplay=h.find('./Skald/Gameplay')
     if dialog is None or gameplay is None:raise ValueError('Native travel dialogue format changed')
     choices=dialog.find('./Dialogue/Decision/Sequences')
     if choices is None or not any(s.find("UiPrompt[@StringName='ui_prechod_z_seq1_Gr38']") is not None for s in choices):
         raise ValueError('Expected native Kuttenberg travel choice')
-    if dialog.find(f"Ports/Port[@Name='{PORT}']") is not None:raise ValueError('Dialogue already patched')
-    ET.SubElement(dialog.find('Ports'),'Port',Name=PORT,Direction='Out',Type='trigger')
-    choice=ET.Element('Sequence',Name=PORT,EndType='EndDialogue',GrayOutIfSequencesUsed='Never',
+    if dialog.find(f"Ports/Port[@Name='{port}']") is not None:raise ValueError('Dialogue already patched')
+    ET.SubElement(dialog.find('Ports'),'Port',Name=port,Direction='Out',Type='trigger')
+    choice=ET.Element('Sequence',Name=port,EndType='EndDialogue',GrayOutIfSequencesUsed='Never',
         EntryCondition="Port('kone_ziju') AND Port('kone_su_v_tabore') AND !Port('npc_videlo_crime') AND !Port('jindra_je_indisponovan')")
-    ET.SubElement(choice,'UiPrompt',StringName=STRING,Text=LABEL)
-    ET.SubElement(ET.SubElement(choice,'Triggers'),'Port',Name=PORT)
+    ET.SubElement(choice,'UiPrompt',StringName=string,Text=label)
+    ET.SubElement(ET.SubElement(choice,'Triggers'),'Port',Name=port)
     # Native menu-only responses use an empty HENRY response. Do not reuse a
     # spoken line naming Kuttenberg for a different destination.
     ET.SubElement(ET.SubElement(choice,'Elements'),'Response',Role='HENRY')
     choices.insert(1,choice)
     nodes=gameplay.find('Nodes')
-    waiter=ET.SubElement(nodes,'SceneFinishedWaiter',Name='gluemapper_wait_for_dialogue')
-    ET.SubElement(waiter,'Edge',From='prechod_z_trosecka_na_kutnohorsko.'+PORT,To='Enqueue')
-    prepare=ET.SubElement(nodes,'Function',Name='gluemapper_prepare_travel',MethodName='wh::conceptmodule::PassLongTime',DeclaringType='wh::conceptmodule')
-    ET.SubElement(prepare,'Edge',From='gluemapper_wait_for_dialogue.OnFinished',To='Exec')
-    switch=ET.SubElement(nodes,'Function',Name='gluemapper_switch_to_kcd1',MethodName='wh::game::SwitchLevel',DeclaringType='wh::game')
-    ET.SubElement(switch,'Constant',Name='LevelSwitching',Value='gluemappertravel_to_kcd1')
-    ET.SubElement(switch,'Edge',From='gluemapper_prepare_travel.OnExec',To='Exec')
+    waiter_name, prepare_name, switch_name = prefix
+    if any(n.get('Name') in prefix for n in nodes):raise ValueError('Travel node name collision')
+    waiter=ET.SubElement(nodes,'SceneFinishedWaiter',Name=waiter_name)
+    ET.SubElement(waiter,'Edge',From='prechod_z_trosecka_na_kutnohorsko.'+port,To='Enqueue')
+    prepare=ET.SubElement(nodes,'Function',Name=prepare_name,MethodName='wh::conceptmodule::PassLongTime',DeclaringType='wh::conceptmodule')
+    ET.SubElement(prepare,'Edge',From=waiter_name+'.OnFinished',To='Exec')
+    switch=ET.SubElement(nodes,'Function',Name=switch_name,MethodName='wh::game::SwitchLevel',DeclaringType='wh::game')
+    ET.SubElement(switch,'Constant',Name='LevelSwitching',Value=route)
+    ET.SubElement(switch,'Edge',From=prepare_name+'.OnExec',To='Exec')
     strings=ET.Element('Table');row=ET.SubElement(strings,'Row')
-    for value in (STRING,LABEL,LABEL):ET.SubElement(row,'Cell').text=value
+    for value in (string,label,label):ET.SubElement(row,'Cell').text=value
     return {DIALOGUE:xml(d),HOST:xml(h)},xml(strings)
+
+
+def patch(dialogue, host):
+    return patch_destination(dialogue, host, port=PORT, string=STRING, label=LABEL,
+        route='gluemappertravel_to_kcd1', prefix=('gluemapper_wait_for_dialogue',
+        'gluemapper_prepare_travel', 'gluemapper_switch_to_kcd1'))
+
+
+def patch_test_world(dialogue, host):
+    return patch_destination(dialogue, host, port='gluemapper_travel_test_world',
+        string='ui_gluemapper_travel_test_world', label='(Travel to Test world)',
+        route='gluemappertravel_to_test_world', prefix=('gluemapper_test_wait_for_dialogue',
+        'gluemapper_test_prepare_travel', 'gluemapper_switch_to_test_world'))

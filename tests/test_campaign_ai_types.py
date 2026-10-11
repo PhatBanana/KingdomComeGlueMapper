@@ -27,6 +27,36 @@ def importer_at(path):
 
 
 class AITypeImportTests(unittest.TestCase):
+    def test_serialized_enum_fills_missing_metadata_without_importing_engine_types(self):
+        saved = E.fromstring('''<TypeDefinitions version="1">
+          <enum name="animationOverride"><userControlled value="0"/>
+            <dialogControlled value="1"/><noOverride value="2"/></enum>
+          <Type name=""><Member name="opaque" type="int"/></Type>
+          <Type name="gameVersion"><Member name="loaded" type="int"/></Type>
+        </TypeDefinitions>''')
+        with tempfile.TemporaryDirectory() as tmp:
+            source, importer = importer_at(Path(tmp))
+            source.add_serialized_enums(saved, [dict(archive='save-schema', sha256='evidence')])
+            self.assertEqual(importer.ensure('ai_enums', 'animationOverride'),
+                             'differentcampaign_animationOverride')
+            job = importer.jobs[('ai_enums', 'animationoverride')]
+            self.assertEqual(job['source']['provenance'][0]['archive'], 'save-schema')
+            self.assertEqual([v['ordinal'] for v in job['source']['values']], [0, 1, 2])
+            self.assertIsNone(importer.ensure('ai_types', 'gameVersion'))
+            self.assertIsNone(importer.ensure('ai_enums', 'gameVersion'))
+
+    def test_live_enum_ordinals_take_precedence_over_historical_save_schema(self):
+        saved = E.fromstring('''<TypeDefinitions version="1">
+          <enum name="customState"><waiting value="999"/></enum>
+        </TypeDefinitions>''')
+        with tempfile.TemporaryDirectory() as tmp:
+            source, importer = importer_at(Path(tmp))
+            source.add_serialized_enums(saved, [dict(archive='save-schema')])
+            importer.ensure('ai_enums', 'customState')
+            job = importer.jobs[('ai_enums', 'customstate')]
+            self.assertEqual(job['source']['values'][0]['ordinal'], -1)
+            self.assertEqual(job['source']['provenance'][0]['archive'], 'retail')
+
     def test_recursive_type_import_registers_parent_members_enum_and_ordinals(self):
         with tempfile.TemporaryDirectory() as tmp:
             source,importer=importer_at(Path(tmp))

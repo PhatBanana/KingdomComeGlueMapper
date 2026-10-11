@@ -32,6 +32,25 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_profile_activation_keeps_authored_order_and_native_fader(self):
+        from test_campaign_profiles import complete_importer, HELPER
+        m = source('''<Root><Sequence><FaderBarrier Fader="&quot;newGameFader&quot;" MuteSounds="&quot;true&quot;">
+          <Sequence><EnableProfile profileEnable="&quot;authored_opening&quot;" profileDisable="&quot;&quot;"/>
+          <Expression expressions="&quot;$hasStarted = true&quot;"/></Sequence>
+          </FaderBarrier></Sequence></Root>''')
+        files, bridges, report = convert_behaviors([m], 'Imported', catalog(),
+            importer=complete_importer(), profile_streaming=HELPER)
+        tree = E.fromstring(next(iter(files.values())))
+        fader = tree.find('.//FaderBarrier')
+        self.assertEqual(fader.get('Fader'), "'newGameFader'")
+        self.assertEqual(fader.get('MuteSounds'), 'true')
+        children = list(fader.find('Sequence'))
+        self.assertTrue(children[0].tag.startswith('SendAIConceptSignal_'))
+        self.assertEqual(children[1].tag, 'Expression')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        self.assertEqual(report['profile_modules'][0]['file'], 'Quests/Imported_profile_bridge.xml')
+        self.assertIn('Quests/Imported_profile_bridge.xml', bridges)
+
     def test_branch_order_and_item_registration_are_preserved(self):
         for quest in ('q_test','completely_different'):
             m=source('''<Root OneTimeOnly="&quot;true&quot;" FailState="&quot;Error&quot;" saveVersion="2"><Behavior canSkip="1"><Sequence>
@@ -87,6 +106,51 @@ class CampaignBehaviorTests(unittest.TestCase):
         root=E.fromstring(files['AI/imported/q_test/quests/q_test.xml'])
         self.assertEqual(root.find('.//IncludeTree').get('File'), "'imported/q_other/quests/q_other.xml'")
         self.assertEqual(report['whole_trees_emitted'], 2)
+
+    def test_authored_graph_lookup_keeps_traversal_and_filter_outputs(self):
+        m = source('''<Root><Sequence><GraphSearch Origin="&quot;__land&quot;" Borders="&quot;&quot;"
+depth="&quot;1&quot;" selection="&quot;true&quot;" SearchPattern="&quot;Depth&quot;"
+EdgePruning="&quot;parent,inventory&quot;" AllowedEdges="&quot;&quot;" SubGraph="&quot;&quot;"
+AllowSubtraph="&quot;false&quot;" includeOrigin="&quot;false&quot;" excludeOrigin="&quot;false&quot;"
+failOnEmpty="&quot;true&quot;" SetOperationChoice="&quot;Intersection|And&quot;"
+errorOnEmpty="&quot;false&quot;" shortCircuit="&quot;false&quot;" skipTraversed="&quot;true&quot;">
+<LinkTagFilter tag="&quot;sourceQuestLink&quot;" prune="&quot;true&quot;" negprune="&quot;unknown&quot;"
+Parent="&quot;&quot;" Child="&quot;initialQuestObject&quot;" Data="&quot;linkMetadata&quot;"/>
+</GraphSearch><Success/></Sequence></Root>''')
+        original = copy.deepcopy(m)
+        files, _, report = convert_behaviors([m], 'GraphLookup', catalog())
+        root = E.fromstring(next(iter(files.values())))
+        sequence = root.find('.//Sequence')
+        self.assertEqual([n.tag for n in sequence], ['GraphSearch', 'Success'])
+        graph = sequence[0]
+        self.assertEqual(graph.get('Origin'), '$__land')
+        self.assertEqual(graph.get('EdgePruning'), "'parent,inventory'")
+        self.assertEqual(graph.get('AllowedEdges'), '')
+        self.assertEqual(graph.get('SubGraph'), '')
+        self.assertEqual(graph.get('SetOperationChoice'), 'Intersection|And')
+        link = graph.find('LinkTagFilter')
+        self.assertEqual(link.get('tag'), "'sourceQuestLink'")
+        self.assertEqual(link.get('Child'), '$initialQuestObject')
+        self.assertEqual(link.get('Data'), '$linkMetadata')
+        self.assertEqual(link.get('Parent'), '')
+        self.assertEqual(link.get('negprune'), 'unknown')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        self.assertEqual(m, original)
+
+    def test_graph_implicit_origin_and_missing_filter_are_not_guessed(self):
+        m = source('''<Root><GraphSearch Origin="&quot;&quot;" failOnEmpty="&quot;false&quot;">
+<LinkTagFilter tag="&quot;$tagName&quot;" Child="&quot;selected&quot;"/></GraphSearch></Root>''')
+        files, _, report = convert_behaviors([m], 'GraphLookup', catalog())
+        root = E.fromstring(next(iter(files.values())))
+        self.assertEqual(root.find('.//GraphSearch').get('Origin'), '')
+        self.assertEqual(root.find('.//LinkTagFilter').get('tag'), '$tagName')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        missing = catalog()
+        del missing['nodes']['LinkTagFilter']
+        files, _, report = convert_behaviors([m], 'GraphLookup', missing)
+        self.assertFalse(files)
+        self.assertEqual(report['blocked_trees'], 1)
+        self.assertIn('LinkTagFilter', report['trees'][0]['unresolved'][0]['reason'])
 
 
 if __name__ == '__main__': unittest.main()

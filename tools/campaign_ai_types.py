@@ -28,6 +28,7 @@ class AITypeSource:
         self.namespace = identifier(namespace).lower()
         self.provenance = provenance
         self.types, self.enums = {}, {}
+        self.enum_provenance = {}
         self.selected_types, self.selected_enums = {}, {}
         self.cache = Path(cache)
         self.cache.mkdir(parents=True, exist_ok=True)
@@ -74,11 +75,45 @@ class AITypeSource:
                 if tag == 'type':
                     visit(node, name + ':')
         visit(document)
+        self.enum_provenance.update({name: provenance for name in self.enums})
+
+    def add_serialized_enums(self, document, provenance):
+        """Read explicit source ordinals, never infer an engine-owned type ABI.
+
+        The shipped save schema declares several enums used by script types
+        but absent from TypeDefinitions.xml (for example animationOverride).
+        Its engine structures are intentionally ignored: they include opaque
+        native state which cannot be rebuilt as script records. Live script
+        enum declarations take precedence over this historical save schema.
+        """
+        if document.tag != 'TypeDefinitions' or document.get('version') != '1':
+            raise ValueError('Unsupported serialized AI type definition format')
+        for node in document:
+            if node.tag.lower() != 'enum':
+                continue
+            attrs = attributes(node)
+            if set(attrs) != {'name'}:
+                raise ValueError('Unconverted serialized enum metadata')
+            name = identifier(attrs['name'])
+            identity = name.lower()
+            if identity in self.enums:
+                continue
+            self.enums[identity] = (name, copy.deepcopy(node))
+            self.enum_provenance[identity] = provenance
 
     @classmethod
     def load(cls, source, reader, namespace, cache):
         record = reader(source, {'types':('Scripts.pak','Libs/AI/TypeDefinitions.xml')})['types']
-        return cls(ET.fromstring(record['data']), record['candidates'], namespace, cache)
+        result = cls(ET.fromstring(record['data']), record['candidates'], namespace, cache)
+        # Absence is allowed for source installations which do not ship the
+        # save schema; their missing enums remain explicit conversion failures.
+        from campaign_sources import MissingRetailSource
+        try:
+            saved = reader(source, {'saved':('Scripts.pak','Libs/AI/TypeDefinitions_SaveGame.xml')})['saved']
+        except MissingRetailSource:
+            return result
+        result.add_serialized_enums(ET.fromstring(saved['data']), saved['candidates'])
+        return result
 
     def type_name(self, identity):
         if identity in SCALARS:
@@ -147,7 +182,8 @@ class AIEnumAdapter:
             ordinal=int(attrs.get('value',ordinal+1))
             if value.tag in seen:raise ValueError('Duplicate source enum value')
             seen.add(value.tag);values.append(dict(name=value.tag,ordinal=ordinal))
-        return ImportPlan(source=dict(name=name,values=values,provenance=self.source.provenance))
+        return ImportPlan(source=dict(name=name,values=values,
+            provenance=self.source.enum_provenance[identity]))
 
     def convert(self, identity, plan, registered):
         target=self.source.enum_name(identity)

@@ -13,6 +13,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from campaign_quest_bridge import OPERATIONS, QuestBridge, UnsupportedOperation
+from campaign_profiles import ProfileBridge
 from campaign_quest_graph import identifier, xml
 from campaign_sources import key
 from quest_import import behavior_path, literal
@@ -57,6 +58,23 @@ CONTRACTS = {
                         'type': 'message_type', 'values': 'expression',
                         'timeType': 'value', 'timeoutType': 'value',
                         'timeout': 'string_expression', 'answer': 'reference'},
+    # Retail AI/_jakub/jumpfromcliff.xml and AI/crime/resolveCrimeDialogue.xml
+    # retain this traversal/filter ABI. These resolve authored world links;
+    # replacing the lookup with a named actor would change quest semantics.
+    'GraphSearch': {'Origin': 'reference', 'Borders': 'reference',
+                    'depth': 'expression', 'selection': 'expression',
+                    'SearchPattern': 'value', 'EdgePruning': 'string_expression',
+                    'AllowedEdges': 'string_expression', 'SubGraph': 'reference',
+                    'AllowSubtraph': 'value', 'includeOrigin': 'value',
+                    'excludeOrigin': 'value', 'failOnEmpty': 'value',
+                    'SetOperationChoice': 'value', 'errorOnEmpty': 'value',
+                    'shortCircuit': 'value', 'skipTraversed': 'value',
+                    'id': 'reference'},
+    'LinkTagFilter': {'tag': 'string_expression', 'prune': 'value',
+                      'negprune': 'value', 'Parent': 'reference',
+                      'Child': 'reference', 'Data': 'reference'},
+    'FaderBarrier': {'Fader': 'string_expression', 'MuteSounds': 'value'},
+    'GameModeCondition': {'GameMode': 'value', 'FailSubtMissing': 'value', 'saveVersion': 'value'},
 }
 TYPE_ADAPTERS = {name: name for name in ('_bool', '_int', '_int64', '_float', '_string', '_wuid')}
 TYPE_ADAPTERS['common:wuid'] = '_wuid'
@@ -123,12 +141,14 @@ def expression(value, catalog):
 
 
 class BehaviorCompiler:
-    def __init__(self, models, namespace, catalog, registered=None, importer=None):
+    def __init__(self, models, namespace, catalog, registered=None, importer=None, profile_streaming=None):
         self.namespace = identifier(namespace)
         self.catalog = catalog
         self.registered = registered or {}
         self.importer = importer
         self.bridge = QuestBridge(models, namespace)
+        self.profile_bridge = ProfileBridge(namespace, importer)
+        self.profile_streaming = profile_streaming
         self.models = {m['quest']: m for m in models}
         self.records = {}
         self.converted = Counter()
@@ -204,7 +224,11 @@ class BehaviorCompiler:
         op, attrs = source['op'], source['attributes']
         site = dict(owner=owner, document=document, tree=tree, path=path, operation=op, arguments=attrs)
         try:
-            if op in OPERATIONS:
+            if op == 'EnableProfile':
+                if self.profile_streaming is None:
+                    raise UnsupportedOperation('Installed native profile streaming helper is required')
+                node = self.profile_bridge.lower(source, site)
+            elif op in OPERATIONS:
                 converted = self.bridge.lower(source, owner)
                 node = ET.Element(converted['op'], converted['attributes'])
             else:
@@ -317,12 +341,18 @@ class BehaviorCompiler:
             record['native_emitted'] = True
         files = {name: xml(root) for name, root in documents.items()}
         bridge_files, wiring = self.bridge.emit()
+        profile_modules = []
+        if self.profile_bridge.actions:
+            bridge_files.update(self.profile_bridge.emit(self.profile_streaming))
+            profile_modules.append(dict(file='Quests/' + self.namespace + '_profile_bridge.xml',
+                name=self.namespace + '_profile_bridge', instance='source_profile_bridge'))
         return files, bridge_files, dict(schema=1, namespace=self.namespace, trees=list(self.records.values()),
             converted_operations=dict(self.converted), whole_trees_emitted=sum(r['native_emitted'] for r in self.records.values()),
-            blocked_trees=len(blocked), wiring=wiring, executable=False, runtime_validated=False,
+            blocked_trees=len(blocked), wiring=wiring, profile_modules=profile_modules,
+            executable=False, runtime_validated=False,
             requires=['Native brain/mailbox registration', 'Source message and link type conversion',
                       'World profiles, actor, item, dialogue and audio registration', 'Retail New Game execution and save/load'])
 
 
-def convert_behaviors(models, namespace, catalog, registered=None, importer=None):
-    return BehaviorCompiler(models, namespace, catalog, registered, importer).compile()
+def convert_behaviors(models, namespace, catalog, registered=None, importer=None, profile_streaming=None):
+    return BehaviorCompiler(models, namespace, catalog, registered, importer, profile_streaming).compile()

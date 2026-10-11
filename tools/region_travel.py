@@ -389,6 +389,12 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_contracts:
                     replacements,contract_report=apply_world_contracts(replacements,native_contracts)
                 entry_report['runtime_contracts']=contract_report
+                from world_gameplay_basis import apply as apply_gameplay_basis
+                with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_contracts, \
+                     zipfile.ZipFile(target/'Data/Scripts.pak') as native_scripts:
+                    replacements,graphs,basis_report=apply_gameplay_basis(
+                        replacements,graphs,graph,LEVEL,native_contracts,native_scripts,guid)
+                entry_report['gameplay_basis']=basis_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

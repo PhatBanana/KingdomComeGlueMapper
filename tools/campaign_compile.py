@@ -32,6 +32,8 @@ from entity_visuals import initial_layer
 from campaign_quest_bridge import convert_state_operations
 from campaign_quest_graph import emit_project, identifier, validate_model, xml
 from campaign_registration import assemble_registrations
+from campaign_profiles import WorldProfileAdapter, WorldLayerAdapter, ProfileLifecycleAdapter, STREAMING_SOURCE
+from campaign_navigation import NavigationSource, BaseNavigationAdapter, ProfileNavigationAdapter
 from campaign_sources import RetailSourceReader
 from quest_import import import_quest, literal, walk
 from setup_progress import progress
@@ -71,6 +73,11 @@ def wire_bridge(files, project, bridge_files, report, instance_name='source_ques
     ET.SubElement(declarations, 'Definition', File=module_path.removeprefix('Quests/'))
     identifier(instance_name)
     instance = ET.SubElement(nodes, module.get('Name'), Name=instance_name)
+    for additional in report.get('profile_modules', []):
+        if additional['file'] not in bridge_files:
+            raise ValueError('Missing converted profile module')
+        ET.SubElement(declarations, 'Definition', File=additional['file'].removeprefix('Quests/'))
+        ET.SubElement(nodes, additional['name'], Name=additional['instance'])
     quest_ports = {}
     for q in report['wiring']:
         name = q['quest']
@@ -89,7 +96,8 @@ def wire_bridge(files, project, bridge_files, report, instance_name='source_ques
     files[project_path] = xml(root)
 
 
-def compile_campaign(source, target, level, output, project, entry_action='Libs/UI/UIActions/MM_NewGame.xml', registered=None):
+def compile_campaign(source, target, level, output, project, entry_action='Libs/UI/UIActions/MM_NewGame.xml', registered=None,
+                     engine_enum_evidence=None):
     identifier(project)
     source, target, output = Path(source), Path(target), Path(output)
     if output.exists():
@@ -137,6 +145,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                     pending.append(dependency['quest'])
         with zipfile.ZipFile(source / 'Data/Levels' / level / 'level.pak') as archive:
             souls = ET.fromstring(read(archive, 'whdata_0'))
+            profiles_data = read(archive, 'whdata_1')
+            source_profiles = ET.fromstring(profiles_data)
             area_data = read(archive, 'triggerareas.fubar')
             # Follow controllers discovered through behavior references too.
             # They need not be directly linked from the New Game controller.
@@ -168,6 +178,12 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         animated_doors = AnimatedDoorAssetAdapter(assets, native_doors, project)
         door_entities = DoorEntityConversion(tables, animated_doors, native_doors)
         all_entities, _ = entity_index(documents)
+        navigation_source = NavigationSource(
+            stack.enter_context(zipfile.ZipFile(source / 'Data/Levels' / level / 'recast.pak')),
+            stack.enter_context(zipfile.ZipFile(target / 'Data/Levels/trosecko/recast.pak')),
+            stack.enter_context(zipfile.ZipFile(source / 'Data/Levels' / level / 'level.pak')),
+            stack.enter_context(zipfile.ZipFile(target / 'Data/Levels/trosecko/level.pak')),
+            source_profiles, project, level)
         controller_ids = {}
         for model in models.values():
             definition = model.get('controller_registration')
@@ -180,10 +196,27 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             souls=SoulAdapter(tables, souls),
             character_parts=CharacterPartAdapter(tables, target, stack, assets, project),
             ai_types=AIStructureAdapter(ai_types), ai_enums=AIEnumAdapter(ai_types),
+            world_profiles=WorldProfileAdapter(source_profiles, project,
+                [dict(archive='Data/Levels/' + level + '/level.pak', entry='whdata_1',
+                      sha256=hashlib.sha256(profiles_data).hexdigest())]),
+            navigation_base=BaseNavigationAdapter(navigation_source),
+            profile_navigation=ProfileNavigationAdapter(navigation_source),
             mailboxes=MailboxAdapter(tables, native_ai),
             animated_props=animated_doors,
             strings=LazyAdapter(lambda: ItemTextAdapter(source, project, 'English')),
             assets=assets), registered)
+        importer.adapters['world_layers'] = WorldLayerAdapter(documents, project, importer.files)
+        if engine_enum_evidence is not None:
+            # Explicit developer metadata input; normal setup does not inspect
+            # binaries or import optional disassembly dependencies. Re-extract
+            # to validate both values and provenance against this installation.
+            from campaign_engine_enums import extract_engine_enums
+            evidence = json.loads(Path(engine_enum_evidence).read_text(encoding='utf-8'))
+            recovered = extract_engine_enums(source / 'Bin/Win64/WHGame.dll', ['gameVersion'])
+            supplied = [d for d in evidence['enum_declarations'] if d['name'] == 'gameVersion']
+            if evidence['sha256'] != recovered['sha256'] or supplied != recovered['enum_declarations']:
+                raise ValueError('Engine enum evidence does not match the installed source engine')
+            importer.adapters['profile_lifecycle'] = ProfileLifecycleAdapter(source_profiles, project, recovered)
         eligible = []
         for name, model in models.items():
             try:
@@ -197,8 +230,10 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         # It still blocks campaign readiness and calls into it stay unresolved.
         bridge_files, bridge = convert_state_operations(eligible, project)
         catalog = native_catalog(target)
+        with zipfile.ZipFile(target / 'Data/Scripts.pak') as native_scripts:
+            profile_streaming = read(native_scripts, STREAMING_SOURCE)
         behavior_files, behavior_bridge_files, behavior = convert_behaviors(
-            eligible, project + '_behavior', catalog, importer.registered, importer)
+            eligible, project + '_behavior', catalog, importer.registered, importer, profile_streaming)
         importer.adapters.update(behavior_trees=ConvertedTreeAdapter(behavior, behavior_files),
             subbrains=SubbrainAdapter(tables, native_ai), brains=BrainAdapter(tables, native_ai, ai_types),
             smart_entities=SmartEntityAdapter(tables, native_ai))
@@ -288,9 +323,10 @@ def main():
     p.add_argument('--entry-action', default='Libs/UI/UIActions/MM_NewGame.xml')
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--registered', type=Path, help='Destination entities/souls/items from conversion manifests')
+    p.add_argument('--engine-enums', type=Path, help='Explicit source-engine enum evidence; revalidated read-only against WHGame.dll')
     a = p.parse_args()
     registered = json.loads(a.registered.read_text(encoding='utf-8')) if a.registered else None
-    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered), indent=2))
+    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered, a.engine_enums), indent=2))
 
 
 if __name__ == '__main__':
