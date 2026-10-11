@@ -565,3 +565,61 @@ remained responsive. The startup log is retained beside the build report.
 The subsequent user test confirmed the personal-chest build works and approved
 committing it. Exhaustive testing of every location and save/travel scenario
 is not implied by that confirmation.
+
+## Chair sitting conversion (2026-10-11)
+
+`tools/chairs.py` upgrades authored KCD1 Chair entities in the initial world to
+the exported native KCD2 Chair/StanceSmartObject/ActionTrigger contract. Each
+chair has entry and exit TagPoints, a sit action, bidirectional unnamed action
+links, and named attachable/entry/exit links in waitinglinks.xml. Trosky table
+neighbors and NPC schedules are not copied into the imported world.
+
+The converter retains each existing converted KCD1 furniture model, material
+override and world transform, replacing its static `glue_item_*` display.
+It uses the native ordinary `Sit_1Place_Chair_Low` stance; individual model
+alignment, clearance and sit/stand animations still require live verification.
+Decorative furniture is not made interactable based solely on a mesh name.
+There are 61 active chairs (305 runtime entities) and 14 chairs in inactive
+quest layers, listed in the report without forcing those layers on.
+
+The normal region-travel build now includes chairs. The incremental builder
+`tools/build_chairs_test.py` stages the current test world without rebuilding
+assets or changing materials. `outputs/Chairs/Build01/` contains the package,
+conversion report and install receipt; the prior level is retained on D: in
+`outputs/Chairs/Baseline/level.pak`. Four chair tests and 27 chest/cooking/travel/
+link regression tests pass. The packaged level changes only the mission and
+waitinglinks entries; all chair links and model paths resolve and the existing
+2,121 cooking entities remain. The developer client is launched near source
+chair 31986 at (3633.7112, 1364.1346, 102.46835) for a sit/get-up test.
+Startup reached `Game claims it's ready`, executed the requested position and
+remained responsive. `startup.log` records this check. Actual sitting/getting
+up has not yet been verified. Existing navigation graph, missing
+StreamableTargets, UI Hub and horse-arrival script messages are still present;
+this conversion does not claim to fix those independent runtime issues.
+
+The user reported the Build01 chairs were not usable. That build passed link
+checks but omitted required level-local animation helpers. Its source selector
+also excluded the inn seating: these are Bench_* SmartObjectHolder entities,
+not Chair entities. Build01 is not a working sitting implementation.
+
+`tools/seating_animations.py` now merges the native helper collections required
+by generated seats and emits per-seat animation records with runtime validation
+fallback enabled. It does not transplant Trosky's baked DropReasons or projected
+world targets. Whether the engine accepts/recomputes those new records and
+offers the interaction remains a live-test boundary.
+
+`tools/benches.py` reads source Category(Sit) helper positions from
+Libs/SmartObjects.xml, creating individual native StanceSmartObject/ActionTrigger
+pairs. Native table-side helper variants, self withTable links and same-bench
+neighbor links are retained; unrelated native households and table neighbors
+are not copied. Original bench scenery remains in place. Missing source helper
+families are reported. Inactive layers are not force-enabled.
+
+Build02 limits benches to a 40m test area at the Rattay inn (2892,730,107): 40
+benches, 78 places, plus the 61 chairs. Normal builds use the generic converter
+without that test-area restriction. Six chair/bench tests and twelve travel
+regression tests pass. Package checks resolve all 461 seat-related entities'
+links and confirm 139 animation-validation records and the animation helper
+file. Build02 is installed and launched at (2891,729,108). The report, package
+and install receipt are under outputs/Chairs/Build02. Sit/get-up success is not
+yet confirmed; do not treat successful startup as interaction acceptance.

@@ -404,6 +404,18 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 replacements,chest_assets,chest_report=build_player_chests(replacements,source,target,guid)
                 dialogue_files.update(chest_assets)
                 entry_report['player_chests']=chest_report
+                from chairs import convert as convert_chairs
+                with zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as source_chairs, \
+                     zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_chairs:
+                    replacements,chairs_report=convert_chairs(replacements,source_chairs,native_chairs,guid)
+                entry_report['chairs']=chairs_report
+                from benches import convert as convert_benches
+                with zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as source_benches, \
+                     zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_benches, \
+                     zipfile.ZipFile(source/'Data/GameData.pak') as source_game:
+                    helper_name=next(n for n in source_game.namelist() if n.lower()=='libs/smartobjects.xml')
+                    replacements,bench_report=convert_benches(replacements,source_benches,native_benches,read(source_game,helper_name),guid)
+                entry_report['benches']=bench_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
