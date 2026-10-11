@@ -256,6 +256,25 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
     merchant_files,theresa_names=theresa.resources(target,source,theresa_person,theresa_character,merchant_files)
     dialogue_files.update(merchant_files)
     character_directories=[character_directory,theresa_directory]
+    import miller
+    import miller_world
+    from character_person import actor_resources as person_resources
+    print('Importing Peshek, lockpick shop and work/sleep schedule',flush=True)
+    miller_person=miller.resolve(source)
+    miller_files,miller_shop=miller.resources(miller_person,target)
+    dialogue_files.update(miller_files)
+    miller_directory=output/'miller-character'
+    miller_character=build_appearance(source,target,miller_person,miller.NAMESPACE,miller_directory)
+    character_directories.append(miller_directory)
+    dialogue_files=person_resources(target,miller_person,miller_character,miller.NAMESPACE,role_name=miller.ROLE,
+        native_soul_table='Libs/Tables/rpg/soul__ttac.xml',native_soul_name='ttac_procek',
+        native_role_name='PREVOZNIK_TROSECKO',resources=dialogue_files)
+    with zipfile.ZipFile(source/'Localization/English_xml.pak') as source_strings:
+        names=ET.fromstring(read(source_strings,'text_ui_soul.xml'))
+    selected=ET.Element('Table')
+    key=miller_person['instance'].findtext('StaticData/NameStringId')
+    selected.append(one((row for row in names.findall('Row') if row.findtext('Cell')==key),'miller UI name'))
+    theresa_names=merge_localization(theresa_names,xml(selected))
     clone_report=None
     bandit_report=None
     if test_person:
@@ -284,6 +303,8 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
     dialogue_files.update(map_files)
     trade_strings=ET.Element('Table');row=ET.SubElement(trade_strings,'Row')
     for value in ('ui_gmtravel_rattay_trade','(Trade)','(Trade)'):ET.SubElement(row,'Cell').text=value
+    row=ET.SubElement(trade_strings,'Row')
+    for value in ('ui_gm_miller_trade','(Trade)','(Trade)'):ET.SubElement(row,'Cell').text=value
     dialogue_strings=merge_localization(dialogue_strings,xml(trade_strings))
     graphs={};stations={}
     needed={model.lower() for name,model,p,q in prefab_geometry(prefab) if name.startswith('wheel_')}
@@ -434,6 +455,11 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 replacements,door_resources,door_strings,door_report=build_world_doors(replacements,source,target)
                 dialogue_files.update(door_resources)
                 entry_report['doors']=door_report
+                replacements,miller_resources,miller_report=miller_world.register(
+                    replacements,{**dialogue_files,**graphs},miller_person,miller_shop,source,target,guid)
+                graphs={name:miller_resources.pop(name) for name in graphs}
+                dialogue_files=miller_resources
+                entry_report['miller']=dict(world=miller_report,shop=miller_shop,character=miller_character)
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

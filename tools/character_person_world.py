@@ -129,7 +129,10 @@ def register_person_world(files, people, source, target):
                 raise ValueError('Source home identity has an incompatible destination entity')
             geometry = source_shapes[level].get(area_guid)
             if geometry is None: geometry = source_home_geometry(src)
-            if area_guid in areas and areas[area_guid].points != geometry.points:
+            # FUBAR serializes float32, while XML arithmetic uses doubles.
+            # Shared homes (Theresa/Peshek) must compare in the stored format.
+            geometry = read_areas(write_areas([geometry], shapes['export_version']))['areas'][0]
+            if area_guid in areas and (areas[area_guid].points != geometry.points or areas[area_guid].height != geometry.height):
                 raise ValueError('Existing home polygon differs from source')
             areas[area_guid] = geometry
             hub_guid = native_guid(int.from_bytes(hashlib.sha256(('person-home/' + guid).encode()).digest()[:8], 'little'))
