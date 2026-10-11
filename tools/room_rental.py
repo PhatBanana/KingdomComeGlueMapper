@@ -19,6 +19,26 @@ from bed_alignment import alignment as bed_alignment
 from upgrade_map import read, xml
 
 
+def register_bed_scheduler(blob, native_blob, donor_guid, bed_guid):
+    """Register a native bed hub without copying unrelated town schedules."""
+    root = ET.fromstring(blob)
+    rows = root.find('Schedulers')
+    if rows is None: raise ValueError('Missing scheduler container')
+    donor_id, bed_id = str(guid_value(donor_guid)), str(guid_value(bed_guid))
+    donors = [r for r in ET.fromstring(native_blob).findall('Schedulers/C_SmartHub')
+              if r.get('EntityGuid') == donor_id]
+    if len(donors) != 1: raise ValueError('Missing or ambiguous native bed scheduler')
+    if donors[0].findall('.//S_ActivityLink'):
+        raise ValueError('Native bed has external scheduler dependencies requiring conversion')
+    if any(r.get('EntityGuid') == bed_id for r in rows):
+        raise ValueError('Bed scheduler already registered')
+    row = copy.deepcopy(donors[0])
+    row.set('EntityGuid', bed_id)
+    row.attrib.pop('Position', None)
+    rows.append(row)
+    return xml(root)
+
+
 def source_room(entities, keeper):
     actor = next(e for e in entities.values() if e.get('Name') == keeper)
     homes = {l.get('TargetId') for l in actor.findall('EntityLinks/Link') if 'Home' in l.get('Name', '').split(',')}
@@ -84,6 +104,9 @@ def register(files, source_entities, room, furniture, native, model, contract, g
     link(bed,trigger,'mTrigger');link(trigger,bed,'')
     for original in natives['8449'].findall('EntityLinks/Link'):
         if original.get('TargetId')=='8449': link(bed,bed,original.get('Name'))
+    files['tables/ai/scheduler.xml'] = register_bed_scheduler(
+        files['tables/ai/scheduler.xml'], read(native, 'tables/ai/scheduler.xml'),
+        natives['8449'].get('EntityGuid'), bed.get('EntityGuid'))
     # Source animated skin, native rig/animation/physical door implementation.
     sp,sq,ss=world_transform(furniture['door'],source_entities)
     door=add('door',natives['8504'],sp,sq);door.set('Scale',vector(ss))
@@ -125,6 +148,7 @@ def register(files, source_entities, room, furniture, native, model, contract, g
     return files, {'source_room':room.get('Name'),'source_ids':{k:v.get('EntityId') for k,v in furniture.items()},
                    'door_model':model,'bed_position':bed.get('Pos'),'chest_guid':chest.get('EntityGuid'),
                    'service_guid':service.get('EntityGuid'),'animations':animations,
+                   'bed_scheduler_registered':True,
                    'bed_alignment':{'offset':bed_frame[0],'rotation':bed_frame[1]}}
 
 

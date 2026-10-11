@@ -113,3 +113,22 @@ contract issue, separate from the now-confirmed bed animation alignment.
 Other log warnings include the existing innkeeper leaning failure,
 gm_neuhof_stable_work schedulerWait target, and empty OSH preset dictionary.
 These are not claimed fixed by this change.
+
+## Build08: bed scheduler registration
+
+Native player switching marks the current sitting/lying smart object with
+the usedByPlayer role through EnableRoleOnHubDecorator. Build07 omitted the
+bed's C_SmartHub scheduler row, although its interactive entity existed.
+
+The builder now clones the donor bed's compiled hub record under the imported
+bed GUID, preserving all four sleeper EffectHeal entries. It rejects duplicate
+registration and donor activity links needing additional conversion. The test
+packer writes identical scheduler tables in level.pak and the mod-qualified
+travel PAK path; the normal builder already packages both paths.
+
+Eleven bed/rental tests pass, package copies match, and Build08 is installed.
+The developer client has been relaunched. Repeating sit/sleep is still needed
+to verify that the reported runtime error no longer occurs. Other existing
+innkeeper/stable/OSH warnings are outside this correction.
+
+Build08 user validation (2026-10-12): the user confirmed the scheduler fix works and requested commit/push. Remaining innkeeper leaning and stable-work warnings are the next task.
