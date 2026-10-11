@@ -12,7 +12,7 @@ RATTAY = dict(quest=QUEST, progress_type=TYPE, file='visit_rattay',
     gate='spoke_to_innkeeper', prefix='gmtravel_visit', title='A visit to Rattay',
     objective_text='Talk to the Rattay innkeeper.',
     active_text='Talk to the innkeeper at the inn outside Rattay\u2019s upper gate.',
-    done_text='I spoke to the Rattay innkeeper.', quest_type=None)
+    done_text='I spoke to the Rattay innkeeper.', quest_type='Side')
 
 
 def ensure(parent, tag):

@@ -115,12 +115,17 @@ def register_entry(files, graph, graph_path, native_level, native_scripts,
 
     holder = place(level, 'LevelHolder')
     ET.SubElement(holder, 'Properties', iLevelId=str(level_id))
+    project_name = ET.fromstring(graph).find('Skald/Project').get('Name')
+    project_holder = place(project_name, 'SmartObjectHolder')
+    ET.SubElement(project_holder, 'Properties', bSaved_by_game='0')
+    ET.SubElement(ET.SubElement(project_holder, 'EntityLinks'), 'Link',
+                  Name='module', TargetId=holder.get('EntityId'), TargetGuid=holder.get('EntityGuid'))
     services = {name: place(name, by_name[name].get('EntityClass'), by_name[name])
                 for name in PLAYER_SERVICES}
     # Only generic player scheduling belongs to this destination. Native links
     # to weddings, combat tutorials etc. point into an entirely different map.
     src_ids = {e.get('EntityId'): name for name, e in by_name.items()}
-    waiting = []
+    waiting = [(project_holder.get('EntityGuid'), holder.get('EntityGuid'), 'module')]
     for name, entity in services.items():
         links = entity.find('EntityLinks')
         if links is None:
