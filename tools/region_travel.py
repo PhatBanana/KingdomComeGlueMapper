@@ -395,6 +395,11 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                     replacements,graphs,basis_report=apply_gameplay_basis(
                         replacements,graphs,graph,LEVEL,native_contracts,native_scripts,guid)
                 entry_report['gameplay_basis']=basis_report
+                from cooking_pots import convert as convert_cooking_pots
+                with zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as source_pots, \
+                     zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_pots:
+                    replacements,pots_report=convert_cooking_pots(replacements,source_pots,native_pots,guid)
+                entry_report['cooking_pots']=pots_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

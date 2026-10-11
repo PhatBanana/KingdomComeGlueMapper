@@ -489,3 +489,38 @@ existing colourization, original-head and morph/hiding issues also remain.
 After this diagnostic, the partitioned display entity was removed and the
 working native-idle baseline was respawned. The generated files and audit XML
 remain local for further work. Source changes after dc92268 are not yet pushed.
+
+## Native cooking pot test (2026-10-11)
+
+`tools/cooking_pots.py` converts source `@ui_eat_kettle` triggers and their
+fireplace owners into native KCD2 fireplace, kettle, food-processing, ladle,
+fire, steam and cauldron entities. `region_travel.py` includes this conversion;
+`build_cooking_test.py` can stage only the changed level PAK against an existing
+combined mod. Native fire phase changes control particle effects and lights.
+Both EntityLinks and waitinglinks.xml are remapped to deterministic new GUIDs.
+
+The current initial-world selection contains 303 pots (98 camp, 205 home),
+including initial-state layer pots. Other conditional pots are enumerated in
+the report, not force-enabled. The conversion does not transplant Trosky NPC
+household/bench schedules. Original fireplace scenery is retained. Only linked
+source ladle visuals are replaced; scene placement still needs visual checking.
+
+Kettle hold uses the native item consumption/buff behavior. Source item-filter
+patterns are retained alongside native poison categories. This consumes an
+item and applies its ConsumableBuff when present; it does not refill soup.
+Actual item availability for every legacy filter pattern remains a live-test
+boundary. Native cooking has its own food-processing selection.
+
+`outputs/CookingTest/Build02/` contains the staged PAK, source/output hashes,
+conversion report, install receipt and startup log. The previous installed
+level is saved on D: in `outputs/CookingTest/Baseline/level.pak`. Five cooking
+checks and nineteen travel/world/link regression checks passed. An archive
+check resolved all 2,121 generated entities' internal links and all referenced
+native effect prefab IDs. Developer startup reached ready and remained
+responsive, but still logs OSH preset-operator errors.
+
+The subsequent user in-game test confirmed that this cooking-pot build works
+and approved committing it. This accepts the tested interaction/effect setup;
+it does not establish exhaustive coverage of all 303 locations, every legacy
+item-filter category, or save/load persistence. The OSH log issue remains
+separate and is not claimed fixed by this change.
