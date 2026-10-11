@@ -2,11 +2,10 @@
 from contextlib import ExitStack
 from pathlib import Path, PurePosixPath
 import hashlib
-import re
 import xml.etree.ElementTree as ET
 import zipfile
 
-from audit_maps import open_entry
+from audit_maps import open_entry, texture_families
 
 
 def package_materials(library, surfaces, package, namespace, blend_factor=None):
@@ -73,11 +72,8 @@ def package_materials(library, surfaces, package, namespace, blend_factor=None):
 
         # Include complete DDS families: base, numbered streaming mips, and
         # split alpha/gloss mips (.a/.1a/etc.). Never copy base DDS alone.
-        families = {}
-        for texture in sorted(textures):
-            members = [name for name in index if name == texture or
-                       (name.startswith(texture + ".") and re.fullmatch(r"(?:a|[0-9]+a?)", name[len(texture)+1:]))]
-            families[texture] = sorted(members)
+        indexed = texture_families(index)
+        families = {texture: sorted(name for name, _ in indexed[texture]) for texture in sorted(textures)}
         manifest = []
         with zipfile.ZipFile(package, "x", zipfile.ZIP_STORED) as output:
             for name, data in materials.items():

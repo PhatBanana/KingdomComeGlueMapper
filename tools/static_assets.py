@@ -1,9 +1,9 @@
 """Isolated CGF/material/texture packaging shared by static-object probes."""
 from pathlib import Path, PurePosixPath
-import re
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
+from audit_maps import texture_families
 from upgrade_map import read, xml
 from build_water_probe import shader_features, translate_features
 
@@ -93,11 +93,7 @@ def asset_pack(stack, library, prefix, cache_dir=None):
         return read(archive,entry.filename)
 
     emitted = StagedAssets(cache_dir) if cache_dir is not None else {}
-    families = {}
-    for member in index:
-        match = re.fullmatch(r"(.+\.dds)(\.(?:a|[0-9]+a?))?", member)
-        if match:
-            families.setdefault(match[1], []).append((member, match[2] or ""))
+    families = texture_families(index)
     texture_names = {}
     material_names = {}
 

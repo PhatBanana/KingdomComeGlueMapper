@@ -5,12 +5,12 @@ from contextlib import ExitStack
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
-import re
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import defaultdict
 
+from audit_maps import texture_families
 from compiled_terrain import parse
 from upgrade_map import read, xml
 from vegetation import read_instances, verify_target_hlods, convert_instance
@@ -76,6 +76,7 @@ def main():
             archive,entry = index[name]
             return read(archive,entry.filename)
 
+        families = texture_families(index)
         emitted = {}
         texture_names = {}
         material_names = {}
@@ -100,10 +101,8 @@ def main():
                     texture_names[original] = prefix + "t" + str(len(texture_names)) + "_" + PurePosixPath(original).name
                     if original not in index:
                         raise FileNotFoundError(original)
-                    for member in index:
-                        suffix = member[len(original):] if member.startswith(original) else "INVALID"
-                        if suffix == "" or re.fullmatch(r"\.(?:a|[0-9]+a?)", suffix):
-                            emitted[texture_names[original]+suffix] = asset_read(member)
+                    for member, suffix in families[original]:
+                        emitted[texture_names[original]+suffix] = asset_read(member)
                 tex.set("File",texture_names[original])
             emitted[target+".mtl"] = xml(doc)
             return target

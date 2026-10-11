@@ -1,5 +1,6 @@
 """Add coach travel to an owned world package, under its existing mod identity."""
 import json
+import os
 from pathlib import Path
 import shutil
 import xml.etree.ElementTree as ET
@@ -56,16 +57,32 @@ def validate_bridge(package):
             raise ValueError('Coachman localization is incomplete')
 
 
+def link_or_copy(source, destination):
+    # Share the multi-GB world files instead of writing a second copy. Every
+    # file combine changes is replaced through unlinked(), never edited in place.
+    try:
+        os.link(source, destination)
+    except OSError:
+        shutil.copy2(source, destination)
+
+
+def unlinked(path):
+    """Detach path from any hard-linked base file before it is rewritten."""
+    path.unlink(missing_ok=True)
+    return path
+
+
 def combine(base, bridge, target, output):
     base, bridge, output = map(Path, (base, bridge, output))
     receipt = verify_package(base)
+    base_files = receipt['files']
     if output.exists():
         raise FileExistsError('Choose a fresh combined package directory')
     if output.resolve().is_relative_to(base.resolve()):
         raise ValueError('Combined package must be outside the installed mod')
     if ET.parse(bridge/'mod.manifest').findtext('info/modid') != MOD_ID:
         raise ValueError('Build the bridge with modid='+MOD_ID)
-    shutil.copytree(base, output)
+    shutil.copytree(base, output, copy_function=link_or_copy)
     # Remove only previously recorded bridge files, inside the private build.
     for name in receipt.get('travel_bridge', {}).get('files', []):
         path = output/name
@@ -80,7 +97,7 @@ def combine(base, bridge, target, output):
         name = path.relative_to(bridge).as_posix()
         dest = output/name
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, dest)
+        shutil.copy2(path, unlinked(dest))
         bridge_files.append(name)
     # There must be exactly one level patch under the shared mod identity.
     bridge_pak = output/BRIDGE_PAK
@@ -89,14 +106,14 @@ def combine(base, bridge, target, output):
     new_level = next(blob for info, blob in entries if info.filename == LEVEL_TABLE)
     levels = managed_patches({LEVEL_TABLE: level_registration(target),
                               'Libs/Tables/level__bridge.xml': new_level}, MOD_ID)[LEVEL_TABLE]
-    with zipfile.ZipFile(bridge_pak, 'w', zipfile.ZIP_STORED) as pak:
+    with zipfile.ZipFile(unlinked(bridge_pak), 'w', zipfile.ZIP_STORED) as pak:
         for info, blob in entries:
             if info.filename != LEVEL_TABLE:
                 pak.writestr(info, blob)
     root_pak = output/f'Data/{MOD_ID}.pak'
     with zipfile.ZipFile(root_pak) as pak:
         entries = [(i, read(pak, i.filename)) for i in pak.infolist()]
-    with zipfile.ZipFile(root_pak, 'w', zipfile.ZIP_STORED) as pak:
+    with zipfile.ZipFile(unlinked(root_pak), 'w', zipfile.ZIP_STORED) as pak:
         for info, blob in entries:
             if info.filename.lower() not in MENU_FILES | {LEVEL_TABLE.lower()}:
                 pak.writestr(info, blob)
@@ -108,12 +125,15 @@ def combine(base, bridge, target, output):
         node = info.find(key)
         if node is None: node = ET.SubElement(info, key)
         node.text = value
-    (output/'mod.manifest').write_bytes(xml(manifest))
+    unlinked(output/'mod.manifest').write_bytes(xml(manifest))
     receipt.update(version=VERSION, menu=False, start_probe=False,
                    travel_bridge=dict(files=bridge_files, destination='kcd1_travel', runtime_verified=False))
-    receipt['files'] = {p.relative_to(output).as_posix(): digest(p)
-                        for p in sorted(output.rglob('*')) if p.is_file() and p.name != RECEIPT}
-    (output/RECEIPT).write_text(json.dumps(receipt, indent=2), encoding='utf-8')
+    # Untouched world files keep the digests verify_package(base) just checked;
+    # verify_package(output) below still re-reads every file once.
+    rewritten = {*bridge_files, BRIDGE_PAK, f'Data/{MOD_ID}.pak', 'mod.manifest'}
+    names = [p.relative_to(output).as_posix() for p in sorted(output.rglob('*')) if p.is_file() and p.name != RECEIPT]
+    receipt['files'] = {n: base_files[n] if n in base_files and n not in rewritten else digest(output/n) for n in names}
+    unlinked(output/RECEIPT).write_text(json.dumps(receipt, indent=2), encoding='utf-8')
     validate_bridge(output)
     verify_package(output)
     return output

@@ -52,7 +52,10 @@ selected folders must be writable by the current Windows user.
   errors. **Open output folder** opens the current run's directory.
 
 Build output is retained rather than automatically deleting large directories.
-Each run uses a unique folder. The current release starts a fresh build when
+Each run uses a unique folder. On NTFS, the run's `package` folder hard-links the
+unchanged files of its `world-package` folder, so the pair occupies roughly one
+package's worth of disk although Explorer reports both sizes. Either folder can
+be deleted safely without affecting the other. The current release starts a fresh build when
 retrying a failed conversion; it does not claim checkpoint resume support.
 
 ## Installation and rollback
