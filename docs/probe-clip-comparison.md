@@ -80,6 +80,9 @@ declare clipping fixed. Restore the baseline package after the experiment.
 
 `outputs/InteriorLighting/ClipComparison02/comparison.json` records four generated
 packages with passing CRC and unchanged non-entity entries. The native editor
-fixture was matched to the shipped entities. The packages have **not** been
-installed or visually compared; `runtime_verified` remains false. The upper
-probe's exterior contribution remains unresolved.
+fixture was matched to the shipped entities. That original comparison report
+retains its generation-time `runtime_verified=false` status. Subsequent native
+tests isolated the upper probe, and a geometry audit found that its clip
+actually contained exterior roof surfaces. The user accepted a repair to both
+the rendered clip and its BSP. See `roof-clip-repair.md` for the measured fix
+and the bounded map-wide conversion, which supersede the unresolved status.

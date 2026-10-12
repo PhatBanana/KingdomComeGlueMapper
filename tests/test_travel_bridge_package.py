@@ -90,5 +90,26 @@ class BridgePackageTests(unittest.TestCase):
             combine(self.base, self.bridge, 'target', self.root/'combined')
         self.assertFalse((self.root/'combined').exists())
 
+    def test_roof_repair_runs_after_assets_are_combined_and_is_receipted(self):
+        receipt = json.loads((self.base/RECEIPT).read_text())
+        receipt['sources'] = {'kcd1': 'source'}
+        (self.base/RECEIPT).write_text(json.dumps(receipt))
+        level = 'Data/Levels/kcd1_travel/level.pak'
+        pak(self.bridge/level, {'original': b'level'})
+        def finish(package, source):
+            self.assertEqual(source, 'source')
+            self.assertTrue((package/f'Data/{MOD_ID}.pak').is_file())
+            (package/level).write_bytes(b'repaired')
+            (package/'roof-clip-repair.json').write_text('{}')
+            return dict(roof_placements=3, changed_clip_count=2, linked_probe_count=1)
+        with patch('travel_bridge_package.level_registration', return_value=self.native_level), \
+             patch('roof_clip_repair.repair_package', side_effect=finish) as repair:
+            output = combine(self.base, self.bridge, 'target', self.root/'combined')
+        self.assertEqual(repair.call_count, 1)
+        result = verify_package(output)
+        self.assertEqual(result['files'][level], hashlib.sha256(b'repaired').hexdigest())
+        self.assertIn('roof-clip-repair.json', result['files'])
+        self.assertEqual(result['travel_bridge']['roof_clipping']['changed_clip_count'], 2)
+
 
 if __name__ == '__main__': unittest.main()

@@ -213,3 +213,19 @@ pale plaster. The converted exterior still appears almost black. Compare
 blend masks, secondary UVs, shader permutations, and per-layer parameters
 against the original before changing material brightness. The current second
 detail-map compatibility mapping is not a verified fix for this artifact.
+
+## Measured roof clipping repair (2026-10-12)
+
+The later controlled comparison and mesh audit resolved the upper-house
+artifact: the authored clip crossed through the exterior shingles on one
+slope. The user confirmed the fitted clip repair works. The earlier unresolved
+clipping and material hypotheses above are retained as experiment history;
+see `roof-clip-repair.md` for the result and automatic package conversion.
+
+This repair uses the placed building's inner and outer roof surfaces to trim
+the rendered stencil and CPU BSP together. Qualified source deferred probes
+receive explicit native clip links and area-only settings. The standalone
+`lighting_clips.associate_probe_clips` diagnostic remains read-only by default.
+Probe boxes, radiance, material layers, voxel placement, GI and exposure are
+not altered by this pass. Full-map visual validation remains separate from
+binary and geometry validation.

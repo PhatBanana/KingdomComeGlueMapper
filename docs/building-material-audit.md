@@ -106,3 +106,46 @@ a missing renderer interior/exterior trigger.
 
 Local detailed evidence: `outputs/InteriorLightingAudit/building-texture-import.json`;
 installed shader extracts under `outputs/InteriorLightingAudit/shaders/`.
+
+## Secondary-UV authoring comparison
+
+A follow-up read-only audit compared the installed KCD2 developer shaders with
+the retail `IPL_Objects-part*.pak` materials. Among 1,041 material files under
+`Objects/manmade/structures`, 13,450 Illum submaterial entries include only seven
+with `%SNDUVS`. Filtering those entries to diffuse texture paths containing
+`roof` finds 1,294 entries, none with `%SNDUVS`; 1,036 enable vertex colors and
+338 enable blend layers. These are material entries, including repeated uses
+and potentially unused assets, not counts of unique buildings or loaded draws.
+
+This distinguishes shader support from native authoring practice: KCD2 still
+supports secondary-UV color multiplication, but none of the sampled native roof
+materials requests it. Native roofs also retain material self-shadowing: 674
+entries explicitly store a positive `SelfShadowStrength`. New lighting is not
+evidence that all legacy material shadow terms should be disabled.
+
+Both CommonZPass implementations multiply albedo by `4 * secondaryRGB`. KCD2
+keeps vertex color neutral when `%SNDUVS` is enabled, so its unconditional
+`2 * IN.Color.rgb` multiplication is not, by itself, a second application of
+the packed UV values. The native shader still separates surface color from
+the lighting calculation.
+
+The effective KCD1 roof secondary texture was read from
+`Data/patch/ipl_patch_010701.pak`: it is a 512x512 BC3 sRGB texture. Its RGB
+contains spatial weathering and shading-like variation; its alpha contains
+the moss placement pattern. RGB pixels are not black (channel minima are
+49, 52, 41). With the source sRGB decode, median per-channel albedo multipliers
+are approximately 0.86, 0.85, 0.83. This texture can darken the surface, but its
+contents alone do not prove that it is a directional lightmap or the cause of
+the remaining sharp black boundary.
+
+A subsequent runtime comparison kept the secondary alpha blocks and UVs while
+replacing only RGB with a constant intended to neutralize the multiplier.
+The sharp black roof patch remained. Disabling the upper environment probe
+removed it while normal tree shadows and voxel GI remained enabled. The
+original secondary RGB package was restored; removing `%SNDUVS` or the alpha
+would also have removed authored moss information.
+
+Local evidence is in `outputs/InteriorLightingAudit/RoofShaderCompatibility/`,
+including native material records, current native shader extracts, source
+texture statistics and separate RGB/alpha previews. The measured clip-volume
+repair is documented in `roof-clip-repair.md`.

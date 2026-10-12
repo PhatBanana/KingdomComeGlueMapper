@@ -15,6 +15,7 @@ from building_blend_mesh import reatlas
 from building_materials import blend_inputs
 from clothing_regions import Chunk, read_chunks, write_chunks
 from static_assets import convert_material_features
+from build_building_blend_test import merge_baked_material
 
 
 def triangle_mesh():
@@ -39,6 +40,36 @@ def triangle_mesh():
 
 
 class BuildingBlendTests(unittest.TestCase):
+    def test_focused_package_keeps_native_secondary_detail_dependencies(self):
+        current = ET.fromstring('''<Material><SubMaterials>
+          <Material Name="roof" Shader="Illum" StringGenMask="%BLENDLAYER%DETAIL_MAPPING%SNDUVS">
+            <Textures>
+              <Texture Map="Opacity" File="installed/old_second.dds"/>
+              <Texture Map="Detail" File="installed/wood_dt.dds"><TexMod TileU="8" TileV="4"/></Texture>
+              <Texture Map="Custom" File="installed/moss.dds"/>
+            </Textures>
+            <PublicParams DetailBumpScale="1" DetailDiffuseScale="0.8" DetailGlossScale="0.6"/>
+          </Material>
+          <Material Name="plain" Shader="Illum"><Textures><Texture Map="Diffuse" File="installed/plain.dds"/></Textures></Material>
+        </SubMaterials></Material>''')
+        generated = ET.fromstring(ET.tostring(current))
+        roof = generated.find('SubMaterials/Material')
+        roof.find("Textures/Texture[@Map='Opacity']").set('File', 'new/roof_blend2_diff.dds')
+        roof.find("Textures/Texture[@Map='Detail']").set('File', 'not_packaged/wood_dt.dds')
+        roof.find('PublicParams').set('SndUVsTileU', '1')
+        before = ET.tostring(current)
+        result, bakes = merge_baked_material(current, generated)
+        fixed = result.find('SubMaterials/Material')
+        self.assertEqual(bakes, ['new/roof_blend2_diff.dds'])
+        self.assertEqual(fixed.find("Textures/Texture[@Map='Opacity']").get('File'), bakes[0])
+        self.assertEqual(fixed.find("Textures/Texture[@Map='Emittance']").get('File'), 'installed/wood_dt.dds')
+        self.assertEqual(fixed.find("Textures/Texture[@Map='Custom']/TexMod").attrib, {'TileU':'8', 'TileV':'4'})
+        self.assertEqual(fixed.find('PublicParams').get('Detail2DiffuseScale'), '0.8')
+        self.assertEqual(ET.tostring(result.find('SubMaterials')[1]), ET.tostring(current.find('SubMaterials')[1]))
+        self.assertEqual(ET.tostring(current), before)
+        again, _ = merge_baked_material(result, generated)
+        self.assertEqual(ET.tostring(again), ET.tostring(result))
+
     def test_source_mask_product_survives_target_formula(self):
         second=np.full((8,8,4),[80,120,160,192],dtype='u1')
         mask=np.full((8,8),.25)
