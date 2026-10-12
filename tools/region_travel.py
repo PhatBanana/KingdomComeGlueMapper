@@ -455,6 +455,9 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 replacements,door_resources,door_strings,door_report=build_world_doors(replacements,source,target)
                 dialogue_files.update(door_resources)
                 entry_report['doors']=door_report
+                from ladders import build as build_ladders
+                replacements,ladder_report=build_ladders(replacements,source,target,guid)
+                entry_report['ladders']=ladder_report
                 replacements,miller_resources,miller_report=miller_world.register(
                     replacements,{**dialogue_files,**graphs},miller_person,miller_shop,source,target,guid)
                 graphs={name:miller_resources.pop(name) for name in graphs}
@@ -476,6 +479,25 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 replacements['mission_mission0.xml']=world_voxels.configure_environment(replacements['mission_mission0.xml'])
                 lighting_report['indirect_lighting']='Native basic GI with converted KCD1 opacity voxels and environment probes'
                 entry_report['lighting']=lighting_report
+                import wildlife
+                wildlife_files = {n: replacements[n] if n in replacements else read(z, names[n])
+                                  for n in wildlife.LEVEL_FILES}
+                wildlife_files, wildlife_report = wildlife.convert_level(wildlife_files, source, target, ground)
+                replacements.update(wildlife_files)
+                entry_report['wildlife'] = wildlife_report
+                from world_environment import build as build_environment
+                replacements['objects_mission0.xml'], environment_report = build_environment(
+                    replacements['objects_mission0.xml'], source, target, guid)
+                entry_report['environment'] = environment_report
+                import world_music
+                music_level = {n: replacements[n] if n in replacements else read(z,names[n])
+                               for n in ('objects_mission0.xml','triggerareas.fubar')}
+                music_changes, music_files, music_report = world_music.resources(
+                    music_level,source,target,guid)
+                replacements.update(music_changes)
+                with zipfile.ZipFile(data/'gluemapper_music.pak','w',zipfile.ZIP_DEFLATED,compresslevel=1) as music_pak:
+                    for name,blob in sorted(music_files.items()): music_pak.writestr(name,blob)
+                entry_report['music'] = music_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

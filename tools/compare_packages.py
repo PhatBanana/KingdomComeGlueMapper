@@ -59,11 +59,12 @@ def manifest_without_date(path):
     return ET.tostring(root)
 
 
-def receipt_without_volatile_digests(path, prefix, volatile):
+def receipt_without_volatile_digests(path, prefix, volatile, ignore=()):
     """Digests of archives and manifests change with write times; those files are compared directly."""
     receipt = json.loads(path.read_text(encoding='utf-8'))
     receipt['files'] = {n: None if prefix + n in volatile else digest
-                        for n, digest in receipt.get('files', {}).items()}
+                        for n, digest in receipt.get('files', {}).items()
+                        if not any(fnmatch.fnmatch(prefix + n, pattern) for pattern in ignore)}
     return receipt
 
 
@@ -82,7 +83,7 @@ def compare(left, right, deep=False, ignore=()):
             differences += entry_differences(name, archive_entries(a, deep), archive_entries(b, deep))
         elif filename == RECEIPT:
             prefix = name[:-len(RECEIPT)]
-            first, second = (receipt_without_volatile_digests(p, prefix, volatile) for p in (a, b))
+            first, second = (receipt_without_volatile_digests(p, prefix, volatile, ignore) for p in (a, b))
             changed = sorted(k for k in first.keys() | second.keys() if first.get(k) != second.get(k))
             if changed:
                 differences.append(f'{name}: receipt differs in {", ".join(changed)}')

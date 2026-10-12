@@ -37,6 +37,33 @@ class ComparePackageTests(unittest.TestCase):
         self.assertEqual(compare(first, second), [])
         self.assertEqual(compare(first, second, deep=True), [])
 
+    def test_ignore_filters_matching_receipt_entries_without_hiding_other_changes(self):
+        first = self.package('first', (2026, 1, 1, 0, 0, 0), 'd')
+        second = self.package('second', (2026, 1, 1, 0, 0, 0), 'd', loose=b'{"world": 2}')
+        for deep in (False, True):
+            self.assertEqual(compare(first, second, deep=deep, ignore=['campaign.json']), [])
+        # Patterns are relative to the comparison root, including nested receipts.
+        for root in (first, second):
+            nested = root / 'package'; nested.mkdir()
+            for path in list(root.iterdir()):
+                if path != nested: path.rename(nested / path.name)
+        self.assertEqual(compare(first, second, ignore=['package/campaign.json']), [])
+        receipt = second / 'package' / RECEIPT
+        data = json.loads(receipt.read_text()); data['version'] = '2'
+        receipt.write_text(json.dumps(data))
+        self.assertEqual(compare(first, second, ignore=['package/campaign.json']),
+                         [f'package/{RECEIPT}: receipt differs in version'])
+
+    def test_ignore_filters_receipt_entries_for_files_present_on_one_side_only(self):
+        first = self.package('first', (2026, 1, 1, 0, 0, 0), 'd')
+        second = self.package('second', (2026, 1, 1, 0, 0, 0), 'd')
+        (second / 'campaign.json').unlink()
+        receipt = second / RECEIPT
+        data = json.loads(receipt.read_text()); del data['files']['campaign.json']
+        receipt.write_text(json.dumps(data))
+        self.assertEqual(compare(first, second, ignore=['campaign.json']), [])
+        self.assertTrue(compare(first, second))
+
     def test_reports_changed_missing_and_reordered_entries(self):
         first = self.package('first', (2026, 1, 1, 0, 0, 0), 'd')
         changed = self.package('changed', (2026, 1, 1, 0, 0, 0), 'd',

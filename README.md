@@ -1,479 +1,274 @@
+<div align="center">
+
 # KingdomComeGlueMapper
 
-**Bring Kingdom Come: Deliverance terrain, vegetation and static buildings into the Kingdom Come: Deliverance II engine.**
+**Explore the world of Kingdom Come: Deliverance in Kingdom Come: Deliverance II.**
+
+An experimental world and gameplay converter built around the assets in your installed games.
 
 [![Validate tooling](https://github.com/SamG-Coder/KingdomComeGlueMapper/actions/workflows/validate.yml/badge.svg)](https://github.com/SamG-Coder/KingdomComeGlueMapper/actions/workflows/validate.yml)
-[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/Code-MIT-green)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows-blue)](#getting-started)
+[![Status](https://img.shields.io/badge/status-experimental-orange)](#project-status)
+[![License: MIT](https://img.shields.io/badge/code-MIT-green)](LICENSE)
 
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/531e91e2-9eff-46da-bc7d-12e50ab1eaad" />
+[Download setup](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases) · [Installation guide](docs/windows-setup.md) · [Feature checklist](#feature-checklist) · [Report an issue](https://github.com/SamG-Coder/KingdomComeGlueMapper/issues)
 
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/e601470d-dca1-4fbc-9d8f-26a2f3db0ac3" />
+</div>
 
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/4f94a6ad-85fe-4117-98ea-b96bccdf8238" />
+![Imported KCD1 river, terrain and vegetation running in KCD2](docs/images/kcd1-water-in-kcd2.png)
 
-<img width="2560" height="1440" alt="image" src="https://github.com/user-attachments/assets/22ed5177-6a85-4365-858f-d8746db6bff6" />
+*KCD1 terrain, vegetation and water in the KCD2 engine. Earlier development capture; see the checklist below for current scope.*
 
+## The project
 
-*User capture of the v20 full-map building build near Rattay. Buildings are rendering, but the visible stray water plane and missing river sections in this area remain known issues. The debug FPS is from this incomplete world, not a full-game benchmark.*
+KingdomComeGlueMapper reads compiled KCD1 and KCD2 archives, converts the original landscape and assets, and builds a separate region for KCD2. The combined setup packages the world, coach travel and supported gameplay conversions into one mod.
 
-KingdomComeGlueMapper is an experimental Python converter that reads **compiled files from your installed games** and builds a separate test level for the official KCD2 Modding Tools. Raw editor source is not required by this workflow.
+The goal is to preserve KCD1's authored world while using compatible KCD2 runtime systems. Buildings and terrain retain their source placement; interactions receive native contracts where implemented. Wildlife uses **KCD2 models, animations and AI at converted KCD1 habitats**.
 
-**Windows setup executable:** the [experimental setup release](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases)
-finds both Steam games, builds the converted world from their installed archives,
-and installs the retail mod with progress bars and a saved live log. No Python
-or modding-tools installation is required to run the EXE. See the
-[Windows setup guide](docs/windows-setup.md) for disk requirements and limitations.
+- **A world to explore:** terrain, buildings, interiors, vegetation, roads, streams and original map detail.
+- **Growing gameplay support:** seating, ladders, cooking, washing, harvesting, pickups, doors, selected services and wildlife.
+- **Local asset conversion:** generated game content comes from your own installations and stays on your machine.
+- **Inspectable tooling:** Python converters, dependency reports, regression tests and focused in-game experiments.
 
-**New in v0.2.0-alpha.4:** one setup run builds the world, coach travel and
-Rattay services, then installs **one mod**. Choose **Build and install**, then
-Continue your existing Trosky save and ask the coachman to **Travel to the Rattay
-region**. No second travel build or manual overlay installation is needed. The
-old Play KDC1 startup menu is removed from this package; the original Kuttenberg
-travel option remains available. Existing separate travel installations are
-backed up and retired during installation.
+## Project status
 
-The KCD1 map includes location icons and detail layers. **A visit to Rattay**
-completes when you talk to the innkeeper outside Rattay's upper gate, and his
-**Trade** option opens the shop. Map display, quest completion, buying and the
-corrected Trosky travel installation have been confirmed by the user in retail.
-**Haggling is not implemented yet.** Full companion persistence, original quests
-and the KCD1 campaign remain unfinished.
+**The main Rataje world is imported geographically. Complete KCD1 gameplay, campaign progression and every interactive object are still being converted.** Separate source maps and every DLC or alternate quest state are not covered by a whole-game completion claim.
 
-The following describes the separate developer campaign experiments, not the
-current Windows setup route:
+This page describes the **current source and inspected development build as of 13 October 2026**, checked against the build pipeline and converter code. Downloaded releases may predate features listed here; check their release notes. A current source implementation is not evidence that an older setup executable contains it.
 
-Work toward a retail **Play KDC1** mod has started. The [retail setup](docs/retail-setup.md)
-now audits the opening quest from installed KCD1 archives and builds a package
-whose startup script has been verified in an ordinary KCD2 retail launch.
-The optional **Play KDC1** entry can now route native New Game to the converted
-world in retail. Enable the experimental route with `update-runtime --start-probe`;
-quests and campaign save/load validation remain unfinished. The retail setup
-reads game archives directly, without the modding-tools reference database.
+The normal setup route is **Continue a Trosky save → coachman → Travel to the Rattay region**. The separate campaign-start experiments are developer work, not the normal installation route. KCD1 saves are not converted.
 
-`setup_campaign.py build-campaign` can now bundle an existing converted world,
-its imported asset dependencies and the retail opening quest sources under the
-stable map name `kcd1_rataje`. It includes a native spawn point read from KCD1's
-`spawnStart` beside Henry's home. Quest translation and the remaining gameplay
-systems are unfinished; see the
-[setup instructions](docs/retail-setup.md).
+## Getting started
 
-Terrain, original close-up materials, individual vegetation, merged grass / ground cover, and water are working in game. The development launcher places the player near the starting town of **Skalitz** with no-collision flight enabled.
+### Windows setup
 
-Registered NPC packages now have a [male and female character upgrader](docs/character-upgrader.md)
-for source body geometry, native rig conversion and an optional fixed initial
-outfit. It stages changes with preservation checks and reversible installation;
-the parent idle test now shows the restored female arms and corrected neck.
-Broader animation and independent equipment validation remain unfinished.
-The default retains the original body proportions and packs native skin weights.
+1. Install both games. The setup currently accepts **KCD2 1.5.6**; this is enforced by its version check.
+2. Download the Windows x64 setup executable from [Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases).
+3. Select both installations and a build folder outside the game directories.
+4. Allow at least **90 GiB for building** and **35 GiB on the KCD2 drive for installation staging**. The setup combines the estimates when they share a drive; these are preflight requirements, not final mod sizes.
+5. Close the games and choose **Build and install**.
+6. Launch KCD2, continue a Trosky save and use the coachman's **Travel to the Rattay region** option.
 
-## What works today
+The packaged executable includes its Python runtime. **Python and the Modding Tools are not required to use the setup EXE.** Installation targets `Mods/kingdomcomegluemapper`, verifies the generated package and backs up an existing recognized installation.
 
-| Component | Status |
-|---|---|
-| Compiled terrain conversion | KCD1 terrain version 28 → KCD2 version 29 |
-| World height and layout | 5,461 nodes and 17,139,968 samples checked |
-| Sector continuity | 519,488 shared-boundary comparisons; largest mismatch under 5 cm |
-| Original terrain materials | All 26 material paths resolve in the runtime |
-| Close-up textures | Visually confirmed soil and grass detail |
-| HD texture inputs | 78 texture families, with installed HD overrides and streamed mip files |
-| Test launcher | Terrain-height spawn, Skalitz default, no-collision flight, intro-skip settings |
-| Texture transitions | Optional softer-blending experiment; original transition fidelity not established |
-| Individual vegetation | v24: 718,931 foliage placements, plus instanced rocks and clutter; v11/v13 appearance confirmed, expanded coverage and LOD transitions need broader checks |
-| Merged grass / ground cover | 25,405,423 samples / 83,431 cells / 169 groups; v13 confirmed working in game |
-| Water volumes | 282 original volumes; v17 appearance and reflections confirmed with native KCD2 water material and daytime cubemap |
-| Static buildings | v20: 41,682 placements / 1,817 meshes across the map; buildings visually confirmed near Skalitz and Rattay, broader checks pending |
-| Static props and furnishings | v26 interiors confirmed furnished; 120,776 additional brush placements. v28 contains 10,250 visual item entities, including 31 item material fixes; broader validation pending |
-| Complete individual-instance coverage | v24 reads all 1,483,225 source instances, including instanced stones and clutter; adds 177,466 foliage placements over v13. Visual LOD alignment remains under investigation |
-| Original opening position | `--kcd1-start` uses the opening quest's player CutsceneSpot, TagPoint231, including source height and facing |
-| Road objects and decals | v34: 14,198 roads and 15,698 decals in shared/initial layers; broad visual validation pending |
-| NPCs | Imported parent characters in the development population probe; body, clothing and animation compatibility still under validation |
-| Quests | Source audit, campaign packaging and opening-world integration in progress; full quest execution and save/load are unfinished |
+See the [Windows setup guide](docs/windows-setup.md) for package-only builds, logs, cancellation, installation checks and rollback.
 
-**Latest coverage audit:** see [the world import checklist](docs/world-import-checklist.md).
-The v34 development build adds 14,198 shared/initial-state road records, 15,698
-decals and 26 audited level-local landscape meshes. These additions are still
-under visual validation. NPC and quest work is described above. The checklist
-supersedes older milestone coverage statements above and distinguishes actual
-omissions from intentionally excluded states, helpers and distant proxies.
+### Run the current source
 
-This is a **terrain-porting prototype**, not a complete game port. Visible gaps, material transitions and missing world objects are still under investigation. Highest-resolution mip residency and walking collision have not been comprehensively validated.
-
-## Requirements
-
-- Windows and **Python 3.11 or newer**. The tools use the Python standard library.
-- Installed copies of both games.
-- Official **KCD2 Modding Tools**, with workspace setup completed and access to the KCD2 game assets.
-- Space for separate generated level packages and material assets. The current material bundle is approximately 234 MB; loose runtime assets take an additional copy.
-
-The default Steam library is `D:\SteamLibrary\steamapps\common`, containing:
-
-```text
-KingdomComeDeliverance/
-KingdomComeDeliverance2/
-KCD2Mod/
-```
-
-The tools target the observed `rataje` → `trosecko` compiled formats and 4096 m terrain layout. They are not a general CryEngine converter, and other game builds may need adjustments.
-
-## Quick start
-
-Clone this repository, open PowerShell in its directory, and build the visually confirmed material configuration:
+Use Windows and Python 3.14 for the setup development environment:
 
 ```powershell
 git clone https://github.com/SamG-Coder/KingdomComeGlueMapper.git
 cd KingdomComeGlueMapper
-
-python tools/upgrade_map.py --original-materials --output 'D:\SteamLibrary\steamapps\common\KCD2Mod\Data\Levels\kcd1_terrain_v6'
-python tools/verify_compiled_conversion.py --level kcd1_terrain_v6
-python tools/launch_probe.py --level kcd1_terrain_v6
+python -m venv .venv
+.venv/Scripts/python.exe -m pip install -r requirements-setup.txt
+.venv/Scripts/python.exe tools/setup_app.py
 ```
 
-Close any running Kingdom Come instance before launching. The builder refuses to overwrite an existing level or asset namespace; use a new output name for another experiment.
-
-The launcher waits for the level and player, queries terrain elevation, and places the player above the ground at **X 734.89313, Y 3421.4497**. These coordinates come from an original scene marker beside Henry's opening conversation with his mother in Skalitz; they are not a verified exact bed-spawn position.
-
-No-collision flight is on by default. Use `--walk` for a traversal test, or `--attach --level <current-level>` to reapply spawn and flight settings to an already running test. `--x`, `--y` and `--clearance` override the spawn position.
-
-Intro-skip settings are passed to the development runtime. They are recognized by the engine, but skipping every startup video has not been visually verified.
-
-### A different Steam library
-
-Supply the library and workspace paths explicitly:
+To build a distributable setup executable:
 
 ```powershell
-python tools/upgrade_map.py --library 'E:\SteamLibrary\steamapps\common' --original-materials --output 'E:\SteamLibrary\steamapps\common\KCD2Mod\Data\Levels\kcd1_terrain_v6'
-python tools/verify_compiled_conversion.py --library 'E:\SteamLibrary\steamapps\common' --level kcd1_terrain_v6
-python tools/launch_probe.py --tools 'E:\SteamLibrary\steamapps\common\KCD2Mod' --level kcd1_terrain_v6
+.venv/Scripts/python.exe tools/build_setup_exe.py
 ```
 
-### Softer texture transitions
+The executable and self-test report are written to `outputs/release`. Developer engine probes additionally use the official KCD2 Modding Tools. Older `build_*_probe.py` commands are focused experiments with specific baseline requirements, not substitutes for the combined setup workflow.
 
-For a separate comparison build:
+## Feature checklist
 
-```powershell
-python tools/upgrade_map.py --original-materials --terrain-blend-factor 1 --output 'D:\SteamLibrary\steamapps\common\KCD2Mod\Data\Levels\kcd1_terrain_v7'
-python tools/launch_probe.py --level kcd1_terrain_v7
-```
+**How to read this checklist:** a checked item means the described conversion exists in the current code. It does **not** mean every instance has passed in-game acceptance. Unchecked items are remaining work, including validation of implemented features. Runtime evidence and limitations are stated separately.
 
-This adjusts material transition shading while preserving terrain geometry, surface assignments, texture inputs and UV scales. It does **not** reconstruct missing original blend masks. The launcher defaults to v6, the screenshot-confirmed material checkpoint.
+### World, terrain and rendering
 
-## How the conversion works
+- [x] Convert compiled KCD1 terrain into the target terrain format, preserving height and surface assignments.
+- [x] Validate terrain samples, sector offsets and shared boundaries.
+- [x] Convert terrain materials and resolve texture families, streaming mips and available HD overrides.
+- [x] Import individual vegetation, instanced rocks/clutter and merged grass/ground cover.
+- [x] Import static buildings, interiors, props and supported level-local landscape geometry.
+- [x] Import initial/shared-state roads and decals.
+- [x] Repair legacy static-brush registration flags that hid ground meshes, steps and rocks.
+- [x] Convert building material features and repair supported secondary-UV blend inputs.
+- [x] Convert water volumes, stream surfaces and their material dependencies.
+- [x] Exclude explicitly later-state water from the initial world.
+- [x] Compensate the KCD1/KCD2 animation time-base difference for `Waterfall` shader materials.
+- [x] Convert interior probes, reflex lights, clipping associations and opacity voxels for basic GI.
+- [x] Register imported map imagery, detail layers and location information.
+- [ ] Finish shallow mud-puddle surface appearance over imported ground.
+- [ ] Complete broad roof/interior lighting, probe-boundary and material-fidelity validation.
+- [ ] Validate collision, LOD transitions, streaming and traversal across the entire map.
+- [x] Convert supported initial-world particles, fog and ambient audio across the main KCD1 map, using native KCD2 effects and sound controls.
+- [x] Import original KCD1 adaptive music and bind registered settlement, inn, countryside, river and cave areas to the native KCD2 music system.
+- [ ] Validate all music transitions by listening, including combat/dice outcomes, native-world return travel and remaining quest-driven states.
+- [ ] Validate environmental appearance, audibility and boundary transitions throughout every region; restore unsupported legacy mixer behavior where a suitable native contract exists.
+- [ ] Reconstruct quest-driven layer activation instead of selecting only the supported initial world.
+- [ ] Extend conversion and acceptance to separate source maps and remaining DLC/world states.
 
-### Vegetation conversion (experimental)
+**Evidence:** terrain/buildings/vegetation and selected ground repairs have in-game confirmation. Water-layer repair preserves retained records, and the flow-speed correction targets `Waterfall` materials specifically. It is not a universal adjustment to every water shader. Lighting conversion exists, but full visual parity remains open.
 
-The working **v11** build restores **541,465 individual vegetation instances**
-across **226 meshes**, including original trees and shrubs. The user confirmed
-visible nearby trees and distant forest in the [v11 screenshot](docs/images/kcd1-vegetation-in-kcd2.png). The exported
-HLOD stream contains 3,980 spatial vegetation sectors, and all 226 models loaded
-without isolated-asset load errors in the captured runtime log.
+**Environment coverage:** the installed conversion includes 1,307 particle emitters, 21 fog volumes, 1,355 audio entities and 931 linked audio boundaries across the main map's selected initial world. Missing KCD1 sounds and reverbs use explicit native KCD2 equivalents; these are semantic substitutions, not identical recordings. The corrected build reaches gameplay, resolves all 1,190 nonempty imported play-trigger references in the live engine, and received user confirmation on 13 October 2026. This is map-wide conversion coverage, not inspection of every individual effect. Quest/later-state layers and separate maps remain outside this pass. See the [environment conversion audit](docs/environment-conversion.md) for exclusions, validation and the reserved player-ID fix.
 
-The converter reads original position, scale and rotation, rewrites embedded
-absolute and relative material references in CGF files, preserves available LODs,
-and packages streamed texture families under an isolated namespace. Normal-map
-filename suffixes are preserved because the engine uses them to identify texture
-semantics. Terrain geometry and surface samples are unchanged from v6.
+Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/static_assets.py), [brush repair](tools/brush_registration.py), [water selection](tools/water_layers.py), [water timing](tools/water_animation.py), [lighting](tools/world_lighting.py), [voxel packaging](tools/world_voxels.py).
 
-An important format difference: the initial small probe put instances in the
-terrain object tree, but no vegetation was visible. The working build puts them
-in KCD2's **`terrain/hlods.dat` and `terrain/hlods.xml`** structure instead. The
-record layout was checked against 4,669,105 native vegetation records and 171,333
-brush records; generated XML offsets and instance counts are also validated.
+**Music coverage:** 119 original KCD1 scenes and 80 area bindings are installed for the main map's supported initial world. Runtime probes verify Skalitz, its inn, countryside, Rattay, Talmberg and leaving the imported-world boundary. Original town, pub and countryside scene playback is visible in the native debug overlay. Full listening acceptance, quest music and native-level return travel remain open. See the [music conversion audit](docs/music-conversion.md).
 
-After building the v6 terrain/material baseline:
+### Everyday interactions and items
 
-```powershell
-python tools/build_vegetation_probe.py --level kcd1_vegetation_v11 --all
-python tools/launch_probe.py --level kcd1_vegetation_v11 --x 748 --y 3427
-```
+- [x] Convert authored chairs and benches to native seating contracts.
+- [x] Convert supported cooking fireplaces/pots to native player interactions and effects.
+- [x] Convert authored washing troughs, including helper alignment and cleaning effects.
+- [x] Register supported imported vegetation for native herb harvesting.
+- [x] Convert supported loose items and initially populated item slots into native pickups.
+- [x] Convert authored personal chests to persistent shared player storage.
+- [x] Convert active architectural doors, including native animation contracts, locks and keys.
+- [x] Add the selected Rattay inn rental, bed and room-service contract.
+- [ ] Convert general loot containers: chests, sacks, bags, baskets, shelves and supply piles.
+- [ ] Preserve general-container inventories, locks, keys, ownership, theft legality and replenishment.
+- [ ] Convert fish traps, water/fish baskets and beehive storage interactions.
+- [ ] Convert bird nests, contents, physics and associated sounds.
+- [ ] Convert digging spots, graves and buried sacks, including tools, contents and dug-state persistence.
+- [ ] Extend usable beds and their ownership/access rules across the world.
+- [x] Convert all 113 ladders selected for the initial world to native climbing entities, preserving meshes, heights and approach settings.
+- [ ] Validate top/bottom entry and exit at every ladder; convert the 26 deferred ladders when their quest layers are supported.
+- [ ] Convert grindstone instances and verify sharpening effects.
+- [ ] Convert alchemy benches and their complete activity contracts.
+- [ ] Convert archery-target activities and dice-game locations.
+- [ ] Complete book/recipe rewards, unmapped item effects and campaign-dependent item behaviour.
+- [ ] Verify interaction state, item quantities and persistence after save/load and return travel.
 
-`--all` includes every decoded individual instance whose mesh is under the
-original vegetation path. Without it, the tool builds a small two-species patch.
-This is not complete individual vegetation coverage: the reader decodes leading
-vegetation records in each source block and stops at unsupported record types.
-Distant proxy atlases, advanced wind behaviour and exhaustive collision/LOD
-validation remain unfinished.
+**Evidence:** seating, herb picking, washing, loose-item pickup and the selected rental/bed fixes have sampled user gameplay confirmation. The inspected development level contains 274 washing triggers and 303 cooking groups; the pickup conversion report records 1,773 placements. These counts are coverage snapshots, not individual acceptance tests.
 
-#### Merged grass and ground cover (v13 confirmed working)
+Ladders: the installed development build contains 113 native ladder entities with their static duplicates removed. The user confirmed climbing works at the sampled test location on 13 October 2026. Other locations and NPC climbing remain separate acceptance checks.
 
-```powershell
-python tools/build_vegetation_probe.py --level kcd1_groundcover_v13 --all --merged
-python tools/launch_probe.py --level kcd1_groundcover_v13 --x 748 --y 3427
-```
+Sources: [chairs](tools/chairs.py), [benches](tools/benches.py), [cooking](tools/cooking_pots.py), [washing](tools/washing_troughs.py), [herbs](tools/herb_pickup.py), [pickups](tools/world_items.py), [player chests](tools/player_chests.py), [doors](tools/world_doors.py), [ladders](tools/ladders.py), [rental](tools/room_rental.py).
 
-`--merged` converts all **25,405,423 compact merged samples**, covering **83,431
-cells and 169 vegetation groups**, alongside the individual vegetation selected
-by `--all`. It preserves the original 12-byte position/scale/rotation records,
-combines the two legacy sector parts, emits KCD2-shaped merged render nodes in
-the terrain octree, and writes matching geometry identifiers into the descriptors
-and sector streams. Models, materials and streamed textures use the same isolated
-asset packaging as the individual vegetation build.
+### Wildlife and population
 
-The user confirmed **v13 merged grass and ground cover working in game**. This
-remains a prototype: comprehensive checks of every group, visibility bounds, LODs
-and wind behaviour are still outstanding. The [v17 water screenshot](docs/images/kcd1-water-in-kcd2.png) includes merged ground cover.
+- [x] Map supported KCD1 wildlife sites to native KCD2 animal definitions.
+- [x] Convert boar, red-deer stag, red-deer doe and roe-buck spawn sites.
+- [x] Convert forest/dynamic hare-area polygons and authored population overrides.
+- [x] Remap native scheduler dependencies, area links and positioning delegates.
+- [x] Register **229 wildlife sites**, configuring **752 animals** across supported populations.
+- [x] Package navigation for the imported destination.
+- [x] Provide character conversion and selected NPC placement, dialogue and activity integrations.
+- [ ] Convert remaining regional wildlife contracts and livestock populations.
+- [ ] Improve sparse hare encounters; the distributed-habitat experiment was rolled back after a loading crash. See the [regional audit](docs/wildlife-conversion.md#regional-audit-and-deferred-hare-experiment--13-october-2026).
+- [ ] Restore ambient fish groups and remaining ambient animals.
+- [ ] Expand NPC population, household ownership and daily routines across the world.
+- [ ] Verify wildlife hunting/loot, fractional-day respawn handling and save/load persistence.
+- [ ] Validate navigation and activity selection at every habitat and settlement.
 
-The local v13 level completed loading and confirmed terrain-based spawn with
-no-collision flight. Every packaged sector was checked against its octree group
-descriptors; all 83,431 cell counts and geometry identifiers matched. The runtime
-also reports missing item database definitions for three namespaced plant models;
-harvesting/respawn gameplay is not converted.
+**Evidence:** runtime sampling found native boar, hare, red-deer doe/stag and roe-buck actors. Two boars changed position between samples. The 752 figure is configured population, not a simultaneous active-actor count. Hare areas use native regional populations rather than an exact reproduction of KCD1's player-centred spawning.
 
-Assets are installed under `KCD2Mod/Data/glueveg/<level>/`. The vegetation level
-also depends on the base level's terrain-material namespace; keep those assets
-installed. Source game assets and generated outputs are not distributed here.
-The default launcher remains on the terrain-only v6 checkpoint; select v11
-explicitly as above.
+Sources: [wildlife converter](tools/wildlife.py), [wildlife scope and validation](docs/wildlife-conversion.md), [navigation](tools/campaign_navigation.py), [character conversion](docs/character-upgrader.md).
 
-Asset-free binary checks: `python -m unittest discover -s tests -v`.
+### Travel, services and campaign
 
-### Water conversion (v17 confirmed working)
+- [x] Build world conversion and coach travel into one installable mod.
+- [x] Register the imported destination and native level/gameplay lifecycle.
+- [x] Add selected Rattay, miller and horse-trader service integrations.
+- [x] Register a bounded set of native open-world gameplay graphs and audit dependencies.
+- [x] Provide source quest, dialogue and campaign dependency inspection/conversion tooling.
+- [ ] Complete companion transfer and persistence acceptance through repeated round trips.
+- [ ] Complete haggling and broader merchant/service coverage.
+- [ ] Bind destination guards, crime, jail, punishment and escape locations.
+- [ ] Convert teachers, bathhouses and remaining regional services.
+- [ ] Complete original KCD1 quests, cinematics, voice/timing and campaign progression.
+- [ ] Validate campaign-wide saving/loading and cross-region state preservation.
+- [ ] Provide KCD1 save migration; no existing-save conversion is currently supplied.
 
-The user confirmed water appearance and reflections working in the v17 build,
-shown in the [v17 water screenshot](docs/images/kcd1-water-in-kcd2.png). This local confirmation does not establish full river coverage. Build on the existing v13 ground-cover level:
+**Evidence:** coach access, map display and selected retail services have recorded gameplay confirmation. Registering native combat, shop, repair or sharpening graphs does not establish every actor or world object is wired to them. The full original campaign remains unfinished.
 
-```powershell
-python tools/build_water_probe.py --base-level kcd1_groundcover_v13 --level kcd1_water_v17 --native-water-materials
-python tools/launch_probe.py --level kcd1_water_v17 --x 730 --y 3270 --clearance 5
-```
+Sources: [combined setup backend](tools/desktop_setup.py), [region builder](tools/region_travel.py), [gameplay graph registration](tools/world_gameplay_basis.py), [campaign tools](tools/setup_campaign.py).
 
-This converts **282 original water volumes**: 197 area polygons and 85 river
-segments. Original surface and physics-contour coordinates, volume IDs, fog
-settings, depth and flow speed are preserved. The 57 source material-less volumes
-remain material-less. The existing terrain and vegetation are retained.
+### Packaging and quality
 
-The confirmed configuration uses `--native-water-materials` to bind the installed
-KCD2 river material. The original global environment probe is restored with an
-explicit installed KCD2 **07:00 cubemap**. This avoids the missing texture fallback
-from an empty dynamic probe path in a newly generated level. The cubemap is a
-**fixed daytime fallback**; the original day/night probe sequence and local baked
-probes have not been converted.
+- [x] Detect Steam installations and validate supported game versions.
+- [x] Offer package-only builds and installation of an existing verified package.
+- [x] Stage installation with receipt checks, backups and rollback handling.
+- [x] Retain build logs, progress events and conversion reports.
+- [x] Run asset-free regression tests and CLI checks in Windows CI.
+- [x] Build a Windows setup executable with a bundled-runtime self-test.
+- [ ] Run a fresh complete build and retail acceptance pass for each release candidate.
+- [ ] Complete whole-map visual and gameplay acceptance, including persistence and mod compatibility.
 
-Omitting `--native-water-materials` retains the experimental conversion of seven
-original water materials, packaging textures under `KCD2Mod/Data/gluewater/<level>/`.
-That path translates shader features into both named features and numeric masks
-using the installed target definitions. Named features alone did not activate
-reflections in this runtime. The original-material path is not the visually
-accepted v17 configuration.
+## Current world-object audit
 
-Validation covers the complete source and native object streams, including road
-record strides needed to locate water safely. All 282 surface/physics-contour
-payloads were compared byte for byte, and the two new auxiliary defaults match
-all 115 installed native water volumes. The runtime confirmed level load, fly
-mode and an active probe with the explicit cubemap bound. The asset-free suite
-includes water and static-brush record checks. Swimming, full flow behaviour and exhaustive shoreline checks
-remain unverified. Keep the base terrain and vegetation asset namespaces installed.
+The following snapshot compares source mission/layer entities selected by the converter's initial-layer filter with the installed development level on **13 October 2026**. Source identities are deduplicated. These are conversion targets, not instructions to force every quest-state object into the live world.
 
-### Static buildings (experimental)
+| Area | Source audit | Current conversion gap |
+|---|---:|---|
+| Storage | 2,778 `Stash` entities | Installed level has 11 native stashes, including nine personal chests; general storage is not converted. |
+| Fish traps | 63 stashes using three fish-trap model types | Part of general storage; water/fish baskets are additional variants. |
+| Nests | 103 | No converted nest registrations in the inspected level. |
+| Digging | 79 holes: 63 grave pits and 16 buried sacks | No converted digging registrations. |
+| Ambient fish | 41 fish-group entities | Separate from trap/container interaction; not converted. |
+| Ladders | 113 | Converted to native climbing entities; sampled player test confirmed. Another 26 are deferred with inactive layers. |
+| Grindstones | 11 | Global sharpening service registration does not activate these instances. |
+| Alchemy benches | 7 | Complete native activity conversion remains. |
+| Shooting targets / dice cups | 8 / 13 | Activity and participant conversion remains. |
+| Beds | 1,387 | Two native bed triggers in the inspected level; world-wide bed coverage remains. |
 
-The first building probe selects intact and shared static structures within
-400 metres of the Skalitz starting area. It excludes the destroyed town layers
-and adds buildings, structural meshes and fences to the confirmed v17 water level:
+Some KCD2 systems use different entity classes, so class counts alone are not proof of missing functionality. These gaps were cross-checked against the converter implementations. Counts describe the inspected source/build, not every game version or a published release guarantee.
 
-```powershell
-python tools/build_buildings_probe.py --base-level kcd1_water_v17 --level kcd1_buildings_v19
-python tools/launch_probe.py --level kcd1_buildings_v19 --clearance 5
-```
+## Next priorities
 
-The selected source contains **4,555 placements across 586 meshes**. Conversion
-preserves each original transform, maps the 100-byte source brush record to the
-104-byte target layout, and appends spatial clusters to the existing HLOD stream.
-Models, available LODs, materials and streamed texture families are packaged under
-`KCD2Mod/Data/gluebuild/<level>/`, including installed HD and patch overrides.
-Existing terrain, vegetation and water object payloads are retained unchanged.
+1. **General containers:** convert the authored `Stash` family and inventory dependencies, covering ordinary chests, sacks, bags, shelves, fish traps and beehives. Preserve personal shared storage as a distinct contract.
+2. **Nests and digging:** add native interactions, contents, effects and persistent state.
+3. **World activities:** extend beds, sharpening, alchemy and minigames; validate ladder access throughout the world.
+4. **Population and ownership:** expand NPCs, livestock, homes, schedules and regional services.
+5. **World parity and persistence:** close visual gaps and verify save/load, travel, respawn and quest-state transitions.
 
-The initial v18 runtime loaded buildings but visual testing exposed incorrect
-second-UV texture bindings and burned debris mixed into the intact town. The v19
-converter maps Illum second-UV colour textures from `[1] Diffuse` to the target
-`Opacity` slot and excludes ambiguous `pc` layers. Named shader features take
-precedence over serialized numeric masks, whose global bits are not shader-local
-`.ext` masks. The original separate tiled blend mask cannot share the target
-second-UV slot, so exact moss/dirt blend fidelity remains unverified.
-
-Visual alignment, material appearance, streaming and collision validation remain
-pending. Original CGF geometry and physics
-chunks are retained, with a neutral target collision class. Dynamic doors, NPCs,
-quest-driven layer changes and full-world building coverage are not included.
-Keep the inherited terrain and vegetation asset namespaces installed. `--radius`
-changes the selection radius from 1 to 1,000 metres; choose a new `--level` name
-when rebuilding because existing outputs are never overwritten.
-
-#### Full-map structures
-
-```powershell
-python tools/build_buildings_probe.py --all --level kcd1_buildings_v20
-python tools/launch_probe.py --level kcd1_buildings_v20 --clearance 5
-```
-
-`--all` removes the Skalitz distance restriction and includes shared layer-zero
-structures plus explicitly named `_state0` and `_state0_prefabs` layers across
-the original world. The installed source selects **41,682 placements across
-1,817 meshes**. This is geographical expansion of static structures, not a
-conversion of every quest state: later states, ambiguous platform layers and
-dynamic entities remain excluded. The generated report lists excluded layers
-and their placement counts. Existing water and vegetation are retained.
-
-Large builds stage assets on disk to bound RAM use. Keep enough free space for
-both temporary and installed assets; the temporary staging directory is removed
-when the build finishes. Full-world visual, collision and streaming coverage
-still requires in-game validation.
-
-The local v20 build installed 45,927 files (approximately 9.1 GB), with no missing
-material texture references, and completed runtime loading with flight enabled.
-Runtime caveats include zero mean-face-area reports for a quarry tent mesh and
-a Johanka stairs proxy, empty bounds on tent/rope pieces, a missing render mesh
-on an ash-pile LOD, and a rejected collision proxy for the large Uzhitz
-church interior (6,427 triangles exceed the target's 5,000-triangle limit).
-These warnings do not establish visual failure, but collision is not fully converted.
-
-### Known water issues near Rattay
-
-The user reported a stray flat water surface beside the castle/bridges and missing
-river sections in the v20 build. The screenshot above records the stray plane.
-The recorded inspection position was approximately **X 2798, Y 504, Z 52**.
-A nearby original water volume references `materials/terrain/river/river_sazava_02`,
-but this proximity does not prove it causes the visible plane. The source volume
-selection, target polygon rendering and missing river geometry require further
-investigation. Neither issue is fixed by this buildings checkpoint.
-
-#### Stream geometry and castle-plane test (v21 / v22)
-
-The original world also contains separately placed stream surfaces, banks and
-waterfalls. These were outside the first water-volume and building selections.
-The incremental v21 build adds **8,802 placements across 117 models**, including
-their original transforms, material overrides and LODs, without rebuilding the
-existing building assets:
-
-```powershell
-python tools/build_buildings_probe.py --all --streams-only --base-level kcd1_buildings_v20 --level kcd1_streams_v21
-```
-
-The user confirmed the stray castle plane disappears when water volumes are
-temporarily disabled. A separate v22 test removes only the surface material of
-the suspect sloped volume `0x44bfc6118f6b83a9`, retaining its geometry, fog and
-physics-contour bytes and leaving all other volumes unchanged:
-
-```powershell
-python tools/build_water_surface_probe.py --base-level kcd1_streams_v21 --level kcd1_water_v22 --suppress-surface 0x44bfc6118f6b83a9
-python tools/launch_probe.py --level kcd1_water_v22 --x 2764.04 --y 681.137 --clearance 5
-```
-
-This is a **targeted rendering workaround**, not a reconstruction of the original
-sloped-water behavior. The combined test loaded successfully, but visual river
-coverage and physics behavior still require confirmation. The 57 original
-material-less river segments remain unchanged; assigning a surface to them
-without evidence could add further unwanted water. Keep the v20 and v21 asset
-namespaces installed. Existing level outputs are never overwritten.
-
-### Terrain and materials pipeline
-
-1. Read compiled terrain and level metadata from the installed KCD1 `rataje` archives.
-2. Validate the observed binary layout and compare it with installed KCD2 data.
-3. Convert the node headers, height/surface packing and geometry-error layout.
-4. Rebuild the minimal runtime level and mission documents, leaving outdoor objects explicitly empty.
-5. Optionally package the original terrain materials and all referenced DDS families, overlaying installed HD files on their base assets.
-6. Verify sample preservation, sector boundaries and material dependencies before testing in the target runtime.
-
-A key discovery was that the installed KCD1 height samples already use **fixed 5 cm increments**, despite a legacy variable-range value remaining in their headers. Using that legacy range produced steps up to 46.2 m between sectors. Fixed-step decoding restored continuous terrain and matched live target-engine height queries.
-
-Terrain material feature masks are translated through named shader features instead of copying numeric masks across engine versions. Texture dependencies include numbered streaming mips and split alpha/gloss files; copying the base DDS alone is insufficient.
-
-## Generated files and isolation
-
-The converter writes a new level under `KCD2Mod/Data/Levels/<name>`, plus an `upgrade-report.json`. Material builds also create:
+## Architecture and validation
 
 ```text
-KCD2Mod/Data/gluemapper_<name>.pak
-KCD2Mod/Data/gluemapper/<name>/
+Installed KCD1 archives + installed KCD2 reference assets
+                         |
+           Terrain / geometry / material conversion
+                         |
+          Native gameplay contracts and dependencies
+                         |
+             World + travel package verification
+                         |
+             Mods/kingdomcomegluemapper
 ```
 
-The loose namespace is required by the tested development runtime: placing an arbitrary archive in `Data` did not automatically make its materials available. Every asset reference is namespaced to avoid replacing official materials or textures.
+The setup's conversion plan builds the world, packages its dependencies, calls the region builder for gameplay/travel, and combines the result. Source transforms and identities are retained or explicitly remapped; unsupported dependencies are reported rather than assumed compatible.
 
-Retail archives and the modding workspace's retail symlinks are not modified. To remove a test, close the game and remove only its generated level directory, matching `gluemapper_<name>.pak`, and matching `gluemapper/<name>` directory. Keep any output still used by another test.
+| Entry point | Responsibility |
+|---|---|
+| [setup_app.py](tools/setup_app.py) / [desktop_setup.py](tools/desktop_setup.py) | Setup interface, preflight, build orchestration and installation. |
+| [setup_campaign.py](tools/setup_campaign.py) | World packaging, registration and campaign-oriented developer commands. |
+| [region_travel.py](tools/region_travel.py) | Destination lifecycle, travel, gameplay converters, lighting and wildlife. |
+| [travel_bridge_package.py](tools/travel_bridge_package.py) | Combine world/travel packages and apply supported compatibility repairs. |
+| [tests](tests) / [CI workflow](.github/workflows/validate.yml) | Regression checks, Python compilation and selected CLI entry points. |
 
-## Tools and validation
-
-The current visible-item pass preserves original world transforms, resolves pickable-item
-database models, and composes parent-local item placements. Items use static visual
-entities: inventory, pickup, container interactions and quest logic are not imported.
-Shared mission entities and explicitly identified initial-state layers are included;
-later states and unsupported models are recorded in the local reports.
-Level-local designer geometry is excluded: the v27 experiment exposed editor
-blockers and giant helper planes, so v28 restores the v26 geometry set.
-
-To build from the water/stream checkpoint and the original v13 vegetation report:
+Run the test suite from the source environment:
 
 ```powershell
-python tools/build_buildings_probe.py --base-level kcd1_water_v22 --level my_props --all --props-only
-python tools/complete_instances.py --base-level my_props --level my_world --original-report "D:\SteamLibrary\steamapps\common\KCD2Mod\Data\Levels\kcd1_groundcover_v13\vegetation-report.json"
-python tools/launch_probe.py --level my_world --kcd1-start
+.venv/Scripts/python.exe -m pip install -r requirements-test.txt
+.venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-Use fresh level names. `complete_instances.py` requires a base with exactly the
-individual-instance set recorded in that report; it preserves existing buildings,
-water, merged sectors and resource indices. `build_entity_probe.py` can append missing
-visual entities to an existing checkpoint without adding duplicates by source ID.
+CI currently checks Python 3.11 and 3.14 on Windows. It does not have the games installed and cannot verify appearance or gameplay. Local binary checks, frozen-executable checks, development-client tests and retail gameplay are separate validation steps.
 
-In the development console, switch to walking with
-`#player.player:SetFlyMode(FlyMode_Off)` and back to flight with
-`#player.player:SetFlyMode(FlyMode_OnNoCollisions)`.
+## Documentation and issue reports
 
-The installed KCD2 shader include has a compilation failure in an instanced variant:
-`Get_BindlessBoneOffset_Prev` references an unavailable `CD_CustomData` constant.
-`python tools/fix_instanced_shader.py` generates a small loose include override from
-the user's installed shader source, selecting the instance buffer for that variant.
-It also corrects `ShadowMotionBias`, which references an unavailable
-`CD_CustomData2` in instanced shadow variants; those variants use a neutral
-per-object multiplier of one because the instance buffer has no such field.
-It does not modify archives or distribute engine source. Both reported compilation
-errors are resolved in v28: the inspected log contains 1,984 distinct compilations
-and zero compile failures. The user confirmed the test completed. Wider shadow
-appearance and LOD alignment validation remain necessary.
-Restart after installing the overrides. They can be removed by deleting only
-the generated loose `ModificatorVT.cfi` and `CommonShadowGenPass.cfi` files in
-`KCD2Mod/Engine/Shaders/HWScripts/CryFX/`.
+- [Setup, installation and rollback](docs/windows-setup.md)
+- [Wildlife conversion and remaining runtime checks](docs/wildlife-conversion.md)
+- [World pickups](docs/world-pickups.md) · [Herb harvesting](docs/herb-pickup.md)
+- [Washing troughs](docs/washing-troughs-test.md) · [Room rental and bed contracts](docs/room-rental-test.md)
+- [Gameplay-system dependencies](docs/world-gameplay-basis.md)
+- [Static-brush visibility repair](docs/brush-registration.md) · [Water-layer selection](docs/water-layer-selection.md)
+- [Building material investigation](docs/building-material-audit.md) · [Water animation compatibility](docs/water-animation-compatibility.md)
+- [Historical world inventory](docs/world-import-checklist.md) · [Development notes](docs/development-notes.md)
 
-| Tool | Purpose |
-|---|---|
-| `tools/audit_maps.py` | Read-only archive inventory and bounded header inspection |
-| `tools/compiled_terrain.py` | Terrain parser and elevation converter |
-| `tools/upgrade_map.py` | Build an isolated compiled test level |
-| `tools/terrain_materials.py` | Resolve, namespace, package and verify texture dependencies |
-| `tools/verify_compiled_conversion.py` | Check every height/surface sample and shared sector boundaries |
-| `tools/build_vegetation_probe.py` | Build original vegetation instances and KCD2 HLOD metadata |
-| `tools/vegetation.py` | Bounded vegetation/HLOD readers and instance conversion |
-| `tools/launch_probe.py` | Launch the development runtime and apply spawn/flight settings |
-| `tools/build_water_probe.py` | Build original water volumes with the confirmed native-material option |
-| `tools/water_volumes.py` | Bounded object-stream reader and water record conversion |
-| `tools/build_buildings_probe.py` | Build intact Skalitz static structures on the water checkpoint |
-| `tools/building_brushes.py` | Static brush record conversion and resource-table checks |
-| `tools/static_assets.py` | Package referenced CGF, material and texture assets in isolation |
-| `tools/entity_visuals.py` | Resolve initial-world item models and parent transforms |
-| `tools/build_entity_probe.py` | Append visible furnishings and placed items |
-| `tools/complete_instances.py` | Complete mixed-stream foliage and instanced prop coverage |
-| `tools/fix_instanced_shader.py` | Generate a local correction for the installed instanced shader variant |
-| `tools/stage_map_probe.py` | Historical unconverted-copy diagnostic; not needed for normal use |
-| `tools/compare_packages.py` | Compare two packages or build folders by content, ignoring archive write times |
+Historical documents contain dated experiment results and commands. Use this checklist for current scope, the current code for implementation, and release notes for a particular downloaded build.
 
-Local checks require your installed game files. GitHub Actions checks Python compilation, CLI entry points and asset-free vegetation binary tests on Windows; it does **not** run the games or establish runtime compatibility.
+For a useful [issue report](https://github.com/SamG-Coder/KingdomComeGlueMapper/issues), include the converter commit/release, game version, location or coordinates, a screenshot and reproduction steps. State whether the failure concerns appearance, collision, interaction or persistence. Attach relevant log excerpts or report files without distributing game archives.
 
-See [development notes](docs/development-notes.md) for the experiment history and observed format differences. Local logs, reports, extracted engine references and generated assets are intentionally excluded from this repository.
-
-## Roadmap
-
-**Current milestone: vegetation.** Individual vegetation is now rendering in KCD2, with a world-wide v11 build and a visual confirmation near Skalitz. Merged grass and ground cover are also confirmed working in the v13 build. Remaining work includes broader merged-sector checks, proxy/LOD behaviour, wind, collision and placement validation.
-
-1. **Read the vegetation data.** Trace species definitions, placed instances and merged vegetation records in the compiled KCD1 packages, and compare their representation with KCD2.
-2. **Convert one representative patch.** Resolve a few tree, shrub and ground-cover assets with their materials and texture dependencies. Preserve source positions, rotation and scale wherever the compiled data provides them.
-3. **Validate in game.** Check terrain alignment, foliage transparency, lighting, shadows, collision where applicable, and visibility at near and far distances. Test LOD transitions and streaming before increasing the instance count.
-4. **Expand across the world.** Extend the converter to the remaining vegetation types and merged vegetation data, measuring performance as coverage grows.
-
-The first rendering checkpoint is confirmed: original vegetation is visible near Skalitz in a reproducible build. Stable distance transitions, complete coverage and collision still require further validation. A resource-table scan or successful asset extraction alone does not complete those checks.
-
-**Water milestone: v17 confirmed working.** Original water geometry now renders with native KCD2 water materials and a valid daytime reflection fallback. Remaining water work includes the day/night probe sequence, local probes, swimming and broader shoreline/flow validation. The v20 checkpoint expands static buildings across the map. Next work includes the stray water plane and missing river sections near Rattay, remaining placed objects, terrain gaps and material transitions, and road geometry. Walking/collision and world-streaming validation precede NPCs, navigation and quests.
+Known visual follow-up: [shallow mud puddles lose their wet surface over imported ground (#18)](https://github.com/SamG-Coder/KingdomComeGlueMapper/issues/18). The physical-surface correction and the missing wet appearance are separate issues.
 
 ## License and game content
 
-The original Python tooling is released under the [MIT license](LICENSE). Game content, trademarks and the in-game screenshot belong to their respective rights holders and are not covered by that code license.
+The original tooling is released under the [MIT license](LICENSE). Game assets, trademarks and screenshots belong to their respective rights holders and are not covered by that code license. Third-party tool notices are retained under [third_party](third_party).
 
-No game archives, extracted textures, meshes, engine source or generated level packages are distributed here. The converter reads assets from your own installations. This is an independent experimental project, not an official Warhorse Studios or publisher release.
+No game archives, extracted textures, meshes or generated world packages are distributed by this repository. Conversion requires your own installed games. KingdomComeGlueMapper is an independent experimental project, not an official Warhorse Studios or publisher release.

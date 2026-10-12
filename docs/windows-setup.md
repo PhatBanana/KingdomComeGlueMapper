@@ -58,18 +58,33 @@ package's worth of disk although Explorer reports both sizes. Either folder can
 be deleted safely without affecting the other. The current release starts a fresh build when
 retrying a failed conversion; it does not claim checkpoint resume support.
 
-To check that a code change leaves the output unchanged, build a package before
-and after it, then compare the two `package` folders:
+## Comparing builds (source tooling)
+
+The source tool compares generated packages without treating archive write times
+or the manifest creation date as content changes. From the repository root:
 
 ```powershell
-python tools/compare_packages.py --left <run-before>\package --right <run-after>\package
+.venv/Scripts/python.exe tools/compare_packages.py `
+  --left "D:\Builds\before\package" `
+  --right "D:\Builds\after\package" `
+  --deep
 ```
 
-Receipt hashes alone differ between identical builds, because most archives
-record when each entry was written and `mod.manifest` records its creation date.
-The comparison ignores those values, checks every archive entry's name, order,
-compression, size and CRC-32 (`--deep` hashes every entry instead), and requires
-all other files to match. It exits with status 1 and lists the differences otherwise.
+Replace the example paths with your build directories. The default mode compares
+archive entry names, order, compression, sizes and stored CRC-32 values. Use
+`--deep` for verification: it reads and hashes every entry with SHA-256 and
+checks stored CRCs. This takes longer than reading archive metadata alone.
+
+The tool ignores ZIP timestamps, `created_on` in `mod.manifest`, and corresponding
+receipt digests. Other files and receipt fields are compared. It prints JSON and
+exits with status 1 when differences are found. `--ignore "*report.json"` excludes
+matching relative file paths and their entries in installation receipts; use
+exclusions deliberately because those files are then outside the comparison.
+
+Equivalent contents do not establish valid installation receipts or runtime
+compatibility. The installer's package verification remains necessary. This is
+a developer command, not an extra step required by normal Windows setup, and
+its presence in source does not imply an older downloaded EXE contains it.
 
 ## Installation and rollback
 
