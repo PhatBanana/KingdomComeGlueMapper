@@ -476,6 +476,12 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 replacements['mission_mission0.xml']=world_voxels.configure_environment(replacements['mission_mission0.xml'])
                 lighting_report['indirect_lighting']='Native basic GI with converted KCD1 opacity voxels and environment probes'
                 entry_report['lighting']=lighting_report
+                import wildlife
+                wildlife_files = {n: replacements[n] if n in replacements else read(z, names[n])
+                                  for n in wildlife.LEVEL_FILES}
+                wildlife_files, wildlife_report = wildlife.convert_level(wildlife_files, source, target, ground)
+                replacements.update(wildlife_files)
+                entry_report['wildlife'] = wildlife_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
