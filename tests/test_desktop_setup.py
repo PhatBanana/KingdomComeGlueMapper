@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from game_paths import GameLibrary
 from steam_installations import discover, read_vdf
-from desktop_setup import Cancelled, conversion_plan, install_transaction, preflight, worker
+from desktop_setup import Cancelled, EventLog, conversion_plan, install_transaction, preflight, worker
 from setup_campaign import MOD_ID, RECEIPT, verify_package
 
 
@@ -194,6 +194,35 @@ class DesktopSetupTests(unittest.TestCase):
         events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
         self.assertEqual(events[-1]['kind'], 'done')
         self.assertIn('Region travel installed', events[-1]['message'])
+
+
+    def run_stages(self, profile):
+        log = EventLog(self.root / 'events.jsonl', profile=profile)
+        log.emit('stage', index=0, total=2, label='Terrain and original materials')
+        sorted(range(10000), key=lambda n: -n)
+        log.emit('stage', index=1, total=2, label='Package converted world')
+        log.emit('done', message='Complete')
+        log.stream.close(); log.text.close()
+        return [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
+
+    def test_every_stage_is_timed_before_the_final_event(self):
+        events = self.run_stages(profile=False)
+        self.assertEqual(events[-1]['kind'], 'done')
+        timed = [e['label'] for e in events if e['kind'] == 'log' and 'seconds' in e]
+        self.assertEqual(timed, ['Terrain and original materials', 'Package converted world'])
+        times = json.loads((self.root / 'stage-times.json').read_text())
+        self.assertEqual([t['label'] for t in times], timed)
+        log = (self.root / 'setup.log').read_text()
+        self.assertIn('Finished Terrain and original materials in', log)
+        self.assertIn('Stage times:', log)
+        self.assertFalse((self.root / 'profiles').exists())
+
+    def test_profiling_saves_a_report_per_stage(self):
+        self.run_stages(profile=True)
+        self.assertEqual(sorted(p.name for p in (self.root / 'profiles').iterdir()),
+                         ['00-terrain-and-original-materials.prof', '00-terrain-and-original-materials.txt',
+                          '01-package-converted-world.prof', '01-package-converted-world.txt'])
+        self.assertIn('function calls', (self.root / 'profiles/00-terrain-and-original-materials.txt').read_text())
 
 
 if __name__ == '__main__': unittest.main()

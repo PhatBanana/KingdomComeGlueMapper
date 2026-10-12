@@ -1,5 +1,6 @@
 """Desktop setup backend. All conversion output stays in a private job directory."""
 from contextlib import redirect_stdout, redirect_stderr
+import cProfile
 from datetime import datetime
 import hashlib
 import importlib
@@ -7,6 +8,8 @@ import io
 import json
 import os
 from pathlib import Path
+import pstats
+import re
 import shutil
 import subprocess
 import sys
@@ -212,16 +215,51 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
 
 
 class EventLog:
-    def __init__(self, path):
+    """Structured events plus setup.log, timing every stage; profile=True also saves cProfile output."""
+    def __init__(self, path, profile=False):
         self.stream = Path(path).open('a', encoding='utf-8', buffering=1)
         self.text = Path(path).with_name('setup.log').open('a', encoding='utf-8', buffering=1)
         self.last_progress = 0
+        self.directory, self.profile = Path(path).parent, profile
+        self.stage, self.times = None, []
 
     def emit(self, kind, **values):
+        if kind in ('stage', 'done', 'error', 'cancelled'):
+            self.finish_stage()
+        if kind in ('done', 'error', 'cancelled') and self.times:
+            self.summarize_times()
         self.stream.write(json.dumps(dict(kind=kind, time=time.time(), **values)) + '\n')
         if kind != 'progress':
             self.text.write(f'[{datetime.now():%H:%M:%S}] {values.get("message", values.get("label", kind))}\n')
             if 'traceback' in values: self.text.write(values['traceback'] + '\n')
+        if kind == 'stage':
+            profiler = cProfile.Profile() if self.profile else None
+            self.stage = (values['label'], time.perf_counter(), profiler)
+            if profiler: profiler.enable()
+
+    def finish_stage(self):
+        if self.stage is None: return
+        label, started, profiler = self.stage
+        self.stage = None
+        seconds = round(time.perf_counter() - started, 1)
+        if profiler:
+            profiler.disable()
+            name = f'{len(self.times):02d}-' + re.sub(r'[^a-z0-9]+', '-', label.lower()).strip('-')[:60]
+            (self.directory / 'profiles').mkdir(exist_ok=True)
+            report = io.StringIO()
+            stats = pstats.Stats(profiler, stream=report)
+            stats.sort_stats('tottime').print_stats(40)
+            stats.sort_stats('cumulative').print_stats(40)
+            (self.directory / 'profiles' / (name + '.txt')).write_text(report.getvalue(), encoding='utf-8')
+            stats.dump_stats(self.directory / 'profiles' / (name + '.prof'))
+        self.times.append(dict(label=label, seconds=seconds))
+        self.emit('log', message=f'Finished {label} in {seconds:.1f} s', label=label, seconds=seconds)
+
+    def summarize_times(self):
+        (self.directory / 'stage-times.json').write_text(json.dumps(self.times, indent=2), encoding='utf-8')
+        slowest = sorted(self.times, key=lambda t: -t['seconds'])[:5]
+        self.emit('log', message=f'Stage times: {sum(t["seconds"] for t in self.times):.0f} s total; slowest '
+                  + ', '.join(f'{t["label"]} {t["seconds"]:.0f} s' for t in slowest))
 
     def progress(self, label, current, total, detail=''):
         now = time.monotonic()
@@ -246,7 +284,7 @@ def worker(config_path):
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text(encoding='utf-8'))
     job = config_path.parent
-    events = EventLog(job / 'events.jsonl')
+    events = EventLog(job / 'events.jsonl', profile=os.environ.get('GLUEMAPPER_PROFILE') == '1')
     output = LogWriter(events)
     setup_progress.sink = events.progress
     cancel = lambda: (job / 'cancel.requested').exists()

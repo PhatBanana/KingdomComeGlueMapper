@@ -50,6 +50,14 @@ selected folders must be writable by the current Windows user.
   The saved build output and log remain available for diagnosis.
 - **Open log** opens `setup.log`; `events.jsonl` retains structured progress and
   errors. **Open output folder** opens the current run's directory.
+- **Stage times (current source)** are logged as each stage finishes, summarized
+  at the end, and saved as `stage-times.json` in the run folder. Older downloaded
+  releases may not include this feature. To see where a slow stage spends
+  its time, set `GLUEMAPPER_PROFILE=1` before starting setup (PowerShell:
+  `$env:GLUEMAPPER_PROFILE = '1'`, then run the executable or `python tools/setup_app.py`
+  from that window). Each stage then writes a cProfile text summary and a `.prof`
+  file under `profiles/`. Profiling slows the build, so don't compare its times
+  with an ordinary run.
 
 Build output is retained rather than automatically deleting large directories.
 Each run uses a unique folder. On NTFS, the run's `package` folder hard-links the
