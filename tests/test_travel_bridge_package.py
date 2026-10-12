@@ -103,13 +103,16 @@ class BridgePackageTests(unittest.TestCase):
             (package/'roof-clip-repair.json').write_text('{}')
             return dict(roof_placements=3, changed_clip_count=2, linked_probe_count=1)
         with patch('travel_bridge_package.level_registration', return_value=self.native_level), \
-             patch('roof_clip_repair.repair_package', side_effect=finish) as repair:
+             patch('roof_clip_repair.repair_package', side_effect=finish) as repair, \
+             patch('brush_registration.repair_package', return_value={'changed_brushes': 7}) as brushes:
             output = combine(self.base, self.bridge, 'target', self.root/'combined')
         self.assertEqual(repair.call_count, 1)
         result = verify_package(output)
         self.assertEqual(result['files'][level], hashlib.sha256(b'repaired').hexdigest())
         self.assertIn('roof-clip-repair.json', result['files'])
         self.assertEqual(result['travel_bridge']['roof_clipping']['changed_clip_count'], 2)
+        brushes.assert_called_once_with(output)
+        self.assertEqual(result['travel_bridge']['brush_registration']['changed_brushes'], 7)
 
 
 if __name__ == '__main__': unittest.main()

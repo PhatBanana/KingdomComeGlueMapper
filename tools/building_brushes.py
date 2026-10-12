@@ -2,6 +2,10 @@
 import math
 import struct
 
+# KCD1 serialized static-instancing bit. The imported brushes are ordinary
+# KCD2 HLOD placements, not members of a rebuilt native instancing graph.
+LEGACY_STATIC_INSTANCING = 1 << 20
+
 
 # Explicitly audited visible materials in the excluded level-local brush set.
 # Other designer solids include collision barriers and giant editor helpers.
@@ -53,7 +57,7 @@ def convert_brush(data, offset, mesh, material):
     struct.pack_into("<i", result, 96, material)
     # State selection is explicit in the builder; make selected brushes visible.
     flags = struct.unpack_from("<Q", result, 32)[0]
-    struct.pack_into("<Q", result, 32, flags & ~(1 << 8))
+    struct.pack_into("<Q", result, 32, flags & ~((1 << 8) | LEGACY_STATIC_INSTANCING))
     if result[44:92] != old[40:88]:
         raise ValueError("Brush transform changed")
     return bytes(result)

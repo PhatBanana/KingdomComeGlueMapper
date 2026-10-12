@@ -43,5 +43,12 @@ class BuildingTests(unittest.TestCase):
         self.assertEqual(data[4:260].split(b"\0")[0],b"gluebuild/test/mesh0.cgf")
         with self.assertRaises(ValueError):resource_table(["a"*256])
 
+    def test_legacy_instancing_is_not_carried_into_native_brush(self):
+        source = bytearray(self.record())
+        struct.pack_into('<I', source, 32, 0x40100408)
+        result = convert_brush(source, 0, 7, -1)
+        self.assertEqual(struct.unpack_from('<Q', result, 32)[0], 0x40000408)
+        self.assertEqual(result[44:92], source[40:88])
+
 
 if __name__=="__main__":unittest.main()

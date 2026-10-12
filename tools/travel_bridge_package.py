@@ -130,9 +130,12 @@ def combine(base, bridge, target, output):
     if (output/'Data/Levels/kcd1_travel/level.pak').is_file():
         from roof_clip_repair import repair_package
         roof_report = repair_package(output, receipt['sources']['kcd1'])
+        from brush_registration import repair_package as repair_brushes
+        brush_report = repair_brushes(output)
     receipt.update(version=VERSION, menu=False, start_probe=False,
                    travel_bridge=dict(files=bridge_files, destination='kcd1_travel', runtime_verified=False))
     if roof_report is not None:
+        receipt['travel_bridge']['brush_registration'] = {'changed_brushes': brush_report['changed_brushes']}
         receipt['travel_bridge']['roof_clipping'] = {
             key: roof_report[key] for key in ('roof_placements', 'changed_clip_count', 'linked_probe_count')}
     # Untouched world files keep the digests verify_package(base) just checked;
