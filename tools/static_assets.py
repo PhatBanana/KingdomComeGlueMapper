@@ -8,6 +8,7 @@ import hashlib
 from audit_maps import texture_families
 from upgrade_map import read, xml
 from build_water_probe import shader_features, translate_features
+from puddle_materials import convert_puddle_proxies
 
 
 def preserve_legacy_decal_shadows(element, retained):
@@ -136,6 +137,7 @@ def asset_pack(stack, library, prefix, cache_dir=None):
             name = 'objects/'+name
         from building_materials import blend_inputs, convert as convert_blend
         doc = ET.fromstring(asset_read(name+".mtl"))
+        convert_puddle_proxies(doc)
         needs_geometry = bool(list(blend_inputs(doc)))
         key = (name, hashlib.sha256(geometry).hexdigest() if geometry is not None else None) if needs_geometry else name
         if key in material_names:
