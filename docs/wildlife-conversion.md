@@ -72,3 +72,36 @@ Respawn hours are converted to fractional `RespawnDays`, but the runtime's exact
 fractional-day handling is unverified. Hunting, loot, save/load, timed population
 replenishment and navigation at every individual habitat remain acceptance tests.
 No global runtime-parity claim is made from the sampled habitats.
+
+## Regional audit and deferred hare experiment — 13 October 2026
+
+The working installation remains at 229 wildlife sites and 752 configured
+animals. Hares were found in runtime sampling, but each forest currently has
+one spawn centre; this can make encounters sparse elsewhere in large forests.
+
+An audit of mission and layer records found 61 active regional references to
+populations already represented by self-linked spawners. These should be
+resolved without adding duplicate animals. Another 35 references belong to
+inactive layers, and 120 concern unsupported livestock. These are link counts,
+not counts of additional populations; the audit does not establish that those
+contracts have been converted.
+
+An experimental replacement distributed the existing 115 hares over 115 local
+habitats, raising the total to 329 spawners without increasing animal counts.
+It crashed during level loading. Debugging located a null-pointer read in
+KCD2's trigger-area manager while resolving wildlife area
+`f638816f-3ec2-f14e`. Restoring compiled activity positions, sanitizing habitat
+names, and preserving existing entity IDs did not resolve the failure. The
+underlying registration failure remains unresolved.
+
+The experiment was withdrawn from the converter and the previous installed
+package restored. The restored level reached the runtime ready marker and the
+user confirmed it had no issues in that check. This is a rollback, not a fix for
+the sparse hare distribution. Regional conversion and hare distribution remain
+open work.
+
+Local diagnostic artifacts are retained under `outputs/WildlifeRegional/`:
+`Build02/baseline-level.pak` is the restored package; `Build02/crash/` contains
+the captured crash evidence; `fault-memory.json` identifies the failing area;
+and `paused-experiment/experiment.patch` preserves the withdrawn source changes.
+These generated artifacts are not included in the repository.

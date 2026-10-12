@@ -143,6 +143,7 @@ Sources: [chairs](tools/chairs.py), [benches](tools/benches.py), [cooking](tools
 - [x] Package navigation for the imported destination.
 - [x] Provide character conversion and selected NPC placement, dialogue and activity integrations.
 - [ ] Convert remaining regional wildlife contracts and livestock populations.
+- [ ] Improve sparse hare encounters; the distributed-habitat experiment was rolled back after a loading crash. See the [regional audit](docs/wildlife-conversion.md#regional-audit-and-deferred-hare-experiment--13-october-2026).
 - [ ] Restore ambient fish groups and remaining ambient animals.
 - [ ] Expand NPC population, household ownership and daily routines across the world.
 - [ ] Verify wildlife hunting/loot, fractional-day respawn handling and save/load persistence.
