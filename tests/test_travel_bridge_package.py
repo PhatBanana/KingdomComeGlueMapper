@@ -74,7 +74,10 @@ class BridgePackageTests(unittest.TestCase):
     def test_linked_world_matches_copy_and_never_changes_base(self):
         files = lambda root: {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
         before = files(self.base)
-        with patch('travel_bridge_package.level_registration', return_value=self.native_level):
+        # This test compares exact bytes; ZIP write timestamps must match too.
+        # The separate day-apart test verifies timestamp-independent comparison.
+        with patch('travel_bridge_package.level_registration', return_value=self.native_level), \
+             patch('time.time', return_value=1_790_000_000):
             linked = combine(self.base, self.bridge, 'target', self.root/'linked')
             with patch('travel_bridge_package.os.link', side_effect=OSError('no hard links')):
                 copied = combine(self.base, self.bridge, 'target', self.root/'copied')
