@@ -485,6 +485,10 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 wildlife_files, wildlife_report = wildlife.convert_level(wildlife_files, source, target, ground)
                 replacements.update(wildlife_files)
                 entry_report['wildlife'] = wildlife_report
+                from world_environment import build as build_environment
+                replacements['objects_mission0.xml'], environment_report = build_environment(
+                    replacements['objects_mission0.xml'], source, target, guid)
+                entry_report['environment'] = environment_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

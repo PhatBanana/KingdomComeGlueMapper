@@ -95,11 +95,14 @@ The executable and self-test report are written to `outputs/release`. Developer 
 - [ ] Finish shallow mud-puddle surface appearance over imported ground.
 - [ ] Complete broad roof/interior lighting, probe-boundary and material-fidelity validation.
 - [ ] Validate collision, LOD transitions, streaming and traversal across the entire map.
-- [ ] Complete environmental particle, fog and ambient-audio coverage.
+- [x] Convert supported initial-world particles, fog and ambient audio across the main KCD1 map, using native KCD2 effects and sound controls.
+- [ ] Validate environmental appearance, audibility and boundary transitions throughout every region; restore unsupported legacy mixer behavior where a suitable native contract exists.
 - [ ] Reconstruct quest-driven layer activation instead of selecting only the supported initial world.
 - [ ] Extend conversion and acceptance to separate source maps and remaining DLC/world states.
 
 **Evidence:** terrain/buildings/vegetation and selected ground repairs have in-game confirmation. Water-layer repair preserves retained records, and the flow-speed correction targets `Waterfall` materials specifically. It is not a universal adjustment to every water shader. Lighting conversion exists, but full visual parity remains open.
+
+**Environment coverage:** the installed conversion includes 1,307 particle emitters, 21 fog volumes, 1,355 audio entities and 931 linked audio boundaries across the main map's selected initial world. Missing KCD1 sounds and reverbs use explicit native KCD2 equivalents; these are semantic substitutions, not identical recordings. The corrected build reaches gameplay, resolves all 1,190 nonempty imported play-trigger references in the live engine, and received user confirmation on 13 October 2026. This is map-wide conversion coverage, not inspection of every individual effect. Quest/later-state layers and separate maps remain outside this pass. See the [environment conversion audit](docs/environment-conversion.md) for exclusions, validation and the reserved player-ID fix.
 
 Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/static_assets.py), [brush repair](tools/brush_registration.py), [water selection](tools/water_layers.py), [water timing](tools/water_animation.py), [lighting](tools/world_lighting.py), [voxel packaging](tools/world_voxels.py).
 
