@@ -17,6 +17,13 @@ def self_test(destination):
     import tkinter
     from PIL import Image
     import numpy as np
+    import xatlas
+    # Exercise the native chart extension included by the frozen converter.
+    atlas = xatlas.Atlas()
+    atlas.add_mesh(np.array([[0,0,0],[1,0,0],[0,1,0]], dtype=np.float32),
+                   np.array([[0,1,2]], dtype=np.uint32))
+    atlas.generate()
+    if atlas.mesh_count != 1: raise RuntimeError('Bundled UV atlas extension failed')
     from setup_campaign import runtime_directory
     for name in CONVERTERS: importlib.import_module(name)
     if getattr(sys, 'frozen', False):

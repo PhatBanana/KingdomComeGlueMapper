@@ -37,22 +37,26 @@ def main():
         meshes={};failures={};added=[]
         for v in visuals:
             model=v['model']
+            variant=(model,v['material'])
             try:
-                if model not in meshes:
+                if variant not in meshes:
                     target=prefix+'model'+str(len(meshes))+Path(model).suffix
                     if model.endswith('.cdf'):
                         character_definition(index,emitted,material,mesh_bytes,model,target)
                     else:
-                        blob=mesh_bytes(model)
-                        lods={lod:mesh_bytes(model[:-4]+f'_lod{lod}.cgf') for lod in range(1,7) if model[:-4]+f'_lod{lod}.cgf' in index}
+                        blob=mesh_bytes(model,v['material'] or None)
+                        lods={lod:mesh_bytes(model[:-4]+f'_lod{lod}.cgf',v['material'] or None) for lod in range(1,7) if model[:-4]+f'_lod{lod}.cgf' in index}
                         emitted[target]=blob
                         for lod,payload in lods.items():emitted[target[:-4]+f'_lod{lod}.cgf']=payload
-                    meshes[model]=target
+                    meshes[variant]=target
                 if model.endswith('.cdf'):
-                    v['entity'].find('Properties').set('object_Model', meshes[model])
+                    v['entity'].find('Properties').set('object_Model', meshes[variant])
                 else:
-                    v['entity'].set('Geometry',meshes[model])
-                if v['material']:v['entity'].set('Material',material(v['material']))
+                    v['entity'].set('Geometry',meshes[variant])
+                if model.endswith('.cdf') and v['material']:
+                    v['entity'].set('Material',material(v['material']))
+                else:
+                    v['entity'].attrib.pop('Material',None)
             except (KeyError,ValueError,FileNotFoundError) as error:
                 failures[v['source_id']]={'model':model,'reason':str(error)}
                 continue

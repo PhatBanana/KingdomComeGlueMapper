@@ -4,6 +4,7 @@ import copy
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
+import hashlib
 from audit_maps import texture_families
 from upgrade_map import read, xml
 from build_water_probe import shader_features, translate_features
@@ -66,6 +67,8 @@ def convert_material_features(element, source_shader, target_shader):
         if textures is not None:
             secondary = textures.find("Texture[@Map='[1] Diffuse']")
             if secondary is not None:
+                if '%BLENDLAYER' in retained and textures.find("Texture[@Map='Opacity']") is not None:
+                    raise ValueError('Bake the primary-UV blend mask before native SNDUVS slot conversion')
                 # KCD2 binds SNDUVSDiffuseTex to TM_Opacity. The old separate
                 # tiled blend mask cannot also occupy this slot in that shader.
                 for old in list(textures):
@@ -125,15 +128,24 @@ def asset_pack(stack, library, prefix, cache_dir=None):
     families = texture_families(index)
     texture_names = {}
     material_names = {}
+    converted_geometry = {}
 
-    def material(name):
+    def material(name, geometry=None):
         name = name.replace("\\", "/").lower().removesuffix(".mtl")
         if name+'.mtl' not in index and 'objects/'+name+'.mtl' in index:
             name = 'objects/'+name
-        if name in material_names:
-            return material_names[name]
-        target = prefix + "m" + str(len(material_names))
+        from building_materials import blend_inputs, convert as convert_blend
         doc = ET.fromstring(asset_read(name+".mtl"))
+        needs_geometry = bool(list(blend_inputs(doc)))
+        key = (name, hashlib.sha256(geometry).hexdigest() if geometry is not None else None) if needs_geometry else name
+        if key in material_names:
+            return material_names[key]
+        target = prefix + "m" + str(len(material_names))
+        baked = {}
+        if needs_geometry:
+            converted, baked = convert_blend(doc, geometry, target, asset_read, index)
+            converted_geometry[target] = converted
+            for path, payload in baked.items():emitted[path] = payload
         for element in doc.iter("Material"):
             shader = element.get("Shader", "").lower()
             if shader in shader_maps[0] and shader in shader_maps[1]:
@@ -142,6 +154,8 @@ def asset_pack(stack, library, prefix, cache_dir=None):
                 element.attrib.pop("GenMask", None)
         for tex in doc.iter("Texture"):
             original = tex.get("File", "").replace("\\", "/").lower()
+            if original in baked:
+                continue
             if not original or original.startswith("$"):
                 continue
             # CryEngine's nearest probe is a runtime texture token, not an
@@ -161,16 +175,18 @@ def asset_pack(stack, library, prefix, cache_dir=None):
                     emitted[texture_names[original]+suffix] = asset_read(member)
             tex.set("File",texture_names[original])
         emitted[target+".mtl"] = xml(doc)
-        material_names[name] = target
+        material_names[key] = target
         return target
 
-    def mesh_bytes(name):
+    def mesh_bytes(name, material_override=None):
+        from clothing_regions import read_chunks, write_chunks
         blob = bytearray(asset_read(name))
         if blob[:4] != b"CrCh" or struct.unpack_from("<I",blob,4)[0] != 0x746:
             raise ValueError("Unsupported CGF container")
         count,table = struct.unpack_from("<II",blob,8)
         if table+count*16 > len(blob):
             raise ValueError("Invalid CGF chunk table")
+        renames = {}
         for i in range(count):
             kind,version,chunk_id,size,offset = struct.unpack_from("<HHIII",blob,table+i*16)
             if offset+size > len(blob):
@@ -187,11 +203,17 @@ def asset_pack(stack, library, prefix, cache_dir=None):
                     if relative+".mtl" in index:
                         resolved = relative
                 if resolved+".mtl" in index:
-                    new = material(resolved).encode()
+                    new = material(material_override or resolved, geometry=bytes(blob)).encode()
                     if len(new)>=128:
                         raise ValueError("Material path exceeds fixed CGF field")
-                    blob[offset:offset+128] = new.ljust(128,b"\0")
-        return bytes(blob)
+                    renames[chunk_id] = new
+        # Repacking the vertex streams changes chunk offsets. Apply names by
+        # chunk identity afterwards, never at offsets from the original file.
+        changed = [converted_geometry[n.decode()] for n in set(renames.values()) if n.decode() in converted_geometry]
+        if len(changed)>1:raise ValueError('Multiple blended root materials need separate mesh conversion')
+        result = changed[0] if changed else bytes(blob)
+        chunks = read_chunks(result)
+        return write_chunks(chunks,{c.id:renames[c.id].ljust(128,b'\0')+c.data[128:] for c in chunks if c.id in renames})
 
     return index, emitted, material, mesh_bytes
 

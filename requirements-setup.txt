@@ -2,3 +2,4 @@
 pyinstaller==6.22.3
 numpy>=2.3
 Pillow>=11.3
+xatlas==0.0.11

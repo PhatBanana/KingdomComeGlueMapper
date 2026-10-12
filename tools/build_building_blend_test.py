@@ -1,0 +1,165 @@
+"""Stage the audited Skalitz roof/wall mask fix on an existing developer mod.
+
+Finds geometry by chunk content, not generated mesh numbers. Writes a package
+and source hashes only; installation must happen while the game is closed.
+"""
+import argparse
+from contextlib import ExitStack
+import copy
+import hashlib
+import json
+from pathlib import Path
+import struct
+import xml.etree.ElementTree as ET
+import zipfile
+
+from build_horse_trader_test import digest
+from clothing_regions import read_chunks
+from compiled_terrain import parse
+from building_brushes import resource_table
+from static_assets import asset_pack
+from upgrade_map import read, xml
+from vegetation import verify_target_hlods
+
+MODELS = ('objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
+          'objects/buildings/houses/modular/6x15/6x15_basefloor_p_2_flipped.cgf')
+
+
+def rewrite(source, destination, changes):
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    # The existing terrain archive already contains over 65,535 entries.
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(destination,'x',zipfile.ZIP_STORED) as out:
+        if len(set(original.namelist()))!=len(original.infolist()):raise ValueError('Duplicate level entries')
+        if not set(changes)<=set(original.namelist()):raise ValueError('Unexpected added level entries')
+        for entry in original.infolist():
+            out.writestr(entry,changes[entry.filename] if entry.filename in changes else read(original,entry.filename))
+
+
+def signature(blob):
+    return hashlib.sha256(b''.join(struct.pack('<HHI', c.kind,c.version,c.id)+c.data
+                                  for c in read_chunks(blob) if c.kind!=0x1014)).hexdigest()
+
+
+def roots(blob):
+    return [c.data[:128].split(b'\0')[0].decode().lower() for c in read_chunks(blob)
+            if c.kind==0x1014 and b'/' in c.data[:128].split(b'\0')[0]]
+
+
+def build(library, mod, output):
+    if output.exists():raise FileExistsError('Choose a new staging directory')
+    output.mkdir(parents=True)
+    with ExitStack() as stack:
+        index, emitted, material, mesh = asset_pack(stack,library,'gluebuild/building_blend/')
+        def source(name):
+            z,e=index[name];return read(z,e.filename)
+        names = list(MODELS)
+        for name in MODELS:
+            names.extend(name[:-4]+f'_lod{i}.cgf' for i in range(1,7) if name[:-4]+f'_lod{i}.cgf' in index)
+        signatures={signature(source(n)):n for n in names}
+        installed={};owners={};matches={}
+        for path in sorted((mod/'Data').glob('*.pak')):
+            z=stack.enter_context(zipfile.ZipFile(path))
+            for n in z.namelist():
+                installed[n.lower()]=(z,n);owners[n.lower()]=path
+                if n.lower().startswith('gluebuild/setup_buildings/') and n.lower().endswith('.cgf'):
+                    s=signature(read(z,n))
+                    if s in signatures:matches[n.lower()]=signatures[s]
+        if not set(MODELS)<=set(matches.values()):raise ValueError('Audited roof/wall geometry not found in installed build')
+        def current(name):
+            z,n=installed[name.lower()];return read(z,n)
+        replacements={};new_assets={};bindings={};report=[]
+        for target,name in sorted(matches.items()):
+            old_roots=roots(current(target))
+            blob=mesh(name)
+            new_roots=roots(blob)
+            if len(new_roots)!=len(old_roots):raise ValueError('Material roots changed')
+            bakes=[]
+            for old_name,new_name in zip(old_roots,new_roots):
+                old=ET.fromstring(current(old_name+'.mtl'))
+                generated=ET.fromstring(emitted[new_name+'.mtl'])
+                converted=copy.deepcopy(old)
+                old_materials=list(converted.iter('Material'));new_materials=list(generated.iter('Material'))
+                if len(old_materials)!=len(new_materials):raise ValueError('Installed material structure differs from source')
+                for old_element,new_element in zip(old_materials,new_materials):
+                    texture=new_element.find("Textures/Texture[@Map='Opacity']")
+                    if texture is None or '_blend' not in Path(texture.get('File','')).name:continue
+                    path=texture.get('File');bakes.append(path);new_assets[path]=emitted[path]
+                    old_texture=old_element.find("Textures/Texture[@Map='Opacity']")
+                    if old_texture is None:raise ValueError('Installed native secondary texture is missing')
+                    old_texture.set('File',path)
+                    old_params=old_element.find('PublicParams');new_params=new_element.find('PublicParams')
+                    if old_params is None:old_params=ET.SubElement(old_element,'PublicParams')
+                    if new_params is not None:
+                        for key in ('SndUVsTileU','SndUVsTileV','BlendFactor'):
+                            if new_params.get(key) is not None:old_params.set(key,new_params.get(key))
+                new_assets[new_name+'.mtl']=xml(converted)
+            new_mesh='gluebuild/building_blend/'+Path(target).name
+            new_assets[new_mesh]=blob
+            bindings[target]=(old_roots[0],new_mesh)
+            report.append({'source':name,'installed':target,'materials':new_roots,'baked_textures':bakes})
+            print('Converted '+name,flush=True)
+        level_path=mod/'Data/Levels/kcd1_travel/level.pak'
+        terrain_path=level_path.with_name('terrain.pak')
+        with zipfile.ZipFile(terrain_path) as z:terrain=parse(read(z,'terrain/terrain.dat'))
+        mesh_paths=list(terrain.tables['meshes']['paths'])
+        selected={i:bindings[n.lower()] for i,n in enumerate(mesh_paths) if n.lower() in bindings}
+        new_indices={}
+        for old_material,new_mesh in selected.values():
+            if new_mesh not in mesh_paths:mesh_paths.append(new_mesh)
+            new_indices[new_mesh]=mesh_paths.index(new_mesh)
+        start=terrain.tables['meshes']['offset']-4
+        updated=bytearray(terrain.data[:start]+resource_table(mesh_paths)+resource_table(terrain.tables['materials']['paths'])+terrain.data[terrain.nodes[0]['offset']:])
+        struct.pack_into('<I',updated,4,len(updated))
+        verified=parse(bytes(updated))
+        if verified.data[verified.nodes[0]['offset']:]!=terrain.data[terrain.nodes[0]['offset']:]:raise ValueError('Terrain payload changed')
+        replacements[terrain_path]={'terrain/terrain.dat':bytes(updated)}
+        with zipfile.ZipFile(level_path) as z:hlods=bytearray(read(z,'terrain/hlods.dat'))
+        before=verify_target_hlods(hlods);cursor=4;placements=0;other_variants=0
+        while cursor<len(hlods):
+            end=cursor+4+struct.unpack_from('<I',hlods,cursor)[0];cursor+=4
+            while cursor<end:
+                kind=struct.unpack_from('<I',hlods,cursor)[0]
+                if kind==1:
+                    mesh_id=struct.unpack_from('<H',hlods,cursor+40)[0]
+                    if mesh_id in selected:
+                        mat=struct.unpack_from('<i',hlods,cursor+96)[0]
+                        old_material,new_mesh=selected[mesh_id]
+                        if mat>=0 and terrain.tables['materials']['paths'][mat].lower()!=old_material:
+                            other_variants+=1
+                        else:
+                            struct.pack_into('<H',hlods,cursor+40,new_indices[new_mesh])
+                            struct.pack_into('<i',hlods,cursor+96,-1);placements+=1
+                cursor+=104 if kind==1 else 64
+        if verify_target_hlods(hlods)!=before:raise ValueError('HLOD structure changed')
+        replacements[level_path]={'terrain/hlods.dat':bytes(hlods)}
+        # Unique paths in a dedicated PAK do not override existing assets.
+        asset_path=output/'package/Data/gluemapper_building_blend.pak'
+        if (mod/'Data/gluemapper_building_blend.pak').exists():raise ValueError('Blend test already installed')
+        asset_path.parent.mkdir(parents=True,exist_ok=True)
+        for name,payload in new_assets.items():
+            if not name.endswith('.mtl'):continue
+            for texture in ET.fromstring(payload).iter('Texture'):
+                ref=texture.get('File','').lower()
+                if not ref or ref.startswith('$') or ref in ('nearest_cubemap','nearest_cubemap.dds'):continue
+                if ref not in new_assets and ref not in installed:raise ValueError('Missing material dependency: '+ref)
+        with zipfile.ZipFile(asset_path,'x',zipfile.ZIP_STORED,allowZip64=False) as z:
+            for name,payload in new_assets.items():z.writestr(name,payload)
+        with zipfile.ZipFile(asset_path) as z:
+            if z.testzip() is not None:raise ValueError('Atlas package CRC failure')
+        originals={str(p.relative_to(mod)):digest(p) for p in replacements}
+        for path,changes in replacements.items():
+            destination=output/'package'/path.relative_to(mod)
+            rewrite(path,destination,changes)
+            with zipfile.ZipFile(destination) as z:
+                if z.testzip() is not None:raise ValueError('Packaged blend CRC failure')
+        result={'originals':originals,'models':report,'placements':placements,'other_material_variants_unchanged':other_variants,'crc_checked':True,
+                'runtime_verified':False,'scope':'Audited Skalitz roof and wall geometry, including available LODs'}
+        (output/'report.json').write_text(json.dumps(result,indent=2),encoding='utf-8')
+        return result
+
+
+if __name__=='__main__':
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument('--library',type=Path,default=Path('D:/SteamLibrary/steamapps/common'))
+    p.add_argument('--mod',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    a=p.parse_args();print(json.dumps(build(a.library,a.mod,a.output),indent=2))

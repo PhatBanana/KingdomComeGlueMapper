@@ -25,6 +25,8 @@ def main():
                '--add-data', f'{repo / "tools/region_travel_horse_recovery.lua"}:.',
                '--add-binary', f'{texconv}:.',
                '--add-data', f'{repo / "third_party/DirectXTex-LICENSE.txt"}:third_party',
+               '--add-data', f'{repo / "third_party/xatlas-LICENSE.txt"}:third_party',
+               '--collect-all', 'xatlas',
                '--exclude-module', 'lupa']
     for module in CONVERTERS: command.extend(['--hidden-import', module])
     command.append(str(repo / 'tools/setup_app.py'))

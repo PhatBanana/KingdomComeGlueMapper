@@ -1,2 +1,3 @@
 -r requirements-npc-effects.txt
 lupa==2.8
+xatlas==0.0.11

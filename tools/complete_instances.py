@@ -73,24 +73,17 @@ def main():
         for group in groups:
             original = source.tables['vegetation']['paths'][group].lower()
             target = prefix+'mesh'+str(len(group_map))
-            try:
-                payload = mesh_bytes(original)
-                lods = {lod:mesh_bytes(original[:-4]+f'_lod{lod}.cgf') for lod in range(1,7) if original[:-4]+f'_lod{lod}.cgf' in index}
-            except (KeyError,ValueError,FileNotFoundError) as error:
-                failures[group] = str(error)
-                continue
             start = source.tables['vegetation']['offset']+group*360
             record = bytearray(source.data[start:start+360])
             source_material = struct.unpack_from('<i',record,336)[0]
+            override = source.tables['materials']['paths'][source_material] if source_material >= 0 else None
             target_material = -1
-            if source_material != -1:
-                try:
-                    material_path = material(source.tables['materials']['paths'][source_material])
-                except (KeyError,ValueError,FileNotFoundError) as error:
-                    failures[group] = 'Group material: '+str(error)
-                    continue
-                if material_path not in materials:materials.append(material_path)
-                target_material = materials.index(material_path)
+            try:
+                payload = mesh_bytes(original, override)
+                lods = {lod:mesh_bytes(original[:-4]+f'_lod{lod}.cgf', override) for lod in range(1,7) if original[:-4]+f'_lod{lod}.cgf' in index}
+            except (KeyError,ValueError,FileNotFoundError) as error:
+                failures[group] = str(error)
+                continue
             emitted[target+'.cgf'] = payload
             for lod, blob in lods.items():
                 emitted[target+f'_lod{lod}.cgf'] = blob
@@ -99,7 +92,7 @@ def main():
             herb_model_map.append({'source': original, 'target': target + '.cgf'})
             record[:256] = (target+'.cgf').encode().ljust(256,b'\0')
             struct.pack_into('<i',record,320,mapped+1)
-            # Preserve per-group material overrides instead of discarding them.
+            # Override is bound into each mesh and its own LOD atlas.
             struct.pack_into('<i',record,336,target_material)
             group_data.extend(record)
         additions = [r for r in additions if r['group'] in group_map]

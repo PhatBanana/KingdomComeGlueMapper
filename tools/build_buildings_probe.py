@@ -86,7 +86,7 @@ def main():
         read_water(source, collect)
         if not selected:
             raise ValueError("No building placements selected")
-        groups = sorted(set(r["mesh"] for r in selected))
+        groups = sorted(set((r["mesh"], r["material"]) for r in selected))
         print(f"Selected {len(selected)} intact/shared static structures across {len(groups)} meshes", flush=True)
         Path("outputs").mkdir(exist_ok=True)
         cache = stack.enter_context(tempfile.TemporaryDirectory(prefix="buildings-", dir="outputs"))
@@ -98,7 +98,7 @@ def main():
             unavailable = [dict(r, reason='Level-local designer/helper geometry requires classification' if r['path'].startswith('%level%/') else 'Missing model')
                            for r in selected if r["path"] not in index or r['path'].startswith('%level%/')]
             selected = [r for r in selected if r["path"] in index and not r['path'].startswith('%level%/')]
-            groups = sorted(set(r["mesh"] for r in selected))
+            groups = sorted(set((r["mesh"], r["material"]) for r in selected))
         visual_entities, entity_exclusions = collect_visuals(source_pak, args.library) if args.props_only else ([], {})
         with zipfile.ZipFile(base/'level.pak') as existing_archive:
             existing_entities = {e.get('Name') for e in ET.fromstring(existing_archive.read('objects_mission0.xml')).iter('Entity')}
@@ -110,21 +110,21 @@ def main():
         entity_models = {}
         for visual in visual_entities:
             model = visual["model"]
+            variant = (model, visual["material"])
             if model not in index:
                 entity_exclusions["missing_model:" + model] = entity_exclusions.get("missing_model:" + model, 0) + 1
                 continue
             try:
-                if model not in entity_models:
+                if variant not in entity_models:
                     target = prefix + "entity" + str(len(entity_models)) + Path(model).suffix
-                    emitted[target] = mesh_bytes(model)
+                    emitted[target] = mesh_bytes(model, visual["material"] or None)
                     for lod in range(1, 7):
                         path = model[:-4] + f"_lod{lod}.cgf"
                         if path in index:
-                            emitted[target[:-4] + f"_lod{lod}.cgf"] = mesh_bytes(path)
-                    entity_models[model] = target
-                visual["entity"].set("Geometry", entity_models[model])
-                if visual["material"]:
-                    visual["entity"].set("Material", material(visual["material"]))
+                            emitted[target[:-4] + f"_lod{lod}.cgf"] = mesh_bytes(path, visual["material"] or None)
+                    entity_models[variant] = target
+                visual["entity"].set("Geometry", entity_models[variant])
+                visual["entity"].attrib.pop("Material", None)
             except (KeyError, ValueError, FileNotFoundError) as error:
                 key = 'unresolved_entity_asset:' + str(error)
                 entity_exclusions[key] = entity_exclusions.get(key, 0) + 1
@@ -139,10 +139,12 @@ def main():
         mesh_map = {}
         failed_meshes = {}
         for number, group in enumerate(groups):
-            original = source.tables["meshes"]["paths"][group].replace("\\", "/").lower()
+            mesh_id, material_id = group
+            override = source.tables["materials"]["paths"][material_id] if material_id >= 0 else None
+            original = source.tables["meshes"]["paths"][mesh_id].replace("\\", "/").lower()
             name = prefix + "mesh" + str(number)
             try:
-                converted_mesh = mesh_bytes(original)
+                converted_mesh = mesh_bytes(original, override)
             except (FileNotFoundError, KeyError, ValueError) as error:
                 if not args.props_only:
                     raise
@@ -152,29 +154,20 @@ def main():
             for lod in range(1,7):
                 lod_path = original[:-4] + f"_lod{lod}.cgf"
                 if lod_path in index:
-                    emitted[name + f"_lod{lod}.cgf"] = mesh_bytes(lod_path)
+                    emitted[name + f"_lod{lod}.cgf"] = mesh_bytes(lod_path, override)
             mesh_map[group] = len(meshes)
             meshes.append(name + ".cgf")
             if (number + 1) % 250 == 0:
                 print(f"Packaged {number+1}/{len(groups)} meshes; {len(emitted)} asset files", flush=True)
         if failed_meshes:
-            unavailable.extend(dict(r, reason=failed_meshes[r["mesh"]]) for r in selected if r["mesh"] in failed_meshes)
-            selected = [r for r in selected if r["mesh"] not in failed_meshes]
+            unavailable.extend(dict(r, reason=failed_meshes[(r["mesh"],r["material"])]) for r in selected if (r["mesh"],r["material"]) in failed_meshes)
+            selected = [r for r in selected if (r["mesh"],r["material"]) not in failed_meshes]
         with zipfile.ZipFile(base / "terrain.pak") as archive:
             baseline = parse(archive.read("terrain/terrain.dat"))
             if baseline.tables["meshes"]["paths"] != base_meshes:
                 raise ValueError("Base mesh table changed during build")
             materials = list(baseline.tables["materials"]["paths"])
-            material_map = {-1: -1}
-            for identifier in sorted(set(r["material"] for r in selected) - {-1}):
-                original = source.tables["materials"]["paths"][identifier].lower()
-                if not original:
-                    material_map[identifier] = -1
-                    continue
-                target = material(original)
-                if target not in materials:
-                    materials.append(target)
-                material_map[identifier] = materials.index(target)
+            # Overrides are bound into each geometry variant, including LODs.
             start = baseline.tables["meshes"]["offset"] - 4
             terrain = bytearray(baseline.data[:start] + resource_table(meshes) + resource_table(materials)
                                 + baseline.data[baseline.nodes[0]["offset"]:])
@@ -195,7 +188,7 @@ def main():
             before = verify_target_hlods(hlod_data)
             hlod = ET.fromstring(archive.read("terrain/hlods.xml"))
             for (x,y), records in sorted(sectors.items()):
-                payload = b"".join(convert_brush(source.data, r["offset"], mesh_map[r["mesh"]], material_map[r["material"]]) for r in records)
+                payload = b"".join(convert_brush(source.data, r["offset"], mesh_map[(r["mesh"],r["material"])], -1) for r in records)
                 offset = len(hlod_data)
                 hlod_data.extend(struct.pack("<I", len(payload)) + payload)
                 z = sum(r["position"][2] for r in records) / len(records)
