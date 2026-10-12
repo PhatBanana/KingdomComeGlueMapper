@@ -11,16 +11,16 @@ from test_cooking_pots import archive
 
 
 class BenchTests(unittest.TestCase):
-    def build(self):
+    def build(self, previous=None, area=(10,20,30,10), incremental=False):
         source = b'''<Objects><Entity EntityId="1" EntityClass="SmartObjectHolder" Pos="10,20,30" Rotate="0.707106781,0,0,0.707106781">
           <Properties soclasses_SmartObjectHelpers="Bench_2Place"><Script Misc="hasTable:true"/></Properties></Entity>
           <Entity EntityId="2" EntityClass="SmartObjectHolder" Pos="1000,0,0"><Properties soclasses_SmartObjectHelpers="Bench_2Place"/></Entity></Objects>'''
         helpers = b'''<SmartObjects><Helper className="Bench_2Place" name="Place0" pos="-0.35,0,0" description="Category(Sit);"/>
           <Helper className="Bench_2Place" name="Place1" pos="0.35,0,0" description="Category(Sit);"/></SmartObjects>'''
         native = E.Element('Objects'); animations = E.Element('SmartObjectAnimationCollections')
-        for i, suffix in enumerate(('Right', 'Left')):
+        for i, suffix in enumerate(('Right', 'Left', 'Low')):
             key = str(100+i*2); target = str(101+i*2)
-            family = 'Sit_1Place_Bench_Low_Table_'+suffix
+            family = 'Sit_1Place_Bench_Low' if suffix == 'Low' else 'Sit_1Place_Bench_Low_Table_'+suffix
             e = E.SubElement(native, 'Entity', EntityId=key, EntityClass='StanceSmartObject', Pos='0,0,0')
             E.SubElement(e, 'Properties', soclass_SmartObjectHelpers=family, bOwnedByHome='1')
             links = E.SubElement(e, 'EntityLinks'); E.SubElement(links, 'Link', Name='', TargetId=target)
@@ -32,7 +32,24 @@ class BenchTests(unittest.TestCase):
                  'tables/ai/smartobjectanimations.xml': b'<database><SmartObjectAnimationss version="1"><SmartObjectAnimations EntityGuid="999" Hash="123"/></SmartObjectAnimationss></database>'}
         with archive({'objects_mission0.xml': source}) as src, archive({'objects_mission0.xml': E.tostring(native),
                 'smartobjecthelpersetanimations.xml': E.tostring(animations)}) as target:
-            return convert(files, src, target, helpers, guid, (10,20,30,10))
+            return convert(previous or files, src, target, helpers, guid, area, incremental=incremental)
+
+    def test_expanding_test_area_adds_only_missing_seats(self):
+        original, _ = self.build()
+        expanded, report = self.build(original, area=None, incremental=True)
+        self.assertEqual(report['converted_benches'], 1)
+        self.assertEqual(report['records'][0]['source_id'], '2')
+        before = list(E.fromstring(original['objects_mission0.xml']))
+        after = list(E.fromstring(expanded['objects_mission0.xml']))
+        self.assertEqual([E.tostring(e) for e in before], [E.tostring(e) for e in after[:len(before)]])
+        again, report = self.build(expanded, area=None, incremental=True)
+        self.assertEqual(report['places'], 0)
+        self.assertEqual(again['objects_mission0.xml'], expanded['objects_mission0.xml'])
+        root = E.fromstring(expanded['objects_mission0.xml'])
+        root.remove(next(e for e in root if e.get('EntityClass') == 'ActionTrigger'))
+        expanded['objects_mission0.xml'] = E.tostring(root)
+        with self.assertRaisesRegex(ValueError, 'Incomplete seating'):
+            self.build(expanded, area=None, incremental=True)
 
     def test_source_seat_positions_native_roles_and_geometry(self):
         files, report = self.build()

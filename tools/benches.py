@@ -2,7 +2,7 @@
 import copy
 import xml.etree.ElementTree as ET
 
-from chairs import inventory
+from chairs import inventory, existing_group
 from cooking_pots import rotate, vector
 from entity_visuals import world_transform, quaternion_product as qmul
 from campaign_entity_links import append_links
@@ -10,7 +10,7 @@ from seating_animations import install
 from upgrade_map import read
 
 
-def convert(files, source, native, source_helpers, guid, area=None):
+def convert(files, source, native, source_helpers, guid, area=None, incremental=False):
     entities, benches, deferred = inventory(source, 'Bench')
     helper_root = ET.fromstring(source_helpers)
     native_entities = {e.get('EntityId'): e for e in ET.fromstring(read(native, 'objects_mission0.xml')).iter('Entity')}
@@ -25,7 +25,7 @@ def convert(files, source, native, source_helpers, guid, area=None):
             if link.get('Name') == '' and t is not None and t.find("Properties/Click[@UseMessage='@ui_use_sit']") is not None:
                 donors.setdefault(family, (e, t))
     root = ET.fromstring(files['objects_mission0.xml'])
-    if any(e.get('Name', '').startswith('gm_bench_') for e in root.iter('Entity')):
+    if not incremental and any(e.get('Name', '').startswith('gm_bench_') for e in root.iter('Entity')):
         raise ValueError('Benches already converted; use the pre-conversion baseline')
     next_id = max(int(e.get('EntityId', '0')) for e in root.iter('Entity')) + 1
     records, network, unsupported = [], [], []
@@ -37,6 +37,10 @@ def convert(files, source, native, source_helpers, guid, area=None):
         places.sort(key=lambda h: float(h.get('pos').split(',')[0]))
         if not places:
             unsupported.append({'source_id': bench.get('EntityId'), 'family': source_family}); continue
+        prefix = f"gm_bench_{bench.get('EntityId')}_"
+        expected = {f'{prefix}{i}_{kind}' for i in range(len(places)) for kind in ('StanceSmartObject', 'ActionTrigger')}
+        if incremental and existing_group(root, prefix, expected):
+            continue
         misc = bench.find('Properties/Script')
         table = 'hasTable:true' in (misc.get('Misc', '') if misc is not None else '')
         group = []

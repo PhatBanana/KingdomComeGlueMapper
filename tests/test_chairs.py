@@ -33,14 +33,14 @@ def native():
 
 
 class ChairTests(unittest.TestCase):
-    def build(self, files=None):
+    def build(self, files=None, incremental=False):
         if files is None:
             files = {'objects_mission0.xml': b'<Objects><Entity EntityId="100" Name="keep"/>'
                      b'<Entity Name="glue_item_1" Geometry="converted.cgf" Material="original.mtl"/>'
                      b'<Entity Name="glue_item_3" Geometry="decorative.cgf"/></Objects>'}
         with archive({'objects_mission0.xml': SOURCE}) as source, archive({'objects_mission0.xml': native(),
                 'smartobjecthelpersetanimations.xml': b'<SmartObjectAnimationCollections><Collection HelperSetName="Sit_1Place_Chair_Low"/></SmartObjectAnimationCollections>'}) as donor:
-            return convert(files, source, donor, guid)
+            return convert(files, source, donor, guid, incremental=incremental)
 
     def test_full_native_contract_with_no_external_links(self):
         files, report = self.build()
@@ -73,6 +73,17 @@ class ChairTests(unittest.TestCase):
     def test_missing_geometry_fails_before_producing_invisible_chair(self):
         with self.assertRaisesRegex(ValueError, 'geometry is missing'):
             self.build({'objects_mission0.xml': b'<Objects/>'})
+
+    def test_incremental_preserves_complete_chair_and_rejects_partial(self):
+        files, _ = self.build()
+        again, report = self.build(files, incremental=True)
+        self.assertEqual(report['converted'], 0)
+        self.assertEqual(again['objects_mission0.xml'], files['objects_mission0.xml'])
+        root = E.fromstring(files['objects_mission0.xml'])
+        root.remove(next(e for e in root if e.get('EntityClass') == 'ActionTrigger'))
+        files['objects_mission0.xml'] = E.tostring(root)
+        with self.assertRaisesRegex(ValueError, 'Incomplete seating'):
+            self.build(files, incremental=True)
 
     def test_duplicate_conversion_rejected(self):
         files, _ = self.build()

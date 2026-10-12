@@ -663,3 +663,31 @@ and identical level/mod-qualified animation table checks. The developer client
 reached `Game claims it's ready` at the Rattay inn. Actual lockpick/key use and
 save/reload still require live testing. Existing navigation, UI Hub and horse
 arrival diagnostics remain; startup is not proof of minigame success.
+
+
+### Map-wide seating catch-up (2026-10-12)
+
+The installed world still contained the earlier Rattay-only bench test: 40 benches
+and 78 sitting places. The full source initial world has 1,689 authored benches.
+`build_chairs_test.py` now supports incremental registration, retaining complete
+existing chair/bench contracts and rejecting partial or broken linked groups.
+It also updates the mounted smart-object animation table in
+`Data/gluemappertravel.pak`, as well as the copy in the level package. Rental-bed
+animation contracts remain included in the final merged table.
+
+Staging in `outputs/Seating/Map01` added 1,649 benches / 2,931 sitting places,
+for 3,009 bench places plus the existing 61 chairs. The source Chair smart-object
+helpers link to those physical chairs and must not create duplicate interactions.
+Quest-inactive source seating remains excluded by the existing initial-layer rule.
+The normal full region conversion already processes benches without an area limit;
+this fixes the incremental build/install path used by the current test world.
+
+Package verification checked entity IDs, seating GUIDs, link targets, animation
+rows, and identical mounted/level animation tables. Only four seating-related
+level XML files and the mounted animation table changed; all other package entries
+were retained. Both original packages were backed up before installation.
+The full working-tree test run passed 506 tests (including the unrelated local
+geometry-opacity experiment tests). New regression cases cover incremental chair
+preservation, bench area expansion, duplicate avoidance, and partial-group rejection.
+The game loaded the updated world in Skalitz, and the user confirmed sitting works.
+This is not an assertion that every individual seat has been exercised in game.

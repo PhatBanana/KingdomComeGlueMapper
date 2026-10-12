@@ -54,11 +54,26 @@ def template(native):
     return nodes, links
 
 
-def convert(files, source, native, guid):
+def existing_group(root, prefix, expected):
+    """Preserve complete contracts; never silently accept partially installed seats."""
+    nodes = [e for e in root.iter('Entity') if e.get('Name', '').startswith(prefix)]
+    if not nodes:
+        return False
+    if len(nodes) != len(expected) or {e.get('Name') for e in nodes} != expected:
+        raise ValueError(f'Incomplete seating contract: {prefix}')
+    ids = {e.get('EntityId'): e.get('EntityGuid') for e in nodes}
+    for node in nodes:
+        for link in node.findall('EntityLinks/Link'):
+            if link.get('TargetId') not in ids or ids[link.get('TargetId')] != link.get('TargetGuid'):
+                raise ValueError(f'Broken seating link: {prefix}')
+    return True
+
+
+def convert(files, source, native, guid, incremental=False):
     source_entities, chairs, deferred = inventory(source)
     originals, roles = template(native)
     root = ET.fromstring(files['objects_mission0.xml'])
-    if any(e.get('Name', '').startswith(PREFIX) for e in root.iter('Entity')):
+    if not incremental and any(e.get('Name', '').startswith(PREFIX) for e in root.iter('Entity')):
         raise ValueError('Chairs already converted; use the pre-conversion baseline')
     visuals = {e.get('Name'): e for e in root.iter('Entity')}
     next_id = max((int(e.get('EntityId', '0')) for e in root.iter('Entity')), default=0) + 1
@@ -66,6 +81,8 @@ def convert(files, source, native, guid):
     records, network, remove = [], [], set()
     for chair in sorted(chairs, key=lambda e: int(e.get('EntityId'))):
         key = chair.get('EntityId')
+        if incremental and existing_group(root, f'{PREFIX}{key}_', {f'{PREFIX}{key}_{old}' for old in originals}):
+            continue
         visual = visuals.get('glue_item_' + key)
         if visual is None or not visual.get('Geometry'):
             raise ValueError(f'Chair {key}: converted furniture geometry is missing')
