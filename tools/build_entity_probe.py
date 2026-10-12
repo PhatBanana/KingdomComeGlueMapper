@@ -10,7 +10,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from entity_visuals import collect_visuals
-from static_assets import asset_pack, character_definition
+from static_assets import asset_pack, character_definition, install_staged
 from upgrade_map import xml
 
 
@@ -73,11 +73,7 @@ def main():
                 elif name=='leveldata.xml':
                     info=ET.fromstring(payload);info.find('LevelInfo').set('Name',args.level);payload=xml(info)
                 output.writestr(name,payload)
-        for name,path in emitted.items():
-            target=(root/name).resolve()
-            if not target.is_relative_to((root/prefix).resolve()):raise ValueError('Asset path escapes namespace')
-            target.parent.mkdir(parents=True,exist_ok=True)
-            with target.open('xb') as out,path.open('rb') as inp:shutil.copyfileobj(inp,out)
+        install_staged(emitted,root,root/prefix)
         report=dict(level=args.level,base_level=args.base_level,added=len(added),classes=dict(Counter(v['source_class'] for v in added)),
                     excluded=excluded,failures=failures,records=added,interactive=False)
         (dest/'entities-report.json').write_text(json.dumps(report,indent=2));Path('reports/entities-probe.json').write_text(json.dumps(report,indent=2))

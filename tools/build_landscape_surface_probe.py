@@ -14,7 +14,7 @@ import zipfile
 from compiled_terrain import parse
 from entity_visuals import initial_layer
 from landscape_surfaces import append_surfaces, convert_surface
-from static_assets import asset_pack
+from static_assets import asset_pack, install_staged
 from upgrade_map import read, xml
 from water_volumes import read_water
 
@@ -124,13 +124,7 @@ def main():
                     if name == 'levelinfo.xml':
                         (destination/name).write_bytes(payload)
                 out.writestr(name, payload)
-        for name, payload_path in emitted.items():
-            path = (root/name).resolve()
-            if not path.is_relative_to(assets.resolve()):
-                raise ValueError('Asset escaped namespace')
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open('xb') as out, payload_path.open('rb') as inp:
-                shutil.copyfileobj(inp, out)
+        install_staged(emitted, root, assets)
         report = dict(level=args.level, base_level=args.base_level, position=args.position,
                       radius=args.radius, source_counts=source_counts, target_counts=checked_counts,
                       records=selected, assets=len(emitted),

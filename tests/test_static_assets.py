@@ -1,11 +1,13 @@
 """Asset-free regression checks for the observed building material mismatch."""
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from static_assets import convert_material_features, preserve_legacy_decal_shadows
+from static_assets import StagedAssets, convert_material_features, install_staged, preserve_legacy_decal_shadows
 
 
 class StaticMaterialTests(unittest.TestCase):
@@ -65,6 +67,49 @@ class StaticMaterialTests(unittest.TestCase):
         m = ET.fromstring('<Material Shader="Illum" StringGenMask=""><Textures><Texture Map="Opacity" File="mask.dds"/></Textures></Material>')
         convert_material_features(m, {}, {"%SNDUVS": 4})
         self.assertEqual(m.find('./Textures/Texture').get("File"), "mask.dds")
+
+
+class InstallStagedTests(unittest.TestCase):
+    def setUp(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        self.root = Path(temp.name) / "Data"
+        self.namespace = self.root / "gluebuild/v1"
+        self.stage = tempfile.TemporaryDirectory(dir=temp.name)
+        self.emitted = StagedAssets(self.stage.name)
+        self.emitted["gluebuild/v1/objects/a.cgf"] = b"mesh"
+        self.emitted["gluebuild/v1/textures/a.dds.1a"] = b"mip"
+
+    def test_links_staged_files_and_keeps_them_after_stage_cleanup(self):
+        install_staged(self.emitted, self.root, self.namespace)
+        target = self.namespace / "objects/a.cgf"
+        self.assertTrue(target.samefile(self.emitted["gluebuild/v1/objects/a.cgf"]))
+        self.stage.cleanup()
+        self.assertEqual(target.read_bytes(), b"mesh")
+        self.assertEqual((self.namespace / "textures/a.dds.1a").read_bytes(), b"mip")
+
+    def test_copies_when_hard_links_are_unavailable(self):
+        with patch("static_assets.os.link", side_effect=OSError("different volume")):
+            install_staged(self.emitted, self.root, self.namespace)
+        target = self.namespace / "objects/a.cgf"
+        self.assertFalse(target.samefile(self.emitted["gluebuild/v1/objects/a.cgf"]))
+        self.assertEqual(target.read_bytes(), b"mesh")
+
+    def test_never_replaces_an_existing_asset(self):
+        target = self.namespace / "objects/a.cgf"
+        target.parent.mkdir(parents=True); target.write_bytes(b"old")
+        with self.assertRaises(FileExistsError):
+            install_staged(self.emitted, self.root, self.namespace)
+        with patch("static_assets.os.link", side_effect=OSError("different volume")), self.assertRaises(FileExistsError):
+            install_staged(self.emitted, self.root, self.namespace)
+        self.assertEqual(target.read_bytes(), b"old")
+
+    def test_rejects_assets_outside_the_namespace(self):
+        separate = Path(self.stage.name) / "separate"; separate.mkdir()
+        escaping = StagedAssets(separate)
+        escaping["gluebuild/other/a.cgf"] = b"mesh"
+        with self.assertRaisesRegex(ValueError, "escapes"):
+            install_staged(escaping, self.root, self.namespace)
+        self.assertFalse((self.root / "gluebuild/other/a.cgf").exists())
 
 
 if __name__ == "__main__":

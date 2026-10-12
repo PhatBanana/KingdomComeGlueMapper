@@ -1,6 +1,8 @@
 """Isolated CGF/material/texture packaging shared by static-object probes."""
 from pathlib import Path, PurePosixPath
 import copy
+import os
+import shutil
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
@@ -91,6 +93,26 @@ class StagedAssets(dict):
             path = self[name]
         path.write_bytes(payload)
         super().__setitem__(name, path)
+
+
+def install_staged(emitted, root, namespace):
+    """Place staged assets under their isolated namespace without writing each one twice.
+
+    A hard link refuses an existing target like open('xb'); other volumes copy.
+    """
+    namespace = Path(namespace).resolve()
+    for name, staged in emitted.items():
+        target = (Path(root) / name).resolve()
+        if not target.is_relative_to(namespace):
+            raise ValueError('Asset escapes isolated namespace')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            os.link(staged, target)
+        except FileExistsError:
+            raise
+        except OSError:
+            with target.open('xb') as out, staged.open('rb') as inp:
+                shutil.copyfileobj(inp, out)
 
 
 def asset_pack(stack, library, prefix, cache_dir=None):

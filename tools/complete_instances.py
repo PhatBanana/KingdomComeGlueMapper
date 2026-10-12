@@ -5,7 +5,6 @@ from collections import defaultdict, Counter
 from contextlib import ExitStack
 import json
 from pathlib import Path
-import shutil
 import struct
 import tempfile
 import xml.etree.ElementTree as ET
@@ -14,7 +13,7 @@ from compiled_terrain import parse
 from upgrade_map import read, xml
 from vegetation import read_all_instances, verify_target_hlods, convert_instance
 from merged_vegetation import inventory
-from static_assets import asset_pack
+from static_assets import asset_pack, install_staged
 from entity_visuals import initial_layer
 from building_brushes import resource_table
 
@@ -133,11 +132,7 @@ def main():
                     elif name == 'leveldata.xml':
                         doc=ET.fromstring(payload);doc.find('LevelInfo').set('Name',args.level);payload=xml(doc)
                     output.writestr(name,payload)
-        for name,path in emitted.items():
-            target = (root/name).resolve()
-            if not target.is_relative_to((root/prefix).resolve()):raise ValueError('Invalid asset path')
-            target.parent.mkdir(parents=True,exist_ok=True)
-            with target.open('xb') as out,path.open('rb') as inp:shutil.copyfileobj(inp,out)
+        install_staged(emitted,root,root/prefix)
         report = dict(level=args.level,base_level=args.base_level,source_counts=counts,added_instances=len(additions),
                       added_foliage=sum('/vegetation/' in r['mesh'].lower() for r in additions),
                       groups_added=len(group_map)-len(old_groups),before=before,after=after,failures=failures,
