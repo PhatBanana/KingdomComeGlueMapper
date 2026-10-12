@@ -19,6 +19,9 @@ def self_test(destination):
     import numpy as np
     from setup_campaign import runtime_directory
     for name in CONVERTERS: importlib.import_module(name)
+    if getattr(sys, 'frozen', False):
+        from lighting_cubemaps import compiler
+        compiler(Path(__file__).parent)  # Verify the bundled, pinned HDR compiler.
     from travel_bridge_package import combine, validate_bridge
     runtime = runtime_directory()
     for name in ('campaign_menu.lua', 'retail_diagnostics.lua'):

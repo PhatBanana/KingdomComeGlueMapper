@@ -1,5 +1,6 @@
 """Isolated CGF/material/texture packaging shared by static-object probes."""
 from pathlib import Path, PurePosixPath
+import copy
 import struct
 import xml.etree.ElementTree as ET
 import zipfile
@@ -25,6 +26,33 @@ def preserve_legacy_decal_shadows(element, retained):
     return False
 
 
+def convert_blended_detail(element, retained):
+    """KCD1 applies one detail map to both layers; KCD2 samples two maps.
+
+    Native Illum binds detail2Tex to TM_Emittance (KCD2-130352). Leaving it
+    unbound samples the engine fallback instead of the authored detail map.
+    Its UV transform comes from TM_Custom, not the emittance texture slot.
+    """
+    if element.get('Shader','').lower()!='illum' or not retained & {'%BLENDLAYER','%DIR_OVERLAY'} or not retained & {'%DETAIL_MAPPING','%DETAIL_ATLAS'}:
+        return False
+    textures=element.find('Textures')
+    if textures is None:return False
+    detail=textures.find("Texture[@Map='Detail']")
+    if detail is None or textures.find("Texture[@Map='Emittance']") is not None:return False
+    secondary=copy.deepcopy(detail);secondary.set('Map','Emittance');textures.append(secondary)
+    params=element.find('PublicParams')
+    if params is None:params=ET.SubElement(element,'PublicParams')
+    for component in ('Bump','Diffuse','Gloss'):
+        params.set('Detail2'+component+'Scale',params.get('Detail'+component+'Scale','0.5'))
+    custom=textures.find("Texture[@Map='Custom']")
+    if custom is not None:
+        old=custom.find('TexMod')
+        if old is not None:custom.remove(old)
+        transform=detail.find('TexMod')
+        if transform is not None:custom.append(copy.deepcopy(transform))
+    return True
+
+
 def convert_material_features(element, source_shader, target_shader):
     """Translate named permutations and the observed Illum second-UV slot."""
     # Serialized material masks use remapped global bits; .ext masks are local.
@@ -44,6 +72,7 @@ def convert_material_features(element, source_shader, target_shader):
                     if old is not secondary and old.get("Map") == "Opacity":
                         textures.remove(old)
                 secondary.set("Map", "Opacity")
+    convert_blended_detail(element,retained)
     return retained, removed
 
 

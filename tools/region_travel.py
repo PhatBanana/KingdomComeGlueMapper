@@ -466,6 +466,16 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 dialogue_files=item_resources
                 world_items.pack_assets(data/'gluemapper_world_items.pak',item_assets)
                 entry_report['world_items']=item_report
+                import world_lighting
+                from lighting_cubemaps import pack_assets as pack_lighting
+                replacements,lighting_assets,lighting_report=world_lighting.build(
+                    replacements,source,target,LEVEL,guid,output/'lighting-conversion')
+                pack_lighting(data,lighting_assets)
+                import world_voxels
+                lighting_report['voxels']=world_voxels.build(source,dest)
+                replacements['mission_mission0.xml']=world_voxels.configure_environment(replacements['mission_mission0.xml'])
+                lighting_report['indirect_lighting']='Native basic GI with converted KCD1 opacity voxels and environment probes'
+                entry_report['lighting']=lighting_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)
@@ -477,7 +487,8 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
             if side=='kcd1':stations[side].update(inventory_ui=ui_report,driver_soul=driver.SOUL,horse_scheduler=horse_report,navigation=navigation_report,entry=entry_report,horse_road=road_report)
         if side=='kcd1':
             for f in base.iterdir():
-                if f.is_file() and f.suffix.lower()=='.pak' and f.name.lower() not in ('level.pak','recast.pak'):shutil.copy2(f,dest/f.name)
+                if (f.is_file() and f.suffix.lower()=='.pak' and f.name.lower() not in ('level.pak','recast.pak')
+                        and not f.name.lower().startswith(('svo', 'ipl_svo'))):shutil.copy2(f,dest/f.name)
     dialogue_files.update(horse_recovery_resources(native_player,{LEVEL:stations['kcd1']['horse_road']}))
     common_files = {
         'Libs/Tables/LevelSwitch__'+MOD+'.xml': table,

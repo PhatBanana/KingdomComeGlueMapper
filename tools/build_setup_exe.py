@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 from desktop_setup import APP_VERSION, CONVERTERS
+from lighting_cubemaps import compiler
 
 
 def main():
@@ -16,11 +17,14 @@ def main():
     repo = Path(__file__).resolve().parents[1]
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
     name = f'KingdomComeGlueMapper-Setup-{APP_VERSION}-win64'
+    texconv = compiler(repo/'outputs/build-dependencies')
     command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--windowed',
                '--name', name, '--distpath', str(output), '--workpath', str(repo / 'outputs/pyinstaller-build'),
                '--specpath', str(repo / 'outputs'), '--paths', str(repo / 'tools'),
                '--add-data', f'{repo / "runtime"}:runtime', '--add-data', f'{repo / "LICENSE"}:.',
                '--add-data', f'{repo / "tools/region_travel_horse_recovery.lua"}:.',
+               '--add-binary', f'{texconv}:.',
+               '--add-data', f'{repo / "third_party/DirectXTex-LICENSE.txt"}:third_party',
                '--exclude-module', 'lupa']
     for module in CONVERTERS: command.extend(['--hidden-import', module])
     command.append(str(repo / 'tools/setup_app.py'))

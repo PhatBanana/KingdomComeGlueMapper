@@ -9,6 +9,20 @@ from static_assets import convert_material_features, preserve_legacy_decal_shado
 
 
 class StaticMaterialTests(unittest.TestCase):
+    def test_blended_layers_keep_the_source_detail_on_both_native_inputs(self):
+        m=ET.fromstring('''<Material Shader="Illum" StringGenMask="%BLENDLAYER%DETAIL_MAPPING">
+          <Textures><Texture Map="Detail" File="wood_dt.dds"><TexMod TileU="8" TileV="4"/></Texture>
+          <Texture Map="Custom" File="moss_diff.dds"/></Textures>
+          <PublicParams DetailBumpScale="0.8" DetailDiffuseScale="0.6" DetailGlossScale="0.4"/></Material>''')
+        features={'%BLENDLAYER':1,'%DETAIL_MAPPING':2}
+        convert_material_features(m,features,features)
+        self.assertEqual(m.find("Textures/Texture[@Map='Emittance']").get('File'),'wood_dt.dds')
+        self.assertEqual(m.find("Textures/Texture[@Map='Custom']/TexMod").get('TileU'),'8')
+        self.assertEqual(m.find("Textures/Texture[@Map='Custom']").get('File'),'moss_diff.dds')
+        self.assertEqual(m.find('PublicParams').get('Detail2DiffuseScale'),'0.6')
+        convert_material_features(m,features,features)
+        self.assertEqual(len(m.findall("Textures/Texture[@Map='Emittance']")),1)
+
     def test_legacy_decal_displacement_does_not_enable_new_self_shadows(self):
         features = {"%DECAL": 1, "%PARALLAX_OCCLUSION_MAPPING": 2}
         m = ET.fromstring('''<Material Shader="Illum"
