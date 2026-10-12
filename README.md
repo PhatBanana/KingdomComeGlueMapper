@@ -26,7 +26,7 @@ KingdomComeGlueMapper reads compiled KCD1 and KCD2 archives, converts the origin
 The goal is to preserve KCD1's authored world while using compatible KCD2 runtime systems. Buildings and terrain retain their source placement; interactions receive native contracts where implemented. Wildlife uses **KCD2 models, animations and AI at converted KCD1 habitats**.
 
 - **A world to explore:** terrain, buildings, interiors, vegetation, roads, streams and original map detail.
-- **Growing gameplay support:** seating, cooking, washing, harvesting, pickups, doors, selected services and wildlife.
+- **Growing gameplay support:** seating, ladders, cooking, washing, harvesting, pickups, doors, selected services and wildlife.
 - **Local asset conversion:** generated game content comes from your own installations and stays on your machine.
 - **Inspectable tooling:** Python converters, dependency reports, regression tests and focused in-game experiments.
 
@@ -119,7 +119,8 @@ Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/s
 - [ ] Convert bird nests, contents, physics and associated sounds.
 - [ ] Convert digging spots, graves and buried sacks, including tools, contents and dug-state persistence.
 - [ ] Extend usable beds and their ownership/access rules across the world.
-- [ ] Convert usable ladders and validate climb entry/exit placement.
+- [x] Convert all 113 ladders selected for the initial world to native climbing entities, preserving meshes, heights and approach settings.
+- [ ] Validate top/bottom entry and exit at every ladder; convert the 26 deferred ladders when their quest layers are supported.
 - [ ] Convert grindstone instances and verify sharpening effects.
 - [ ] Convert alchemy benches and their complete activity contracts.
 - [ ] Convert archery-target activities and dice-game locations.
@@ -128,7 +129,9 @@ Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/s
 
 **Evidence:** seating, herb picking, washing, loose-item pickup and the selected rental/bed fixes have sampled user gameplay confirmation. The inspected development level contains 274 washing triggers and 303 cooking groups; the pickup conversion report records 1,773 placements. These counts are coverage snapshots, not individual acceptance tests.
 
-Sources: [chairs](tools/chairs.py), [benches](tools/benches.py), [cooking](tools/cooking_pots.py), [washing](tools/washing_troughs.py), [herbs](tools/herb_pickup.py), [pickups](tools/world_items.py), [player chests](tools/player_chests.py), [doors](tools/world_doors.py), [rental](tools/room_rental.py).
+Ladders: the installed development build contains 113 native ladder entities with their static duplicates removed. The user confirmed climbing works at the sampled test location on 13 October 2026. Other locations and NPC climbing remain separate acceptance checks.
+
+Sources: [chairs](tools/chairs.py), [benches](tools/benches.py), [cooking](tools/cooking_pots.py), [washing](tools/washing_troughs.py), [herbs](tools/herb_pickup.py), [pickups](tools/world_items.py), [player chests](tools/player_chests.py), [doors](tools/world_doors.py), [ladders](tools/ladders.py), [rental](tools/room_rental.py).
 
 ### Wildlife and population
 
@@ -190,7 +193,7 @@ The following snapshot compares source mission/layer entities selected by the co
 | Nests | 103 | No converted nest registrations in the inspected level. |
 | Digging | 79 holes: 63 grave pits and 16 buried sacks | No converted digging registrations. |
 | Ambient fish | 41 fish-group entities | Separate from trap/container interaction; not converted. |
-| Ladders | 113 | Visual import does not provide native climbing. |
+| Ladders | 113 | Converted to native climbing entities; sampled player test confirmed. Another 26 are deferred with inactive layers. |
 | Grindstones | 11 | Global sharpening service registration does not activate these instances. |
 | Alchemy benches | 7 | Complete native activity conversion remains. |
 | Shooting targets / dice cups | 8 / 13 | Activity and participant conversion remains. |
@@ -202,7 +205,7 @@ Some KCD2 systems use different entity classes, so class counts alone are not pr
 
 1. **General containers:** convert the authored `Stash` family and inventory dependencies, covering ordinary chests, sacks, bags, shelves, fish traps and beehives. Preserve personal shared storage as a distinct contract.
 2. **Nests and digging:** add native interactions, contents, effects and persistent state.
-3. **World activities:** extend beds, ladders, sharpening, alchemy and minigames.
+3. **World activities:** extend beds, sharpening, alchemy and minigames; validate ladder access throughout the world.
 4. **Population and ownership:** expand NPCs, livestock, homes, schedules and regional services.
 5. **World parity and persistence:** close visual gaps and verify save/load, travel, respawn and quest-state transitions.
 

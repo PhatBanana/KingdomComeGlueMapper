@@ -455,6 +455,9 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 replacements,door_resources,door_strings,door_report=build_world_doors(replacements,source,target)
                 dialogue_files.update(door_resources)
                 entry_report['doors']=door_report
+                from ladders import build as build_ladders
+                replacements,ladder_report=build_ladders(replacements,source,target,guid)
+                entry_report['ladders']=ladder_report
                 replacements,miller_resources,miller_report=miller_world.register(
                     replacements,{**dialogue_files,**graphs},miller_person,miller_shop,source,target,guid)
                 graphs={name:miller_resources.pop(name) for name in graphs}
