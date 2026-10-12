@@ -132,10 +132,13 @@ def combine(base, bridge, target, output):
         roof_report = repair_package(output, receipt['sources']['kcd1'])
         from brush_registration import repair_package as repair_brushes
         brush_report = repair_brushes(output)
+        from water_layers import repair_package as repair_water
+        water_report = repair_water(output, receipt['sources']['kcd1'])
     receipt.update(version=VERSION, menu=False, start_probe=False,
                    travel_bridge=dict(files=bridge_files, destination='kcd1_travel', runtime_verified=False))
     if roof_report is not None:
         receipt['travel_bridge']['brush_registration'] = {'changed_brushes': brush_report['changed_brushes']}
+        receipt['travel_bridge']['water_layers'] = water_report
         receipt['travel_bridge']['roof_clipping'] = {
             key: roof_report[key] for key in ('roof_placements', 'changed_clip_count', 'linked_probe_count')}
     # Untouched world files keep the digests verify_package(base) just checked;
@@ -143,6 +146,7 @@ def combine(base, bridge, target, output):
     rewritten = {*bridge_files, BRIDGE_PAK, f'Data/{MOD_ID}.pak', 'mod.manifest'}
     if roof_report is not None:
         rewritten.update(('Data/Levels/kcd1_travel/level.pak', 'roof-clip-repair.json'))
+        rewritten.add('Data/Levels/kcd1_travel/terrain.pak')
     names = [p.relative_to(output).as_posix() for p in sorted(output.rglob('*')) if p.is_file() and p.name != RECEIPT]
     receipt['files'] = {n: base_files[n] if n in base_files and n not in rewritten else digest(output/n) for n in names}
     unlinked(output/RECEIPT).write_text(json.dumps(receipt, indent=2), encoding='utf-8')

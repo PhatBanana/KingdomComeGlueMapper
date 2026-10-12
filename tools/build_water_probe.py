@@ -14,6 +14,7 @@ from audit_maps import texture_families
 from compiled_terrain import parse
 from upgrade_map import read, xml
 from water_volumes import read_water, convert_water, append_water
+from water_layers import select_water
 
 
 def shader_features(contents):
@@ -91,6 +92,9 @@ def main():
         probe_objects = global_environment_probe(ET.fromstring(read(source_archive, "objects_mission0.xml")), probe_cubemap)
         native = parse(read(native_archive, "terrain/terrain.dat"))
         waters, source_counts = read_water(source)
+        layers = {int(e.get('Id')): e.get('Name', '') for e in
+                  ET.fromstring(read(source_archive, 'leveldata.xml')).find('Layers')}
+        waters, excluded_water = select_water(source, layers)
         native_waters, native_counts = read_water(native)
         if not waters or not native_waters:
             raise ValueError("Water reference records missing")
@@ -208,6 +212,7 @@ def main():
             if path.read_bytes() != payload:
                 raise ValueError("Water asset verification failed")
         report = {"level": args.level, "base_level": args.base_level, "water_volumes": len(waters),
+                  "excluded_water_layers": excluded_water,
                   "source_object_counts": source_counts, "native_object_counts": native_counts,
                   "converted_object_counts": checked_counts, "materials": material_report,
                   "asset_files": len(emitted), "volumes": waters,

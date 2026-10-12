@@ -104,7 +104,8 @@ class BridgePackageTests(unittest.TestCase):
             return dict(roof_placements=3, changed_clip_count=2, linked_probe_count=1)
         with patch('travel_bridge_package.level_registration', return_value=self.native_level), \
              patch('roof_clip_repair.repair_package', side_effect=finish) as repair, \
-             patch('brush_registration.repair_package', return_value={'changed_brushes': 7}) as brushes:
+             patch('brush_registration.repair_package', return_value={'changed_brushes': 7}) as brushes, \
+             patch('water_layers.repair_package', return_value={'removed_water_volumes': 4}) as water:
             output = combine(self.base, self.bridge, 'target', self.root/'combined')
         self.assertEqual(repair.call_count, 1)
         result = verify_package(output)
@@ -112,6 +113,8 @@ class BridgePackageTests(unittest.TestCase):
         self.assertIn('roof-clip-repair.json', result['files'])
         self.assertEqual(result['travel_bridge']['roof_clipping']['changed_clip_count'], 2)
         brushes.assert_called_once_with(output)
+        water.assert_called_once_with(output, 'source')
+        self.assertEqual(result['travel_bridge']['water_layers']['removed_water_volumes'], 4)
         self.assertEqual(result['travel_bridge']['brush_registration']['changed_brushes'], 7)
 
 
