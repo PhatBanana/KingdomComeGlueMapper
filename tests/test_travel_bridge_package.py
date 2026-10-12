@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
+from compare_packages import compare
 from region_travel_dialogue import patch as patch_dialogue
 from setup_campaign import MOD_ID, RECEIPT, verify_package
 from travel_bridge_package import combine, validate_bridge, LEVEL_TABLE, BRIDGE_PAK
@@ -83,6 +84,15 @@ class BridgePackageTests(unittest.TestCase):
         self.assertTrue((linked/world).samefile(self.base/world))
         for rewritten in (f'Data/{MOD_ID}.pak', 'mod.manifest', RECEIPT):
             self.assertFalse((linked/rewritten).samefile(self.base/rewritten))
+
+    def test_rebuilds_a_day_apart_differ_only_in_write_times(self):
+        with patch('travel_bridge_package.level_registration', return_value=self.native_level):
+            with patch('time.time', return_value=1_790_000_000):
+                first = combine(self.base, self.bridge, 'target', self.root/'first')
+            with patch('time.time', return_value=1_790_090_000):
+                second = combine(self.base, self.bridge, 'target', self.root/'second')
+        self.assertNotEqual((first/RECEIPT).read_bytes(), (second/RECEIPT).read_bytes())
+        self.assertEqual(compare(first, second, deep=True), [])
 
     def test_separate_mod_identity_rejected_before_copy(self):
         (self.bridge/'mod.manifest').write_text('<kcd_mod><info><modid>gluemappertravel</modid></info></kcd_mod>')

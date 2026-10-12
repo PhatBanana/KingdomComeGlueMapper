@@ -58,6 +58,34 @@ package's worth of disk although Explorer reports both sizes. Either folder can
 be deleted safely without affecting the other. The current release starts a fresh build when
 retrying a failed conversion; it does not claim checkpoint resume support.
 
+## Comparing builds (source tooling)
+
+The source tool compares generated packages without treating archive write times
+or the manifest creation date as content changes. From the repository root:
+
+```powershell
+.venv/Scripts/python.exe tools/compare_packages.py `
+  --left "D:\Builds\before\package" `
+  --right "D:\Builds\after\package" `
+  --deep
+```
+
+Replace the example paths with your build directories. The default mode compares
+archive entry names, order, compression, sizes and stored CRC-32 values. Use
+`--deep` for verification: it reads and hashes every entry with SHA-256 and
+checks stored CRCs. This takes longer than reading archive metadata alone.
+
+The tool ignores ZIP timestamps, `created_on` in `mod.manifest`, and corresponding
+receipt digests. Other files and receipt fields are compared. It prints JSON and
+exits with status 1 when differences are found. `--ignore "*report.json"` excludes
+matching relative file paths and their entries in installation receipts; use
+exclusions deliberately because those files are then outside the comparison.
+
+Equivalent contents do not establish valid installation receipts or runtime
+compatibility. The installer's package verification remains necessary. This is
+a developer command, not an extra step required by normal Windows setup, and
+its presence in source does not imply an older downloaded EXE contains it.
+
 ## Installation and rollback
 
 The destination is `<KCD2>/Mods/kingdomcomegluemapper`. Setup stages and verifies
