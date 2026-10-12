@@ -58,6 +58,19 @@ package's worth of disk although Explorer reports both sizes. Either folder can
 be deleted safely without affecting the other. The current release starts a fresh build when
 retrying a failed conversion; it does not claim checkpoint resume support.
 
+To check that a code change leaves the output unchanged, build a package before
+and after it, then compare the two `package` folders:
+
+```powershell
+python tools/compare_packages.py --left <run-before>\package --right <run-after>\package
+```
+
+Receipt hashes alone differ between identical builds, because most archives
+record when each entry was written and `mod.manifest` records its creation date.
+The comparison ignores those values, checks every archive entry's name, order,
+compression, size and CRC-32 (`--deep` hashes every entry instead), and requires
+all other files to match. It exits with status 1 and lists the differences otherwise.
+
 ## Installation and rollback
 
 The destination is `<KCD2>/Mods/kingdomcomegluemapper`. Setup stages and verifies

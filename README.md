@@ -453,6 +453,7 @@ the generated loose `ModificatorVT.cfi` and `CommonShadowGenPass.cfi` files in
 | `tools/complete_instances.py` | Complete mixed-stream foliage and instanced prop coverage |
 | `tools/fix_instanced_shader.py` | Generate a local correction for the installed instanced shader variant |
 | `tools/stage_map_probe.py` | Historical unconverted-copy diagnostic; not needed for normal use |
+| `tools/compare_packages.py` | Compare two packages or build folders by content, ignoring archive write times |
 
 Local checks require your installed game files. GitHub Actions checks Python compilation, CLI entry points and asset-free vegetation binary tests on Windows; it does **not** run the games or establish runtime compatibility.
 
