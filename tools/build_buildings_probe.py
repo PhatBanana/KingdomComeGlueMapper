@@ -7,14 +7,13 @@ import json
 import math
 from pathlib import Path
 import struct
-import shutil
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
 from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer
 from compiled_terrain import parse
-from static_assets import asset_pack
+from static_assets import asset_pack, install_staged
 from upgrade_map import read, xml
 from vegetation import verify_target_hlods
 from water_volumes import read_water
@@ -215,13 +214,7 @@ def main():
                         doc.extend(v["entity"] for v in packaged_entities)
                         payload = xml(doc)
                     output.writestr(name,payload)
-        for name,payload in emitted.items():
-            target = (root/name).resolve()
-            if not target.is_relative_to(assets.resolve()):
-                raise ValueError("Asset escapes isolated namespace")
-            target.parent.mkdir(parents=True,exist_ok=True)
-            with target.open("xb") as stream, payload.open("rb") as source_stream:
-                shutil.copyfileobj(source_stream, stream)
+        install_staged(emitted, root, assets)
         report = {"level":args.level,"base_level":args.base_level,"placements":len(selected),"meshes":len(meshes)-len(base_meshes),
                   "inherited_meshes":len(base_meshes),"streams_only":args.streams_only,
                   "asset_files":len(emitted),"radius":None if args.all else args.radius,"all":args.all,
