@@ -489,6 +489,15 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 replacements['objects_mission0.xml'], environment_report = build_environment(
                     replacements['objects_mission0.xml'], source, target, guid)
                 entry_report['environment'] = environment_report
+                import world_music
+                music_level = {n: replacements[n] if n in replacements else read(z,names[n])
+                               for n in ('objects_mission0.xml','triggerareas.fubar')}
+                music_changes, music_files, music_report = world_music.resources(
+                    music_level,source,target,guid)
+                replacements.update(music_changes)
+                with zipfile.ZipFile(data/'gluemapper_music.pak','w',zipfile.ZIP_DEFLATED,compresslevel=1) as music_pak:
+                    for name,blob in sorted(music_files.items()): music_pak.writestr(name,blob)
+                entry_report['music'] = music_report
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

@@ -69,9 +69,10 @@ The installed source has 139 containers. KCD1 and KCD2 both use SQCB1.00, but th
 adaptive controllers are WIDSH 1.18 and 1.22 respectively. Identical audio
 containers do **not** make the old controller's state variables compatible.
 
-Music is audited, **not installed or activated by this builder**. Each scene is
-marked `requires_state_conversion` (or `missing_source_scene`). The remaining
-work is a region-scoped conversion of exploration, settlement, weather, combat
-and dialogue transitions into KCD2's music-state inputs. Copying KCD1's global
-`main_layer.widsh` over KCD2's would also affect Trosky and is not a valid merge.
-No FMOD master-bank replacement is generated.
+Music is audited, **not installed or activated by this English-audio builder**.
+Its inventory labels describe that builder's scope. The separate
+[`world_music` conversion](music-conversion.md) now imports original score
+scenes and recordings with native area/state bindings, integrated into the
+normal world builder. It merges with the native controller and gates scene
+selection and continuation by world; it does not copy KCD1's global controller
+over KCD2's unchanged. No FMOD master-bank replacement is generated.
