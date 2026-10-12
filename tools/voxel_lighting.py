@@ -56,8 +56,15 @@ def opacity_block(raw, active_layers=frozenset({0})):
     lut = np.array([int((n*16/255)**2*255) for n in range(16)], dtype=np.uint8)
     rgba[0::2] = lut[packed & 15]
     rgba[1::2] = lut[packed >> 4]
-    header = bytes(dims)+b'\0'+bytes(crop)+b'\0'+struct.pack('<III', 0, 1, int(rgba[3::4].max()))
-    return header+rgba.tobytes()
+    # Native shipped bricks have a full 16^3 extent and zero crop origin.
+    # Place legacy cropped samples at their original cell coordinates, rather
+    # than depending on the target's handling of the old crop metadata.
+    full = np.zeros((16, 16, 16, 4), dtype=np.uint8)
+    x, y, z = crop
+    dx, dy, dz = dims
+    full[z:z+dz, y:y+dy, x:x+dx] = rgba.reshape(dz, dy, dx, 4)
+    header = bytes([16,16,16,0])+bytes(8)+struct.pack('<II', 1, int(full[:,:,:,3].max()))
+    return header+full.tobytes()
 
 
 def source_nodes(blob, center, extent=256, active_layers=frozenset({0})):

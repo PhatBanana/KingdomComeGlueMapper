@@ -13,52 +13,7 @@ from upgrade_map import read
 from world_lighting import defaults, overlay
 
 
-def clip_geometry(blob):
-    if blob[:8] != b'CrChF\x07\0\0':
-        raise ValueError('Unsupported clip CGF header')
-    count, table = struct.unpack_from('<II', blob, 8)
-    chunks = []
-    bsp = []
-    bounds = None
-    for i in range(count):
-        kind, version, identity, size, offset = struct.unpack_from('<HHIII', blob, table + i*16)
-        if offset + size > len(blob):
-            raise ValueError('Clip CGF chunk exceeds file')
-        chunks.append({'type': hex(kind), 'version': hex(version), 'size': size})
-        if kind == 0x1016 and struct.unpack_from('<I', blob, offset+4)[0] == 0:
-            number, stride = struct.unpack_from('<II', blob, offset+8)
-            if stride != 12 or size != 24 + number*stride:
-                raise ValueError('Unsupported clip position stream')
-            vertices = list(struct.iter_unpack('<3f', blob[offset+24:offset+size]))
-            bounds = [[min(p[a] for p in vertices) for a in range(3)],
-                      [max(p[a] for p in vertices) for a in range(3)]]
-        if kind == 0x3009:
-            number = struct.unpack_from('<I', blob, offset)[0]
-            if size != 4 + number*24:
-                raise ValueError('Unsupported clip BSP node packing')
-            bsp = list(struct.iter_unpack('<4fii', blob[offset+4:offset+size]))
-            if any(child < -1 or child >= number for node in bsp for child in node[4:]):
-                raise ValueError('Invalid clip BSP child index')
-    if bounds is None or not bsp:
-        raise ValueError('Clip missing mesh or BSP dependency')
-    return {'sha256': hashlib.sha256(blob).hexdigest(), 'chunks': chunks,
-            'local_bounds': bounds, 'bsp_nodes': len(bsp)}, bsp
-
-
-def bsp_contains(nodes, point):
-    # CryEntitySystem/BSPTree3D: positive terminal is outside, negative inside.
-    # Border points are intentionally excluded from an automatic association.
-    index = 0
-    for _ in range(len(nodes)+1):
-        x, y, z, d, positive, negative = nodes[index]
-        distance = x*point[0] + y*point[1] + z*point[2] + d
-        if abs(distance) < 1e-5:
-            return False
-        child = positive if distance > 0 else negative
-        if child == -1:
-            return distance < 0
-        index = child
-    raise ValueError('Cyclic clip BSP')
+from lighting_clips import clip_geometry, bsp_contains
 
 
 def entities(archive):

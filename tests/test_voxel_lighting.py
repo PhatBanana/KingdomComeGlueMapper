@@ -24,7 +24,9 @@ class VoxelTests(unittest.TestCase):
         child = struct.unpack_from('<8I', idx, 36)
         self.assertEqual(child[:4], (0, 0, 0, 128))
         raw = zlib.decompress(vox[child[6]+4:])
-        self.assertEqual(raw[20:], bytes([0, 225, 225, 64]))
+        self.assertEqual(raw[:8], bytes([16,16,16,0,0,0,0,0]))
+        self.assertEqual(raw[20:24], bytes([0, 225, 225, 64]))
+        self.assertEqual(raw[24:], bytes(16**3*4-4))
         self.assertEqual(struct.unpack_from('<I', raw, 16)[0], 64)
 
     def test_reject_cycle(self):
@@ -56,8 +58,16 @@ class VoxelTests(unittest.TestCase):
         raw += struct.pack('<I', 718)+bytes([0x20, 0x02])
         raw += struct.pack('<I', 999)+bytes([0xff, 0xff])
         result = opacity_block(raw, {0, 718})
-        self.assertEqual(result[20:], bytes([1, 4, 4, 1]))
+        self.assertEqual(result[20:24], bytes([1, 4, 4, 1]))
         self.assertNotIn(225, result[20:])
+
+    def test_crop_expansion_preserves_xyz_and_empty_cells(self):
+        raw = bytes([2,1,1,1,3,5,7,1])+bytes(8)+bytes([0xf0,0x8f,0x12,0x34])
+        result = opacity_block(raw)
+        offset = 20+4*(7*16*16+5*16+3)
+        self.assertEqual(result[offset:offset+8], bytes([0,225,225,64,4,1,16,9]))
+        self.assertFalse(any(result[20:offset]))
+        self.assertFalse(any(result[offset+8:]))
 
     def test_reject_inflate_size_and_trailing_data(self):
         for expected, suffix in [(1, b''), (3, b''), (2, b'bad')]:

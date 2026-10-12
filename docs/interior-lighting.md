@@ -138,6 +138,37 @@ not visual acceptance of the complete material/probe conversion.
 Automated tests cover malformed references, cycles, truncated records,
 decompression sizes, channel expansion, and exclusion of inactive layers.
 
+### Full-block placement correction and clipping test (2026-10-12)
+
+The sampled native Trosky index references 5,784 payloads, all with 16x16x16
+dimensions and zero crop offsets. The converter now expands each legacy crop
+into a zero-filled 16x16x16 block, placing cells in z/y/x storage order at the
+original crop coordinates. Node origins, octants and physical cell size stay
+unchanged. Regression checks exercise nonzero, unequal x/y/z crop offsets and
+confirm that cells outside the source crop remain empty.
+
+Focused installed package: `outputs/InteriorLighting/Bounds01`, with backups
+of the replaced level and voxel packages. It retains the committed building
+material assets. With the local probes disabled and voxel GI enabled, the
+earlier rectangular artifact is absent in `screenshot_261012_133444.jpg`.
+This is single-tile runtime evidence, not full-map validation.
+
+The same development package tests explicit capture-to-clip links for probes
+26456 and 26457. Strict BSP containment places their capture points in source
+clips 8756 and 8795 respectively. Runtime `CountLinks()` reports one link on
+each probe; `GetLinkTarget()` returning nil is not sufficient to diagnose a
+broken link because a native clip entity need not expose a Lua script table.
+The upper probe still causes an exterior artifact when enabled. Neither the
+candidate association nor area-only flags have passed visual acceptance.
+
+`lighting_clips.associate_probe_clips` therefore defaults to read-only
+candidate reporting. Normal conversion does not invent these links. Its
+explicit `apply=True` mode is for controlled development tests only. Existing
+authored links are retained. The world audit found 246 unique containment
+candidates and 56 outside captures; containment alone does not prove the
+desired light influence region. No global exposure, brightness, or GI-disable
+workaround is baked into this correction.
+
 ## Packaged area-contract audit (2026-10-12)
 
 `tools/audit_lighting_contract.py` compares source Rataje, shipped Trosky and

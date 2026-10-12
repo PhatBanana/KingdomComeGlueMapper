@@ -15,6 +15,7 @@ from cooking_pots import rotate, vector
 from entity_visuals import world_transform
 from lighting_cubemaps import Cubemaps, SOURCE_TIMES, TARGET_TIMES, stamp, time_bracket, verify_native_contract
 from upgrade_map import read, xml
+from lighting_clips import associate_probe_clips
 
 PREFIX = 'gm_lighting_'
 
@@ -164,6 +165,10 @@ def build(files, source, target, level, guid, work):
         _,clips,_=inventory(world,'ClipVolume')
         selected['ClipVolume']=clips
         selected['AreaBox']=[]
+        archive_names={n.lower():n for n in world.namelist()}
+        report['clip_candidates']=associate_probe_clips(
+            selected['EnvironmentLight'], clips, entities,
+            lambda path: read(world, archive_names[path]), old_defaults['EnvironmentLight'])
         included={e.get('EntityId') for group in selected.values() for e in group}
         pending=[e for group in selected.values() for e in group]
         while pending:
