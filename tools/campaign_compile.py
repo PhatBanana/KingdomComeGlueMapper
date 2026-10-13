@@ -24,6 +24,7 @@ from campaign_ai_registration import (NativeAIRegistry, MailboxAdapter, BrainAda
     SubbrainAdapter, ConvertedTreeAdapter, SmartEntityAdapter, controller_definition, quest_controller_brains)
 from campaign_doors import NativeDoorCatalog, AnimatedDoorAssetAdapter, DoorEntityConversion
 from campaign_dependencies import DependencyImporter, import_binding_dependencies
+from campaign_buffs import BuffAdapter, native_contract as native_buff_contract
 from campaign_dependency_adapters import (EntityAdapter, InventoryAdapter, ItemAdapter, ItemTextAdapter,
                                           LazyAdapter, SoulAdapter, SourceTables, StaticAssetAdapter)
 from campaign_linker import build_links, link_entities, entity_index
@@ -193,6 +194,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         importer = DependencyImporter(dict(
             entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids),
             items=ItemAdapter(tables, project), inventories=InventoryAdapter(tables, project),
+            buffs=LazyAdapter(lambda: BuffAdapter(tables, native_buff_contract(target), project)),
             souls=SoulAdapter(tables, souls),
             character_parts=CharacterPartAdapter(tables, target, stack, assets, project),
             ai_types=AIStructureAdapter(ai_types), ai_enums=AIEnumAdapter(ai_types),

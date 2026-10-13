@@ -9,6 +9,33 @@ from test_dialogue_dubbing import ogg
 
 
 class RuntimeDialogueTests(unittest.TestCase):
+    def test_level_container_resolves_relative_definitions_and_engine_predicate(self):
+        from campaign_dialogue_conditions import QuestConditions
+        conditions = QuestConditions([])
+        conditions.compile('!IsStreamInstallComplete()')
+        key = next(iter(conditions.bindings))
+        files = {'world/entry/level.xml': b'<Database><Skald><Level><Definitions><Definition File="../quest.xml"/></Definitions><Nodes><quest Name="quest"/></Nodes></Level></Skald></Database>',
+                 'world/quest.xml': b'<Database><Skald><Quest Name="quest"><Ports><Port Name="ready" Direction="Out" Type="bool"/></Ports></Quest></Skald></Database>'}
+        blob = self.sample()[0].replace(b'</Ports>', ('<Port Name="' + key + '" Direction="In" Type="bool"/></Ports>').encode())
+        result = attach_dialogue(files, 'level', blob, dict(actions={}, active_port='active', conditions=conditions.bindings),
+                                 'quest.ready', 'world/entry/level.xml')
+        root = ET.fromstring(result['world/entry/level.xml'])
+        function = root.find('.//Function')
+        self.assertEqual(function.get('MethodName'), 'wh::framework::IsStreamInstallComplete')
+        self.assertIn('world/entry/level/scene.xml', result)
+        self.assertEqual(root.findall('.//scene/Edge')[1].get('From'), function.get('Name') + '.IsCompleted')
+        self.assertNotIn(b'Constant', result['world/entry/level.xml'])
+
+    def test_level_uses_parent_project_declarations(self):
+        files = {'project.xml': b'<Database><Skald><Project Name="project"><Definitions><Definition File="entry/level.xml"/><Definition File="quest.xml"/></Definitions><Nodes/></Project></Skald></Database>',
+                 'entry/level.xml': b'<Database><Skald><Level Name="level"><Definitions/><Nodes><quest Name="quest"/></Nodes></Level></Skald></Database>',
+                 'quest.xml': b'<Database><Skald><Quest Name="quest"><Ports><Port Name="ready" Direction="Out" Type="bool"/></Ports></Quest></Skald></Database>'}
+        result = attach_dialogue(files, 'level', self.sample()[0], dict(actions={}), 'quest.ready', 'entry/level.xml')
+        self.assertIn('entry/level/scene.xml', result)
+        del files['project.xml']
+        with self.assertRaisesRegex(ValueError, 'Missing declared project instance'):
+            attach_dialogue(files, 'level', self.sample()[0], dict(actions={}), 'quest.ready', 'entry/level.xml')
+
     def sample(self):
         model = dict(roles={'7': {'role_name': 'SPEAKER'}}, topics={'1': dict(sequences=[dict(lines=[
             dict(response={'role_id': '7', 'string_name': 'line_aBcD'},

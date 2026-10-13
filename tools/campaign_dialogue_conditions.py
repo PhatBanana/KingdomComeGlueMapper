@@ -9,11 +9,15 @@ import re
 from campaign_quest_graph import objective_identifier
 
 
-TOKEN = re.compile(r"\s*(?:(AND|OR)\b|([A-Za-z_]\w*)|('(?:[^'\\]|\\.)*')|(-?\d+(?:\.\d+)?)|(==|!=|>=|<=|>|<)|([!(),&|]))")
+TOKEN = re.compile(r"\s*(?:(AND|OR)\b|([A-Za-z_]\w*)|('(?:[^'\\]|\\.)*')|(-?\d+(?:\.\d+)?)|(==|!=|>=|<=|>|<)|([!(),&|\[\]]))")
 QUEST = {'IsQuestStarted': 'started', 'IsQuestCompleted': 'completed',
          'IsQuestActivated': 'available', 'IsQuestUnchanged': 'unchanged'}
 OBJECTIVE = {'IsObjectiveStarted': 'Started', 'IsObjectiveCompleted': 'Completed',
              'IsObjectiveCanceled': 'Canceled', 'IsObjectiveUnchanged': 'Unchanged'}
+
+# Native Quests/Final/Barbora/trosecko/zachrana/hibernace/treti_den/ipl_overlay.xml.
+ENGINE_PREDICATES = {'IsStreamInstallComplete': dict(
+    method='wh::framework::IsStreamInstallComplete', declaring_type='wh::framework', output='IsCompleted')}
 
 
 def expand_functions(expression, functions, stack=()):
@@ -35,12 +39,13 @@ def expand_functions(expression, functions, stack=()):
 
 
 class QuestConditions:
-    def __init__(self, models, functions=None, registered_items=()):
+    def __init__(self, models, functions=None, registered_items=(), participant_assets=None):
         self.quests = {m['quest']: {r['objective_name'] for r in m['tables']['quest_objective']['rows']}
                        for m in models}
         self.bindings = {}
         self.functions = dict(functions or {})
         self.registered_items = {str(i).lower() for i in registered_items}
+        self.participant_assets = dict(participant_assets or {})
 
     def compile(self, expression):
         source = expand_functions(expression, self.functions).strip()
@@ -68,7 +73,12 @@ class QuestConditions:
             if token == '!': return '!(' + atom() + ')'
             if token == '(':
                 value = disjunction(); take(')'); return '(' + value + ')'
-            if token in ('var', 'GetAmountOfActorItems'):
+            if token in ENGINE_PREDICATES:
+                take('('); take(')')
+                name = 'condition_' + hashlib.sha256(('engine:' + token).encode()).hexdigest()[:20]
+                pending[name] = dict(kind='engine_function', **ENGINE_PREDICATES[token])
+                return "Port('" + name + "')"
+            if token in ('var', 'GetAmountOfActorItems', 'CountOfActorItems'):
                 take('('); argument = take(); take(')')
                 if not argument.startswith("'"):
                     raise ValueError('Expected literal dialogue scalar argument')
@@ -83,9 +93,23 @@ class QuestConditions:
                     if value.lower() not in self.registered_items:
                         raise ValueError('Unregistered dialogue item: ' + value)
                     native = 'CountOfActorItems'
+                participant = None
+                if index < len(tokens) and tokens[index] == '[':
+                    take('['); selector = take(); take(']')
+                    if token == 'var' or not selector.startswith("'") or selector[1:-1] not in self.participant_assets:
+                        raise ValueError('Unregistered inventory predicate participant: ' + selector)
+                    participant = self.participant_assets[selector[1:-1]]
                 operator, number = take(), take()
                 if operator not in ('==', '!=', '>=', '<=', '>', '<') or not re.fullmatch(r'-?\d+(?:\.\d+)?', number):
                     raise ValueError('Unconverted dialogue scalar comparison')
+                if participant is not None:
+                    if not re.fullmatch(r'\d+', number) or int(number) > 2147483646:
+                        raise ValueError('Inventory predicate requires a bounded nonnegative integer count')
+                    identity = ':'.join((participant, value.lower(), operator, number))
+                    name = 'condition_' + hashlib.sha256(identity.encode()).hexdigest()[:20]
+                    pending[name] = dict(kind='inventory_comparison', asset=participant,
+                                         item=value.lower(), operator=operator, amount=int(number))
+                    return "Port('" + name + "')"
                 return native + '(' + argument + ') ' + operator + ' ' + number
             if token in ('0', '1'): return 'false' if token == '0' else 'true'
             if token not in QUEST and token not in OBJECTIVE:

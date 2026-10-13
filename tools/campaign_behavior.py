@@ -16,6 +16,7 @@ from campaign_quest_bridge import OPERATIONS, QuestBridge, UnsupportedOperation
 from campaign_profiles import ProfileBridge
 from campaign_quest_graph import identifier, xml
 from campaign_sources import key
+from campaign_rpg_script import upgrade as upgrade_rpg_script
 from quest_import import behavior_path, literal
 from upgrade_map import read
 
@@ -47,6 +48,9 @@ CONTRACTS = {
     'CreateItem': {'ItemGUID': 'string_expression', 'Amount': 'expression',
                    'CreatedItem': 'reference', 'Target': 'reference', 'NotifyUI': 'value'},
     'EquipItem': {'item': 'reference', 'Target': 'reference'},
+    'AddBuff': {'BuffGUID': 'string_expression', 'SoulWUID': 'reference'},
+    'RemoveBuffs': {'BuffGUID': 'string_expression', 'SoulWUID': 'reference', 'BuffTagId': 'value'},
+    'SetExternalLock': {'LockManagerType': 'value', 'Locked': 'value', 'LockName': 'string_expression'},
     'UnEquipItem': {'item': 'reference', 'Target': 'reference'},
     'IncludeTree': {'File': 'include_file', 'Name': 'string_expression', 'nodeLabel': 'value'},
     'ProcessMessage': {'Atomic': 'value', 'timeout': 'string_expression', 'timeType': 'value',
@@ -138,6 +142,23 @@ def reference(value):
     return '$' + value
 
 
+def associative_indexes(value, variables):
+    """Quote source literal keys only for declared string-keyed maps.
+
+    Source arrays, custom-key maps and keys that name variables need a separate
+    typed adapter. Never turn a possible runtime index into a constant.
+    """
+    def replace(match):
+        base, index = match[1], match[2]
+        declaration = variables.get(base.lstrip('$'), {})
+        if declaration.get('form') != 'associative' or index in variables:
+            raise UnsupportedOperation('Source index requires type resolution: ' + match[0])
+        return base + "['" + index + "']"
+    parts = re.split(r'''('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")''', value)
+    return ''.join(part if i % 2 else re.sub(r'(\$?[A-Za-z_]\w*)\[([A-Za-z_]\w*)\]', replace, part)
+                   for i, part in enumerate(parts))
+
+
 def expression(value, catalog):
     value = literal(value)
     code = re.sub(r'''('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")''', '', value)
@@ -163,6 +184,7 @@ class BehaviorCompiler:
         self.models = {m['quest']: m for m in models}
         self.records = {}
         self.converted = Counter()
+        self.variables = {}
 
     def destination(self, owner, document):
         document = key(document)
@@ -211,7 +233,7 @@ class BehaviorCompiler:
         return ET.Element('Variable', target)
 
     def typed_expression(self, value):
-        value = literal(value)
+        value = associative_indexes(literal(value), self.variables)
         def segment(text):
             def replace(match):
                 original, member = match[1], match[2]
@@ -235,7 +257,11 @@ class BehaviorCompiler:
         op, attrs = source['op'], source['attributes']
         site = dict(owner=owner, document=document, tree=tree, path=path, operation=op, arguments=attrs)
         try:
-            if op == 'EnableProfile':
+            if op == 'ExecuteLua':
+                if set(attrs) != {'code'} or op not in self.catalog['nodes']:
+                    raise UnsupportedOperation('Native ExecuteLua contract is missing or has unsupported fields')
+                node = ET.Element('ExecuteLua', code=upgrade_rpg_script(literal(attrs['code'])))
+            elif op == 'EnableProfile':
                 if self.profile_streaming is None:
                     raise UnsupportedOperation('Installed native profile streaming helper is required')
                 node = self.profile_bridge.lower(source, site)
@@ -254,7 +280,7 @@ class BehaviorCompiler:
                 for name, raw in attrs.items():
                     kind, value = contract[name], literal(raw)
                     if kind == 'reference':
-                        value = reference(raw)
+                        value = reference(associative_indexes(literal(raw), self.variables))
                     elif kind == 'expression':
                         value = self.typed_expression(raw)
                     elif kind == 'string_expression':
@@ -293,6 +319,15 @@ class BehaviorCompiler:
                     if target is None:
                         raise UnsupportedOperation('Referenced item conversion did not complete: ' + item)
                     values['ItemGUID'] = quote(target)
+                if op in ('AddBuff', 'RemoveBuffs'):
+                    buff = literal(attrs.get('BuffGUID', ''))
+                    record['buff_dependencies'].append(dict(buff=buff, site=site))
+                    if not buff or buff.startswith('$') or literal(attrs.get('BuffTagId', '')):
+                        raise UnsupportedOperation('Dynamic, empty or tag-selected buffs require a runtime buff map')
+                    target = self.importer.ensure('buffs', buff, site) if self.importer else None
+                    if target is None:
+                        raise UnsupportedOperation('Referenced buff conversion did not complete: ' + buff)
+                    values['BuffGUID'] = quote(target)
                 node = ET.Element(op, values)
             self.converted[op] += 1
         except (UnsupportedOperation, KeyError) as error:
@@ -315,9 +350,10 @@ class BehaviorCompiler:
                 if document.startswith('libs/ai/quests/') and document != 'libs/ai/quests/' + owner.lower() + '.xml':
                     continue
                 for name, source in payload['trees'].items():
+                    self.variables = {v['name']: v for v in source['variables']}
                     identity = (owner, document, name)
                     record = dict(owner=owner, document=document, tree=name, includes=[],
-                                  item_dependencies=[], unresolved=[], native_emitted=False,
+                                  item_dependencies=[], buff_dependencies=[], unresolved=[], native_emitted=False,
                                   provenance=payload.get('provenance', []))
                     self.records[identity] = record
                     tree = ET.Element('BehaviorTree', name=name)

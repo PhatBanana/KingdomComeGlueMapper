@@ -5,6 +5,48 @@ KCD2. A checked implementation milestone means that specific capability exists;
 it does not mark an entire quest complete. Development scene tests are separate
 from the normal coach-travel installation route and published installers.
 
+## Current work boundary: New Game to the start of the Skalitz attack
+
+The requested next milestone ends when Skalitz is attacked. Playable escape to
+Talmberk is outside this pass. Dependencies must be discovered from source
+records and upgraded or merged through reusable adapters; actor-specific
+startup scripts are not the implementation.
+
+- [ ] Preserve Henry's original starting appearance, equipment, inventory,
+  hunger, injuries, stats and quest-controlled restrictions.
+- [ ] Complete normal parent conversation, quest hand-ins and return to their
+  original work routines after dialogue or interruption.
+- [ ] Import the remaining quest actors, tools, workplaces, movement and
+  relocation dependencies for every supported pre-attack branch.
+- [ ] Complete the source errands, training and optional village branches,
+  including failure conditions, item ownership and rewards.
+- [ ] Connect forging and subsequent scenes to the original attack profile
+  transition, with participant placement, animation and control handoff.
+- [ ] Test the sequence from a fresh menu start, including save/load at its
+  phase boundaries, through attack onset.
+
+The state dependency pass now compares buff effects before reusing native IDs.
+All eight buff identities referenced directly by the Skalitz quest resolve:
+seven merge with matching native effects, while attack protection receives a
+separate converted record because KCD2's version adds protection effects.
+The generic compiler upgrades add/remove references to the same registered
+identity, preserves source lock scope/name/value, translates supported stat
+advancement calls, and resolves literal actor/item keys only for declared
+string-keyed associative maps. Unknown scripts and ambiguous indexes remain
+explicit conversion failures.
+
+The dependency report preserves action sites, ancestor conditions and persistent
+variables. It is not a list of actions to execute at startup. Included helper
+documents contain additional trees whose reachability is not established by
+this scan; one helper buff still lacks a source UI-visibility enum contract.
+Run `tools/campaign_state_dependencies.py` with the source/target installations,
+quest, namespace and a new output directory to reproduce the preflight.
+
+Validation: 160 campaign tests and 67 character tests pass. The source-backed
+Skalitz preflight is staged in `outputs/OpeningStart/StateDependencies01`.
+These changes have not been installed or validated in game. The complete
+opening-to-attack sequence remains unaccepted.
+
 ## Original New Game and character creation
 
 - [x] Inspect the original New Game entry, opening behaviour and referenced source records.
@@ -179,3 +221,14 @@ and evidence, along with any unsupported source semantics.
 - [ ] Save/load preserves progress, inventory, actors and persistent world state.
 - [ ] The next quest or intended free-play state begins correctly.
 - [ ] In-game acceptance evidence is recorded; remaining limitations are explicit.
+
+### Parent conversation runtime checkpoint (14 October)
+
+The staged ParentInteraction01 build registers four ordinary conversations and
+70 recordings. In-game entry is reachable, but the user reports missing voices,
+camera changes, and father's work/reactions. The menu exposes an internal
+sequence path. Henry's starting outfit is also missing. These are open failures,
+not accepted campaign coverage. Conditional father-return objective effects and
+health predicates remain unsupported. Streaming predicates and Level-host
+bindings now have adapters. The current campaign unit suite passes 162 tests;
+this does not verify the installed conversation or full Skalitz progression.

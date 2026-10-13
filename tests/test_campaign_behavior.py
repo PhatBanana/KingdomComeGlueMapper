@@ -32,6 +32,28 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_declared_associative_actor_keys_are_upgraded(self):
+        m = source('''<Root><Sequence><EquipItem item="&quot;items[tool]&quot;" Target="&quot;actors[worker]&quot;"/>
+          <Expression expressions="&quot;$actors[worker] = $actors[replacement]&quot;"/></Sequence></Root>''')
+        m['behavior_documents']['libs/ai/quests/q_test.xml']['trees']['onUpdate']['variables'].extend([
+            dict(name='actors', type='common:wuid', form='associative', values=''),
+            dict(name='items', type='common:wuid', form='associative', values='')])
+        files, _, report = convert_behaviors([m], 'Imported', catalog())
+        root = E.fromstring(next(iter(files.values())))
+        self.assertEqual(root.find('.//EquipItem').get('Target'), "$actors['worker']")
+        self.assertEqual(root.find('.//EquipItem').get('item'), "$items['tool']")
+        self.assertEqual(root.find('.//Expression').get('expressions'), "$actors['worker'] = $actors['replacement']")
+        self.assertEqual(report['whole_trees_emitted'], 1)
+
+    def test_unknown_or_runtime_associative_key_is_not_guessed(self):
+        for form, key_variable in [('array', False), ('associative', True)]:
+            m = source('<Root><EquipItem item="&quot;items[key]&quot;" Target="&quot;actor&quot;"/></Root>')
+            variables = m['behavior_documents']['libs/ai/quests/q_test.xml']['trees']['onUpdate']['variables']
+            variables.append(dict(name='items', type='common:wuid', form=form, values=''))
+            if key_variable: variables.append(dict(name='key', type='_string', form='single', values=''))
+            files, _, _ = convert_behaviors([m], 'Imported', catalog())
+            self.assertFalse(files)
+
     def test_movement_preserves_authored_references_speed_and_tolerances(self):
         m = source('''<Root><Behavior><Sequence><Move destinationSpecification="&quot;workTarget&quot;"
             speed="&quot;Walk&quot;" stopWithinDistance="&quot;0.2&quot;" stopDistanceVariation="&quot;0.1&quot;"/>

@@ -6,6 +6,8 @@ dependencies remain owned by the campaign/world importers.
 import argparse
 import hashlib
 import json
+import posixpath
+import uuid
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import zipfile
@@ -13,6 +15,51 @@ import zipfile
 from campaign_quest_graph import identifier, xml
 from dialogue_dubbing import ogg_duration, dubbing_index, DEPOT
 from upgrade_map import read
+from campaign_dialogue_conditions import ENGINE_PREDICATES
+
+
+def inventory_predicate(nodes, stem, binding):
+    """Translate count comparisons through native inventory descriptors."""
+    identifier(binding['asset']); uuid.UUID(binding['item'])
+    amount, operator = binding['amount'], binding['operator']
+    if type(amount) is not int or not 0 <= amount <= 2147483646 or operator not in ('>', '>=', '<', '<=', '==', '!='):
+        raise ValueError('Invalid inventory predicate comparison')
+    soul = ET.SubElement(nodes, 'ObjectProperties', Name=stem + '_soul', DeclaringType='wh::rpgmodule::I_Soul')
+    ET.SubElement(soul, 'Asset', Name='I_Soul', Alias=binding['asset'])
+    inv = ET.SubElement(nodes, 'MemberFunction', Name=stem + '_items', MethodName='Items', DeclaringType='wh::entitymodule::Inventory')
+    ET.SubElement(inv, 'Edge', From=stem + '_soul.Inventory', To='Inventory')
+    def at_least(count):
+        name = stem + '_atleast_' + str(count)
+        if count == 0:
+            present = at_least(1)
+            absent = invert(present, '_absent')
+            n = ET.SubElement(nodes, 'Function', Name=name, MethodName='math::boolean::Or', DeclaringType='math::boolean')
+            ET.SubElement(n, 'Edge', From=present, To='A'); ET.SubElement(n, 'Edge', From=absent, To='B')
+            return name + '.bool'
+        desc = ET.SubElement(nodes, 'Function', Name=name + '_descriptor',
+            MethodName='wh::entitymodule::CreateItemClassDescriptor', DeclaringType='wh::entitymodule')
+        ET.SubElement(desc, 'Constant', Name='ItemClass', Value=binding['item'])
+        ET.SubElement(desc, 'Constant', Name='Amount', Value=str(count))
+        n = ET.SubElement(nodes, 'MemberFunction', Name=name, MethodName='FullyMatchesItems', DeclaringType='wh::entitymodule::ItemDescriptor')
+        ET.SubElement(n, 'Edge', From=name + '_descriptor.ItemDescriptor', To='ItemDescriptor')
+        ET.SubElement(n, 'Edge', From=stem + '_items.Items', To='InputItems')
+        return name + '.bool'
+    def invert(value, suffix):
+        name = stem + suffix
+        n = ET.SubElement(nodes, 'Function', Name=name, MethodName='math::boolean::Not', DeclaringType='math::boolean')
+        ET.SubElement(n, 'Edge', From=value, To='Value')
+        return name + '.bool'
+    if operator in ('>', '>='): return at_least(amount + (operator == '>'))
+    if operator in ('<', '<='): return invert(at_least(amount + (operator == '<=')), '_not')
+    upper = invert(at_least(amount + 1), '_upper')
+    if amount == 0:
+        equal = upper
+    else:
+        lower = at_least(amount)
+        n = ET.SubElement(nodes, 'Function', Name=stem + '_equal', MethodName='math::boolean::And', DeclaringType='math::boolean')
+        ET.SubElement(n, 'Edge', From=lower, To='A'); ET.SubElement(n, 'Edge', From=upper, To='B')
+        equal = stem + '_equal.bool'
+    return equal if operator == '==' else invert(equal, '_not_equal')
 
 
 def imported_resources(package, report):
@@ -101,7 +148,7 @@ def bind_recordings(blob, model, media, native_voices, language='ENG'):
                                    runtime_verified=False)
 
 
-def attach_dialogue(files, project, dialogue_blob, report, activation):
+def attach_dialogue(files, project, dialogue_blob, report, activation, container_file=None):
     """Wire source objective effects, validating the actual destination ports.
 
     activation is a declared bool output on an existing project node. This
@@ -109,11 +156,39 @@ def attach_dialogue(files, project, dialogue_blob, report, activation):
     """
     identifier(project)
     result = dict(files)
-    root = ET.fromstring(files[project + '.xml'])
-    host = root.find('./Skald/Project')
+    container_file = container_file or project + '.xml'
+    root = ET.fromstring(files[container_file])
+    hosts = list(root.find('Skald'))
+    if len(hosts) != 1 or hosts[0].tag not in ('Project', 'Level'):
+        raise ValueError('Expected a project or level dialogue container')
+    host = hosts[0]
+    def resolve_file(relative, base=None):
+        resolved = posixpath.normpath(posixpath.join(posixpath.dirname(base or container_file), relative))
+        if resolved.startswith(('../', '/')) or ':' in resolved or '\\' in resolved:
+            raise ValueError('Dialogue definition escapes the quest package')
+        return resolved
     definitions, nodes = host.find('Definitions'), host.find('Nodes')
-    definition_paths = {ET.fromstring(files[d.get('File')]).find('Skald')[0].get('Name'): d.get('File')
+    definition_paths = {ET.fromstring(files[resolve_file(d.get('File'))]).find('Skald')[0].get('Name'): resolve_file(d.get('File'))
                         for d in definitions}
+    # Level instances can use definitions declared by their containing project.
+    # Follow actual definition edges, rather than accepting any same-named file.
+    visited = set()
+    def inherit(child):
+        if child in visited: return
+        visited.add(child)
+        for parent_path, payload in files.items():
+            parent = ET.fromstring(payload).find('Skald')
+            if parent is None or len(parent) != 1 or parent[0].tag not in ('Project', 'Level'):
+                continue
+            references = [resolve_file(d.get('File'), parent_path) for d in parent[0].findall('Definitions/Definition')]
+            if child not in references: continue
+            for path in references:
+                declared = ET.fromstring(files[path]).find('Skald')[0].get('Name')
+                # A local declaration shadows its containing project's name
+                # (native projects use this for module/journal counterparts).
+                definition_paths.setdefault(declared, path)
+            inherit(parent_path)
+    inherit(container_file)
     native = ET.fromstring(dialogue_blob).find('Skald')[0]
     name = native.get('Name'); identifier(name)
     if name in definition_paths or any(n.get('Name') == name for n in nodes):
@@ -138,21 +213,44 @@ def attach_dialogue(files, project, dialogue_blob, report, activation):
     if active in conditions or set(inputs) != set(conditions) | {active}:
         raise ValueError('Dialogue condition report does not match its input ports')
     for binding in conditions.values():
-        node_port(binding['quest'], binding['output'], 'Out', 'bool')
+        if binding.get('kind') == 'engine_function':
+            if {k:v for k,v in binding.items() if k != 'kind'} not in ENGINE_PREDICATES.values():
+                raise ValueError('Unrecognized native dialogue engine predicate')
+        elif binding.get('kind') == 'inventory_comparison':
+            assets = {n.get('Name') for n in host.findall('Assets/*')}
+            if binding.get('asset') not in assets:
+                raise ValueError('Missing dialogue inventory subject asset: ' + str(binding.get('asset')))
+        else:
+            node_port(binding['quest'], binding['output'], 'Out', 'bool')
     declared = {p.get('Name') for p in native.findall('Ports/Port') if p.get('Direction') == 'Out'}
     if declared != report['actions'].keys():
         raise ValueError('Dialogue objective report does not match its output ports')
     for output, action in report['actions'].items():
         dest = node_port(action['quest'], action['input'], 'In', 'trigger')
         ET.SubElement(dest, 'Edge', From=name + '.' + output, To=action['input'])
-    path = project + '/' + name + '.xml'
-    ET.SubElement(definitions, 'Definition', File=path)
+    relative_path = project + '/' + name + '.xml'
+    path = resolve_file(relative_path)
+    ET.SubElement(definitions, 'Definition', File=relative_path)
     instance = ET.SubElement(nodes, name, Name=name)
     ET.SubElement(instance, 'Edge', From=activation, To=active)
     for port, binding in conditions.items():
-        ET.SubElement(instance, 'Edge', From=binding['quest'] + '.' + binding['output'], To=port)
+        if binding.get('kind') == 'engine_function':
+            predicate = name + '_' + port
+            if any(n.get('Name') == predicate for n in nodes):
+                raise ValueError('Dialogue predicate node collision: ' + predicate)
+            ET.SubElement(nodes, 'Function', Name=predicate, MethodName=binding['method'],
+                          DeclaringType=binding['declaring_type'])
+            ET.SubElement(instance, 'Edge', From=predicate + '.' + binding['output'], To=port)
+        elif binding.get('kind') == 'inventory_comparison':
+            stem = name + '_' + port
+            if any(n.get('Name', '').startswith(stem) for n in nodes):
+                raise ValueError('Dialogue inventory predicate collision')
+            output = inventory_predicate(nodes, stem, binding)
+            ET.SubElement(instance, 'Edge', From=output, To=port)
+        else:
+            ET.SubElement(instance, 'Edge', From=binding['quest'] + '.' + binding['output'], To=port)
     result[path] = dialogue_blob
-    result[project + '.xml'] = xml(root)
+    result[container_file] = xml(root)
     return result
 
 

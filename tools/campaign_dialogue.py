@@ -215,7 +215,7 @@ def camera_assets(model, level_archive):
 
 
 def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
-         selection_compiler=None, registered_items=()):
+         selection_compiler=None, registered_items=(), participant_assets=None):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -229,7 +229,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
     scripts = []
     visited = set()
     converted_commands = []
-    conditions = QuestConditions(quest_models, model.get('functions'), registered_items)
+    conditions = QuestConditions(quest_models, model.get('functions'), registered_items, participant_assets)
 
     def decision(parent, tid):
         visited.add(tid)
