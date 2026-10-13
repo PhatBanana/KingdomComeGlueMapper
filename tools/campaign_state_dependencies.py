@@ -13,6 +13,9 @@ from campaign_dependencies import DependencyImporter
 from campaign_dependency_adapters import SourceTables, LazyAdapter, ItemTextAdapter
 from campaign_sources import RetailSourceReader
 from quest_import import import_quest, literal
+from campaign_rpg_script import upgrade as upgrade_rpg_script
+from campaign_quest_bridge import UnsupportedOperation
+from campaign_time import parse as parse_clock
 
 
 STATE_OPERATIONS = {'AddBuff', 'RemoveBuffs', 'SetExternalLock', 'ExternalLock',
@@ -34,6 +37,15 @@ def scan(model, importer):
                 site = dict(document=document, tree=name, path=path, operation=op,
                             arguments=attrs, ancestors=ancestors)
                 if op in STATE_OPERATIONS:
+                    if op == 'ExecuteLua':
+                        try:
+                            script = literal(attrs.get('code', ''))
+                            if 'forwardTime' in script or 'Utils.SetWorldTimePaused' in script:
+                                site['lowering'] = dict(operation='clock_bridge', actions=parse_clock(script), installed=False)
+                            else:
+                                site['lowering'] = dict(operation='ExecuteLua', code=upgrade_rpg_script(script), installed=False)
+                        except UnsupportedOperation as error:
+                            site['unresolved'] = str(error)
                     if op in ('AddBuff', 'RemoveBuffs'):
                         identity = literal(attrs.get('BuffGUID', ''))
                         if identity and not identity.startswith('$'):

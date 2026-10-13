@@ -25,7 +25,7 @@ from campaign_ai_registration import (NativeAIRegistry, MailboxAdapter, BrainAda
 from campaign_doors import NativeDoorCatalog, AnimatedDoorAssetAdapter, DoorEntityConversion
 from campaign_dependencies import DependencyImporter, import_binding_dependencies
 from campaign_buffs import BuffAdapter, native_contract as native_buff_contract
-from campaign_dependency_adapters import (EntityAdapter, InventoryAdapter, ItemAdapter, ItemTextAdapter,
+from campaign_dependency_adapters import (EntityAdapter, InventoryAdapter, ItemTextAdapter,
                                           LazyAdapter, SoulAdapter, SourceTables, StaticAssetAdapter)
 from campaign_linker import build_links, link_entities, entity_index
 from campaign_entity_links import native_guid
@@ -40,6 +40,10 @@ from quest_import import import_quest, literal, walk
 from setup_progress import progress
 from game_paths import GameLibrary
 from upgrade_map import read
+from world_item_definitions import native_items, native_item_registry, WorldItemAdapter
+from world_item_clothing import ClothingAdapter
+from world_item_documents import DocumentImageAdapter
+from character_person import native_xml
 
 
 def quest_dependencies(model):
@@ -74,7 +78,7 @@ def wire_bridge(files, project, bridge_files, report, instance_name='source_ques
     ET.SubElement(declarations, 'Definition', File=module_path.removeprefix('Quests/'))
     identifier(instance_name)
     instance = ET.SubElement(nodes, module.get('Name'), Name=instance_name)
-    for additional in report.get('profile_modules', []):
+    for additional in report.get('profile_modules', []) + report.get('auxiliary_modules', []):
         if additional['file'] not in bridge_files:
             raise ValueError('Missing converted profile module')
         ET.SubElement(declarations, 'Definition', File=additional['file'].removeprefix('Quests/'))
@@ -191,9 +195,26 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             if definition:
                 smart = definition['smart_object']
                 controller_ids.setdefault(smart['so_smart_object_name'], []).append(model['quest'] + '|' + smart['so_smart_object_id'])
+        native_item_definitions = native_items(target)
+        registrations = dict(registered or {})
+        existing_items = registrations.get('items', {})
+        if not isinstance(existing_items, dict):
+            existing_items = {i:i for i in existing_items}
+        registrations['items'] = dict(native_item_registry(native_item_definitions), **existing_items)
+        def item_adapter():
+            # Use the same wearable/weapon/document conversion as world loot.
+            # The former basic adapter rejected clothing requested by quests
+            # and initial outfits even though its upgrader already existed.
+            with zipfile.ZipFile(target / 'Data/Tables.pak') as archive:
+                weapons = native_xml(read(archive, 'Libs/Tables/item/weapon_class.xml'))
+                components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
+            return WorldItemAdapter(tables, project, native_item_definitions,
+                                    {r.get('id'):r.get('name') for r in weapons[0]}, components)
         importer = DependencyImporter(dict(
             entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids),
-            items=ItemAdapter(tables, project), inventories=InventoryAdapter(tables, project),
+            items=LazyAdapter(item_adapter), inventories=InventoryAdapter(tables, project),
+            clothing=LazyAdapter(lambda: ClothingAdapter(tables, assets.materialize(), target, stack)),
+            document_images=LazyAdapter(lambda: DocumentImageAdapter(source, resolver, project)),
             buffs=LazyAdapter(lambda: BuffAdapter(tables, native_buff_contract(target), project)),
             souls=SoulAdapter(tables, souls),
             character_parts=CharacterPartAdapter(tables, target, stack, assets, project),
@@ -206,7 +227,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             mailboxes=MailboxAdapter(tables, native_ai),
             animated_props=animated_doors,
             strings=LazyAdapter(lambda: ItemTextAdapter(source, project, 'English')),
-            assets=assets), registered)
+            assets=assets), registrations)
         importer.adapters['world_layers'] = WorldLayerAdapter(documents, project, importer.files)
         if engine_enum_evidence is not None:
             # Explicit developer metadata input; normal setup does not inspect

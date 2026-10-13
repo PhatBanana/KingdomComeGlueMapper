@@ -228,7 +228,75 @@ The staged ParentInteraction01 build registers four ordinary conversations and
 70 recordings. In-game entry is reachable, but the user reports missing voices,
 camera changes, and father's work/reactions. The menu exposes an internal
 sequence path. Henry's starting outfit is also missing. These are open failures,
-not accepted campaign coverage. Conditional father-return objective effects and
-health predicates remain unsupported. Streaming predicates and Level-host
+not accepted campaign coverage. At this checkpoint, conditional father-return
+objective effects and health predicates were unsupported. Streaming predicates and Level-host
 bindings now have adapters. The current campaign unit suite passes 162 tests;
 this does not verify the installed conversation or full Skalitz progression.
+
+The next source audit identified a general integration gap: the playable opening
+uses selected scene/reward fragments, while the full quest controller remains
+blocked. Consequently, controller-owned initialization is absent from that
+playable stage. In the source, `onUpdate` sets hunger to `40` only after the
+`assetsLoaded` lock and the quest-start mailbox event. It is not inferred from
+elapsed time. The bounded RPG adapter now converts native-supported hunger,
+exhaustion and health setters at their original execution sites, and tests
+ensure a blocked sibling prevents emitting a partial initialization tree.
+State reports distinguish a supported lowering from an installed operation.
+This adapter has **not** yet restored the controller to the installed build.
+
+Dialogue scope is another gap: source `next=0` ends a branch, but the current
+emitter assigns `EndDialogue` to every such terminal. The original opening
+returns to Mother's ordinary questions before the player ends the session.
+Session continuation, automatic entries, explicit exits and their conditions
+must be converted together; the current forced-scene handoff is not accepted.
+
+Runtime logs also confirm missing recording lookups for father (voice 0) and
+Henry (voice 108). The ordinary-dialogue builder now derives imported actor
+voice registrations from source role membership and recordings, rejects
+conflicting voices, and preserves existing master roles. Runtime lookup paths
+still require verification. Father's first branch has 71 presentation commands;
+45 gestures match native clips, while six references to two distinct clips
+remain unresolved. No missing gesture is counted as converted. The current
+campaign test suite then passed 167 tests; voice, presentation and full work-cycle
+acceptance remain open.
+
+### Generic initialization and dialogue update (14 October)
+
+The source opening calls `forwardTime(10.00)` and acquires the named
+`q_skalitz` world-time lock. The attack scene releases that lock and advances to
+`16.00`. The converter now emits ordered native clock actions and independent
+persistent pause states, and the campaign host declares their module. These
+clock operations remain inside their original behavior-tree gates. Their
+runtime scheduling relative to surrounding AI actions and save/load still
+require verification; they are not installed as a replacement startup script.
+
+Initial-equipment discovery now follows source clothing and weapon presets,
+including instance overrides, quantities and equipped flags. The full campaign
+item path uses the existing wearable/weapon/document adapters. Henry's source
+outfit resolves to four registered items, with an explicitly empty weapon
+preset. His source strength, agility, vitality and speech are all `1` before
+dialogue rewards. The generic loadout output is staged in `PlayerClothing01`;
+the original player initialization and full soul/brain registration still need
+integration. No starting-stat or outfit runtime acceptance is claimed.
+
+`ParentInteraction03` is installed with a hash-verified backup. It contains five
+ordinary conversations and 116 recordings, including Father's return branch.
+Source branch priorities and greeting policy are preserved. Unflagged ordinary
+branch terminals use native `EndTopic` semantics instead of closing the whole
+conversation. The native editor declares this as enum value zero and omits
+`EndType` when serializing it; production FaderDialog files use that default.
+The forced opening's continuation into Mother's ordinary questions is still
+pending, as are automatic entry and nonzero source sequence-flag semantics.
+
+Conditional objective effects now retain their source ordering and evaluate
+each predicate against live state when its turn executes. Father-return topic
+`9193` contributes two programs containing five actions. Unsupported
+dialogue-local predicates still block conversion. Imported parents receive
+their recorded voice identities and retain their existing display-name keys.
+Voice playback, camera switching and work interruption/resumption need another
+in-game test; installing the package is not that verification.
+
+Validation: 184 campaign tests and 67 character tests pass. Package integrity
+and installed hashes pass, with no archive entries removed. The complete
+Skalitz controller, all schedules, Henry's initialization and the attack
+handoff remain unfinished. The current scope ends at the start of the attack.

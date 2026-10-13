@@ -10,6 +10,19 @@ from test_campaign_buffs import adapter, ID
 
 
 class StateDependencyTests(unittest.TestCase):
+    def test_lua_state_sites_distinguish_lowering_from_runtime_installation(self):
+        m = source('''<Root><IfCondition condition="&quot;$hasStarted&quot;"><Sequence>
+          <ExecuteLua code="&quot;player.soul:SetState('hunger',40)&quot;"/>
+          <ExecuteLua code="&quot;unknown_startup_call()&quot;"/>
+          </Sequence></IfCondition></Root>''')
+        report = scan(m, DependencyImporter({}))
+        first, second = report['sites']
+        self.assertEqual(first['lowering']['code'], "player.soul:SetState('hunger', 40)")
+        self.assertFalse(first['lowering']['installed'])
+        self.assertEqual(first['ancestors'][-2]['arguments']['condition'], '"$hasStarted"')
+        self.assertIn('semantic adapter', second['unresolved'])
+        self.assertFalse(report['executable'])
+
     def test_preflight_keeps_conditions_and_ignores_disconnected_nodes(self):
         m = source('<Root><IfCondition condition="&quot;$hasStarted&quot;"><AddBuff BuffGUID="&quot;' + ID + '&quot;" SoulWUID="&quot;actor&quot;"/></IfCondition></Root>')
         tree = m['behavior_documents']['libs/ai/quests/q_test.xml']['trees']['onUpdate']

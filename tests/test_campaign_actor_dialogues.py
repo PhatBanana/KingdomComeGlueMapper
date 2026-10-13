@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from campaign_actor_dialogues import discover, role_bindings, register_roles, remap_roles
+from build_actor_dialogues_test import actor_voice_bindings, actor_ui_name
 
 
 def tables():
@@ -24,6 +25,27 @@ def tables():
 
 
 class ActorDialogueTests(unittest.TestCase):
+    def test_voice_registration_reuses_actor_display_name_and_rejects_ambiguous_rules(self):
+        rule = b'<storm><rules><rule><selectors><hasName name="worker"/></selectors><operations><setUiName name="worker_original"/></operations></rule></rules></storm>'
+        resources = {'Libs/Storm/names/person.xml': rule}
+        self.assertEqual(actor_ui_name(resources, 'worker'), 'worker_original')
+        resources['Libs/Storm/names/conflict.xml'] = rule.replace(b'worker_original', b'wrong_name')
+        with self.assertRaisesRegex(ValueError, 'ambiguous'):
+            actor_ui_name(resources, 'worker')
+
+    def test_recorded_voice_registers_source_actor_without_player_override(self):
+        bindings = {'actor': [dict(role_name='WORKER')]}
+        voice = dict(voice_id='7', voice_technical_name='originalSpeaker')
+        reports = [dict(binding=dict(roles={'imported_worker': voice, 'HENRY': dict(voice_id='108')}))]
+        self.assertEqual(actor_voice_bindings(bindings, {'WORKER': 'imported_worker'}, reports),
+                         {'actor': dict(role='imported_worker', voice=voice)})
+
+    def test_conflicting_actor_voices_are_not_silently_overwritten(self):
+        bindings = {'actor': [dict(role_name='WORKER'), dict(role_name='NEIGHBOR')]}
+        reports = [dict(binding=dict(roles={'a': dict(voice_id='7'), 'b': dict(voice_id='8')}))]
+        with self.assertRaisesRegex(ValueError, 'Conflicting recorded voices for soul'):
+            actor_voice_bindings(bindings, {'WORKER': 'a', 'NEIGHBOR': 'b'}, reports)
+
     def test_role_registration_uses_source_soul_and_isolates_native_campaign(self):
         people, conversations = discover(tables(), ['abc'])
         resources = {'Libs/Storm/storm.xml': b'<storm><tasks><task name="roles"/></tasks></storm>'}

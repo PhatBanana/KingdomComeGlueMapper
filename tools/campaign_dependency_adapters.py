@@ -41,10 +41,13 @@ class LazyAdapter:
     def __init__(self, factory):
         self.factory, self.adapter = factory, None
 
-    def plan(self, identity):
+    def materialize(self):
         if self.adapter is None:
             self.adapter = self.factory()
-        return self.adapter.plan(identity)
+        return self.adapter
+
+    def plan(self, identity):
+        return self.materialize().plan(identity)
 
     def convert(self, *args):
         return self.adapter.convert(*args)
@@ -102,9 +105,20 @@ class SoulAdapter:
                 parts.add(kind + ':' + value)
         dependencies = [('character_parts', p) for p in sorted(parts)]
         dependencies += [('inventories', i) for i in sorted(inventories)]
+        from campaign_initial_loadout import resolve as resolve_loadout
+        loadouts = [resolve_loadout(self.tables, identity)]
+        for instance in instances:
+            overrides = {}
+            for kind in ('Clothing', 'Weapon'):
+                value = instance.findtext('./StaticData/Initial' + kind + 'Description/PresetId')
+                if value and value != '00000000-0000-0000-0000-000000000000':
+                    overrides['initial_' + kind.lower() + '_preset_id'] = value
+            if overrides:
+                loadouts.append(resolve_loadout(self.tables, identity, overrides))
+        dependencies += [('items', item) for item in sorted({i for p in loadouts for i in p['dependencies']})]
         # Appearance and AI are source identities too, not a substitute default
         # body or a cinematic-only brain assigned because registration failed.
-        return ImportPlan(dependencies, dict(row=row, instances=[ast(s) for s in instances],
+        return ImportPlan(dependencies, dict(row=row, instances=[ast(s) for s in instances], loadouts=loadouts,
                           provenance=self.tables.get('rpg/soul')['provenance']))
 
     def convert(self, identity, plan, registered):

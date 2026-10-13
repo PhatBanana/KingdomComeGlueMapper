@@ -24,6 +24,33 @@ def model():
 
 
 class DialoguePresentationTests(unittest.TestCase):
+    def test_source_branch_priority_and_greeting_are_not_reset_to_defaults(self):
+        source = model()
+        source['branch'] = [dict(start_topic='1', priority='2', allow_greeting='True',
+                                 branch_type_id='0', reputation_condition_id='')]
+        blob, _ = emit(source, 'ordinary', [])
+        body = ET.fromstring(blob).find('.//Dialogue')
+        self.assertEqual(body.get('Priority'), '2')
+        self.assertEqual(body.get('AllowGreeting'), 'true')
+        source['branch'][0]['reputation_condition_id'] = '7'
+        with self.assertRaisesRegex(ValueError, 'reputation policy'):
+            emit(source, 'ordinary', [])
+
+    def test_ordinary_branch_end_does_not_close_entire_conversation(self):
+        source = model()
+        blob, report = emit(source, 'ordinary', [])
+        self.assertNotIn('EndType', ET.fromstring(blob).find('.//Sequence').attrib)
+        self.assertEqual(report['branch_endings'][0]['native_end'], 'EndTopic')
+        # A forced scene still needs its explicit session handoff; this rule
+        # must not claim that compiling an ordinary branch implements it.
+        forced, report = emit(source, 'forced', [], kind='ForcedDialog')
+        self.assertEqual(ET.fromstring(forced).find('.//Sequence').get('EndType'), 'EndDialogue')
+        self.assertFalse(report['branch_endings'])
+        source['topics']['1']['sequences'][0]['source']['flags'] = '1'
+        flagged, report = emit(source, 'flagged', [])
+        self.assertEqual(ET.fromstring(flagged).find('.//Sequence').get('EndType'), 'EndDialogue')
+        self.assertTrue(any(p['kind'] == 'sequence_flags' for p in report['presentation_pending']))
+
     def test_commands_before_response_attach_to_following_response(self):
         data, report = emit(model(), 'opening', [], convert_presentation=True)
         command = ET.fromstring(data).find('.//Response/Commands/AnimationCommand')

@@ -17,6 +17,7 @@ from campaign_profiles import ProfileBridge
 from campaign_quest_graph import identifier, xml
 from campaign_sources import key
 from campaign_rpg_script import upgrade as upgrade_rpg_script
+from campaign_time import TimeBridge
 from quest_import import behavior_path, literal
 from upgrade_map import read
 
@@ -51,6 +52,19 @@ CONTRACTS = {
     'AddBuff': {'BuffGUID': 'string_expression', 'SoulWUID': 'reference'},
     'RemoveBuffs': {'BuffGUID': 'string_expression', 'SoulWUID': 'reference', 'BuffTagId': 'value'},
     'SetExternalLock': {'LockManagerType': 'value', 'Locked': 'value', 'LockName': 'string_expression'},
+    # The native horse-wait, animal-state and cart trees retain these ABIs.
+    # Keep gates and loops structural; never extract their children as startup
+    # actions or evaluate their source indexes during conversion.
+    'ExternalLock': {'atomic': 'value', 'OutsideQueuePosVariable': 'reference',
+                     'InsidePosVariable': 'reference', 'TimerType': 'value',
+                     'OutsideTimerValue': 'string_expression', 'LockManagerType': 'value',
+                     'SemaphoreName': 'string_expression', 'RunLogic': 'value'},
+    'For': {'startIndex': 'expression', 'endIndex': 'expression', 'step': 'expression',
+            'array': 'reference', 'iterator': 'reference', 'value': 'reference', 'break': 'expression'},
+    'GetTime': {'TimeType': 'value', 'OutVar': 'reference', 'Delta': 'expression'},
+    'GetSpatialInfo': {'In': 'reference', 'Out': 'reference', 'What': 'value'},
+    'SetSpatialInfo': {'In': 'reference', 'Val': 'reference', 'What': 'value'},
+    'SetVisibility': {'ItemWUID': 'reference', 'Visibility': 'value'},
     'UnEquipItem': {'item': 'reference', 'Target': 'reference'},
     'IncludeTree': {'File': 'include_file', 'Name': 'string_expression', 'nodeLabel': 'value'},
     'ProcessMessage': {'Atomic': 'value', 'timeout': 'string_expression', 'timeType': 'value',
@@ -180,6 +194,7 @@ class BehaviorCompiler:
         self.importer = importer
         self.bridge = QuestBridge(models, namespace)
         self.profile_bridge = ProfileBridge(namespace, importer)
+        self.time_bridge = TimeBridge(namespace)
         self.profile_streaming = profile_streaming
         self.models = {m['quest']: m for m in models}
         self.records = {}
@@ -260,7 +275,11 @@ class BehaviorCompiler:
             if op == 'ExecuteLua':
                 if set(attrs) != {'code'} or op not in self.catalog['nodes']:
                     raise UnsupportedOperation('Native ExecuteLua contract is missing or has unsupported fields')
-                node = ET.Element('ExecuteLua', code=upgrade_rpg_script(literal(attrs['code'])))
+                script = literal(attrs['code'])
+                if 'forwardTime' in script or 'Utils.SetWorldTimePaused' in script:
+                    node = self.time_bridge.lower(script, site)
+                else:
+                    node = ET.Element('ExecuteLua', code=upgrade_rpg_script(script))
             elif op == 'EnableProfile':
                 if self.profile_streaming is None:
                     raise UnsupportedOperation('Installed native profile streaming helper is required')
@@ -389,6 +408,11 @@ class BehaviorCompiler:
         files = {name: xml(root) for name, root in documents.items()}
         bridge_files, wiring = self.bridge.emit()
         profile_modules = []
+        auxiliary_modules = []
+        if self.time_bridge.actions:
+            bridge_files.update(self.time_bridge.emit())
+            auxiliary_modules.append(dict(file='Quests/' + self.namespace + '_time_bridge.xml',
+                name=self.namespace + '_time_bridge', instance='source_time_bridge'))
         if self.profile_bridge.actions:
             bridge_files.update(self.profile_bridge.emit(self.profile_streaming))
             profile_modules.append(dict(file='Quests/' + self.namespace + '_profile_bridge.xml',
@@ -396,6 +420,7 @@ class BehaviorCompiler:
         return files, bridge_files, dict(schema=1, namespace=self.namespace, trees=list(self.records.values()),
             converted_operations=dict(self.converted), whole_trees_emitted=sum(r['native_emitted'] for r in self.records.values()),
             blocked_trees=len(blocked), wiring=wiring, profile_modules=profile_modules,
+            auxiliary_modules=auxiliary_modules, time_actions=self.time_bridge.actions,
             executable=False, runtime_validated=False,
             requires=['Native brain/mailbox registration', 'Source message and link type conversion',
                       'World profiles, actor, item, dialogue and audio registration', 'Retail New Game execution and save/load'])

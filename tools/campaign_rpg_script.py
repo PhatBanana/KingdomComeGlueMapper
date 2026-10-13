@@ -1,11 +1,27 @@
 """Upgrade bounded source RPG calls; never pass arbitrary legacy Lua through."""
 import re
+from decimal import Decimal
 
 from campaign_quest_bridge import UnsupportedOperation
 from campaign_scene import STATS
 
 
 def upgrade(script):
+    # Shipped KCD2 Scripts/CommandExecutor/snapshots.xml calls SetState on
+    # player.soul for hunger and exhaust. The native sesivaniTonici fight
+    # helper also uses soul:SetState('health', ...). Keep this synchronous
+    # at the original ExecuteLua site: it must not escape loading/quest gates.
+    setter = r"player\.soul:SetState\(\s*(['\"])(hunger|exhaust|health)\1\s*,\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*\)"
+    states = re.findall(setter, script)
+    remainder = re.sub(setter, '', script)
+    if states and not remainder.strip(' \t\r\n;'):
+        calls = []
+        for _, state, raw in states:
+            value = Decimal(raw)
+            if not 0 <= value <= 100:
+                raise UnsupportedOperation('RPG state value outside the validated percentage range')
+            calls.append("player.soul:SetState('" + state + "', " + format(value, 'f') + ')')
+        return '; '.join(calls)
     # Native AI/quests/zachrana/zachrana.xml uses this same getter/advance
     # protocol. KCD2's RPG stat names replace the source abbreviations.
     increment = re.fullmatch(

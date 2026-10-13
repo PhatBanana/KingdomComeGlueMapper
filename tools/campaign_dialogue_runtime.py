@@ -16,6 +16,7 @@ from campaign_quest_graph import identifier, xml
 from dialogue_dubbing import ogg_duration, dubbing_index, DEPOT
 from upgrade_map import read
 from campaign_dialogue_conditions import ENGINE_PREDICATES
+from campaign_dialogue_effects import wire_program
 
 
 def inventory_predicate(nodes, stem, binding):
@@ -223,7 +224,8 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
         else:
             node_port(binding['quest'], binding['output'], 'Out', 'bool')
     declared = {p.get('Name') for p in native.findall('Ports/Port') if p.get('Direction') == 'Out'}
-    if declared != report['actions'].keys():
+    programs = report.get('action_programs', {})
+    if set(programs) & report['actions'].keys() or declared != report['actions'].keys() | programs.keys():
         raise ValueError('Dialogue objective report does not match its output ports')
     for output, action in report['actions'].items():
         dest = node_port(action['quest'], action['input'], 'In', 'trigger')
@@ -233,6 +235,7 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
     ET.SubElement(definitions, 'Definition', File=relative_path)
     instance = ET.SubElement(nodes, name, Name=name)
     ET.SubElement(instance, 'Edge', From=activation, To=active)
+    condition_outputs = {}
     for port, binding in conditions.items():
         if binding.get('kind') == 'engine_function':
             predicate = name + '_' + port
@@ -241,14 +244,22 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
             ET.SubElement(nodes, 'Function', Name=predicate, MethodName=binding['method'],
                           DeclaringType=binding['declaring_type'])
             ET.SubElement(instance, 'Edge', From=predicate + '.' + binding['output'], To=port)
+            condition_outputs[port] = predicate + '.' + binding['output']
         elif binding.get('kind') == 'inventory_comparison':
             stem = name + '_' + port
             if any(n.get('Name', '').startswith(stem) for n in nodes):
                 raise ValueError('Dialogue inventory predicate collision')
             output = inventory_predicate(nodes, stem, binding)
             ET.SubElement(instance, 'Edge', From=output, To=port)
+            condition_outputs[port] = output
         else:
             ET.SubElement(instance, 'Edge', From=binding['quest'] + '.' + binding['output'], To=port)
+            condition_outputs[port] = binding['quest'] + '.' + binding['output']
+    for port, actions in programs.items():
+        stem = name + '_' + port
+        if not actions or any(n.get('Name', '').startswith(stem + '_') for n in nodes):
+            raise ValueError('Empty or conflicting dialogue effect program: ' + port)
+        wire_program(nodes, stem, name + '.' + port, actions, condition_outputs, node_port)
     result[path] = dialogue_blob
     result[container_file] = xml(root)
     return result

@@ -16,10 +16,11 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from campaign_sources import retail_sources
-from campaign_quest_graph import definition, identifier, xml
+from campaign_quest_graph import definition, identifier, objective_identifier, xml
 from upgrade_map import read
 from campaign_entity_links import native_guid
 from campaign_dialogue_conditions import QuestConditions
+from campaign_dialogue_effects import predicate as effect_predicate
 
 
 TABLES = ('topic', 'topic2sequence', 'sequence', 'sequence_line', 'response',
@@ -221,10 +222,30 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
     root, host = definition(kind, name)
     ports = ET.SubElement(host, 'Ports')
     ET.SubElement(ports, 'Port', Name=active_port, Direction='In', Type='bool')
-    dialogue = ET.SubElement(host, 'Dialogue', TechnicalStatus='Enabled', AllowGreeting='false',
-                             Initiator='Player' if kind == 'FaderDialog' else 'NonPlayer')
+    settings = dict(TechnicalStatus='Enabled', AllowGreeting='false',
+                    Initiator='Player' if kind == 'FaderDialog' else 'NonPlayer')
+    branches = model.get('branch', [])
+    if branches:
+        if len(branches) != 1 or branches[0]['start_topic'] != model['start_topic']:
+            raise ValueError('Ambiguous source dialogue branch settings')
+        branch = branches[0]
+        if branch.get('branch_type_id', '0') != '0' or branch.get('reputation_condition_id'):
+            raise ValueError('Dialogue branch type/reputation policy requires conversion')
+        priority = branch['priority']
+        if not priority.isdigit() or int(priority) > 2147483647:
+            raise ValueError('Invalid source dialogue priority')
+        if branch['allow_greeting'] not in ('True', 'False'):
+            raise ValueError('Invalid source dialogue greeting policy')
+        if kind == 'FaderDialog':
+            # Both shipped formats store numerical branch priority. Native
+            # conversations with Priority=1/2 distinguish mandatory branches
+            # from the ordinary Priority=0 question menu.
+            settings.update(Priority=priority, AllowGreeting=branch['allow_greeting'].lower())
+    dialogue = ET.SubElement(host, 'Dialogue', settings)
     quest_ids = {m['quest_id']: m for m in quest_models}
     actions = {}
+    action_programs = {}
+    branch_endings = []
     presentation = []
     scripts = []
     visited = set()
@@ -251,6 +272,13 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             if tid == model['start_topic']:
                 condition = "Port('" + active_port + "')" + (' AND (' + condition + ')' if condition else '')
             attrs = dict(Name='seq_' + sid, EndType='EndDialogue')
+            if kind == 'FaderDialog' and source['flags'] == '0' and source['next'] == '0':
+                # Native SequenceEndTypes.EndTopic is zero and the editor's
+                # get_EndTypeSpecified omits it. An ordinary unflagged branch
+                # ending must not force teardown of the conversation session.
+                attrs.pop('EndType')
+                branch_endings.append(dict(sequence=sid, source_next='0', source_flags='0',
+                                           native_end='EndTopic', runtime_verified=False))
             attrs.update(selection_attrs)
             if condition: attrs['EntryCondition'] = condition
             if source['script']:
@@ -263,21 +291,34 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             s = ET.SubElement(sequences, 'Sequence', attrs)
             if source['ui_prompt']:
                 ET.SubElement(s, 'UiPrompt', StringName=source['ui_prompt'], Text=model['strings'][source['ui_prompt']])
+            ordered_effects = any(effect['condition'] for effect in record['effects'])
+            program = []
             for effect in record['effects']:
-                if effect['condition']: raise ValueError('Unconverted conditional dialogue objective action')
                 q = quest_ids.get(effect['quest_id'])
                 if q is None: raise ValueError('Unregistered dialogue quest ' + effect['quest_id'])
                 candidates = [r for r in q['tables']['quest_objective']['rows'] if r['objective_id'] == effect['objective_id']]
                 if len(candidates) != 1: raise ValueError('Unresolved dialogue objective')
                 verb = {'1': 'start', '2': 'complete', '3': 'cancel'}.get(effect['action'])
                 if verb is None: raise ValueError('Unsupported dialogue objective action')
+                action = dict(quest=q['quest'], input=verb + '_' + objective_identifier(candidates[0]['objective_name']), source=effect)
+                if ordered_effects:
+                    program.append(dict(action, predicate=effect_predicate(conditions.compile(effect['condition']))))
+                    continue
                 pname = 'action_' + effect['quest_id'] + '_' + verb + '_' + effect['objective_id']
                 if pname not in actions:
-                    actions[pname] = dict(quest=q['quest'], input=verb + '_' + candidates[0]['objective_name'], source=effect)
+                    actions[pname] = action
                     ET.SubElement(ports, 'Port', Name=pname, Direction='Out', Type='trigger')
                 triggers = s.find('Triggers')
                 if triggers is None: triggers = ET.SubElement(s, 'Triggers')
                 ET.SubElement(triggers, 'Port', Name=pname)
+            if program:
+                pname = 'effects_' + sid
+                if pname in action_programs and action_programs[pname] != program:
+                    raise ValueError('Conflicting dialogue effect program: ' + sid)
+                if pname not in action_programs:
+                    action_programs[pname] = program
+                    ET.SubElement(ports, 'Port', Name=pname, Direction='Out', Type='trigger')
+                ET.SubElement(ET.SubElement(s, 'Triggers'), 'Port', Name=pname)
             elements = ET.SubElement(s, 'Elements')
             pending_commands = []
             for line in record['lines']:
@@ -321,7 +362,9 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
     decision(dialogue, model['start_topic'])
     for port in conditions.bindings:
         ET.SubElement(ports, 'Port', Name=port, Direction='In', Type='bool')
-    return xml(root), dict(actions=actions, conditions=conditions.bindings, active_port=active_port,
+    return xml(root), dict(actions=actions, action_programs=action_programs, conditions=conditions.bindings, active_port=active_port,
+                           branch_endings=branch_endings,
+                           branch_settings=dict(source=branches, native=settings, runtime_verified=False),
                            exit_scripts=scripts, presentation_pending=presentation,
                            converted_commands=converted_commands, presentation_runtime_verified=False,
                            source_alias=model['alias'], native_name=name, kind=kind,

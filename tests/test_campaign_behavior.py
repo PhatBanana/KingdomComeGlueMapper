@@ -32,6 +32,31 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_loading_lock_and_iteration_preserve_startup_order(self):
+        m = source('''<Root><ExternalLock atomic="&quot;false&quot;"
+          OutsideQueuePosVariable="&quot;&quot;" InsidePosVariable="&quot;&quot;"
+          TimerType="&quot;GameTime&quot;" OutsideTimerValue="&quot;-1&quot;"
+          LockManagerType="&quot;Intellect&quot;" SemaphoreName="&quot;assetsLoaded&quot;"
+          RunLogic="&quot;KeepRunning&quot;"><Sequence>
+          <GetTime TimeType="&quot;GameTime&quot;" OutVar="&quot;startedAt&quot;" Delta="&quot;&quot;"/>
+          <For startIndex="&quot;0&quot;" endIndex="&quot;-1&quot;" step="&quot;1&quot;"
+            array="&quot;actors&quot;" iterator="&quot;&quot;" value="&quot;actor&quot;" break="&quot;&quot;">
+          <SetVisibility ItemWUID="&quot;actor&quot;" Visibility="&quot;true&quot;"/>
+          </For></Sequence></ExternalLock></Root>''')
+        files, _, report = convert_behaviors([m], 'Imported', catalog())
+        root = E.fromstring(next(iter(files.values())))
+        gate = root.find('.//ExternalLock')
+        self.assertEqual(gate.get('SemaphoreName'), "'assetsLoaded'")
+        self.assertEqual(gate.get('OutsideTimerValue'), "'-1'")
+        self.assertEqual(gate.get('RunLogic'), 'KeepRunning')
+        self.assertEqual([c.tag for c in gate.find('Sequence')], ['GetTime', 'For'])
+        loop = gate.find('./Sequence/For')
+        self.assertEqual(loop.get('array'), '$actors')
+        self.assertEqual(loop.get('value'), '$actor')
+        self.assertEqual(loop.get('endIndex'), '-1')
+        self.assertEqual(loop.find('SetVisibility').get('ItemWUID'), '$actor')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+
     def test_declared_associative_actor_keys_are_upgraded(self):
         m = source('''<Root><Sequence><EquipItem item="&quot;items[tool]&quot;" Target="&quot;actors[worker]&quot;"/>
           <Expression expressions="&quot;$actors[worker] = $actors[replacement]&quot;"/></Sequence></Root>''')

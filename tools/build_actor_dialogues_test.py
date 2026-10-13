@@ -11,11 +11,51 @@ from campaign_sources import RetailSourceReader
 from campaign_dialogue import load, emit, voices
 from campaign_dialogue_selection import SelectionCompiler, load_contract
 from campaign_dialogue_runtime import attach_dialogue, bind_recordings
-from dialogue_dubbing import DEPOT, dubbing_index
+from dialogue_dubbing import DEPOT, dubbing_index, bind_soul_voice
 from build_english_audio_test import merge_audio_strings
 from build_horse_trader_test import rewrite, digest
 from world_item_definitions import native_items, native_item_registry
 from upgrade_map import read, xml
+
+
+def actor_voice_bindings(bindings, mapping, reports):
+    """Resolve runtime speakers from source role membership and recorded voices.
+
+    SelectedSouls alone does not register an imported soul's Skald character.
+    Reject conflicting recordings instead of assigning whichever branch ran last.
+    """
+    voices = {}
+    for report in reports:
+        for role, voice in report['binding']['roles'].items():
+            if role in voices and voices[role] != voice:
+                raise ValueError('Conflicting recorded voice for role: ' + role)
+            voices[role] = voice
+    result = {}
+    for soul, roles in bindings.items():
+        speakers = [(mapping[r['role_name']], voices[mapping[r['role_name']]])
+                    for r in roles if mapping[r['role_name']] in voices]
+        if not speakers:
+            continue
+        if len({v['voice_id'] for _, v in speakers}) != 1:
+            raise ValueError('Conflicting recorded voices for soul: ' + soul)
+        result[soul] = dict(role=speakers[0][0], voice=speakers[0][1])
+    return result
+
+
+def actor_ui_name(resources, soul_name):
+    """Reuse the imported identity's name instead of clearing it for dubbing."""
+    names = set()
+    for path, blob in resources.items():
+        if not path.startswith('Libs/Storm/names/') or not path.endswith('.xml'):
+            continue
+        for rule in ET.fromstring(blob).findall('./rules/rule'):
+            selectors = rule.findall('./selectors/*')
+            if len(selectors) != 1 or selectors[0].tag != 'hasName' or selectors[0].get('name') != soul_name:
+                continue
+            names.update(n.get('name') for n in rule.findall('./operations/setUiName') if n.get('name'))
+    if len(names) != 1:
+        raise ValueError('Missing or ambiguous imported speaker display name: ' + soul_name)
+    return names.pop()
 
 
 def build(a):
@@ -80,6 +120,26 @@ def build(a):
             for text in (key, value, value): ET.SubElement(row, 'Cell').text = text
         strings_blob = merge_audio_strings(strings_blob, xml(strings))
         reports.append(dict(topic=topic, conversion=report, voices=voice_report, binding=binding_report))
+    voice_receipts = []
+    modid = ET.parse(a.mod / 'mod.manifest').findtext('info/modid')
+    for soul, speaker in actor_voice_bindings(bindings, mapping, reports).items():
+        matches = [r for n,b in resources.items() if n.startswith('Libs/Tables/rpg/soul__')
+                   for r in ET.fromstring(b).iter('soul') if r.get('soul_id') == soul]
+        if len(matches) != 1:
+            raise ValueError('Missing or ambiguous imported speaker soul: ' + soul)
+        character = matches[0].get('skald_character_name')
+        current = [r for n,b in resources.items() if n.startswith('Libs/Tables/skald/skald_character__')
+                   for r in ET.fromstring(b).iter('skald_character')
+                   if r.get('skald_character_name') == character]
+        if len(current) > 1:
+            raise ValueError('Ambiguous imported speaker character: ' + str(character))
+        # Retain the actor's established master role and display name when adding
+        # ordinary conversations to an actor already used by an opening scene.
+        role = current[0].get('master_role_name', speaker['role']) if current else speaker['role']
+        ui = (current[0].get('ui_name_string_name') if current else None) or actor_ui_name(resources, souls[soul])
+        resources, receipt = bind_soul_voice(resources, a.target, modid, souls[soul],
+            speaker['voice']['voice_technical_name'], role, ui)
+        voice_receipts.append(receipt)
     depot, dubbing = dubbing_index(a.target, recordings, depot)
     resources.update(selection.resources())
     resources.update({'Quests/' + n:b for n,b in files.items()})
@@ -87,7 +147,7 @@ def build(a):
     rewrite(travel, package / 'Data/gluemappertravel.pak', resources)
     rewrite(audio, package / 'Localization/English.pak', dict(recordings, **{DEPOT:depot}))
     rewrite(locale, package / 'Localization/English_xml.pak', {'text_ui_dialog.xml':strings_blob})
-    report = dict(conversations=reports, roles=mapping, dubbing=dubbing,
+    report = dict(conversations=reports, roles=mapping, dubbing=dubbing, actor_voices=voice_receipts,
         baseline={str(p):digest(p) for p in (travel,audio,locale)},
         installed=False, runtime_verified=False,
         files={p.relative_to(package).as_posix():digest(p) for p in package.rglob('*.pak')})
