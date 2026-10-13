@@ -35,3 +35,53 @@ Validation: 18 focused unit tests pass (wildlife: 4, environment: 8, world items
 and idempotent particle limits, and distinct reusable placeholder item IDs.
 UI Hub, SqcbLoad and other unrelated development-client diagnostics are not
 claimed resolved.
+
+## Hop-garden rendering investigation
+
+The hop structures around (736.57, 3432.09) retain their original KCD1 mesh and
+physics chunks byte-for-byte, apart from material path remapping. Their foliage
+proxy surface, `mat_vegetation_seethrough`, has `no_collide=1` in both games.
+Separate vine meshes sampled nearby have no dedicated physics chunks.
+
+The asset packager omitted external `_lod1.cgf` through `_lod6.cgf` companions:
+they are loaded by convention rather than explicit references inside the base
+mesh. Dependency closure now includes available companions and recursively
+includes their materials and streamed files. A regression test checks that
+unrelated meshes are not included. All nine packaging tests pass.
+
+A local supplemental package restores LOD1 and LOD2 for all three imported
+`pk_garden_hops_a/b/c` models using their installed material paths (six files).
+The broader installed world has not been rebuilt with the corrected packager.
+
+Diagnostic snapshots before the repair showed approximately 108 FPS looking
+upward and 46 FPS looking into the plants and surrounding scene. At the same
+slow camera view, disabling particles gave 47 FPS, disabling all shadows gave
+65 FPS, and changing e_LodRatio from 300 to 40 gave 47 FPS. These are individual
+samples, not benchmark averages; time of day continued advancing. They establish
+view-dependent rendering cost, not that the missing hop LODs explain the entire
+near-camera slowdown. All diagnostic rendering settings were restored. A
+performance improvement from the LOD repair remains unverified.
+
+## Native wall-vine motion
+
+KCD2 retains the matching `Objects/natural/vegetation/vines/vine_*.cgf` family.
+Its `vine.mtl` reduces WaveX amplitude from 0.025 to 0.0015 and frequency from
+0.25 to 0.006, with different phase, level, divider and noise settings. The
+static-asset converter now reads that native material and copies its complete
+VertexDeform element, vertex modification type and detail-bending parameters
+for the exact KCD1 `objects/vegetation/vines/vine` material. Source textures,
+geometry and appearance parameters remain intact; this is motion adaptation,
+not a wholesale native material replacement.
+
+The local `gluemapper_native_vines.pak` applies that motion to both installed
+copies, `gluebuild/setup_buildings/m784.mtl` and `gluebuild/setup_props/m485.mtl`.
+A regression test covers exact deformation copying, idempotence and preservation
+of textures/appearance. Visual acceptance of the motion remains pending.
+
+The user subsequently reported that motion appears tied to frame rate. Matching
+native deformation settings does not establish frame-rate independence. A
+side-by-side native/imported vine test at fixed frame caps remains required.
+The house rendering slowdown also remains unresolved: doorway samples showed
+roughly 6-7 ms GBuffer and 3 ms shadow maps, with only a small change when the
+fireplace light or GI application was disabled. These sampled diagnostics are
+not a performance acceptance test for either repair.

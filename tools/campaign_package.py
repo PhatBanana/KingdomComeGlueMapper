@@ -85,6 +85,13 @@ def dependency_closure(seeds, index, load):
         if name in selected:
             continue
         selected.add(name)
+        # External LODs are loaded by filename convention, not a literal path
+        # inside the base CGF. Keep their own materials and streamed parts too.
+        if name.endswith('.cgf') and not re.search(r'_lod\d+\.cgf$', name):
+            for lod in range(1, 7):
+                sibling = name[:-4] + f'_lod{lod}.cgf'
+                if sibling in index and sibling not in selected:
+                    queue.append(sibling)
         if not re.search(r'\.dds(?:\.|$)', name):
             queue.extend(sorted(references(load(name)) - selected))
         # CryEngine streams texture mip slices and external geometry separately.

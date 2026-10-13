@@ -1,4 +1,25 @@
 """Convert legacy tree shadow proxies without changing mesh material indices."""
+import copy
+
+
+def native_vine_deformation(document, native):
+    """Use the matching KCD2 wall vine's authored motion, retaining appearance."""
+    deform = native.find('VertexDeform')
+    if native.get('Shader', '').lower() != 'vegetation' or deform is None:
+        raise ValueError('Expected native vine vegetation deformation')
+    for previous in list(document.findall('VertexDeform')):
+        document.remove(previous)
+    document.append(copy.deepcopy(deform))
+    document.set('vertModifType', native.get('vertModifType', '0'))
+    source_params = native.find('PublicParams')
+    params = document.find('PublicParams')
+    if source_params is not None:
+        if params is None:
+            import xml.etree.ElementTree as ET
+            params = ET.SubElement(document, 'PublicParams')
+        for key, value in source_params.attrib.items():
+            if key.startswith('bendDetail'):
+                params.set(key, value)
 
 
 def convert_shadow_proxies(document):

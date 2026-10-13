@@ -83,6 +83,20 @@ class CampaignPackageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unresolved'):
             dependency_closure({'glueitems/missing.cgf'}, {}, lambda _: b'')
 
+    def test_external_lods_keep_their_dependencies_without_unrelated_models(self):
+        files = {'gluebuild/hops.cgf': b'base',
+                 'gluebuild/hops_lod1.cgf': b'gluebuild/lod.mtl',
+                 'gluebuild/hops_lod2.cgf': b'lod2',
+                 'gluebuild/hops_lod1.cgfm': b'geometry',
+                 'gluebuild/lod.mtl': b'gluebuild/lod.dds',
+                 'gluebuild/lod.dds': b'texture',
+                 'gluebuild/lod.dds.1': b'mip',
+                 'gluebuild/hops_other.cgf': b'unrelated',
+                 'gluebuild/hops_lod1_lod1.cgf': b'not a sibling'}
+        selected = dependency_closure({'gluebuild/hops.cgf'}, files, files.__getitem__)
+        self.assertEqual(set(selected), set(files) - {
+            'gluebuild/hops_other.cgf', 'gluebuild/hops_lod1_lod1.cgf'})
+
     def test_rejects_traversal(self):
         for name in ('glueitems/../base.cgf', '/absolute', 'C:/absolute', 'glueitems//x'):
             with self.assertRaises(ValueError):

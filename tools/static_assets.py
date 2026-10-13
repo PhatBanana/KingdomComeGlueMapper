@@ -12,6 +12,7 @@ from upgrade_map import read, xml
 from build_water_probe import shader_features, translate_features
 from puddle_materials import convert_puddle_proxies
 from water_animation import convert_waterfall_speeds
+from vegetation_materials import native_vine_deformation
 
 
 def preserve_legacy_decal_shadows(element, retained):
@@ -153,13 +154,28 @@ def asset_pack(stack, library, prefix, cache_dir=None):
     texture_names = {}
     material_names = {}
     converted_geometry = {}
+    native_vine = None
 
     def material(name, geometry=None):
+        nonlocal native_vine
         name = name.replace("\\", "/").lower().removesuffix(".mtl")
         if name+'.mtl' not in index and 'objects/'+name+'.mtl' in index:
             name = 'objects/'+name
         from building_materials import blend_inputs, convert as convert_blend
         doc = ET.fromstring(asset_read(name+".mtl"))
+        if name == 'objects/vegetation/vines/vine':
+            if native_vine is None:
+                native_path = 'objects/natural/vegetation/vines/vine.mtl'
+                for pak in sorted((library / 'KingdomComeDeliverance2/Data').glob('*.pak')):
+                    with zipfile.ZipFile(pak) as archive:
+                        entry = next((n for n in archive.namelist()
+                                      if n.replace('\\', '/').lower() == native_path), None)
+                        if entry is not None:
+                            native_vine = ET.fromstring(read(archive, entry))
+                            break
+                if native_vine is None:
+                    raise FileNotFoundError(native_path)
+            native_vine_deformation(doc, native_vine)
         convert_puddle_proxies(doc)
         convert_waterfall_speeds(doc)
         needs_geometry = bool(list(blend_inputs(doc)))
