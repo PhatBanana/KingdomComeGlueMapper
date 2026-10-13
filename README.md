@@ -129,7 +129,8 @@ Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/s
 - [ ] Validate their specialised behaviour, replenishment and interaction effects in game.
 - [ ] Convert bird nests, contents, physics and associated sounds.
 - [ ] Convert digging spots, graves and buried sacks, including tools, contents and dug-state persistence.
-- [ ] Extend usable beds and their ownership/access rules across the world.
+- [x] Map all 1,387 active source beds to native sleeping contracts, including ground beds, shelters, tents and sleeping benches; preserve existing rental and miller beds.
+- [ ] Restore original home/NPC access rules for newly converted beds and validate every bed family, approach side and save/load behaviour. New beds are temporarily usable without ownership restrictions.
 - [x] Convert all 113 ladders selected for the initial world to native climbing entities, preserving meshes, heights and approach settings.
 - [ ] Validate top/bottom entry and exit at every ladder; convert the 26 deferred ladders when their quest layers are supported.
 - [ ] Convert grindstone instances and verify sharpening effects.
@@ -139,6 +140,8 @@ Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/s
 - [ ] Verify interaction state, item quantities and persistence after save/load and return travel.
 
 **Evidence:** seating, herb picking, washing, loose-item pickup and the selected rental/bed fixes have sampled user gameplay confirmation. The inspected development level contains 274 washing triggers and 303 cooking groups; the pickup conversion report records 1,773 placements. These counts are coverage snapshots, not individual acceptance tests.
+
+World beds: the development build adds 1,385 sleep contracts and preserves the two existing rental/miller beds. A sampled raised bed completed a one-hour native sleep cycle; a ground bed opened the native sleep menu with its lower comfort rating. Other families, placement clearance and save/load remain acceptance checks. See the [bed conversion evidence](docs/world-beds.md).
 
 Ladders: the installed development build contains 113 native ladder entities with their static duplicates removed. The user confirmed climbing works at the sampled test location on 13 October 2026. Other locations and NPC climbing remain separate acceptance checks.
 
@@ -209,7 +212,7 @@ The following snapshot compares source mission/layer entities selected by the co
 | Grindstones | 11 | Global sharpening service registration does not activate these instances. |
 | Alchemy benches | 7 | Complete native activity conversion remains. |
 | Shooting targets / dice cups | 8 / 13 | Activity and participant conversion remains. |
-| Beds | 1,387 | Two native bed triggers in the inspected level; world-wide bed coverage remains. |
+| Beds | 1,387 | 1,385 new native sleep contracts plus two preserved existing beds; 438 inactive-layer beds remain deferred. Family alignment and persistence validation remain. |
 
 Some KCD2 systems use different entity classes, so class counts alone are not proof of missing functionality. These gaps were cross-checked against the converter implementations. Counts describe the inspected source/build, not every game version or a published release guarantee.
 
@@ -217,7 +220,7 @@ Some KCD2 systems use different entity classes, so class counts alone are not pr
 
 1. **Container acceptance and special storage:** verify item transfer, locks, phase changes, wearable fit, replenishment and save/load; complete merchant/NPC-generated stock and campaign-driven storage contracts.
 2. **Nests and digging:** add native interactions, contents, effects and persistent state.
-3. **World activities:** extend beds, sharpening, alchemy and minigames; validate ladder access throughout the world.
+3. **World activities:** validate bed alignment and restore ownership; extend sharpening, alchemy and minigames; validate ladder access throughout the world.
 4. **Population and ownership:** expand NPCs, livestock, homes, schedules and regional services.
 5. **World parity and persistence:** close visual gaps and verify save/load, travel, respawn and quest-state transitions.
 
@@ -259,7 +262,7 @@ CI currently checks Python 3.11 and 3.14 on Windows. It does not have the games 
 - [Setup, installation and rollback](docs/windows-setup.md)
 - [Wildlife conversion and remaining runtime checks](docs/wildlife-conversion.md)
 - [World pickups](docs/world-pickups.md) · [Herb harvesting](docs/herb-pickup.md)
-- [Washing troughs](docs/washing-troughs-test.md) · [Room rental and bed contracts](docs/room-rental-test.md)
+- [Washing troughs](docs/washing-troughs-test.md) · [Room rental](docs/room-rental-test.md) · [World beds](docs/world-beds.md)
 - [Gameplay-system dependencies](docs/world-gameplay-basis.md)
 - [Static-brush visibility repair](docs/brush-registration.md) · [Water-layer selection](docs/water-layer-selection.md)
 - [Building material investigation](docs/building-material-audit.md) · [Water animation compatibility](docs/water-animation-compatibility.md)

@@ -463,6 +463,9 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 graphs={name:miller_resources.pop(name) for name in graphs}
                 dialogue_files=miller_resources
                 entry_report['miller']=dict(world=miller_report,shop=miller_shop,character=miller_character)
+                from world_beds import build as build_world_beds
+                replacements,beds_report=build_world_beds(replacements,source,target,guid)
+                entry_report['beds']=beds_report
                 import world_items
                 replacements,item_resources,world_item_strings,item_assets,item_report=world_items.build(
                     replacements,dialogue_files,source,target,output/'world-item-conversion')
