@@ -7,6 +7,7 @@ from campaign_entity_links import append_links
 from character_job_items import reservation_contract, register_item, bind_reservation
 from character_person import resolve_link_targets
 from upgrade_map import read, xml
+import character_blacksmith_jobs
 
 
 def native_job(target, name):
@@ -30,11 +31,17 @@ The housework sweeping phase uses the real native reservation/hand-item path.
 It does not represent the other housework activities as converted.
 """
     mission=ET.fromstring(files['objects_mission0.xml'])
+    scheduler=ET.fromstring(files['tables/ai/scheduler.xml'])
     source_entities=list(ET.fromstring(read(archive,'objects_mission0.xml')))
     waiting=[];report=[]
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
+            if (behavior['tree_file'].lower(),behavior['tree_name']) == character_blacksmith_jobs.SOURCE_BEHAVIOR:
+                job=next(e for e in mission if e.get('Name')=='gm_schedule_'+person+'_'+entry['arrival']['EntityId'])
+                links,item_report=character_blacksmith_jobs.bind(mission,scheduler,entry,job,archive,target,registered_items)
+                waiting.extend(links);report.append(dict(person=person,**item_report))
+                continue
             if (behavior['tree_file'].lower(),behavior['tree_name']) != ('final/sa_home.xml','housework'):
                 continue
             native,contracts=native_job(target,'so_sweeping')
@@ -66,5 +73,6 @@ It does not represent the other housework activities as converted.
                 runtime_verified=False))
     result=dict(files)
     result['objects_mission0.xml']=xml(mission)
+    result['tables/ai/scheduler.xml']=xml(scheduler)
     result['waitinglinks.xml']=append_links(files['waitinglinks.xml'],waiting,allow_untagged=True)
     return result,report

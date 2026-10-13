@@ -29,8 +29,8 @@ def reservation_contract(job, entities):
         slot = targets[0]
         if slot.get('EntityClass') != 'ItemSlot': raise ValueError('Reservation is not an item slot')
         props = slot.find('Properties')
-        if props is None or not props.get('soclass_SmartObjectHelpers'):
-            raise ValueError('Native job item is missing pickup helpers')
+        if props is None or not props.get('guidItemClassId'):
+            raise ValueError('Native job item is missing its item definition')
         result.append(dict(behavior=match[1], decision=match[2], definition=link.get('Name'),
             item_id=props.get('guidItemClassId').lower(), properties=copy.deepcopy(props),
             direct_links=[l.get('Name') for l in job.findall('EntityLinks/Link')
@@ -80,7 +80,9 @@ All item definitions must resolve through the importer's item registry first.
             bHasItemPhysics='0', bOwnedByHome='0', nRestockPeriodDays='0', nDestockPeriodDays='0')
     target_props = slot.find('Properties')
     for field in ('soclass_SmartObjectHelpers','guidSmartObjectType'):
-        target_props.set(field, contract['properties'].get(field))
+        value = contract['properties'].get(field)
+        if value: target_props.set(field, value)
+        else: target_props.attrib.pop(field, None)
     removed = []
     for e in list(mission):
         if e.get('Name') in {'glue_item_'+i for i in source_ids}:

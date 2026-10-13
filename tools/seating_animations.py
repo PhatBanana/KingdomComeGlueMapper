@@ -20,6 +20,8 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
              or (e.get('EntityClass') == 'DetailMovementSmartObject'
                  and e.get('Name', '').startswith(('gm_', 'gmtravel_')))
              or (e.get('EntityClass') == 'SmartObjectHolder' and e.get('Name', '').startswith('gm_wash_'))
+             or (e.get('EntityClass') == 'SmartObjectHolder' and e.get('Name', '').startswith('gm_schedule_')
+                 and e.find('Properties') is not None and e.find('Properties').get('soclass_SmartObjectHelpers'))
              or (e.get('EntityClass') == 'AnimDoor' and e.get('Name', '').startswith('gm_door_'))]
     families = {e.find('Properties').get('soclass_SmartObjectHelpers') for e in seats}
     available = {e.get('HelperSetName'): e for e in native_helpers}
@@ -39,8 +41,18 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
     for seat in seats:
         # Trosky baked navigation/physics results and projected targets cannot
         # be reused at KCD1 coordinates. Request native runtime validation.
+        collection_hash = '0'
+        if seat.get('Name','').startswith('gm_schedule_'):
+            family=seat.find('Properties').get('soclass_SmartObjectHelpers')
+            collections=available[family].findall('SmartObjectHelperSetAnimationCollection')
+            if len(collections)!=1 or not collections[0].get('HashValue'):
+                raise ValueError('Ambiguous native job animation collection: '+family)
+            # This hash selects the local animation/start-transform collection;
+            # zero leaves native unstances without a move target when runtime
+            # preparation is disabled. The entity world transform below is new.
+            collection_hash=collections[0].get('HashValue')
         row = ET.SubElement(rows, 'SmartObjectAnimations', EntityGuid=str(guid_value(seat.get('EntityGuid'))),
-                            Hash='0', AllowRuntimeAnimValidationFallback='true')
+                            Hash=collection_hash, AllowRuntimeAnimValidationFallback='true')
         ET.SubElement(row, 'SmartObjectTransform', Position=seat.get('Pos'), Rotation=seat.get('Rotate', '1,0,0,0'))
     result[HELPERS] = ET.tostring(helpers, encoding='utf-8', xml_declaration=True)
     result[ANIMATIONS] = ET.tostring(table, encoding='utf-8', xml_declaration=True)

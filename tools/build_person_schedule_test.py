@@ -12,6 +12,9 @@ from build_horse_trader_test import rewrite
 from upgrade_map import read
 from character_schedule_jobs import bind_jobs
 from world_item_definitions import native_items, native_item_registry
+import seating_animations
+from character_person_activity import validate_scheduler_targets
+import xml.etree.ElementTree as ET
 
 
 def build(a):
@@ -24,8 +27,13 @@ def build(a):
             if schedule['pending']: raise ValueError('Unresolved source schedule: ' + name)
             schedules[name] = resolve_arrivals(schedule, archive)
     with zipfile.ZipFile(a.level_pak) as archive:
-        files = {n:read(archive,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml')}
-    files, report = bind_arrivals(files, schedules, a.target)
+        files = {n:read(archive,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml',
+                    seating_animations.HELPERS,seating_animations.ANIMATIONS)}
+    if a.jobs_only:
+        if not a.jobs:raise ValueError('--jobs-only requires --jobs')
+        report=[]
+    else:
+        files, report = bind_arrivals(files, schedules, a.target)
     if a.jobs:
         with zipfile.ZipFile(a.travel_pak) as pak:
             items=[read(pak,n) for n in pak.namelist() if n.lower().startswith('libs/tables/item/item__') and n.endswith('.xml')]
@@ -33,8 +41,14 @@ def build(a):
         with zipfile.ZipFile(a.source/'Data/Levels'/a.source_level/'level.pak') as archive:
             files,jobs=bind_jobs(files,schedules,archive,a.target,registered)
         report=dict(arrivals=report,jobs=jobs)
+        with zipfile.ZipFile(a.target/'Data/Levels/trosecko/level.pak') as native:
+            files,animation_report=seating_animations.install(files,native)
+        report['animations']=animation_report
+    validate_scheduler_targets(ET.fromstring(files['tables/ai/scheduler.xml']))
     resources = arrival_resources()
     resources[f'Mods/{a.mod_id}/Data/Levels/{a.level}/tables/ai/scheduler.xml'] = files['tables/ai/scheduler.xml']
+    for name in (seating_animations.HELPERS,seating_animations.ANIMATIONS):
+        resources[f'Mods/{a.mod_id}/Data/Levels/{a.level}/'+name]=files[name]
     a.output.mkdir(parents=True)
     rewrite(a.level_pak, a.output / 'level.pak', files)
     rewrite(a.travel_pak, a.output / 'gluemappertravel.pak', resources)
@@ -51,4 +65,5 @@ if __name__ == '__main__':
     parser.add_argument('--level', default='kcd1_travel')
     parser.add_argument('--mod-id', default='kingdomcomegluemapper')
     parser.add_argument('--jobs', action='store_true', help='Activate supported native work phases and their reserved tools')
+    parser.add_argument('--jobs-only', action='store_true', help='Upgrade existing imported arrival schedules without resetting other routines')
     build(parser.parse_args())

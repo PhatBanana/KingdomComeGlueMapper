@@ -281,7 +281,25 @@ inventory injection, animation timer, or teleport implements this job.
 - [ ] Resolve the pickup-animation fallback and verify tool return after interruption.
 - [ ] Convert the original sweeping route points and the remaining housework activities.
 - [ ] Resolve father's blocked approach and convert the full forging/tool cycle.
+- [x] Connect the imported smithy schedule to native blacksmith work animations;
+  the user confirmed Father performs his work animation on 14 October 2026.
 - [ ] Verify shared-tool contention, missing/stolen tools and save/load persistence.
+
+The installed `FatherRoutineBuild02` upgrades source `BlackSmith_new` jobs by
+behavior identity and workstation category links, without selecting an NPC by
+name. It connects the native heating/forging controller, source sword and hammer
+slots, reservation graph, heating slots and animated bellows. The workstation
+uses a rigid fit to the source tool contacts (approximately 6 cm residual for
+this smithy); incompatible layouts are rejected rather than scaled.
+
+The first live build reached the native controller but failed to resolve
+`BlacksmithBehaviorHeatingIn`. The second binds the exported local animation
+collection hash at the converted world transform. Father performing his work
+animation is user-confirmed; a complete repeated cycle, item return after
+interruption and save/load still need validation. Original KCD1 tempering and
+quest-cooperation phase locks remain unconverted. Validation: 70 character tests
+and 4 activity-contract tests pass. `--jobs --jobs-only` in the schedule staging
+tool upgrades existing imported arrivals without resetting other schedules.
 
 Build with [the schedule staging tool](../tools/build_person_schedule_test.py),
 using `--jobs` for supported work phases. Its report lists unconverted activity

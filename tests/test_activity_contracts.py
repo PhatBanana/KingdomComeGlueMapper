@@ -13,6 +13,23 @@ from lean_alignment import align
 
 
 class ActivityContractTests(unittest.TestCase):
+    def test_native_job_resolves_local_collection_at_new_world_transform(self):
+        identity=guid('test/anonymous-job')
+        files={'objects_mission0.xml':f'''<Objects><Entity Name="gm_schedule_any_actor"
+          EntityClass="SmartObjectHolder" EntityGuid="{identity}" Pos="10,20,30">
+          <Properties soclass_SmartObjectHelpers="work"/></Entity></Objects>'''.encode()}
+        donor={HELPERS:b'''<SmartObjectAnimationCollections><Collection HelperSetName="work">
+          <SmartObjectHelperSetAnimationCollection HashValue="12345"><AnimationsMap/></SmartObjectHelperSetAnimationCollection>
+          </Collection></SmartObjectAnimationCollections>'''}
+        with archive(donor) as native:
+            result,_=install(files,native)
+            again,_=install(result,native)
+        self.assertEqual(result,again)
+        row=ET.fromstring(result[ANIMATIONS]).find('.//SmartObjectAnimations')
+        self.assertEqual(row.get('Hash'),'12345')
+        self.assertEqual(row.find('SmartObjectTransform').get('Position'),'10,20,30')
+        self.assertEqual(row.get('AllowRuntimeAnimValidationFallback'),'true')
+
     def test_lean_alignment_preserves_authored_world_helper_not_object_origin(self):
         source = b'<SmartObjects><Helper className="LeaningSpot" name="align" pos="0,0.242,0" rot="1,0,0,0"/></SmartObjects>'
         native = b'<SmartObjects><Helper className="leaning_right" name="leaning_right" pos="0,0,0" rot="1,0,0,0"/></SmartObjects>'
