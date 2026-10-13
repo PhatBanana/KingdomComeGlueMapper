@@ -10,13 +10,13 @@ from campaign_dependencies import DependencyImporter
 from campaign_dependency_adapters import SourceTables, StaticAssetAdapter, ItemTextAdapter
 from campaign_sources import RetailSourceReader
 from character_person import native_xml
-from world_item_definitions import native_items, WorldItemAdapter
+from world_item_definitions import native_items, native_item_registry, WorldItemAdapter
 from world_item_clothing import ClothingAdapter
 from world_item_documents import DocumentImageAdapter
 from upgrade_map import read
 
 
-def build(source, target, mod, output, identifiers):
+def build(source, target, mod, output, identifiers, *, asset_namespace='containeritems'):
     source, target, mod, output = map(Path, (source, target, mod, output))
     if output.exists(): raise FileExistsError('Choose a fresh dependency output')
     output.mkdir(parents=True)
@@ -35,13 +35,13 @@ def build(source, target, mod, output, identifiers):
             components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
         weapons = {n.get('id'): n.get('name') for n in classes[0]}
         cache = output/'asset-cache'; cache.mkdir()
-        assets = StaticAssetAdapter(stack, source.parent, 'containeritems', cache)
+        assets = StaticAssetAdapter(stack, source.parent, asset_namespace, cache)
         importer = DependencyImporter({
             'items': WorldItemAdapter(tables, 'containeritems', native, weapons, components),
             'clothing': ClothingAdapter(tables, assets, target, stack),
             'document_images': DocumentImageAdapter(source, reader, 'containeritems'),
             'assets': assets, 'strings': ItemTextAdapter(source, 'containeritems', 'English')},
-            registered={'items': {key:key for key in native}})
+            registered={'items': native_item_registry(native)})
         for index, identifier in enumerate(sorted(set(identifiers))):
             importer.ensure('items', identifier, {'origin':'container_loot'})
             if index % 50 == 0: print('Container item dependencies', index, '/', len(identifiers), flush=True)

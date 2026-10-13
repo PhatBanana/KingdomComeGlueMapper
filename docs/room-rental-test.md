@@ -163,3 +163,8 @@ archive. Retail contains three Facials_english-part*.pak files, with
 Animations/FacialAnimations.img in part0. No archive mounting changes were
 made during this fix. Loading-progress 'characters' and SqcbLoad thread-config
 warnings also remain separate from the repaired activity contracts.
+
+Update, 13 October 2026: the missing facial archives were subsequently mounted
+from the local retail installation and the facial warnings cleared in a sampled
+restart. See [runtime warning repairs](runtime-warning-repairs.md) for evidence
+and remaining diagnostics.

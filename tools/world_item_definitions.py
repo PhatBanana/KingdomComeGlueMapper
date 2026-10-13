@@ -26,6 +26,27 @@ def native_items(target, resources=()):
     return result
 
 
+def usable_native_item(row):
+    """A retained GUID with a development placeholder is not a usable asset."""
+    model = row.get('Model', '').replace('\\', '/').lower()
+    return 'preproduction/traffic_cone/' not in model
+
+
+def native_item_registry(items):
+    result = {key: key for key, row in items.items() if usable_native_item(row)}
+    for key, row in items.items():
+        match = re.fullmatch(r'(?:worlditems|containeritems)_item_([0-9a-f_]{36})',
+                             row.get('Name', '').lower())
+        if not match or not usable_native_item(row):
+            continue
+        source = match[1].replace('_', '-')
+        if source in items and not usable_native_item(items[source]):
+            if source in result and result[source] != key:
+                raise ValueError('Ambiguous imported placeholder replacement: '+source)
+            result[source] = key
+    return result
+
+
 class WorldItemAdapter(ItemAdapter):
     """Native typed item rows retain source IDs, assets, text and source stats.
 
@@ -131,11 +152,17 @@ class WorldItemAdapter(ItemAdapter):
                 ET.SubElement(content,'Image',Image=registered['document_images'][image['image'].lower()],Page=image['page'])
         for table,old,new,suffix in [('weapon','holster_model','HolsterModel','.cgf'),('ammo','inquiver_model','InquiverModel','.cgf')]:
             if rows[table].get(old):row.set(new,registered['assets'][self.asset(rows[table][old],suffix)].removeprefix('objects/'))
-        row.set('Id',identity)
-        evidence.update(target_id=identity,source_identity_preserved=True)
+        # Retired native IDs still exist in item.xml. Give their imported
+        # replacements a separate identity instead of defining the ID twice.
+        replaced = identity in self.native and not usable_native_item(self.native[identity])
+        if not replaced:
+            row.set('Id',identity)
+        target = row.get('Id')
+        evidence.update(target_id=target,source_identity_preserved=not replaced,
+                        replaced_native_placeholder=replaced)
         evidence['secondary_gameplay_pending']={
             table:dict(rows[table]) for table in ('consumable_item','potion')
             if any(v and k!='item_id' for k,v in rows[table].items())}
         if category=='document':
             evidence['reading_rewards_verified']=False
-        return identity,{name:xml(root) for name in files},evidence
+        return target,{name:xml(root) for name in files},evidence

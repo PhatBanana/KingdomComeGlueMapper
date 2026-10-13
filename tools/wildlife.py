@@ -15,6 +15,10 @@ LEVEL_FILES = ('objects_mission0.xml', 'tables/ai/scheduler.xml', 'triggerareas.
 SPECIES = {'Boar': 'animal_boar', 'RedDeer': 'animal_red_deer_stag',
            'DeerDoe': 'animal_red_deer_doe', 'RoeBuck': 'animal_roe_deer_buck',
            'Hare': 'animal_hare'}
+# Reviewed against the imported navigation and sampled in KCD2. The original
+# widest-scanline centre of prib_forest_w falls outside navigable ground.
+# Keep the original area/population/identities; move only its activity anchor.
+HARE_ANCHORS = {'43965C71BDD523DD': (376., 3848.)}
 PATTERN = re.compile(r'animalSpawn\[amount\((\d+)\),class\((\w+)\),'
                      r'radius\(([\d.]+)\),respawn\(([\d.]+)([hd])\)\]')
 
@@ -130,6 +134,14 @@ def hare_sites(mission, height):
                     candidates.append((b-a,x,y,z))
         if not candidates: raise ValueError('No terrain-grounded interior point for '+e.get('Name'))
         _,x,y,z=max(candidates)
+        if e.get('EntityGuid') in HARE_ANCHORS:
+            x,y = HARE_ANCHORS[e.get('EntityGuid')]
+            crossings = sorted(a[0]+(y-a[1])*(b[0]-a[0])/(b[1]-a[1])
+                               for a,b in zip(points, points[1:]+points[:1]) if (a[1]>y)!=(b[1]>y))
+            z = height(x,y)
+            if not (any(a < x < b for a,b in zip(crossings[::2],crossings[1::2]))
+                    and min(p[2] for p in points) <= z <= max(p[2] for p in points)+area.height):
+                raise ValueError('Reviewed hare anchor is outside its source habitat')
         sites.append(dict(guid=e.get('EntityGuid'), name=e.get('Name'), species='Hare', position=(x,y,z),
                           count=count, radius=45., respawn_days=1/3,
                           area=dict(height=area.height, points=area.points)))
@@ -185,6 +197,10 @@ def apply(files, sites, templates):
             mission.append(entity)
             if key in template['rows']:
                 row = copy.deepcopy(template['rows'][key]);row.set('EntityGuid', str(guid_value(identities[key])))
+                # Compiled-away hubs carry their own position. Moving only
+                # the entity leaves the scheduler searching at the Trosky site.
+                if 'Position' in row.attrib:
+                    row.set('Position', entity.get('Pos'))
                 for link in row.findall('Links/S_ActivityLink'):
                     for attr in ('TargetGuid', 'PositioningDelegate'):
                         old = link.get(attr, '0')

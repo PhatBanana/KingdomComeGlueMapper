@@ -10,6 +10,20 @@ from campaign_entity_links import guid_value, native_guid
 
 
 class Wildlife(unittest.TestCase):
+    def test_reviewed_anchor_preserves_habitat_and_rejects_changed_boundary(self):
+        doc = ET.fromstring('''<Objects><Entity Name="forest" EntityGuid="43965C71BDD523DD" Pos="350,3800,0">
+          <Properties guidSmartAreaTemplate="40b53966-60ca-d312-d919-54b6c741a2b8"/>
+          <Area Height="100"><Points><Point Pos="0,0,0"/><Point Pos="100,0,0"/>
+          <Point Pos="100,100,0"/><Point Pos="0,100,0"/></Points></Area>
+        </Entity></Objects>''')
+        site = hare_sites(doc, lambda x,y:56.65)[0]
+        self.assertEqual(site['position'],(376.,3848.,56.65))
+        self.assertEqual(site['count'],8)
+        self.assertEqual(site['area']['points'][0],(350,3800,0))
+        doc[0].set('Pos','0,0,0')
+        with self.assertRaisesRegex(ValueError,'outside its source habitat'):
+            hare_sites(doc, lambda x,y:56.65)
+
     def test_hare_polygon_transform_and_population_override(self):
         doc = ET.fromstring('''<Objects><Entity Name="forest" EntityGuid="123" Pos="100,200,0">
           <Properties guidSmartAreaTemplate="40b53966-60ca-d312-d919-54b6c741a2b8"><Script Misc="hares:3"/></Properties>
@@ -42,7 +56,7 @@ class Wildlife(unittest.TestCase):
     def test_remap_preserves_existing_data_and_rejects_repeat_install(self):
         sp = ET.fromstring('<Entity EntityId="1" EntityClass="AnimalSpawner"><Properties guidSoul="native"/><EntityLinks><Link TargetId="2" Name="spawnArea"/></EntityLinks></Entity>')
         area = ET.fromstring('<Entity EntityId="2" EntityClass="TriggerArea"/>')
-        row = ET.fromstring('<C_SmartHub EntityGuid="1"><Links><S_ActivityLink TargetGuid="2" PositioningDelegate="2"/></Links></C_SmartHub>')
+        row = ET.fromstring('<C_SmartHub EntityGuid="1" Position="2625,3114,67"><Links><S_ActivityLink TargetGuid="2" PositioningDelegate="2"/></Links></C_SmartHub>')
         template = dict(root='1', area='2', keys={'1','2'}, entities={'1':sp,'2':area}, rows={'1':row}, by_id={'1':'1','2':'2'})
         files = {'objects_mission0.xml': b'<Objects><Entity EntityId="9" EntityGuid="00000009-0000-0000" Name="keep"/></Objects>',
                  'tables/ai/scheduler.xml': b'<Table><Schedulers><C_SmartHub EntityGuid="9"/></Schedulers></Table>',
@@ -53,6 +67,7 @@ class Wildlife(unittest.TestCase):
         self.assertEqual(entities[0].get('Name'),'keep')
         self.assertEqual(len(entities),3)
         shapes=read_areas(result['triggerareas.fubar'])['areas']
+        self.assertEqual(ET.fromstring(result['tables/ai/scheduler.xml']).findall('Schedulers/C_SmartHub')[1].get('Position'), '10,20,30')
         self.assertEqual(len(shapes),1)
         ids={str(guid_value(e.get('EntityGuid'))) for e in entities}
         for link in ET.fromstring(result['tables/ai/scheduler.xml']).iter('S_ActivityLink'):

@@ -4,11 +4,25 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from world_environment import convert
+from world_environment import convert, particle_count_limit
 from region_travel import guid
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_particle_limit_is_targeted_idempotent_and_preserves_effect_size(self):
+        props = ET.Element('Properties', ParticleEffect='WH_vranik.vranik.fire_e',
+                           CountScale='1', Scale='2', bActive='1')
+        self.assertEqual(particle_count_limit(props)['after'], .25)
+        self.assertIsNone(particle_count_limit(props))
+        self.assertEqual(props.get('Scale'), '2')
+        self.assertEqual(props.get('bActive'), '1')
+        props.set('CountScale', '.1')
+        self.assertIsNone(particle_count_limit(props))
+        props.set('ParticleEffect', 'Native.Smoke')
+        props.set('CountScale', '1')
+        self.assertIsNone(particle_count_limit(props))
+        self.assertEqual(props.get('CountScale'), '1')
+
     def test_allocator_skips_local_player_id_and_remaps_area(self):
         source = ET.fromstring('''<Objects>
         <Entity EntityId="1" EntityClass="AudioAreaAmbience"><Properties audioTriggerPlayTrigger="native"/></Entity>

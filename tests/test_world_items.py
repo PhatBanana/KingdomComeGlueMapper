@@ -11,6 +11,8 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from world_item_inventory import collect, item_id
 from world_item_placements import convert,placement_transform,rotation
 from static_assets import character_definition
+from world_item_definitions import native_item_registry, WorldItemAdapter
+from campaign_dependencies import ImportPlan
 
 
 def entity(identity='1', cls='PickableItem', **props):
@@ -30,6 +32,26 @@ def archive(nodes):
 
 
 class WorldItemsTests(unittest.TestCase):
+    def test_retired_native_placeholder_is_imported_with_distinct_reusable_identity(self):
+        identity = '36235c05-a733-484b-872d-eecdc245a7de'
+        bad = E.Element('NPCTool', Id=identity, Name='sausage_smoked',
+                        Model='preproduction/traffic_cone/traffic_cone')
+        native = {identity:bad}
+        self.assertNotIn(identity, native_item_registry(native))
+        adapter = WorldItemAdapter(None, 'worlditems', native, {})
+        rows = {name:{} for name in adapter.FIELDS}
+        rows.update(item={}, pickable_item={'model':'props/food/sausage.cgf'},
+                    npc_tool={'npc_tool_type_id':'1'})
+        plan = ImportPlan([], dict(category='npc_tool', rows=rows))
+        target, files, evidence = adapter.convert(identity, plan,
+            {'assets':{'objects/props/food/sausage.cgf':'objects/converted/sausage.cgf'},'strings':{}})
+        self.assertNotEqual(target,identity)
+        row = E.fromstring(next(iter(files.values()))).find('ItemClasses')[0]
+        self.assertEqual(row.get('Model'),'converted/sausage.cgf')
+        self.assertTrue(evidence['replaced_native_placeholder'])
+        native[target] = row
+        self.assertEqual(native_item_registry(native)[identity], target)
+
     def test_pickup_classification_deduplicates_slots_and_preserves_restrictions(self):
         placed=entity();slot=entity('2','ItemSlot')
         E.SubElement(E.SubElement(slot,'EntityLinks'),'Link',Name='SlotLink',TargetId='1')

@@ -19,6 +19,23 @@ CONTROL_TYPES = {'audioTrigger': 'ATLTrigger', 'audioRTPC': 'ATLRtpc',
                  'audioEnvironment': 'ATLEnvironment'}
 
 
+def particle_count_limit(props):
+    """Bound the two legacy effects observed overflowing KCD2's helper array.
+
+    Retain their native effect, size, lifetime and activity. This is a density
+    reduction, not a general performance or visual-parity claim.
+    """
+    if props.get('ParticleEffect', '').lower() not in {
+            'wh_vranik.vranik.fire_c_vranik', 'wh_vranik.vranik.fire_e'}:
+        return None
+    before = float(props.get('CountScale', '1'))
+    after = min(before, .25)
+    if after == before:
+        return None
+    props.set('CountScale', format(after, '.9g'))
+    return dict(before=before, after=after, reason='native_helper_array_limit')
+
+
 def inventory(source):
     entities, active = {}, set()
     with zipfile.ZipFile(Path(source)/'Data/Levels/rataje/level.pak') as archive:
@@ -108,6 +125,9 @@ def convert(mission, entities, active, effects, controls, guid, aliases=None):
                 record['reason'] = 'empty_effect' if not effect else 'missing_native_effect'
                 record['dependency'] = effect; continue
             props.set('ParticleEffect', effects[effect.lower()])
+            adjustment = particle_count_limit(props)
+            if adjustment:
+                record['particle_count_adjustment'] = adjustment
         for node in entity.iter():
             for attribute, value in list(node.attrib.items()):
                 kind = control_type(attribute)

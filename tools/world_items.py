@@ -8,7 +8,7 @@ from campaign_dependencies import DependencyImporter
 from campaign_dependency_adapters import SourceTables, StaticAssetAdapter, ItemTextAdapter
 from campaign_sources import RetailSourceReader
 from world_item_inventory import collect
-from world_item_definitions import native_items, WorldItemAdapter
+from world_item_definitions import native_items, native_item_registry, WorldItemAdapter
 from world_item_clothing import ClothingAdapter
 from world_item_documents import DocumentImageAdapter
 from world_item_placements import convert
@@ -34,7 +34,7 @@ def build(files, resources, source, target, output):
             'clothing':ClothingAdapter(tables,assets,target,stack),
             'document_images':DocumentImageAdapter(source,reader,'worlditems'),
             'assets':assets,'strings':ItemTextAdapter(source,'worlditems','English')},
-            registered={'items':{k:k for k in native}})
+            registered={'items':native_item_registry(native)})
         for i,placement in enumerate(placements):
             importer.ensure('items',placement['item_id'],dict(source_id=placement['entity'].get('EntityId')))
             if i%500==0:print('Resolved pickup dependencies',i,'/',len(placements),flush=True)
