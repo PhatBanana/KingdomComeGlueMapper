@@ -108,6 +108,11 @@ def resolve(tables, alias=None, *, start_topic=None, indexes=None):
 
 
 def load(game, alias=None, locale='English', *, start_topic=None):
+    return load_many(game, [(alias, start_topic)], locale)[0]
+
+
+def load_many(game, selections, locale='English'):
+    """Resolve a campaign dialogue closure against one source database snapshot."""
     if not re.fullmatch(r'[A-Za-z]+', locale): raise ValueError('Invalid locale')
     paths = {n: ('Tables.pak', 'Libs/Tables/text/' + n + '.xml') for n in TABLES}
     paths['role'] = ('Tables.pak', 'Libs/Tables/rpg/role.xml')
@@ -115,15 +120,23 @@ def load(game, alias=None, locale='English', *, start_topic=None):
     sources = retail_sources(game, paths)
     tables = {n: [dict(r.attrib) for r in ET.fromstring(s['data']).findall('./table/rows/row')]
               for n, s in sources.items()}
-    model = resolve(tables, alias, start_topic=start_topic)
-    model['roles'] = {r['role_id']: r for r in tables['role']}
+    indexes = index_tables(tables)
+    models = [resolve(tables, alias, start_topic=start, indexes=indexes) for alias, start in selections]
+    for model in models:
+        model['roles'] = {r['role_id']: r for r in tables['role']}
     with zipfile.ZipFile(Path(game) / 'Localization' / (locale + '_xml.pak')) as z:
         data = read(z, 'text_ui_dialog.xml')
     keys = set()
-    for topic in model['topics'].values():
-        for seq in topic['sequences']:
-            keys.add(seq['source']['ui_prompt'])
-            keys.update(line['response']['string_name'] for line in seq['lines'] if line['response'])
+    model_keys = []
+    for model in models:
+        selected_keys = set()
+        for topic in model['topics'].values():
+            for seq in topic['sequences']:
+                selected_keys.add(seq['source']['ui_prompt'])
+                selected_keys.update(line['response']['string_name'] for line in seq['lines'] if line['response'])
+        selected_keys.discard('')
+        model_keys.append(selected_keys)
+        keys.update(selected_keys)
     keys.discard('')
     strings = {}
     for row in ET.fromstring(data).findall('Row'):
@@ -134,10 +147,11 @@ def load(game, alias=None, locale='English', *, start_topic=None):
             if key in strings: raise ValueError('Duplicate localized dialogue: ' + key)
             strings[key] = ''.join(cells[2].itertext())
     if keys - strings.keys(): raise ValueError('Missing dialogue text: ' + ', '.join(sorted(keys - strings.keys())))
-    model['strings'] = strings
-    model['provenance'] = {n: s['candidates'] for n, s in sources.items()}
-    model['localization'] = dict(locale=locale, entry='text_ui_dialog.xml', sha256=hashlib.sha256(data).hexdigest())
-    return model
+    for model, selected_keys in zip(models, model_keys):
+        model['strings'] = {key: strings[key] for key in selected_keys}
+        model['provenance'] = {n: s['candidates'] for n, s in sources.items()}
+        model['localization'] = dict(locale=locale, entry='text_ui_dialog.xml', sha256=hashlib.sha256(data).hexdigest())
+    return models
 
 
 def presentation_command(command, model):
@@ -272,10 +286,12 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             if tid == model['start_topic']:
                 condition = "Port('" + active_port + "')" + (' AND (' + condition + ')' if condition else '')
             attrs = dict(Name='seq_' + sid, EndType='EndDialogue')
-            if kind == 'FaderDialog' and source['flags'] == '0' and source['next'] == '0':
+            if source['flags'] == '0' and source['next'] == '0':
                 # Native SequenceEndTypes.EndTopic is zero and the editor's
                 # get_EndTypeSpecified omits it. An ordinary unflagged branch
                 # ending must not force teardown of the conversation session.
+                # ForcedDialog controls how a branch starts, not whether the
+                # source branch ends the session. Keep follow-up topics open.
                 attrs.pop('EndType')
                 branch_endings.append(dict(sequence=sid, source_next='0', source_flags='0',
                                            native_end='EndTopic', runtime_verified=False))

@@ -4,11 +4,24 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from campaign_dialogue_runtime import bind_recordings, attach_dialogue
+from campaign_dialogue_runtime import bind_recordings, attach_dialogue, voice_namespace
 from test_dialogue_dubbing import ogg
 
 
 class RuntimeDialogueTests(unittest.TestCase):
+    def test_audio_uses_runtime_level_scope_not_definition_directory(self):
+        files = {'project.xml': b'<Database><Skald><Project Name="project"><Definitions><Definition File="somewhere/map.xml"/></Definitions><Nodes><map Name="map"/></Nodes></Project></Skald></Database>',
+                 'somewhere/map.xml': b'<Database><Skald><Level Name="map"><Definitions/><Nodes/></Level></Skald></Database>'}
+        namespace = voice_namespace(files, 'somewhere/map.xml')
+        self.assertEqual(namespace, ('map',))
+        blob, media, report = bind_recordings(*self.sample(), parent_namespace=namespace)
+        self.assertEqual(list(media), ['dialog/map/scene/voice_line_aBcD.ogg'])
+        self.assertEqual(report['parent_namespace'], ['map'])
+        self.assertEqual(voice_namespace(files, 'project.xml'), ())
+        del files['project.xml']
+        with self.assertRaisesRegex(ValueError, 'Unrooted'):
+            voice_namespace(files, 'somewhere/map.xml')
+
     def test_level_container_resolves_relative_definitions_and_engine_predicate(self):
         from campaign_dialogue_conditions import QuestConditions
         conditions = QuestConditions([])

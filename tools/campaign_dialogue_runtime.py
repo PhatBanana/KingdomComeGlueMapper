@@ -78,12 +78,58 @@ def imported_resources(package, report):
     return result
 
 
-def bind_recordings(blob, model, media, native_voices, language='ENG'):
+def voice_namespace(files, container_file):
+    """Resolve native audio scope through instantiated quest definitions.
+
+    Native Level/Quest scopes contribute a folder by default; other containers
+    contribute only when VoiceNamespace is enabled. Do not infer this from the
+    XML file's directory: definitions and runtime scopes need not match.
+    """
+    hosts = {}
+    for path, blob in files.items():
+        root = ET.fromstring(blob)
+        skald = root.find('Skald')
+        if skald is not None and len(skald) == 1:
+            hosts[path] = skald[0]
+    if container_file not in hosts:
+        raise ValueError('Missing dialogue container')
+    parents = {}
+    for parent_path, host in hosts.items():
+        for declaration in host.findall('./Definitions/Definition'):
+            child_path = posixpath.normpath(posixpath.join(posixpath.dirname(parent_path), declaration.get('File')))
+            child = hosts.get(child_path)
+            if child is None: continue
+            for instance in host.findall('./Nodes/' + child.get('Name', '__missing')):
+                parents.setdefault(child_path, set()).add((parent_path, instance.get('Name')))
+    chain, visited = [], set()
+    current = container_file
+    while True:
+        if current in visited: raise ValueError('Cyclic dialogue container hierarchy')
+        visited.add(current)
+        host = hosts[current]
+        enabled = host.get('VoiceNamespace', 'true' if host.tag in ('Level', 'Quest') else 'false')
+        if enabled == 'true':
+            name = host.get('Name'); identifier(name); chain.append(name)
+        candidates = parents.get(current, set())
+        if not candidates:
+            if host.tag != 'Project': raise ValueError('Unrooted dialogue audio container')
+            break
+        if len(candidates) != 1: raise ValueError('Ambiguous dialogue audio container')
+        parent_path, instance_name = next(iter(candidates))
+        if instance_name != host.get('Name'):
+            raise ValueError('Audio namespace for renamed instances requires validation')
+        current = parent_path
+    return tuple(reversed(chain))
+
+
+def bind_recordings(blob, model, media, native_voices, language='ENG', *, parent_namespace=()):
     """Use original recorded speakers and native VoiceNamespace lookup paths."""
     root = ET.fromstring(blob)
     host = list(root.find('Skald'))[0]
     name = host.get('Name')
     identifier(name)
+    for segment in parent_namespace: identifier(segment)
+    audio_folder = '/'.join((*parent_namespace, name)).lower()
     if host.tag not in ('ForcedDialog', 'FaderDialog'):
         raise ValueError('Expected a native dialogue definition')
     by_stem = {}
@@ -121,7 +167,7 @@ def bind_recordings(blob, model, media, native_voices, language='ENG'):
                     raise ValueError('Missing imported recording: ' + stem)
                 duration = ogg_duration(by_stem[stem])
                 record = dict(role=role, stem=stem, duration=duration,
-                              path='dialog/' + name.lower() + '/' + stem + '.ogg')
+                              path='dialog/' + audio_folder + '/' + stem + '.ogg')
                 if key in recordings and recordings[key] != record:
                     raise ValueError('Conflicting source response identity: ' + key)
                 recordings[key] = record
@@ -145,7 +191,7 @@ def bind_recordings(blob, model, media, native_voices, language='ENG'):
     if used != recordings.keys():
         raise ValueError('Source recordings were omitted from dialogue')
     output = {r['path']: by_stem[r['stem']] for r in recordings.values()}
-    return xml(root), output, dict(roles=roles, responses=list(recordings.values()),
+    return xml(root), output, dict(roles=roles, responses=list(recordings.values()), parent_namespace=list(parent_namespace),
                                    runtime_verified=False)
 
 

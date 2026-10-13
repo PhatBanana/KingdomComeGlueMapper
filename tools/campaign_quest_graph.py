@@ -201,18 +201,26 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
         if tracked[i]:
             report['unsupported'].append(dict(kind='tracked_completion', objective=name,
                                               assets=tracked[i]))
-        immediate = (not tracked[i] and row.get('condition', '').strip() == '1'
-                     and row.get('autocomplete_timeout_str') in ('', '-1', None)
+        timeout = row.get('autocomplete_timeout_str')
+        timed = re.fullmatch(r'\s*(\d+(?:\.\d+)?[smh])\s+#GT\s*', timeout or '')
+        immediate = timeout in ('', '-1', None)
+        automatic = (not tracked[i] and row.get('condition', '').strip() == '1'
+                     and (immediate or timed is not None)
                      and row.get('expiration_timeout_str') in ('', '-1', None)
                      and row.get('time', '0') in ('', '0'))
-        if immediate:
+        if automatic:
             # A direct State.OnStarted -> same State.SetCompleted edge stalls
             # native graph preparation. Queue the completion through a native
             # zero-duration timer, and recheck state in case it was canceled.
             timer_name = 'complete_' + i + '_queued'
             timer = ET.SubElement(nodes, 'Timer', Name=timer_name)
-            constant(timer, 'Duration', '0s'); constant(timer, 'TimeType', 'GameTime')
+            constant(timer, 'Duration', '0s' if immediate else timed[1]); constant(timer, 'TimeType', 'GameTime')
             edge(timer, state_name + '.OnStarted', 'SetRunning')
+            if not immediate:
+                # Native Timer is save-affecting. Let it own elapsed time and
+                # stop it if the source objective leaves Started before expiry.
+                for status in ('Completed', 'Failed', 'Canceled', 'Unchanged'):
+                    edge(timer, state_name + '.On' + status, 'SetStopped')
             gate = ET.SubElement(nodes, 'If', Name='complete_' + i + '_if_started')
             edge(gate, state_name + '.Started', 'Condition')
             edge(gate, timer_name + '.OnFinished', 'Exec')

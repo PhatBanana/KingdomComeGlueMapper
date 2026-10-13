@@ -47,6 +47,8 @@ from world_item_definitions import native_items, native_item_registry, WorldItem
 from world_item_clothing import ClothingAdapter
 from world_item_documents import DocumentImageAdapter
 from character_person import native_xml
+from campaign_dialogue import TABLES as DIALOGUE_TABLES
+from campaign_quest_dialogues import discover as discover_dialogues, import_participants
 
 
 def quest_dependencies(model):
@@ -270,6 +272,14 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         controllers = quest_controller_brains(eligible, tables, importer)
         progress('Importing quest dependencies', 0, len(bindings), 'Actors, inventory, items, models and trigger areas')
         import_binding_dependencies(bindings, importer)
+        dialogue_tables = {n: tables.get('text/' + n)['rows'] for n in (*DIALOGUE_TABLES, 'dialogue_functions')}
+        dialogues = {}
+        for name, model in models.items():
+            closure = discover_dialogues(dialogue_tables, model['quest_id'], name, model)
+            closure['participant_imports'] = import_participants(closure, dialogue_tables, tables, importer)
+            dialogues[name] = closure
+            for issue in closure['unresolved']:
+                failures.append(dict(kind='dialogue_dependency', quest=name, detail=issue))
         # Controllers retain their original world identities. Initial-world
         # doors also need import even when no quest explicitly links to them.
         for record in all_entities.values():
@@ -323,6 +333,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                       registration_errors=missing, quest_state_conversion=quest_report,
                       dependency_import_counts=importer.report()['counts'],
                       controller_brains=controllers,
+                      dialogue_dependency_counts={name: len(r['branches']) for name, r in dialogues.items()},
                       behavior_operation_counts=dict(sorted(counts.items())),
                       source_behavior_executed=False, executable=False, ready_to_play=False,
                       blockers=['Behavior trees with unsupported operations or dependencies remain unconverted',
@@ -332,6 +343,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                             ('quest-bridge.json', bridge), ('behavior-conversion.json', behavior),
                             ('dependency-imports.json', importer.report()), ('native-behavior-catalog.json', catalog),
                             ('native-registrations.json', registration_report),
+                            ('dialogue-dependencies.json', dialogues),
                             ('campaign-conversion.json', report)]:
             (stage / name).write_text(json.dumps(value, indent=2), encoding='utf-8')
         report['files'] = {p.relative_to(stage).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()

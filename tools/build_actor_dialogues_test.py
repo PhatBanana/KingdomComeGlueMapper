@@ -8,9 +8,10 @@ import zipfile
 from campaign_actor_dialogues import register_roles, remap_roles
 from campaign_dependency_adapters import SourceTables
 from campaign_sources import RetailSourceReader
-from campaign_dialogue import load, emit, voices
+from campaign_dialogue import load_many, emit, voices, TABLES
+from campaign_quest_dialogues import discover
 from campaign_dialogue_selection import SelectionCompiler, load_contract
-from campaign_dialogue_runtime import attach_dialogue, bind_recordings
+from campaign_dialogue_runtime import attach_dialogue, bind_recordings, voice_namespace
 from dialogue_dubbing import DEPOT, dubbing_index, bind_soul_voice
 from build_english_audio_test import merge_audio_strings
 from build_horse_trader_test import rewrite, digest
@@ -78,7 +79,24 @@ def build(a):
             item_tables.extend(read(z,n) for n in z.namelist()
                 if n.lower().startswith('libs/tables/item/item__') and n.endswith('.xml'))
     items = native_item_registry(native_items(a.target, item_tables))
-    models = {topic:load(a.source, start_topic=topic) for topic in a.start_topic}
+    quests = [json.loads(p.read_text(encoding='utf-8')) for p in a.quest_ir]
+    topics = set(a.start_topic or [])
+    discovery = []
+    if getattr(a, 'discover_quests', False):
+        with RetailSourceReader(a.source) as reader:
+            source_tables = SourceTables(a.source, reader)
+            dialogue_tables = {name: source_tables.get('text/' + name)['rows']
+                               for name in (*TABLES, 'dialogue_functions')}
+            for quest in quests:
+                closure = discover(dialogue_tables, quest['quest_id'], quest['quest'], quest)
+                discovery.append(closure)
+                if closure['unresolved']:
+                    raise ValueError('Unresolved source dialogue dependencies: ' + json.dumps(closure['unresolved']))
+                topics.update(b['source']['start_topic'] for b in closure['branches'])
+    if not topics:
+        raise ValueError('Select source topics or discover the supplied quests')
+    topics = sorted(topics, key=int)
+    models = dict(zip(topics, load_many(a.source, [(None, topic) for topic in topics])))
     needed = {p['role_id'] for m in models.values() for p in m['participants'] if p['topic_id'] in m['topics']}
     with RetailSourceReader(a.source) as reader:
         tables = SourceTables(a.source, reader)
@@ -99,19 +117,20 @@ def build(a):
     contract = load_contract(a.source, a.target, dict(p.split('=',1) for p in a.skill_upgrade))
     contract['preserve_reputation_caps'] = True
     selection = SelectionCompiler(**contract)
-    quests = [json.loads(p.read_text(encoding='utf-8')) for p in a.quest_ir]
     with zipfile.ZipFile(audio) as z:
         depot = read(z, DEPOT)
     with zipfile.ZipFile(locale) as z:
         strings_blob = read(z, 'text_ui_dialog.xml')
     recordings, reports = {}, []
+    parent_namespace = voice_namespace(files, a.container)
     for topic, model in models.items():
         model = remap_roles(model, mapping)
         name = a.namespace + '_' + topic
         blob, report = emit(model, name, quests, selection_compiler=selection, registered_items=items,
                             participant_assets=dict(p.split('=',1) for p in a.participant_asset))
         media, voice_report = voices(a.source, model, name)
-        blob, bound_media, binding_report = bind_recordings(blob, model, media, native_voices)
+        blob, bound_media, binding_report = bind_recordings(blob, model, media, native_voices,
+                                                         parent_namespace=parent_namespace)
         files = attach_dialogue(files, a.container_name, blob, report, a.activation, a.container)
         recordings.update(bound_media)
         strings = ET.Element('Table')
@@ -147,7 +166,7 @@ def build(a):
     rewrite(travel, package / 'Data/gluemappertravel.pak', resources)
     rewrite(audio, package / 'Localization/English.pak', dict(recordings, **{DEPOT:depot}))
     rewrite(locale, package / 'Localization/English_xml.pak', {'text_ui_dialog.xml':strings_blob})
-    report = dict(conversations=reports, roles=mapping, dubbing=dubbing, actor_voices=voice_receipts,
+    report = dict(conversations=reports, discovery=discovery, roles=mapping, dubbing=dubbing, actor_voices=voice_receipts,
         baseline={str(p):digest(p) for p in (travel,audio,locale)},
         installed=False, runtime_verified=False,
         files={p.relative_to(package).as_posix():digest(p) for p in package.rglob('*.pak')})
@@ -160,7 +179,8 @@ if __name__ == '__main__':
     for n in ('source', 'target', 'mod', 'output'):
         p.add_argument('--' + n, type=Path, required=True)
     p.add_argument('--quest-ir', action='append', type=Path, required=True)
-    p.add_argument('--start-topic', action='append', required=True)
+    p.add_argument('--start-topic', action='append')
+    p.add_argument('--discover-quests', action='store_true', help='Import the complete source dialogue closure of the supplied quest IRs')
     p.add_argument('--namespace', required=True)
     p.add_argument('--container', required=True, help='Definition path relative to Quests/')
     p.add_argument('--container-name', required=True)

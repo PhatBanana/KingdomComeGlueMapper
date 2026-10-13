@@ -28,6 +28,25 @@ def model():
 
 
 class QuestGraphTests(unittest.TestCase):
+    def test_source_game_time_autocomplete_preserves_duration_and_cancel_gate(self):
+        m = model()
+        row = m['tables']['quest_objective']['rows'][0]
+        row.update(condition='1', autocomplete_timeout_str='4m #GT')
+        files, report = emit_project([m], 'Example')
+        root = E.fromstring(files['Example/arbitrary_quest.xml'])
+        timer = root.find(".//Timer[@Name='complete_3_queued']")
+        self.assertEqual(timer.find("Constant[@Name='Duration']").get('Value'), '4m')
+        self.assertEqual(timer.find("Constant[@Name='TimeType']").get('Value'), 'GameTime')
+        self.assertEqual({e.get('From') for e in timer.findall("Edge[@To='SetStopped']")},
+                         {'objective_3.OnCompleted', 'objective_3.OnFailed', 'objective_3.OnCanceled', 'objective_3.OnUnchanged'})
+        self.assertFalse(any(r.get('objective') == 'intro' for r in report['quests'][0]['unsupported']))
+        for duration, condition in [('4m #UNKNOWN', '1'), ('4m #GT', 'sourceDynamicCheck')]:
+            row.update(autocomplete_timeout_str=duration, condition=condition)
+            files, report = emit_project([m], 'Example')
+            root = E.fromstring(files['Example/arbitrary_quest.xml'])
+            self.assertIsNone(root.find(".//Timer[@Name='complete_3_queued']"))
+            self.assertTrue(any(r.get('objective') == 'intro' for r in report['quests'][0]['unsupported']))
+
     def test_true_condition_does_not_bypass_tracked_item_requirements(self):
         m = model()
         m['tables']['quest_objective']['rows'][1]['condition'] = '1'

@@ -41,11 +41,10 @@ class DialoguePresentationTests(unittest.TestCase):
         blob, report = emit(source, 'ordinary', [])
         self.assertNotIn('EndType', ET.fromstring(blob).find('.//Sequence').attrib)
         self.assertEqual(report['branch_endings'][0]['native_end'], 'EndTopic')
-        # A forced scene still needs its explicit session handoff; this rule
-        # must not claim that compiling an ordinary branch implements it.
+        # Entry mode must not invent a session exit absent from the source.
         forced, report = emit(source, 'forced', [], kind='ForcedDialog')
-        self.assertEqual(ET.fromstring(forced).find('.//Sequence').get('EndType'), 'EndDialogue')
-        self.assertFalse(report['branch_endings'])
+        self.assertNotIn('EndType', ET.fromstring(forced).find('.//Sequence').attrib)
+        self.assertEqual(report['branch_endings'][0]['native_end'], 'EndTopic')
         source['topics']['1']['sequences'][0]['source']['flags'] = '1'
         flagged, report = emit(source, 'flagged', [])
         self.assertEqual(ET.fromstring(flagged).find('.//Sequence').get('EndType'), 'EndDialogue')

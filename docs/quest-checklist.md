@@ -49,6 +49,44 @@ opening-to-attack sequence remains unaccepted.
 
 ### Starting-state and work-program conversion follow-up
 
+The latest live menu test still failed the parent/starting-state acceptance
+checks: Mother ended the opening conversation, remained on the partial sweeping
+job, Henry retained native starting stats, and Father's work/proximity dialogue
+did not run. These are unresolved runtime failures, not accepted features.
+
+The follow-up dependency correction expands named dialogue predicates, follows
+`IsSeqAvailable` dependencies, and discovers dialogue aliases from registered
+controller callbacks and reachable work/include trees. The campaign compiler
+now requests source NPC souls referenced by that closure even without explicit
+quest asset links. Source test-only branches and unlinked historical callbacks
+remain recorded separately and are not activated. The dialogue staging command
+supports `--discover-quests` instead of requiring a manually selected topic list.
+
+Two additional conversion errors were identified and corrected in source:
+
+- Unflagged terminal sequences now retain native EndTopic behaviour for forced
+  conversations too; choosing ForcedDialog must not itself force EndDialogue.
+- Constant-true, untracked objective completion with an explicit source `#GT`
+  duration now emits a native persistent Timer with the original duration and
+  start event. In Skalitz this includes `fatherIsUpset`'s `4m #GT` timer, which
+  selects Father's reprimand/skill-check route. Completion still checks that
+  the objective is Started; cancellation stops the timer.
+
+Validation for this correction: 227 campaign tests pass. Source-backed graph
+emission produces the four-minute timer. This does not establish in-game timer,
+save/load, conversation continuation or schedule behaviour. A complete dialogue
+staging attempt also exposed missing localized source responses in the larger
+closure; the build fails rather than emitting text or voice placeholders.
+The ending/timer refresh is installed in the development build, with a backup
+and SHA-256 receipt in `outputs/OpeningStart/ConnectedOpeningFix01`. The live log
+shows the opening and ordinary Mother questions in one dialogue session; the
+user also confirmed the follow-up menu appears. Timer outcomes remain unverified.
+The complete startup controller, housework and blacksmith programs still require
+conversion and integration. Henry still starts with incorrect hunger/levels.
+Parent follow-up voices and cameras remain failing runtime acceptance. The audio
+packager now derives enclosing level/quest namespaces from instantiated
+definitions; this change still needs installation and live audio verification.
+
 The installed development scene still uses selected opening fragments and
 schedule arrival/housework-sweeping support. It does **not** run the complete
 source startup controller, housework cycle or blacksmith cycle. The source
