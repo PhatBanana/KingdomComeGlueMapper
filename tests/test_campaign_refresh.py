@@ -4,12 +4,27 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from campaign_refresh import objective_timers, dialogue_endings
+from campaign_refresh import objective_timers, dialogue_endings, dialogue_cameras
 from campaign_quest_graph import emit_project
 from test_campaign_quest_graph import model
 
 
 class RefreshTests(unittest.TestCase):
+    def test_camera_refresh_preserves_runtime_voice_and_source_response_order(self):
+        from test_campaign_dialogue_presentation import model as dialogue_model
+        source = dialogue_model()
+        command = source['topics']['1']['sequences'][0]['lines'][0]['commands'][0]
+        command.update(dialogue_command_type='2', int_param='5', char_param='source_cam')
+        blob = b'<Database><Skald><FaderDialog><Dialogue><Sequence Name="seq_10"><Elements><Response Role="native_actor"><Text StringName="speech"/><Commands><FacialMoodCommand FacialMood="happy"/></Commands></Response></Elements></Sequence></Dialogue></FaderDialog></Skald></Database>'
+        result, changes = dialogue_cameras(blob, source, {'source_cam'}, {'MOTHER':'native_actor'})
+        repeated, _ = dialogue_cameras(result, source, {'source_cam'}, {'MOTHER':'native_actor'})
+        self.assertEqual(result, repeated)
+        self.assertEqual(ET.fromstring(result).find('.//CameraCommand').get('Role'), 'native_actor')
+        self.assertIsNotNone(ET.fromstring(result).find('.//FacialMoodCommand'))
+        self.assertEqual(changes[0]['response'], '21')
+        with self.assertRaisesRegex(ValueError, 'Unregistered source camera'):
+            dialogue_cameras(blob, source, set())
+
     def test_refresh_keeps_runtime_bindings_and_is_repeatable(self):
         source = model()
         old, _ = emit_project([source], 'Example')

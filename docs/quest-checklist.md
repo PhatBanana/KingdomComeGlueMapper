@@ -49,10 +49,9 @@ opening-to-attack sequence remains unaccepted.
 
 ### Starting-state and work-program conversion follow-up
 
-The latest live menu test still failed the parent/starting-state acceptance
-checks: Mother ended the opening conversation, remained on the partial sweeping
-job, Henry retained native starting stats, and Father's work/proximity dialogue
-did not run. These are unresolved runtime failures, not accepted features.
+The earlier live menu test exposed missing conversation continuation, source
+starting state, and full parent routines. The follow-up below records the fixes
+that have since been installed and distinguishes remaining runtime failures.
 
 The follow-up dependency correction expands named dialogue predicates, follows
 `IsSeqAvailable` dependencies, and discovers dialogue aliases from registered
@@ -82,15 +81,35 @@ and SHA-256 receipt in `outputs/OpeningStart/ConnectedOpeningFix01`. The live lo
 shows the opening and ordinary Mother questions in one dialogue session; the
 user also confirmed the follow-up menu appears. Timer outcomes remain unverified.
 The complete startup controller, housework and blacksmith programs still require
-conversion and integration. Henry still starts with incorrect hunger/levels.
-Parent follow-up voices and cameras remain failing runtime acceptance. The audio
-packager now derives enclosing level/quest namespaces from instantiated
-definitions; this change still needs installation and live audio verification.
+conversion and integration. The audio packager now derives enclosing level/quest
+namespaces from instantiated definitions. The corrected package is installed;
+live audio callbacks and the user confirm Mother's and Father's voices now play.
+Mother's follow-up restores 34 authored camera commands using the registered
+source camera assets, with live camera-cut events recorded. Lip-sync is still
+missing and Father's automatic camera selection reports collision failures.
 
 The installed development scene still uses selected opening fragments and
 schedule arrival/housework-sweeping support. It does **not** run the complete
 source startup controller, housework cycle or blacksmith cycle. The source
-hunger/time/equipment adapters are not proof that those effects occur in game.
+time/equipment adapters are not proof that those effects occur in game.
+
+Source RPG initialization is now bound to the existing persisted New Game
+entry before dialogue rewards. The generic initializer reads source core stats,
+extracts unconditional source quest-start state calls, validates native setter
+contracts, and preserves the selected lifecycle edge. It does not reset stats
+on each load. The source player has no explicit soul2skill overrides; the
+requested unassigned skill baseline is 1. Native merged skills use that baseline.
+A fresh menu start verified all four core stats at 1 and nourishment at 40 before
+choices, and 15 active skills at 1. The user confirmed starting hungry. Main-level
+UI, perk points, reward retention and save/load still need separate verification.
+
+Rebuild with `tools/build_campaign_initial_state.py` and an explicit lifecycle
+binding JSON. The installed package, backup and receipt are in
+`outputs/OpeningStart/InitialStateAndCameras02`; audio namespace installation is
+in `outputs/OpeningStart/ParentAudioScope01`. The retained live log is
+`outputs/OpeningStart/InitialStateAndCameras02/live-test.log`. Validation: 231
+campaign tests pass. Full routines, Father's proximity bark, and the timed
+skill-check route remain the next acceptance targets.
 
 - [x] Follow database-dispatched area work, object work and literal
   `CallBehavior` callbacks in addition to `IncludeTree` dependencies. Preserve

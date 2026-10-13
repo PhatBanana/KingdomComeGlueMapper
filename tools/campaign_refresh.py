@@ -9,6 +9,57 @@ import xml.etree.ElementTree as ET
 from campaign_quest_graph import emit_quest, xml
 
 
+def dialogue_cameras(blob, model, camera_aliases, role_mapping=None):
+    """Refresh source camera commands while retaining converted voices/actions.
+
+    Camera assets must already be registered in an ancestor graph. Other
+    presentation commands are left to their respective conversion adapters.
+    """
+    from campaign_dialogue import presentation_command
+    root = ET.fromstring(blob)
+    sequences = {s.get('Name'): s for s in root.iter('Sequence')}
+    changes = []
+    for topic in model['topics'].values():
+        for record in topic['sequences']:
+            sid = record['source']['sequence_id']
+            target = sequences.get('seq_' + sid)
+            if target is None:
+                raise ValueError('Missing source sequence: ' + sid)
+            responses = iter(target.findall('./Elements/Response'))
+            pending = []
+            for line in record['lines']:
+                typ = line['source']['sequence_line_type']
+                if typ == '5':
+                    pending.extend(c for c in line['commands'] if c['dialogue_command_type'] == '2')
+                elif typ == '1':
+                    response = next(responses, None)
+                    if response is None or response.find('Text').get('StringName') != line['response']['string_name']:
+                        raise ValueError('Installed response order differs from source: ' + sid)
+                    if not pending:
+                        continue
+                    commands = response.find('Commands')
+                    if commands is None: commands = ET.SubElement(response, 'Commands')
+                    for old in list(commands):
+                        if old.tag == 'CameraCommand': commands.remove(old)
+                    for command in pending:
+                        native = presentation_command(command, model)
+                        if native.get('CustomCamera') not in camera_aliases:
+                            raise ValueError('Unregistered source camera: ' + str(native.get('CustomCamera')))
+                        role = native.get('Role')
+                        if role_mapping is not None:
+                            if role not in role_mapping: raise ValueError('Unregistered camera role: ' + role)
+                            native.set('Role', role_mapping[role])
+                        commands.append(native)
+                        changes.append(dict(sequence=sid, response=line['source']['sequence_line_id'],
+                                            camera=native.get('CustomCamera'), role=native.get('Role')))
+                    pending = []
+            if pending:
+                raise ValueError('Source camera has no following response: ' + sid)
+            if next(responses, None) is not None:
+                raise ValueError('Extra installed responses in source sequence: ' + sid)
+    return xml(root), changes
+
+
 def dialogue_endings(blob, model):
     root = ET.fromstring(blob)
     changes = []
