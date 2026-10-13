@@ -53,6 +53,9 @@ A local supplemental package restores LOD1 and LOD2 for all three imported
 `pk_garden_hops_a/b/c` models using their installed material paths (six files).
 The broader installed world has not been rebuilt with the corrected packager.
 
+Update: the world-wide supplemental rebuild described below supersedes that
+installation limitation.
+
 Diagnostic snapshots before the repair showed approximately 108 FPS looking
 upward and 46 FPS looking into the plants and surrounding scene. At the same
 slow camera view, disabling particles gave 47 FPS, disabling all shadows gave
@@ -81,7 +84,36 @@ of textures/appearance. Visual acceptance of the motion remains pending.
 The user subsequently reported that motion appears tied to frame rate. Matching
 native deformation settings does not establish frame-rate independence. A
 side-by-side native/imported vine test at fixed frame caps remains required.
-The house rendering slowdown also remains unresolved: doorway samples showed
+Before the world-wide LOD rebuild, doorway samples showed
 roughly 6-7 ms GBuffer and 3 ms shadow maps, with only a small change when the
 fireplace light or GI application was disabled. These sampled diagnostics are
 not a performance acceptance test for either repair.
+
+## World-wide external LOD dependency rebuild
+
+`tools/rebuild_world_lods.py` compares installed imported models with the retained
+converted-data build and computes external LOD dependency closure. Existing
+installed assets take precedence and are never overwritten. It writes additive
+ZIP32 shards, checks archive integrity and SHA-256 payloads, and records every
+added asset in `receipt.json`. This preserves subsequent gameplay/material fixes
+instead of reinstalling an older complete world package.
+
+The 13 October 2026 build scanned 4,684 installed base models. Of those, 3,404 had
+authored external LODs in the converted build: 5,714 LOD meshes in total, including
+the six previously restored hop meshes. It restored 5,708 missing meshes and one
+additional material (393,161,766 payload bytes) in
+`gluemapper_world_lods_000.pak`. All discovered dependencies resolved. Coverage
+is against the retained converted build; this does not invent LODs for models
+without authored companions or rebuild native HLOD group proxies.
+
+The supplemental package is installed in the development client. The source
+package and installed copy have matching hashes. Tests cover transitive LOD
+materials/streams, preservation of newer installed materials, exclusion of
+unplaced models and a repeat build producing no additions. Whole-map visual
+LOD transitions remain a separate acceptance check.
+
+An independent post-install rebuild found all 5,714 authored LOD meshes present,
+zero missing dependencies and no further assets to package. The game log confirms
+that the supplemental archive mounted and the level reached `RUNNING`.
+The user confirmed that the performance issues were fixed after this installation.
+This is gameplay acceptance; no matched before/after FPS benchmark was recorded.
