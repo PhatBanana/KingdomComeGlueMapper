@@ -34,12 +34,19 @@ class QuestGraphTests(unittest.TestCase):
         files, report = emit_project([m], 'Example')
         root = E.fromstring(files['Example/arbitrary_quest.xml'])
         state = root.find(".//State[@Name='objective_3']")
-        self.assertIsNotNone(state.find("Edge[@From='objective_3.OnStarted'][@To='SetCompleted']"))
+        self.assertIsNone(state.find("Edge[@From='objective_3.OnStarted']"))
+        timer = root.find(".//Timer[@Name='complete_3_queued']")
+        self.assertEqual(timer.find("Constant[@Name='Duration']").get('Value'), '0s')
+        self.assertEqual(timer.find('Edge').get('From'), 'objective_3.OnStarted')
+        gate = root.find(".//If[@Name='complete_3_if_started']")
+        self.assertEqual(gate.find("Edge[@To='Condition']").get('From'), 'objective_3.Started')
+        self.assertEqual(state.find("Edge[@From='complete_3_if_started.True']").get('To'), 'SetCompleted')
         self.assertFalse(any(r.get('objective') == 'intro' for r in report['quests'][0]['unsupported']))
         m['tables']['quest_objective']['rows'][0]['time'] = '5'
         files, report = emit_project([m], 'Example')
         root = E.fromstring(files['Example/arbitrary_quest.xml'])
         self.assertIsNone(root.find(".//State[@Name='objective_3']/Edge[@From='objective_3.OnStarted']"))
+        self.assertIsNone(root.find(".//Timer[@Name='complete_3_queued']"))
         self.assertTrue(any(r.get('objective') == 'intro' for r in report['quests'][0]['unsupported']))
 
     def test_hidden_objectives_remain_states_and_production_has_no_test_inputs(self):

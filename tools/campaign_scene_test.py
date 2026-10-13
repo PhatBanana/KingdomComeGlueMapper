@@ -13,6 +13,7 @@ import zipfile
 
 from upgrade_map import read, xml
 from campaign_quest_graph import emit_project
+from campaign_quest_text import load as load_quest_text
 from campaign_dialogue_runtime import attach_dialogue
 from campaign_scene import attach_scene, stat_effects, bind_stat_effects, bind_scene_cameras, bind_scene_positions
 from character_person import resolve_person, register_person, actor_resources
@@ -97,7 +98,8 @@ def build(a):
     spots = source_scene_positions(a.source, a.source_level, quest_model['quest'], a.scene_alias)
     if a.actor_alias not in spots or 'player' not in spots: raise ValueError('Missing source participant position')
     project_name = 'gm_imported_scene'
-    graphs, quest_report = emit_project([quest_model], project_name)
+    quest_text, quest_text_report = load_quest_text(a.source, [quest_model], 'English')
+    graphs, quest_report = emit_project([quest_model], project_name, localization=quest_text)
     native_dialogue = next((a.runtime / 'Data/Quests').rglob(a.dialogue_name + '.xml'))
     dialog, animation_report = map_gestures(native_dialogue.read_bytes(), a.source, a.target,
                                           {'HENRY': 'male', a.role: character['gender']}, a.allow_missing_gestures)
@@ -183,6 +185,7 @@ def build(a):
     receipt=dict(runtime_verified=False,source_alias=model['alias'],placements=spots,actor=voice_receipt,
                  rewards=effects,animations=animation_report,world=world_receipt,cameras=camera_report,
                  scene_placement=placement_report,
+                 quest_conversion=quest_report,quest_localization=quest_text_report,
                  baseline={str(p.relative_to(a.mod)):digest(p) for p in (travel,level,audio_pak,locale)},
                  pending=['Full original campaign continuation','Original facial tracks','In-game two-round choices and gameplay handoff'])
     (a.output/'scene-test.json').write_text(json.dumps(receipt,indent=2))

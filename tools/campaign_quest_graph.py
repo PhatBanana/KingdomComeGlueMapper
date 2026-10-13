@@ -195,7 +195,17 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
                      and row.get('expiration_timeout_str') in ('', '-1', None)
                      and row.get('time', '0') in ('', '0'))
         if immediate:
-            edge(state, state_name + '.OnStarted', 'SetCompleted')
+            # A direct State.OnStarted -> same State.SetCompleted edge stalls
+            # native graph preparation. Queue the completion through a native
+            # zero-duration timer, and recheck state in case it was canceled.
+            timer_name = 'complete_' + i + '_queued'
+            timer = ET.SubElement(nodes, 'Timer', Name=timer_name)
+            constant(timer, 'Duration', '0s'); constant(timer, 'TimeType', 'GameTime')
+            edge(timer, state_name + '.OnStarted', 'SetRunning')
+            gate = ET.SubElement(nodes, 'If', Name='complete_' + i + '_if_started')
+            edge(gate, state_name + '.Started', 'Condition')
+            edge(gate, timer_name + '.OnFinished', 'Exec')
+            edge(state, gate.get('Name') + '.True', 'SetCompleted')
         elif row.get('condition') or row.get('autocomplete_timeout_str') not in ('', '-1', None) or row.get('expiration_timeout_str') not in ('', '-1', None):
             report['unsupported'].append(dict(kind='completion_policy', objective=name,
                                               condition=row.get('condition'),

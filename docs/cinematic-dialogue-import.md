@@ -157,8 +157,8 @@ conversation cameras. The reusable `bind_scene_cameras` adapter now creates
 these bindings while preserving the authored camera transforms.
 
 This remains a diagnostic scene, not a completed New Game implementation.
-The full quest/reward graph caused a loading stall and is disconnected in the
-installed diagnostic build. Five unresolved gesture commands are omitted only
+The full quest/reward graph initially caused a loading stall; the correction
+and current acceptance boundary are recorded below. Five unresolved gesture commands are omitted only
 under an explicit test flag; original lip-sync clips are still missing. The
 exploration side-quest notifications also need to be gated out of this opening.
 The first scene builds copied source spawn transforms but omitted native
@@ -182,3 +182,37 @@ dialogue cleaned up; both actors remained at 63.9089 m in normal gameplay,
 without a manual jump or repositioning. Collision streaming as the initial
 cause, stat rewards, and fresh movie completion/skip integration still require
 separate verification.
+
+### Full objective graph and opening rewards
+
+The loading stall was isolated to direct `State.OnStarted` connections back to
+the same state's `SetCompleted` input. The 109-objective source graph contains
+43 constant-true completion policies. The generic quest emitter now queues
+these through the native zero-duration GameTime timer and checks that the
+objective is still Started before completing it. This avoids an immediate
+graph cycle and preserves cancellation instead of completing a canceled state.
+Timed or otherwise unsupported source conditions remain in the conversion report.
+
+The full graph, source journal text and eight native stat-reward bindings loaded
+in the development game. Playing the two Speech choices measured Speech 6 after
+the first and 7 after the second; Strength, Agility and Vitality stayed at 5.
+The attempted pre-choice stat query used invalid abbreviated names, so it is
+not a measured baseline. The second selection directly demonstrated 6 to 7.
+Dialogue completion completed source objective 694 (`objectiveStart`), started
+its original successor states including `speakWithFather`, and returned to
+normal gameplay inside the house.
+
+A quicksave/reload retained Speech 7 and did not replay the character-creation
+dialogue. All 263 pre-existing save files were backed up and hash-checked;
+none changed or disappeared, and the test added `playline0/quicksave861.whs`.
+Objective-state persistence and repeated-completion reward protection still
+need direct runtime verification, as do the other stat branches, journal UI,
+markers and the father's interaction. The existing missing-gesture, lip-sync,
+starting-player and tutorial limitations also remain open.
+
+Evidence is local under `outputs/OpeningStart/QuestDiagnosis01` (isolated graph),
+`QuestDiagnosis02` (full-graph trace, rewards and save audit), and `QuestReady01`
+(installed package rebuilt without diagnostic triggers). The reusable scene
+builder now resolves original quest journal text and includes both quest and
+localization conversion reports in its receipt. The campaign test suite passed
+116 tests; this does not substitute for all 16 choice combinations in game.

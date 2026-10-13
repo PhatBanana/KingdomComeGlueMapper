@@ -15,15 +15,17 @@ from the normal coach-travel installation route and published installers.
 - [x] Register imported custom-camera assets and their world links.
 - [x] Convert source participant markers to native dialogue-entry placement, without changing camera coordinates or adding guessed height offsets.
 - [x] Test both Speech choices and return to normal gameplay with Henry and the mother remaining at the authored indoor floor height, without manual jumping or repositioning.
-- [ ] Resolve the full quest-graph loading stall. The installed diagnostic scene currently excludes that graph.
+- [x] Resolve the full quest-graph loading stall and load all 109 source objective states in the development scene.
 - [ ] Reconnect objective callbacks and verify that each selection awards the correct stat increase exactly once. Staged bindings are not runtime reward acceptance.
+- [x] Verify both Speech selections execute rewards, return to gameplay, and retain Speech 7 after a quicksave/reload. Other branches and forced duplicate-completion tests remain open.
 - [ ] Validate every first- and second-round choice combination against the original source flow.
 - [ ] Import the five unresolved gesture commands currently omitted by the explicit test flag.
 - [ ] Restore original lip-sync and verify voice, facial animation and gesture timing together.
 - [ ] Import the original starting-player appearance, equipment and relevant RPG state.
 - [ ] Convert incompatible tutorial calls and suppress unrelated exploration quest notifications during New Game.
 - [ ] Verify a fresh complete movie and a skipped movie both enter the correct conversation once.
-- [ ] Verify dialogue completion starts the correct original quest objectives and releases player control.
+- [x] Verify dialogue completion completes source `objectiveStart`, activates its original successor objectives, and releases the conversation to gameplay.
+- [ ] Verify the resulting journal presentation and quest markers, and connect the father's original interaction.
 - [ ] Validate saving/loading before and after the conversation, stat persistence and prevention of repeated rewards or scene replay.
 - [ ] Integrate the accepted opening into the campaign installer with its movie-conversion prerequisites.
 
@@ -37,9 +39,12 @@ Implementation and evidence: [cinematic and dialogue import](cinematic-dialogue-
 [dialogue runtime binding](../tools/campaign_dialogue_runtime.py),
 [scene conversion](../tools/campaign_scene.py),
 [development scene builder](../tools/campaign_scene_test.py).
-The builder stages packages and does not install them implicitly. Its full
-quest graph remains experimental; rebuilding it is not equivalent to the
-separately installed, tested dialogue-only diagnostic package.
+The builder stages packages and does not install them implicitly. The current
+development package includes the full source objective graph, original journal
+text and all eight stat-reward bindings. The graph is not a complete quest:
+unsupported behaviour, conditions, timers and interactions remain reported.
+The sampled save/load retained Speech 7 and did not replay character creation;
+that does not yet establish persistence of every objective or reward guard.
 
 ## Campaign conversion milestones
 
