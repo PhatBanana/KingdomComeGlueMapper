@@ -480,6 +480,9 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 import world_voxels
                 lighting_report['voxels']=world_voxels.build(source,dest)
                 replacements['mission_mission0.xml']=world_voxels.configure_environment(replacements['mission_mission0.xml'])
+                from interior_exposure import convert as convert_exposure
+                replacements['mission_mission0.xml'], lighting_report['exposure'] = convert_exposure(
+                    replacements['mission_mission0.xml'])
                 lighting_report['indirect_lighting']='Native basic GI with converted KCD1 opacity voxels and environment probes'
                 entry_report['lighting']=lighting_report
                 import wildlife

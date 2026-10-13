@@ -229,3 +229,29 @@ receive explicit native clip links and area-only settings. The standalone
 Probe boxes, radiance, material layers, voxel placement, GI and exposure are
 not altered by this pass. Full-map visual validation remains separate from
 binary and geometry validation.
+
+## Interior exposure adaptation (2026-10-13)
+
+The imported level retained native KCD2 exposure curves while using KCD1
+baked lighting. In the sampled Skalitz interior, the HDR diagnostic measured
+scene EV around 1.5–1.9 but clamped final EV at 6.5, leaving the room too dark.
+Changing the engine's temporary EV override did not change that final value
+in the running gameplay session; the persistent correction is in the level's
+time-of-day profiles.
+
+`interior_exposure.convert` caps `EV Min` at 4, matching the inspected KCD1
+source profiles. It updates the root settings and every weather/profile
+curve, including HDR `ColorSpaceOverride` keys, while preserving authored
+limits already below 4. EV Max, exposure compensation, sun intensity,
+light/probe strengths, materials and voxel GI remain unchanged. The main
+region builder applies this only to the imported level, not native Trosky.
+
+The installed development level has 33 corrected exposure variable records;
+all 1,011 unrelated archive entries were preserved. After a fresh launch,
+the room reached final EV 4.9 with measured EV 2.2, demonstrating that the
+old 6.5 floor no longer bound adaptation. The user confirmed the interior
+was fixed. The screenshots span different times/views and are not a matched
+photometric comparison. Full-map, night and HDR-display visual acceptance
+remain pending; the correction applies throughout the imported map rather
+than to one house. Focused tests cover profile overrides, lower authored
+limits, preservation and idempotence.
