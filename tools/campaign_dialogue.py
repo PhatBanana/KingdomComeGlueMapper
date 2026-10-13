@@ -5,9 +5,11 @@ Native presentation differences remain in the report. Unsupported gameplay
 conditions/actions fail emission instead of turning into successful no-ops.
 """
 import argparse
+import copy
 from collections import defaultdict, deque
 import hashlib
 import json
+import math
 from pathlib import Path, PurePosixPath
 import re
 import xml.etree.ElementTree as ET
@@ -16,6 +18,7 @@ import zipfile
 from campaign_sources import retail_sources
 from campaign_quest_graph import definition, identifier, xml
 from upgrade_map import read
+from campaign_entity_links import native_guid
 
 
 TABLES = ('topic', 'topic2sequence', 'sequence', 'sequence_line', 'response',
@@ -114,7 +117,82 @@ def load(game, alias, locale='English'):
     return model
 
 
-def emit(model, name, quest_models, active_port='active', kind='FaderDialog'):
+def presentation_command(command, model):
+    """Translate authored dialogue commands into native KCD2 command records.
+
+    Preserve camera identities and fragment/variant requests. Their assets must
+    be packaged separately; matching command syntax does not validate the rig.
+    """
+    role = model['roles'].get(command['who'])
+    if role is None:
+        raise ValueError('Unresolved presentation role: ' + command['who'])
+    attrs = {'Role': role['role_name']}
+    delay = command.get('delay', '')
+    if delay:
+        if not math.isfinite(float(delay)):
+            raise ValueError('Non-finite presentation delay')
+        attrs['Delay'] = delay
+    typ = command['dialogue_command_type']
+    if command.get('target', '0') != '0':
+        raise ValueError('Unconverted presentation target: ' + command['target'])
+    if typ == '1':
+        moods = {r['dialogue_mood_id']: r['dialogue_mood_name'] for r in model['moods']}
+        if command['int_param'] not in moods:
+            raise ValueError('Unknown source facial mood')
+        return ET.Element('FacialMoodCommand', attrs, FacialMood=moods[command['int_param']])
+    if typ == '2':
+        if command['int_param'] != '5' or not command['char_param']:
+            raise ValueError('Unconverted non-custom camera command')
+        return ET.Element('CameraCommand', attrs, CustomCamera=command['char_param'])
+    if typ == '3':
+        if not command['char_param'] or int(command['int_param']) < 0:
+            raise ValueError('Invalid source animation fragment/variant')
+        return ET.Element('AnimationCommand', attrs, FragmentId=command['char_param'],
+                          Variant=command['int_param'])
+    raise ValueError('Unconverted presentation command type: ' + typ)
+
+
+def camera_assets(model, level_archive):
+    """Resolve dialogue camera references from the supplied source level/layers."""
+    names = {c['char_param'] for topic in model['topics'].values()
+             for sequence in topic['sequences'] for line in sequence['lines']
+             for c in line['commands'] if c['dialogue_command_type'] == '2' and c['int_param'] == '5'}
+    found, provenance = {}, {}
+    with zipfile.ZipFile(level_archive) as archive:
+        for path in archive.namelist():
+            normalized = path.replace('\\', '/').lower()
+            if normalized != 'objects_mission0.xml' and not (normalized.startswith('layers/') and normalized.endswith('.xml')):
+                continue
+            data = read(archive, path)
+            if not any(name.encode() in data for name in names):
+                continue
+            for source in ET.fromstring(data).iter('Entity'):
+                name = source.get('Name')
+                if name not in names:
+                    continue
+                if source.get('EntityClass') != 'CameraSource' or source.find('CameraProxy') is None:
+                    raise ValueError('Referenced camera is not a CameraSource: ' + name)
+                if name in found:
+                    raise ValueError('Ambiguous source camera: ' + name)
+                entity = copy.deepcopy(source)
+                entity.attrib.pop('EntityId', None)
+                layer = entity.attrib.pop('Layer', '')
+                entity.set('EditorLayer', layer)
+                guid = source.get('EntityGuid', '')
+                if len(guid) != 16:
+                    raise ValueError('Unexpected source camera identity: ' + guid)
+                entity.set('EntityGuid', native_guid(int(guid, 16)))
+                found[name] = entity
+                provenance[name] = dict(entry=path, source_guid=guid, target_guid=entity.get('EntityGuid'),
+                                        source_sha256=hashlib.sha256(data).hexdigest())
+    if names - found.keys():
+        raise ValueError('Missing source dialogue cameras: ' + ', '.join(sorted(names - found.keys())))
+    root = ET.Element('Objects')
+    root.extend(found[name] for name in sorted(found))
+    return xml(root), provenance
+
+
+def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -127,6 +205,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog'):
     presentation = []
     scripts = []
     visited = set()
+    converted_commands = []
 
     def constant_condition(value):
         if value.strip() in ('', '1'): return ''
@@ -176,7 +255,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog'):
                 if triggers is None: triggers = ET.SubElement(s, 'Triggers')
                 ET.SubElement(triggers, 'Port', Name=pname)
             elements = ET.SubElement(s, 'Elements')
-            current_response = None
+            pending_commands = []
             for line in record['lines']:
                 row = line['source']; typ = row['sequence_line_type']
                 if typ == '1':
@@ -185,15 +264,30 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog'):
                     role = model['roles'][response['role_id']]['role_name']
                     current_response = ET.SubElement(elements, 'Response', Role=role)
                     ET.SubElement(current_response, 'Text', StringName=response['string_name'], Text=model['strings'][response['string_name']])
+                    if pending_commands:
+                        commands = ET.SubElement(current_response, 'Commands')
+                        for command in pending_commands:
+                            converted = presentation_command(command, model)
+                            commands.append(converted)
+                            converted_commands.append(dict(sequence=sid, response=row['sequence_line_id'],
+                                                           source=command, target=dict(tag=converted.tag, **converted.attrib)))
+                        pending_commands = []
                 elif typ == '5':
                     if not line['commands']: raise ValueError('Missing source dialogue command')
                     # Source camera entities and old gesture variants require
                     # independent conversion; keep the exact commands visible.
-                    presentation.append(dict(kind='response_commands', sequence=sid, line=row, commands=line['commands']))
+                    if convert_presentation:
+                        # KCD1 stores commands BEFORE the response they affect.
+                        # Attaching to the preceding spoken line shifts every shot.
+                        pending_commands.extend(line['commands'])
+                    else:
+                        presentation.append(dict(kind='response_commands', sequence=sid, line=row, commands=line['commands']))
                 elif typ in ('2', '4'):
                     presentation.append(dict(kind='authoring_direction', sequence=sid, line=row))
                 else:
                     raise ValueError('Unconverted executable dialogue line type: ' + typ)
+            if pending_commands:
+                raise ValueError('Presentation commands have no following response in sequence ' + sid)
             nxt = source['next']
             if nxt != '0':
                 if nxt in visited:
@@ -202,6 +296,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog'):
                     s.set('EndType', 'Decision'); decision(s, nxt)
     decision(dialogue, model['start_topic'])
     return xml(root), dict(actions=actions, exit_scripts=scripts, presentation_pending=presentation,
+                           converted_commands=converted_commands, presentation_runtime_verified=False,
                            source_alias=model['alias'], native_name=name, kind=kind,
                            topic_count=len(model['topics']), campaign_ready=False)
 
@@ -251,14 +346,20 @@ def main():
     p.add_argument('--voice-directory', required=True)
     p.add_argument('--locale', default='English')
     p.add_argument('--kind', choices=['FaderDialog', 'ForcedDialog'], default='FaderDialog')
+    p.add_argument('--convert-presentation', action='store_true', help='Emit original camera, gesture and facial-mood commands; requires matching assets and runtime testing')
+    p.add_argument('--camera-level', type=Path, help='Source level.pak from which referenced custom cameras are converted')
     p.add_argument('--output', type=Path, required=True)
     a = p.parse_args()
     if a.output.exists(): raise FileExistsError('Choose a new staging directory')
     model = load(a.kcd1, a.alias, a.locale)
-    data, report = emit(model, a.name, [json.loads(p.read_text(encoding='utf-8')) for p in a.quest_ir], kind=a.kind)
+    data, report = emit(model, a.name, [json.loads(p.read_text(encoding='utf-8')) for p in a.quest_ir], kind=a.kind,
+                        convert_presentation=a.convert_presentation)
     audio, report['voices'] = voices(a.kcd1, model, a.voice_directory)
     a.output.mkdir(parents=True)
     (a.output / 'dialogue.xml').write_bytes(data)
+    if a.camera_level:
+        cameras, report['cameras'] = camera_assets(model, a.camera_level)
+        (a.output / 'camera-entities.xml').write_bytes(cameras)
     for name, payload in audio.items():
         path = a.output / 'Data' / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(payload)
     (a.output / 'dialogue-ir.json').write_text(json.dumps(model, indent=2), encoding='utf-8')
