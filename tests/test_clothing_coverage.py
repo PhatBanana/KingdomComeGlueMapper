@@ -7,7 +7,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership
+from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, unculled_garment_visibility
 from character_skin_upgrade import CompiledSkin, upgrade_skin
 from test_character_upgrade import sample_skin
 
@@ -44,6 +44,23 @@ class ClothingCoverageTests(unittest.TestCase):
         # A slightly protruding body vertex still needs coverage from an inner surface.
         np.testing.assert_array_equal(covered_points([[0, 0, .04]], [[0, 0, 1]], triangle), [1])
         np.testing.assert_array_equal(covered_points(points, [[0, 0, 1]]*3, triangle[:0]), [0, 0, 0])
+
+    def test_missing_visibility_can_use_converted_mesh_but_not_replace_opacity(self):
+        rows = [dict(skin='dress.skin', material='red.mtl',
+                     opaque_triangle_mask=encoded([1, 0, 1]), not_culled_triangle_mask='')]
+        visible = np.array([True, True, False])
+        np.testing.assert_array_equal(source_opacity(rows, 'dress.skin', 'red.mtl', 3, visible), [1, 0, 0])
+        with self.assertRaises(ValueError): source_opacity(rows, 'dress.skin', 'red.mtl', 3, [1, 1, 1])
+        rows[0]['opaque_triangle_mask'] = ''
+        with self.assertRaises(ValueError): source_opacity(rows, 'dress.skin', 'red.mtl', 3, visible)
+
+    def test_rebuilt_visibility_rejects_retained_hiding_bits(self):
+        blob, _ = upgrade_skin(sample_skin(), sample_skin(), clear_hiding=True)
+        skin = CompiledSkin(blob)
+        self.assertTrue(unculled_garment_visibility(skin).all())
+        hidden = apply_membership(blob, {4: np.ones(skin.n, dtype=bool)})
+        with self.assertRaisesRegex(ValueError, 'hiding membership'):
+            unculled_garment_visibility(CompiledSkin(hidden))
 
     def test_conditional_masks_restore_body_when_garment_is_removed(self):
         source = sample_skin()

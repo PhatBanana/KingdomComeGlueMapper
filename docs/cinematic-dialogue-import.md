@@ -104,3 +104,81 @@ On 13 October 2026, the user accepted the opening-video test. This acceptance
 is limited to the movie stage; the mother conversation and character-creation
 handoff are not installed or accepted yet. Completion and skip-path state
 equivalence remain separate campaign integration checks.
+
+## Dialogue runtime dependency stage
+
+`tools/campaign_dialogue_runtime.py` consumes a staged dialogue package and a
+converted quest project. It resolves the original recording abbreviations
+against the native voice table, emits `SelectedSouls` and `VoiceNamespace`,
+places recordings under the actual native dialogue name, and derives response
+durations from Vorbis sample counts. It also creates native dubbing metadata
+and localization additions. Merge these additions with installed localization;
+the staging folders are not replacement language archives.
+
+The stage connects each source objective callback to a validated trigger input
+on the corresponding converted quest instance. Its activation must be an
+existing declared boolean output. It neither invents a startup event nor starts
+the conversation: source behavior invocation, role registration and presentation
+dependencies must be installed by the campaign builder.
+
+The next New Game dependency pass produced 27 bound original recordings and
+nine validated objective connections. The mother's source appearance also
+converted after two reusable importer fixes:
+
+- Resolve NPC links into other world layers, preserving their provenance and
+  rejecting missing or ambiguous target identities.
+- When a garment has source opacity data but no cached triangle visibility,
+  derive visibility from the complete converted mesh only after verifying its
+  hiding memberships were cleared. Texture cutouts still use the source opacity
+  mask. This is coverage for the converted outfit, not reconstruction of KCD1's
+  missing visibility cache, and still requires visual acceptance.
+
+Animation inspection found matching named clips for all 36 role/fragment pairs,
+but that does not establish matching variants. An untagged, one-based variant
+probe found four Henry commands selecting a clip absent from the native dialogue
+database and one selecting two native fragments with different blend timings.
+Source context and variant numbering must be verified, and unresolved motion
+must be imported rather than replaced with an arbitrary native gesture. The
+mother conversation was still staged at that checkpoint.
+
+### Installed scene test and camera binding
+
+The next development test reached the original first choice menu and played
+the mother's original voice; the user confirmed both on 13 October 2026.
+`ForcedDialog` requires its native `EnqueueDialogue` and `DialogParams` inputs.
+The lowercase `enqueuedialogue` found in shipped content belongs to a wrapper
+port, not the underlying forced-dialogue node. Parameters are supplied through
+`wh::dialogmodule::CreateDialogParams` with the imported participant soul.
+
+Custom camera entities also require `CameraAsset` declarations and
+`asset['alias']` links from the native project holder, in both the mission and
+`waitinglinks.xml`. Without those bindings the engine falls back to automatic
+conversation cameras. The reusable `bind_scene_cameras` adapter now creates
+these bindings while preserving the authored camera transforms.
+
+This remains a diagnostic scene, not a completed New Game implementation.
+The full quest/reward graph caused a loading stall and is disconnected in the
+installed diagnostic build. Five unresolved gesture commands are omitted only
+under an explicit test flag; original lip-sync clips are still missing. The
+exploration side-quest notifications also need to be gated out of this opening.
+The first scene builds copied source spawn transforms but omitted native
+dialogue-entry placement. Both actors reached terrain below the house before
+the conversation. Raising the initial markers by 0.08 m did not fix this;
+the player's later return to floor height was a manual jump, not engine recovery.
+
+`bind_scene_positions` now translates the selected source participant spots
+into a `DialogueHolderAsset`, a world `DialogueHolder`, and TagPoints with
+`teleportBefore` / `useAsset['soul_alias']` links, including compiled waiting
+links. This follows shipped native scene placement and preserves the original
+actor and camera coordinates. Parented source spots are rejected until their
+world transforms can be resolved explicitly. It does not add a guessed delay
+or derive indoor floor height from terrain.
+
+The development placement test measured both original actors and both dialogue
+twins at the authored floor height (63.9089 m) during the first choice menu,
+without manual jumping or console repositioning. A captured frame showed the
+conversation inside the room. The two Speech choices then completed and the
+dialogue cleaned up; both actors remained at 63.9089 m in normal gameplay,
+without a manual jump or repositioning. Collision streaming as the initial
+cause, stat rewards, and fresh movie completion/skip integration still require
+separate verification.

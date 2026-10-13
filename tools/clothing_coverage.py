@@ -24,7 +24,7 @@ def triangle_mask(encoded, count):
     return np.unpackbits(np.frombuffer(data[2:], dtype=np.uint8), bitorder='little')[:count].astype(bool)
 
 
-def source_opacity(rows, model, material, count):
+def source_opacity(rows, model, material, count, rendered_visibility=None):
     def key(path):
         return path.replace('\\', '/').lower()
     matches = [r for r in rows if key(r['skin']) == key(model) and key(r['material']) == key(material)]
@@ -32,9 +32,36 @@ def source_opacity(rows, model, material, count):
         raise ValueError('Missing or ambiguous clothing raycast record: ' + model + ' / ' + material)
     row = matches[0]
     # An empty serialized field is unknown, not proof that every triangle is opaque.
-    if not row.get('opaque_triangle_mask') or not row.get('not_culled_triangle_mask'):
+    if not row.get('opaque_triangle_mask'):
         raise ValueError('Source clothing raycast masks need generation: ' + material)
-    return triangle_mask(row['opaque_triangle_mask'], count) & triangle_mask(row['not_culled_triangle_mask'], count)
+    if row.get('not_culled_triangle_mask'):
+        visible = triangle_mask(row['not_culled_triangle_mask'], count)
+    elif rendered_visibility is not None:
+        visible = np.asarray(rendered_visibility)
+        if visible.dtype != np.dtype(bool) or visible.shape != (count,):
+            raise ValueError('Invalid converted garment visibility')
+    else:
+        raise ValueError('Source clothing raycast masks need generation: ' + material)
+    return triangle_mask(row['opaque_triangle_mask'], count) & visible
+
+
+def unculled_garment_visibility(skin):
+    """Visibility evidence for complete imported meshes with cleared hiding bits.
+
+    This does not reconstruct the legacy cache. It describes the converted
+    garment used for the coverage rays. Unknown/retained hiding is rejected.
+    Texture cutouts still come from the required source opacity mask.
+    """
+    colors = skin.streams[3]
+    if struct.unpack_from('<I', colors.data, 12)[0] != 4:
+        raise ValueError('Expected RGBA garment visibility')
+    alpha = np.frombuffer(colors.data[24:], dtype=np.uint8).reshape(-1, 4)[:, 3]
+    if len(alpha) != skin.n or np.any(alpha != 255):
+        raise ValueError('Converted garment retains unknown hiding membership')
+    internal_alpha = np.frombuffer(skin.internal.data[95::64], dtype=np.uint8)
+    if len(internal_alpha) != skin.ninternal or np.any(internal_alpha[skin.remap] != alpha):
+        raise ValueError('Converted garment hiding buffers disagree')
+    return np.ones(len(skin.faces), dtype=bool)
 
 
 def covered_points(points, normals, triangles, inward=.06, outward=.12):
@@ -111,12 +138,20 @@ def register_coverage(output, component, garments, tables, namespace):
         node = derived.find("Clothing[@Name='" + namespace + '_' + garment['stem'] + "']")
         _, region, layer = garment_layout(garment['part'])
         targets.append(dict(element=node.find('Elements/SkinElement'), rank=layer, region=region, component=node))
-    masks = {}; report = []; used_groups = set()
+    masks = {}; report = []; used_groups = set(); visibility_sources = []
     for index, garment in enumerate(ordered):
         node = derived.find("Clothing[@Name='" + namespace + '_' + garment['stem'] + "']")
         model = folder / (garment['stem'] + '.skin')
         cover = CompiledSkin(model.read_bytes())
-        opaque = source_opacity(rows, garment['source_model'], garment['source_material'], len(cover.faces))
+        matching = [r for r in rows if r['skin'].replace('\\', '/').lower() == garment['source_model'].replace('\\', '/').lower()
+                    and r['material'].replace('\\', '/').lower() == garment['source_material'].replace('\\', '/').lower()]
+        visibility = (unculled_garment_visibility(cover)
+                      if len(matching) == 1 and not matching[0].get('not_culled_triangle_mask') else None)
+        opaque = source_opacity(rows, garment['source_model'], garment['source_material'], len(cover.faces),
+                                rendered_visibility=visibility)
+        visibility_sources.append(dict(garment=garment['stem'],
+            visibility='source_cache' if matching[0].get('not_culled_triangle_mask') else 'converted_complete_mesh',
+            opacity='source_cache'))
         triangles = cover.vertices[cover.faces[opaque]]
         _, region, layer = garment_layout(garment['part'])
         names = []
@@ -149,4 +184,5 @@ def register_coverage(output, component, garments, tables, namespace):
     path = output / ('Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml')
     path.write_bytes(xml(groups))
     return dict(policy='Opaque source triangles, bounded normal rays after fitting',
-                inward_metres=.06, outward_metres=.12, layers=report, runtime_verified=False)
+                inward_metres=.06, outward_metres=.12, layers=report,
+                visibility_sources=visibility_sources, runtime_verified=False)

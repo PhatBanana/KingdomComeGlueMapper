@@ -188,6 +188,18 @@ Sources: [wildlife converter](tools/wildlife.py), [wildlife scope and validation
 
 Sources: [combined setup backend](tools/desktop_setup.py), [region builder](tools/region_travel.py), [gameplay graph registration](tools/world_gameplay_basis.py), [campaign tools](tools/setup_campaign.py).
 
+### Quests and the original New Game opening
+
+- [x] Trace the original New Game entry and convert the opening movie for a development launch; the movie stage has user acceptance.
+- [x] Import the mother's original voice recordings, dialogue choices and character appearance into a native dialogue scene.
+- [x] Convert source scene markers into native dialogue-entry placement; both participants remain inside the house through the tested two-choice conversation and return to gameplay.
+- [ ] Resolve the quest-graph loading stall and reconnect and verify character-stat rewards.
+- [ ] Restore remaining original gestures, lip-sync and starting-player equipment; validate every choice branch.
+- [ ] Verify the complete movie → conversation → quest gameplay sequence, including movie skipping and save/load.
+- [ ] Convert subsequent main, side and DLC quests with their actors, objectives, world changes, rewards and persistence.
+
+**Current boundary:** the installed development test completes both Speech choices and returns to gameplay with correct actor placement. Its full quest/reward graph is disconnected; this is not a completed character-creation or campaign conversion. The ordinary setup still uses coach travel. See the [quest conversion checklist](docs/quest-checklist.md) for implementation milestones and per-quest acceptance requirements.
+
 ### Packaging and quality
 
 - [x] Detect Steam installations and validate supported game versions.

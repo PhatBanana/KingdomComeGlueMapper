@@ -28,6 +28,20 @@ def model():
 
 
 class QuestGraphTests(unittest.TestCase):
+    def test_constant_true_objective_completes_on_start_but_timed_condition_does_not(self):
+        m = model()
+        m['tables']['quest_objective']['rows'][0]['condition'] = '1'
+        files, report = emit_project([m], 'Example')
+        root = E.fromstring(files['Example/arbitrary_quest.xml'])
+        state = root.find(".//State[@Name='objective_3']")
+        self.assertIsNotNone(state.find("Edge[@From='objective_3.OnStarted'][@To='SetCompleted']"))
+        self.assertFalse(any(r.get('objective') == 'intro' for r in report['quests'][0]['unsupported']))
+        m['tables']['quest_objective']['rows'][0]['time'] = '5'
+        files, report = emit_project([m], 'Example')
+        root = E.fromstring(files['Example/arbitrary_quest.xml'])
+        self.assertIsNone(root.find(".//State[@Name='objective_3']/Edge[@From='objective_3.OnStarted']"))
+        self.assertTrue(any(r.get('objective') == 'intro' for r in report['quests'][0]['unsupported']))
+
     def test_hidden_objectives_remain_states_and_production_has_no_test_inputs(self):
         m = model(); before = copy.deepcopy(m)
         files, report = emit_project([m], 'Example')

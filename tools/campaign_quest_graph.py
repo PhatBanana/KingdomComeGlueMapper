@@ -190,7 +190,13 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
             edge(trace, state_name + '.State', 'Value')
             edge(trace, state_name + '.OnExec', 'Exec')
         report['objectives'].append(dict(source=row, native_state=state_name, journal_visible=not hidden))
-        if row.get('condition') or row.get('autocomplete_timeout_str') not in ('', '-1', None) or row.get('expiration_timeout_str') not in ('', '-1', None):
+        immediate = (row.get('condition', '').strip() == '1'
+                     and row.get('autocomplete_timeout_str') in ('', '-1', None)
+                     and row.get('expiration_timeout_str') in ('', '-1', None)
+                     and row.get('time', '0') in ('', '0'))
+        if immediate:
+            edge(state, state_name + '.OnStarted', 'SetCompleted')
+        elif row.get('condition') or row.get('autocomplete_timeout_str') not in ('', '-1', None) or row.get('expiration_timeout_str') not in ('', '-1', None):
             report['unsupported'].append(dict(kind='completion_policy', objective=name,
                                               condition=row.get('condition'),
                                               autocomplete=row.get('autocomplete_timeout_str'),

@@ -29,6 +29,40 @@ def unique(values, label):
     return values[0]
 
 
+def resolve_link_targets(archive, actor, entities, provenance):
+    """Resolve direct authored NPC links even when targets live in other layers."""
+    required = {link.get('TargetId') for link in actor.findall('EntityLinks/Link')}
+    if any(not identity for identity in required):
+        raise ValueError('Source person link has no target identity')
+    for identity in required:
+        if sum(e.get('EntityId') == identity for e in entities) > 1:
+            raise ValueError('Ambiguous source person link target: ' + identity)
+    known = {e.get('EntityId') for e in entities}
+    missing = required - known
+    if not missing:
+        return entities
+    found = {}
+    for entry in archive.namelist():
+        normalized = entry.replace('\\', '/').lower()
+        if not normalized.startswith('layers/') or not normalized.endswith('.xml'):
+            continue
+        blob = read(archive, entry)
+        if not any(identity.encode() in blob for identity in missing):
+            continue
+        for entity in ET.fromstring(blob).iter('Entity'):
+            identity = entity.get('EntityId')
+            if identity not in missing:
+                continue
+            if identity in found:
+                raise ValueError('Ambiguous source person link target: ' + identity)
+            found[identity] = entity
+            provenance[entry] = hashlib.sha256(blob).hexdigest()
+    unresolved = missing - found.keys()
+    if unresolved:
+        raise ValueError('Unresolved source person link targets: ' + ', '.join(sorted(unresolved)))
+    return [*entities, *(found[key] for key in sorted(found))]
+
+
 def resolve_person(source, name, level='rataje', *, include_ai=True):
     with RetailSourceReader(source) as reader:
         tables = SourceTables(source, reader)
@@ -49,6 +83,8 @@ def resolve_person(source, name, level='rataje', *, include_ai=True):
                             actor_sources[entry] = hashlib.sha256(blob).hexdigest()
         actor = unique((e for e in entities if e.get('Name') == name and
                         e.get('EntityClass') in ('NPC', 'NPC_Female')), 'source person')
+        if include_ai:
+            entities = resolve_link_targets(archive, actor, entities, actor_sources)
         instance = unique((s for s in ET.fromstring(read(archive, 'whdata_0')).findall('./SoulList/Souls/Soul')
                            if s.findtext('Name') == name), 'source person instance')
     if instance.findtext('SharedSoulGuid') != soul['soul_id']:
@@ -111,7 +147,12 @@ def actor_resources(target, person, character, namespace, *, role_name, native_s
     # different character. Keep the neutral template VIP until explicitly mapped.
     role.set('role_name', role_name)
     role_root = ET.Element('database', name='barbora')
-    ET.SubElement(role_root, 'roles', version='1').append(role)
+    role_rows = ET.SubElement(role_root, 'roles', version='1')
+    existing_role = [e for e in roles.iter('role') if e.get('role_name') == role_name]
+    if len(existing_role) > 1:
+        raise ValueError('Ambiguous native person role: ' + role_name)
+    if not existing_role:
+        role_rows.append(role)
     additions = {'Libs/Tables/rpg/soul__' + namespace + '.xml': xml(root),
                  'Libs/Tables/rpg/role__' + namespace + '.xml': xml(role_root)}
     if files.keys() & additions.keys():
