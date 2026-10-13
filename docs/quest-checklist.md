@@ -29,7 +29,8 @@ from the normal coach-travel installation route and published installers.
 - [ ] Verify quest markers and connect the father's original interaction.
 - [ ] Validate saving/loading before and after the conversation, stat persistence and prevention of repeated rewards or scene replay.
 - [ ] Integrate the accepted opening into the campaign installer with its movie-conversion prerequisites.
-- [ ] Connect the menu's native New Game route to the accepted opening package; validate movie completion and skipping, two fresh starts, and Continue without replaying the opening.
+- [x] Connect the development menu's native New Game route to the installed opening package. The user confirmed the menu works; its entry is **New Game Debug Sasua region**, directly below **New Game**.
+- [ ] Validate movie completion and skipping, two fresh menu starts, and Continue without replaying the opening as separate acceptance cases.
 
 The placement test uses the original participant transforms. Both real actors
 and dialogue copies measured 63.9089 m during the first menu; the real actors

@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 import zlib
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from retail_menu import ROOT_BODY, EVENT_ACTION, patch_actions, patch_gfx, patch_ui_xml, native_new_game_function
+from retail_menu import ROOT_BODY, EVENT_ACTION, patch_actions, patch_gfx, patch_ui_xml, native_new_game_function, after_new_game_action
 
 
 def function(name, body):
@@ -22,6 +22,21 @@ def gfx(actions):
 
 
 class RetailMenuTests(unittest.TestCase):
+    def test_new_game_hook_preserves_body_and_checks_button_id(self):
+        body = b'\x17'
+        header = b'fc_addBasicButton\0\x01\0\x05\x2a\0\x04buttonId\0' + struct.pack('<H', len(body))
+        original = b'\x8e' + struct.pack('<H', len(header)) + header + body
+        result, count = patch_actions(original)
+        self.assertEqual(count, 0)
+        self.assertTrue(result.endswith(body + after_new_game_action()))
+        action = after_new_game_action()
+        self.assertIn(b'\x04\x04\x00NewGame\0', action)
+        branch = action.index(b'\x49\x12\x9d\x02\x00') + 5
+        distance = struct.unpack_from('<h', action, branch)[0]
+        self.assertEqual(branch + 2 + distance, len(action))
+        with self.assertRaisesRegex(ValueError, 'already patched'):
+            patch_actions(result)
+
     def test_preserves_other_functions_and_native_root_body(self):
         before = function('unrelated', b'\x17')
         actions = before + function('fc_showRootMenu', ROOT_BODY) + b'\0'

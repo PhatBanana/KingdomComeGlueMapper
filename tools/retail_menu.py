@@ -14,6 +14,16 @@ ROOT_BODY = bytes.fromhex('961000060000000000000000070100000008c23d17')
 EVENT_ACTION = b'\x83' + struct.pack('<H', len(b'FSCommand:onGlueMapperRootMenu\0\0')) + b'FSCommand:onGlueMapperRootMenu\0\0'
 
 
+def after_new_game_action():
+    # fc_addBasicButton's buttonId is register 4 in the supported native UI.
+    command = b'FSCommand:onGlueMapperNewGameAdded\0\0'
+    event = b'\x83' + struct.pack('<H', len(command)) + command
+    operands = b'\x04\x04\x00NewGame\0'
+    # if (buttonId != "NewGame") skip the event; no shared constant-pool edits.
+    return (b'\x96' + struct.pack('<H', len(operands)) + operands + b'\x49\x12'
+            + b'\x9d\x02\x00' + struct.pack('<h', len(event)) + event)
+
+
 def native_new_game_function():
     command = b'FSCommand:onBasicButton\0NewGame\0'
     body = b'\x83' + struct.pack('<H', len(command)) + command + b'\0'
@@ -62,6 +72,16 @@ def patch_actions(actions):
                 struct.pack_into('<H', header, size_at - start, body_size + len(EVENT_ACTION))
                 result += header + body + EVENT_ACTION + native_new_game_function()
                 changes += 1
+            elif name == b'fc_addBasicButton':
+                if opcode != 0x8E or b'\x04buttonId\0' not in actions[payload_start:end]:
+                    raise ValueError('Unsupported native AddBasicButton parameters')
+                body = actions[body_start:body_end]
+                if b'onGlueMapperNewGameAdded' in body:
+                    raise ValueError('Native AddBasicButton already patched')
+                extra = after_new_game_action()
+                header = bytearray(actions[start:body_start])
+                struct.pack_into('<H', header, size_at - start, body_size + len(extra))
+                result += header + body + extra
             else:
                 result += actions[start:body_end]
             offset = body_end
@@ -123,6 +143,7 @@ def patch_ui_xml(blob):
     if events.find("./event[@name='GlueMapperRootMenu']") is not None:
         raise ValueError('Menu already patched')
     ET.SubElement(events, 'event', name='GlueMapperRootMenu', fscommand='onGlueMapperRootMenu')
+    ET.SubElement(events, 'event', name='GlueMapperNewGameAdded', fscommand='onGlueMapperNewGameAdded')
     functions = menu.find('functions')
     remove = ET.SubElement(functions, 'function', name='GlueMapperRemoveButton', funcname='fc_removeBasicButton')
     ET.SubElement(remove, 'param', name='buttonId', type='string')
@@ -134,6 +155,9 @@ def patch_ui_xml(blob):
 def menu_assets(archive, read):
     gfx = read(archive, 'Libs/UI/Menu.gfx')
     xml = read(archive, 'Libs/UI/UIElements/Menu.xml')
-    return ({'Libs/UI/Menu.gfx': patch_gfx(gfx), 'Libs/UI/UIElements/Menu.xml': patch_ui_xml(xml)},
+    patched = patch_gfx(gfx)
+    if b'FSCommand:onGlueMapperNewGameAdded\0' not in zlib.decompress(patched[8:]):
+        raise ValueError('Native AddBasicButton hook is missing')
+    return ({'Libs/UI/Menu.gfx': patched, 'Libs/UI/UIElements/Menu.xml': patch_ui_xml(xml)},
             {'source_gfx_sha256': hashlib.sha256(gfx).hexdigest(),
              'source_interface_sha256': hashlib.sha256(xml).hexdigest()})
