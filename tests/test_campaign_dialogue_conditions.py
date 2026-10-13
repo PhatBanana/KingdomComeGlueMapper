@@ -13,6 +13,32 @@ from test_campaign_dialogue_presentation import model as dialogue
 
 
 class ConditionsTests(unittest.TestCase):
+    def test_database_function_item_dependencies_and_local_variables(self):
+        item = '11111111-2222-3333-4444-555555555555'
+        functions = {'owns_tools': "GetAmountOfActorItems('" + item + "') > 0"}
+        compiler = QuestConditions([quest()], functions, [item])
+        converted = compiler.compile("var('visited') == 0 AND owns_tools")
+        self.assertIn("var('visited') == 0", converted)
+        self.assertIn("CountOfActorItems('" + item + "') > 0", converted)
+        with self.assertRaisesRegex(ValueError, 'Unregistered dialogue item'):
+            QuestConditions([quest()], functions).compile('owns_tools')
+        for bad in ["var('visited')", "var('visited') + 1", "var('visited') > ExecuteLua('x')"]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError): compiler.compile(bad)
+
+    def test_source_function_dependencies_expand_without_quest_specific_rules(self):
+        compiler = QuestConditions([quest()], {'nested': "IsObjectiveCompleted('arbitrary_quest','second')",
+                                               'ready': "IsQuestStarted('arbitrary_quest') AND !nested"})
+        output = compiler.compile('ready OR nested')
+        self.assertIn(' OR ', output)
+        self.assertEqual({b['output'] for b in compiler.bindings.values()}, {'started', 'second_Completed'})
+        cyclic = QuestConditions([quest()], {'a': 'b', 'b': 'a'})
+        with self.assertRaisesRegex(ValueError, 'Cyclic dialogue function'):
+            cyclic.compile('a')
+        self.assertEqual(cyclic.bindings, {})
+        malformed = QuestConditions([quest()], {'ready': "IsQuestStarted('arbitrary_quest') AND unknown"})
+        with self.assertRaises(ValueError): malformed.compile('ready')
+        self.assertEqual(malformed.bindings, {})
+
     def test_conditions_are_wired_to_original_objectives(self):
         q, d = quest(), dialogue()
         d['topics']['1']['sequences'][0]['entry']['entry_condition'] = (

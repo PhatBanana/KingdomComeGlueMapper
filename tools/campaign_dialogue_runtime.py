@@ -15,6 +15,21 @@ from dialogue_dubbing import ogg_duration, dubbing_index, DEPOT
 from upgrade_map import read
 
 
+def imported_resources(package, report):
+    """Carry converted database dependencies alongside their dialogue."""
+    data = (Path(package) / 'Data').resolve()
+    result = {}
+    for name, digest in report.get('resources', {}).items():
+        path = (data / name).resolve()
+        if not name.startswith('Libs/Tables/') or not path.is_relative_to(data):
+            raise ValueError('Dialogue resource escapes its database package')
+        payload = path.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != digest:
+            raise ValueError('Dialogue resource differs from conversion receipt: ' + name)
+        result['Data/' + name] = payload
+    return result
+
+
 def bind_recordings(blob, model, media, native_voices, language='ENG'):
     """Use original recorded speakers and native VoiceNamespace lookup paths."""
     root = ET.fromstring(blob)
@@ -180,6 +195,7 @@ def main():
         for value in (key, text, text):
             ET.SubElement(row, 'Cell').text = value
     outputs = {'Data/Quests/' + path: payload for path, payload in files.items()}
+    outputs.update(imported_resources(source, report))
     outputs.update({'Localization/English/' + path: payload for path, payload in recordings.items()})
     outputs['Localization/English/' + DEPOT] = depot
     outputs['Localization/English_xml/text_ui_dialog.xml'] = xml(strings)

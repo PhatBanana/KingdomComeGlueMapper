@@ -9,21 +9,41 @@ import re
 from campaign_quest_graph import objective_identifier
 
 
-TOKEN = re.compile(r"\s*(?:(AND|OR)\b|([A-Za-z_]\w*)|('(?:[^'\\]|\\.)*')|([!(),01&|]))")
+TOKEN = re.compile(r"\s*(?:(AND|OR)\b|([A-Za-z_]\w*)|('(?:[^'\\]|\\.)*')|(-?\d+(?:\.\d+)?)|(==|!=|>=|<=|>|<)|([!(),&|]))")
 QUEST = {'IsQuestStarted': 'started', 'IsQuestCompleted': 'completed',
          'IsQuestActivated': 'available', 'IsQuestUnchanged': 'unchanged'}
 OBJECTIVE = {'IsObjectiveStarted': 'Started', 'IsObjectiveCompleted': 'Completed',
              'IsObjectiveCanceled': 'Canceled', 'IsObjectiveUnchanged': 'Unchanged'}
 
 
+def expand_functions(expression, functions, stack=()):
+    """Expand source database predicates; never replace identifiers in literals."""
+    if len(stack) > 64:
+        raise ValueError('Dialogue function expansion depth exceeded')
+    parts = []
+    for match in re.finditer(r"'(?:[^'\\]|\\.)*'|[A-Za-z_]\w*|[^A-Za-z_']+|'", expression):
+        token = match.group()
+        if token not in functions:
+            parts.append(token)
+            continue
+        if token in stack:
+            raise ValueError('Cyclic dialogue function: ' + ' -> '.join((*stack, token)))
+        parts.append('(' + expand_functions(functions[token], functions, (*stack, token)) + ')')
+        if sum(map(len, parts)) > 1_000_000:
+            raise ValueError('Dialogue function expansion size exceeded')
+    return ''.join(parts)
+
+
 class QuestConditions:
-    def __init__(self, models):
+    def __init__(self, models, functions=None, registered_items=()):
         self.quests = {m['quest']: {r['objective_name'] for r in m['tables']['quest_objective']['rows']}
                        for m in models}
         self.bindings = {}
+        self.functions = dict(functions or {})
+        self.registered_items = {str(i).lower() for i in registered_items}
 
     def compile(self, expression):
-        source = expression.strip()
+        source = expand_functions(expression, self.functions).strip()
         if not source or source == '1': return ''
         tokens, offset = [], 0
         while offset < len(source):
@@ -48,6 +68,25 @@ class QuestConditions:
             if token == '!': return '!(' + atom() + ')'
             if token == '(':
                 value = disjunction(); take(')'); return '(' + value + ')'
+            if token in ('var', 'GetAmountOfActorItems'):
+                take('('); argument = take(); take(')')
+                if not argument.startswith("'"):
+                    raise ValueError('Expected literal dialogue scalar argument')
+                value = argument[1:-1]
+                if token == 'var':
+                    if not re.fullmatch(r'[A-Za-z_]\w*', value):
+                        raise ValueError('Invalid dialogue variable')
+                    native = 'var'
+                else:
+                    if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value):
+                        raise ValueError('Invalid dialogue item identity')
+                    if value.lower() not in self.registered_items:
+                        raise ValueError('Unregistered dialogue item: ' + value)
+                    native = 'CountOfActorItems'
+                operator, number = take(), take()
+                if operator not in ('==', '!=', '>=', '<=', '>', '<') or not re.fullmatch(r'-?\d+(?:\.\d+)?', number):
+                    raise ValueError('Unconverted dialogue scalar comparison')
+                return native + '(' + argument + ') ' + operator + ' ' + number
             if token in ('0', '1'): return 'false' if token == '0' else 'true'
             if token not in QUEST and token not in OBJECTIVE:
                 raise ValueError('Unconverted dialogue predicate: ' + token)

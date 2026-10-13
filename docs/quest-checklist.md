@@ -128,6 +128,23 @@ preserved; complete schedules across Skalitz are not yet verified.
 
 ## Campaign conversion milestones
 
+Parent dialogue import remains in progress. The importer now resolves source
+`soul2role` memberships and conversation branches, including unnamed branches,
+and can register isolated dialogue roles through Storm without per-NPC rules.
+Source `dialogue_functions` dependencies expand through the condition parser;
+supported item-count predicates require registered items. Selection conversion
+resolves the source `sequenceType` enum, named difficulty records and reputation
+effects against inspected target contracts. Renamed skills require an explicit
+upgrade mapping. Reputation-cap differences can generate separate imported
+records instead of changing native game records.
+
+The parent source audit found 214 role-associated branches, of which 10 touch
+the Skalitz quest. Father's first conversation now emits with a selection
+contract. This is **not** in-game acceptance: normal talk interaction, the other
+conversation branches, dialogue interruption/resumption of jobs, and father's
+full forging cycle remain unchecked. Source health/bleeding and streaming
+predicates still need adapters; no unsupported predicate is treated as true.
+
 - [x] Provide source quest, dialogue and dependency inspection and bounded graph-conversion tooling.
 - [ ] Audit the complete source quest inventory by main quest, side quest, activity and DLC, retaining original IDs and names.
 - [ ] Convert the remaining Skalitz opening objectives and their original ordering, conditions and dependencies.

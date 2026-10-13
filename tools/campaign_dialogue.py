@@ -43,10 +43,22 @@ def group(rows, key):
     return result
 
 
-def resolve(tables, alias=None, *, start_topic=None):
-    topics = unique_index(tables['topic'], 'topic_id')
-    sequences = unique_index(tables['sequence'], 'sequence_id')
-    membership = group(tables['topic2sequence'], 'topic_id')
+def index_tables(tables):
+    """Index one source snapshot once when importing many actor conversations."""
+    return dict(topics=unique_index(tables['topic'], 'topic_id'),
+                sequences=unique_index(tables['sequence'], 'sequence_id'),
+                membership=group(tables['topic2sequence'], 'topic_id'),
+                lines=group(tables['sequence_line'], 'sequence_id'),
+                responses=unique_index(tables['response'], 'sequence_line_id'),
+                commands=group(tables['v_dialogue_commands'], 'sequence_line_id'),
+                waves=group(tables['v_response_wave_file_recorded'], 'sequence_line_id'),
+                effects=group(tables['sequence2quest_objective'], 'sequence_id'),
+                charts=group(tables['sequence_flowchart'], 'sequence_line_id'))
+
+
+def resolve(tables, alias=None, *, start_topic=None, indexes=None):
+    indexes = index_tables(tables) if indexes is None else indexes
+    topics, sequences, membership = (indexes[k] for k in ('topics', 'sequences', 'membership'))
     if (alias is None) == (start_topic is None):
         raise ValueError('Select exactly one dialogue alias or source start topic')
     if start_topic is not None:
@@ -70,12 +82,8 @@ def resolve(tables, alias=None, *, start_topic=None):
             sid = entry['sequence_id']; row = sequences[sid]; seq_ids.add(sid)
             selected[tid]['sequences'].append(dict(source=row, entry=entry))
             if row['next'] != '0': queue.append(row['next'])
-    lines = group(tables['sequence_line'], 'sequence_id')
-    responses = unique_index(tables['response'], 'sequence_line_id')
-    commands = group(tables['v_dialogue_commands'], 'sequence_line_id')
-    waves = group(tables['v_response_wave_file_recorded'], 'sequence_line_id')
-    effects = group(tables['sequence2quest_objective'], 'sequence_id')
-    charts = group(tables['sequence_flowchart'], 'sequence_line_id')
+    lines, responses, commands, waves, effects, charts = (
+        indexes[k] for k in ('lines', 'responses', 'commands', 'waves', 'effects', 'charts'))
     for topic in selected.values():
         for sequence in topic['sequences']:
             sid = sequence['source']['sequence_id']
@@ -92,13 +100,17 @@ def resolve(tables, alias=None, *, start_topic=None):
                 participants=tables['topictorole'],
                 branch=[r for r in tables['v_branch'] if r['start_topic'] == start],
                 subchapter=[r for r in tables['v_topic2subchapter_id'] if r['start_topic'] == start],
-                moods=tables['dialogue_mood'], executable=False)
+                moods=tables['dialogue_mood'],
+                functions={r['function_name']: r['expression'] for r in
+                           unique_index(tables.get('dialogue_functions', []), 'function_name').values()},
+                executable=False)
 
 
 def load(game, alias=None, locale='English', *, start_topic=None):
     if not re.fullmatch(r'[A-Za-z]+', locale): raise ValueError('Invalid locale')
     paths = {n: ('Tables.pak', 'Libs/Tables/text/' + n + '.xml') for n in TABLES}
     paths['role'] = ('Tables.pak', 'Libs/Tables/rpg/role.xml')
+    paths['dialogue_functions'] = ('Tables.pak', 'Libs/Tables/text/dialogue_functions.xml')
     sources = retail_sources(game, paths)
     tables = {n: [dict(r.attrib) for r in ET.fromstring(s['data']).findall('./table/rows/row')]
               for n, s in sources.items()}
@@ -202,7 +214,8 @@ def camera_assets(model, level_archive):
     return xml(root), provenance
 
 
-def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False):
+def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
+         selection_compiler=None, registered_items=()):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -216,7 +229,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
     scripts = []
     visited = set()
     converted_commands = []
-    conditions = QuestConditions(quest_models)
+    conditions = QuestConditions(quest_models, model.get('functions'), registered_items)
 
     def decision(parent, tid):
         visited.add(tid)
@@ -227,13 +240,18 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
         sequences = ET.SubElement(d, 'Sequences')
         for record in topic['sequences']:
             source, entry = record['source'], record['entry']; sid = source['sequence_id']
-            if source['type'] != '0' or source['group'] != '0' or source['skill_check_difficulty_id'] or source['reputation'] != '0':
+            selection_attrs = {}
+            expression = entry['entry_condition']
+            if selection_compiler is not None:
+                selection_attrs, expression = selection_compiler.compile(source, expression)
+            elif source['type'] != '0' or source['group'] != '0' or source['skill_check_difficulty_id'] or source['reputation'] != '0':
                 raise ValueError('Unconverted dialogue selection semantics for sequence ' + sid)
-            condition = conditions.compile(entry['entry_condition'])
+            condition = conditions.compile(expression)
             if entry['npc_entry_condition']: raise ValueError('Unconverted NPC dialogue condition')
             if tid == model['start_topic']:
                 condition = "Port('" + active_port + "')" + (' AND (' + condition + ')' if condition else '')
             attrs = dict(Name='seq_' + sid, EndType='EndDialogue')
+            attrs.update(selection_attrs)
             if condition: attrs['EntryCondition'] = condition
             if source['script']:
                 # Preserve the actual exit script. This is not evidence that its
@@ -360,19 +378,56 @@ def main():
     p.add_argument('--convert-presentation', action='store_true', help='Emit original camera, gesture and facial-mood commands; requires matching assets and runtime testing')
     p.add_argument('--camera-level', type=Path, help='Source level.pak from which referenced custom cameras are converted')
     p.add_argument('--output', type=Path, required=True)
+    contract_source = p.add_mutually_exclusive_group()
+    contract_source.add_argument('--selection-contract', type=Path,
+                   help='Validated source/target dialogue selection registries and explicit skill upgrades')
+    contract_source.add_argument('--target', type=Path, help='Read selection registries from the installed target game')
+    p.add_argument('--skill-upgrade', action='append', default=[], metavar='SOURCE=NATIVE')
+    p.add_argument('--preserve-reputation-caps', action='store_true')
+    p.add_argument('--registered-items', type=Path, help='JSON list of verified registered item GUIDs')
     a = p.parse_args()
     if a.output.exists(): raise FileExistsError('Choose a new staging directory')
     model = load(a.kcd1, a.alias, a.locale, start_topic=a.start_topic)
+    selection_compiler = None
+    if a.selection_contract:
+        from campaign_dialogue_selection import SelectionCompiler
+        selection_compiler = SelectionCompiler.from_contract(a.selection_contract)
+    elif a.target:
+        from campaign_dialogue_selection import SelectionCompiler, load_contract
+        adapters = {}
+        for pair in a.skill_upgrade:
+            source, separator, target = pair.partition('=')
+            if not separator or not source or not target or source in adapters:
+                p.error('Each skill upgrade must be a unique SOURCE=NATIVE pair')
+            adapters[source] = target
+        contract = load_contract(a.kcd1, a.target, adapters)
+        contract['preserve_reputation_caps'] = a.preserve_reputation_caps
+        selection_compiler = SelectionCompiler(**contract)
+    elif a.skill_upgrade or a.preserve_reputation_caps:
+        p.error('Selection upgrades require --target')
+    registered_items = json.loads(a.registered_items.read_text(encoding='utf-8')) if a.registered_items else []
+    if not isinstance(registered_items, list) or not all(isinstance(i, str) for i in registered_items):
+        p.error('Registered items must be a JSON list of item GUIDs')
     data, report = emit(model, a.name, [json.loads(p.read_text(encoding='utf-8')) for p in a.quest_ir], kind=a.kind,
-                        convert_presentation=a.convert_presentation)
+                        convert_presentation=a.convert_presentation, selection_compiler=selection_compiler,
+                        registered_items=registered_items)
+    if a.selection_contract:
+        report['selection_contract_sha256'] = hashlib.sha256(a.selection_contract.read_bytes()).hexdigest()
     audio, report['voices'] = voices(a.kcd1, model, a.voice_directory)
     a.output.mkdir(parents=True)
     (a.output / 'dialogue.xml').write_bytes(data)
+    if a.target:
+        (a.output / 'selection-contract.json').write_text(json.dumps(contract, indent=2), encoding='utf-8')
     if a.camera_level:
         cameras, report['cameras'] = camera_assets(model, a.camera_level)
         (a.output / 'camera-entities.xml').write_bytes(cameras)
     for name, payload in audio.items():
         path = a.output / 'Data' / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(payload)
+    if selection_compiler is not None:
+        report['resources'] = {}
+        for name, payload in selection_compiler.resources().items():
+            path = a.output / 'Data' / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(payload)
+            report['resources'][name] = hashlib.sha256(payload).hexdigest()
     (a.output / 'dialogue-ir.json').write_text(json.dumps(model, indent=2), encoding='utf-8')
     (a.output / 'conversion.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(dict(topics=len(model['topics']), voices=len(audio), objective_callbacks=len(report['actions']), campaign_ready=False)))
