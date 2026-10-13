@@ -6,9 +6,11 @@ from build_npc_probe import asset_path, bind_material
 from campaign_dependencies import ImportPlan
 from character_person import native_xml
 from character_person_appearance import align_internal_translation
-from character_skin_upgrade import upgrade_skin, limit_skin_influences, CompiledSkin, matrix
+from character_skin_upgrade import upgrade_skin, limit_skin_influences, CompiledSkin, matrix, read_morphs
 from clothing_appearance import apply_armor_colorization
-from clothing_regions import assign_upper_garment_regions, split_skin_regions
+from clothing_regions import assign_upper_garment_regions, split_skin_regions, read_chunks
+from garment_contracts import clothing_role, source_variant
+from character_source_clothing import female_role
 from upgrade_map import read, xml
 
 
@@ -27,10 +29,7 @@ class ClothingAdapter:
     def plan(self, identity):
         armor = self.tables.row('item/armor', 'item_id', identity)
         part = self.tables.row('item/clothing', 'clothing_id', armor['clothing_id'])
-        role = self.ROLES.get(armor['armor_type_id'])
-        # The source monk habit has its own authored archetype.
-        if part['armor_archetype_id'] == '83': role = 'Habit'
-        if role is None: raise ValueError('Unmapped wearable role: '+str(part))
+        role = clothing_role(self.tables, armor, part)
         return ImportPlan(source=dict(armor=armor, part=part, role=role))
 
     def convert(self, identity, plan, registered):
@@ -41,29 +40,51 @@ class ClothingAdapter:
         name = 'worlditems_cloth_'+identity.replace('-','_')
         prefix = 'objects/characters/gluetravel/worlditems/'+identity.replace('-','')+'/'
         root = ET.Element('database', name='barbora')
+        horse = role in ('HorseShoe','Saddle','Bridle','Caparison')
+        sex = 'female' if part.get('gender_id') == '2' else 'male'
         component = ET.SubElement(ET.SubElement(root,'CharacterComponents',version='6'),'Component',
-            Name=name+'_root', Race='Horse' if role=='HorseShoe' else 'Human',
+            Name=name+'_root', Race='Horse' if horse else 'Human',
             FilePath=prefix.removeprefix('objects/characters/'))
-        if role!='HorseShoe': component.set('Gender','Male')
+        if not horse: component.set('Gender',sex.title())
         node = ET.SubElement(ET.SubElement(component,'DerivedComponents'),'Clothing',
             Name=name, ArmorType=role, ArmorArchetypeId=ancestor.get('ArmorArchetypeId'))
         files = {}
+        missing_variant = None
+        internal_offset = None
         if part.get('model'):
-            if part['gender_id'] != '1': raise ValueError('Wearable female fitting requires its source body contract')
             a = self.assets; before = set(a.emitted)
             source_part = dict(part, kind='cloth')
-            model = asset_path(a.index, source_part, 'model', '.skin')
-            mat = a.material(asset_path(a.index, source_part, 'material', '.mtl'))
+            def resolve(field, extension):
+                if not horse: return asset_path(a.index, source_part, field, extension)
+                value = part[field].replace('\\','/').lower().removesuffix(extension)
+                matches = [p for p in a.index if p.startswith('objects/characters/animals/horse/') and p.endswith('/'+value+extension)]
+                if len(matches) != 1: raise ValueError('Ambiguous source horse equipment '+field+': '+value)
+                return matches[0]
+            model = resolve('model', '.skin')
+            mat = a.material(resolve('material', '.mtl'))
             tinted = prefix+'source'
             a.emitted[tinted+'.mtl'] = xml(apply_armor_colorization(ET.parse(a.emitted[mat+'.mtl']).getroot(),armor))
             blob,mat = bind_material(a.mesh(model), tinted, a.emitted, prefix+'slots')
-            blob,_ = align_internal_translation(blob)
-            skeleton,_ = self.native.get('objects/characters/humans/male/skeleton/male.chr')
-            blob,detail = upgrade_skin(blob,skeleton,variant=part.get('morph_target') or None,
+            # Some shipped gauntlets retain an 11 cm internal-buffer offset.
+            # Every mapped vertex must agree on one translation; rendered
+            # positions are never moved or approximated.
+            blob,internal_offset = align_internal_translation(blob, max_translation=.25)
+            skeleton,_ = self.native.get('objects/characters/animals/horse/horse.chr' if horse else f'objects/characters/humans/{sex}/skeleton/{sex}.chr')
+            available = [m['name'] for c in read_chunks(blob) if c.kind == 0x2002 for m in read_morphs(c)]
+            variant, missing_variant = source_variant(part.get('morph_target'), available)
+            blob,detail = upgrade_skin(blob,skeleton,variant=variant,
                 discard_unused_variants=True,geometry_mode='preserve',clear_hiding=False)
             blob,_ = limit_skin_influences(blob)
-            regions = {'head':blob}
-            if role == 'Habit':
+            region = 'head'
+            if horse: region = 'horse_back' if role in ('Saddle','Caparison') else 'horse_head'
+            elif sex == 'female': region = female_role(part)[1]
+            elif role in ('HoseJoined','HoseSeparate','LegsChain','LegsPlate','LegsBrigandine','LegsPadded'): region = 'legs'
+            elif role in ('Shoes','BootsAnkle','BootsKnee'): region = 'feet'
+            elif role in ('Gauntlets','Gloves'): region = 'hands'
+            elif role in ('ArmPlate','ArmBrigandine'): region = 'arms'
+            elif role in ('Hood','CollarMail','CollarPadded'): region = 'neck'
+            regions = {region:blob}
+            if sex == 'male' and role in ('Habit','TunicLong','TunicShort','GambesonLong','GambesonShort','MailShort','Cuirass','Waffenrock','Coat'):
                 bones = CompiledSkin(blob).info['bones']
                 waist = float(matrix(next(b for b in bones if b['name']=='Hips')['bind'])[2,3])
                 regions = split_skin_regions(blob,assign_upper_garment_regions(blob,waist_z=waist))
@@ -82,6 +103,7 @@ class ClothingAdapter:
                 if layer is not None: element.set('BodyLayerId',layer)
             files.update({n:a.emitted[n] for n in a.emitted if n not in before})
             files[prefix+'source.mtl'] = a.emitted[mat+'.mtl']
-        elif role != 'HorseShoe': raise ValueError('Source wearable is missing a model')
+        elif role not in ('HorseShoe','Ring','Necklace','Spurs'): raise ValueError('Source wearable is missing a model')
         files['Libs/Tables/Character/CharacterComponent__'+name+'.xml'] = xml(root)
-        return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=True)
+        return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=True,
+            missing_source_variant=missing_variant, internal_translation=internal_offset, fitting_runtime_verified=False)

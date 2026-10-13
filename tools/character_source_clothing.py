@@ -50,7 +50,7 @@ def native_role(components, items, armor_type):
             ancestor = parents[ancestor]
         if ancestor.get('ArmorType') == armor_type:
             compatible.add(child.get('Name'))
-    template = next((n for n in items.iter('Armor') if n.get('Clothing') in compatible), None)
+    template = next((n for n in items.iter() if n.tag in ('Armor', 'Helmet', 'Hood') and n.get('Clothing') in compatible), None)
     if template is None:
         raise ValueError('No complete native item template for ' + armor_type)
     return archetype, template

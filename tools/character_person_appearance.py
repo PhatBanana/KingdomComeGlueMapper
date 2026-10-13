@@ -34,7 +34,7 @@ def keep_body_under_outfit(sex, region):
     return sex == 'female' or region in ('arms', 'hands')
 
 
-def align_internal_translation(blob):
+def align_internal_translation(blob, *, max_translation=.01):
     """Normalize a small uniform source export offset without moving its surface.
 
     Some source garments store internal bind positions a few millimetres away
@@ -57,7 +57,9 @@ def align_internal_translation(blob):
     if np.allclose(difference, 0, rtol=0, atol=1e-5):
         return blob, [0., 0., 0.]
     offset = np.median(difference, axis=0)
-    if not np.isfinite(offset).all() or np.linalg.norm(offset) > .01 or not np.allclose(difference, offset, rtol=0, atol=1e-6):
+    if not np.isfinite(max_translation) or not 0 < max_translation <= .25:
+        raise ValueError('Invalid internal translation limit')
+    if not np.isfinite(offset).all() or np.linalg.norm(offset) > max_translation or not np.allclose(difference, offset, rtol=0, atol=1e-6):
         raise ValueError('Source render/internal difference is not a small uniform translation')
     payload = bytearray(internal.data)
     for i, pos in enumerate(positions + offset):

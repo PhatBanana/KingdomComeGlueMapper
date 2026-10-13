@@ -7,6 +7,8 @@ from pathlib import Path
 from campaign_dependency_adapters import ItemAdapter
 from character_person import native_xml
 from upgrade_map import read, xml
+from garment_contracts import clothing_role
+from character_source_clothing import native_role
 
 
 def native_items(target, resources=()):
@@ -32,9 +34,9 @@ class WorldItemAdapter(ItemAdapter):
     """
     CATEGORIES = {**ItemAdapter.CATEGORIES, 'food':'Food','melee_weapon':'MeleeWeapon',
                   'missile_weapon':'MissileWeapon','ammo':'Ammo','document':'Document','potion':'Food',
-                  'armor':'Armor','helmet':'Armor'}
+                  'armor':'Armor','helmet':'Helmet','die':'Die'}
     FIELDS = {**ItemAdapter.FIELDS,
-        'consumable_item':{}, 'potion':{},
+        'consumable_item':{}, 'potion':{}, 'die':{},
         'armor':dict(max_status='MaxStatus',noise='Noise',str_req='StrReq',stab_def='DefenseStab',slash_def='DefenseSlash',smash_def='DefenseSmash'),
         'equippable_item':dict(charisma='Charisma',social_class_id='SocialClassId',wealth_level='WealthLevel',
                                visibility='Visibility',conspicuousness='Conspicuousness'),
@@ -48,8 +50,9 @@ class WorldItemAdapter(ItemAdapter):
                     short_term_nutrition_benefit_ratio='ShortTermNutritionBenefitRatio',alcohol_content='AlcoholContent',
                     decay_time_hours='DecayTime',food_type_id='Type',food_subtype_id='SubType')}
 
-    def __init__(self,tables,namespace,native,weapon_classes):
+    def __init__(self,tables,namespace,native,weapon_classes,native_components=None):
         super().__init__(tables,namespace);self.native=native;self.weapon_classes=weapon_classes
+        self.native_components=native_components
 
     def plan(self,identity):
         plan=super().plan(identity)
@@ -57,9 +60,16 @@ class WorldItemAdapter(ItemAdapter):
         if category in ('armor','helmet'):
             plan.dependencies.append(('clothing',identity))
             part=self.tables.row('item/clothing','clothing_id',rows['armor']['clothing_id'])
-            role='Habit' if part['armor_archetype_id']=='83' else {'7':'Cap','11':'HorseShoe'}[rows['armor']['armor_type_id']]
-            template=next(r for r in self.native.values() if r.tag=='Armor' and r.get('Clothing','').startswith(role))
+            role=clothing_role(self.tables, rows['armor'], part)
+            if self.native_components is not None:
+                item_root=ET.Element('Items');item_root.extend(self.native.values())
+                _,template=native_role(self.native_components,item_root,role)
+            else:
+                template=next((r for r in self.native.values() if r.tag=='Armor' and r.get('Clothing','').startswith(role)),None)
+                if template is None: raise ValueError('Missing native item template for clothing role: '+role)
             plan.source['armor_icon']=template.get('IconId')
+            plan.source['armor_native_tag']=template.tag
+            plan.source['armor_native_fields']={k:v for k,v in template.attrib.items() if k in ('VisorTypeId','UiSound')}
         if category in ('melee_weapon','missile_weapon'):
             cls=rows['weapon'].get('weapon_class_id')
             source_class=self.tables.row('item/weapon_class','weapon_class_id',cls)['weapon_class_name']
@@ -99,6 +109,8 @@ class WorldItemAdapter(ItemAdapter):
                 if k in allowed and k not in row.attrib:row.set(k,v)
         if category in ('melee_weapon','ammo'):row.set('MaxQuality','1')
         if category in ('armor','helmet'):
+            row.tag=plan.source.get('armor_native_tag',self.CATEGORIES[category])
+            row.attrib.update(plan.source.get('armor_native_fields',{}))
             row.set('Clothing',registered['clothing'][identity]);row.set('MaxQuality','1')
             row.set('IconId',plan.source['armor_icon'])
         presentation=plan.source.get('presentation_template',{})
@@ -107,6 +119,10 @@ class WorldItemAdapter(ItemAdapter):
             template=next(r for r in self.native.values() if r.tag=='Ammo' and r.get('Type')==row.get('Type'))
             row.set('RpgWeight',template.get('RpgWeight'))
         if category=='key':row.tag='MiscItem';row.set('Type','4');row.set('IconId','key_general')
+        if category=='die':
+            die=rows['die']
+            row.set('SideWeights',' '.join(die.get('side_weight_'+str(i)) or '1' for i in range(1,7)))
+            row.set('SideValues',' '.join(die.get('side_value_'+str(i)) or str(i-1) for i in range(1,7)))
         if category=='document':
             row.set('EntityScript','Book')
             parts=sorted(plan.source['document_parts'],key=lambda r:int(r['part']))

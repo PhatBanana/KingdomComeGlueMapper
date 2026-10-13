@@ -34,6 +34,25 @@ class PersonImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'uniform translation'):
             align_internal_translation(write_chunks(chunks, {internal.id: bytes(payload)}))
 
+    def test_larger_uniform_garment_offset_requires_opt_in(self):
+        source = sample_skin()
+        chunks = read_chunks(source)
+        internal = next(c for c in chunks if c.kind == 0x2005)
+        payload = bytearray(internal.data)
+        for start in range(32, len(payload), 64):
+            x = struct.unpack_from('<f', payload, start+12)[0]
+            struct.pack_into('<f', payload, start+12, x+.112)
+        shifted = write_chunks(chunks, {internal.id: bytes(payload)})
+        with self.assertRaises(ValueError): align_internal_translation(shifted)
+        result, offset = align_internal_translation(shifted, max_translation=.25)
+        self.assertAlmostEqual(offset[0], -.112, places=6)
+        before, after = CompiledSkin(source), CompiledSkin(result)
+        for stream in (0, 1, 2, 5, 6, 9):
+            self.assertEqual(before.streams[stream].data, after.streams[stream].data)
+        struct.pack_into('<f', payload, 44, 4)
+        with self.assertRaises(ValueError):
+            align_internal_translation(write_chunks(chunks, {internal.id: bytes(payload)}), max_translation=.25)
+
     def test_source_identity_and_pose_are_preserved_for_both_sexes(self):
         for cls in ('NPC', 'NPC_Female'):
             with self.subTest(cls=cls):

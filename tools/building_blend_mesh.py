@@ -10,6 +10,25 @@ import numpy as np
 from clothing_regions import read_chunks, write_chunks
 
 
+def render_material_ids(blob):
+    """Return slots actually drawn by this mesh, excluding physics proxies."""
+    chunks = read_chunks(blob)
+    lookup = {c.id:c for c in chunks}
+    result = set()
+    for mesh in chunks:
+        if mesh.kind != 0x1000 or mesh.version not in (0x800, 0x801):
+            continue
+        flags, _, nv, _, ns, sid = struct.unpack_from('<6I', mesh.data)
+        if not nv or flags & 1: continue
+        subset = lookup[sid]
+        if subset.version != 0x800 or len(subset.data) < 16+ns*36:
+            raise ValueError('Unsupported building subsets')
+        for i in range(ns):
+            _, count, _, _, material = struct.unpack_from('<5I', subset.data, 16+i*36)
+            if count: result.add(material)
+    return result
+
+
 def reatlas(blob, material_id, resolution=2048):
     import xatlas
 

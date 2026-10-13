@@ -17,9 +17,9 @@ def decode_texture(base, chunks):
     h, w = struct.unpack_from('<II', base, 12)
     mips = struct.unpack_from('<I', base, 28)[0]
     fmt = struct.unpack_from('<I', base, 128)[0]
-    if fmt not in (71, 72, 77, 78):
-        raise ValueError('Unsupported building mask compression')
-    block = 8 if fmt in (71, 72) else 16
+    if fmt not in (71, 72, 77, 78, 80):
+        raise ValueError(f'Unsupported building mask compression: DXGI {fmt}')
+    block = 8 if fmt in (71, 72, 80) else 16
     sizes = [max(1, (w >> i)+3 >> 2)*max(1, (h >> i)+3 >> 2)*block for i in range(mips)]
     resident = len(base)-148
     split = next((i for i in range(mips) if sum(sizes[i:]) == resident), None)

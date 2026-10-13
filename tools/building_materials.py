@@ -2,7 +2,7 @@
 from pathlib import PurePosixPath
 
 from building_blend import decode_texture, bake_atlas, compressed_dds
-from building_blend_mesh import reatlas
+from building_blend_mesh import reatlas, render_material_ids
 
 
 def blend_inputs(doc):
@@ -27,6 +27,14 @@ def convert(doc, blob, target, asset_read, index):
     for number, element, second, mask in list(blend_inputs(doc)):
         if blob is None:
             raise ValueError('Two-UV blend conversion needs the associated building mesh: '+target)
+        # Shared material libraries include slots absent from this particular
+        # model/LOD. There are no triangles to bake for those slots.
+        if number not in render_material_ids(blob):
+            # The output material is specific to this geometry. Drop only the
+            # unused mask binding so native slot conversion cannot mistake it
+            # for an unbaked, visible blend surface.
+            element.find('Textures').remove(mask)
+            continue
         features=element.get('StringGenMask','')
         if ('%DETAIL_MAPPING' in features or '%DETAIL_ATLAS' in features) and '%USE_FIRST_UV_DETMAP' not in features:
             raise ValueError('Secondary-UV detail mapping requires its own atlas conversion')

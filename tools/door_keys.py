@@ -35,10 +35,10 @@ class SourceKeyAdapter(ItemAdapter):
         return identity,files,evidence
 
 
-def build(source,keys,assets):
+def build(source,keys,assets,namespace='worlddoors'):
     with RetailSourceReader(source) as reader:
-        importer=DependencyImporter({'items':SourceKeyAdapter(SourceTables(source,reader),'worlddoors'),
-                                     'assets':assets,'strings':ItemTextAdapter(source,'worlddoors','English')})
+        importer=DependencyImporter({'items':SourceKeyAdapter(SourceTables(source,reader),namespace),
+                                     'assets':assets,'strings':ItemTextAdapter(source,namespace,'English')})
         for key in sorted(keys):
             if importer.ensure('items',key)!=key:
                 failures=[(r['identity'],r.get('error')) for r in importer.report()['jobs'] if r['status']=='conversion_failed']

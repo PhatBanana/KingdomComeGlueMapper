@@ -112,6 +112,8 @@ Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/s
 
 ### Everyday interactions and items
 
+**Container coverage:** the installed development build registers 2,769 converted stashes and preserves nine shared personal chests. All 174 generated loot tables include registered item names and GUIDs (2,208 entries); the user confirmed starting-home fruit sacks work after this fix. Containers are temporarily unowned. Merchant/NPC-generated stock, campaign transfers, wearable fit and persistence remain separate acceptance work. See the [container conversion audit](docs/container-conversion.md).
+
 - [x] Convert authored chairs and benches to native seating contracts.
 - [x] Convert supported cooking fireplaces/pots to native player interactions and effects.
 - [x] Convert authored washing troughs, including helper alignment and cleaning effects.
@@ -120,9 +122,11 @@ Sources: [terrain converter](tools/compiled_terrain.py), [static assets](tools/s
 - [x] Convert authored personal chests to persistent shared player storage.
 - [x] Convert active architectural doors, including native animation contracts, locks and keys.
 - [x] Add the selected Rattay inn rental, bed and room-service contract.
-- [ ] Convert general loot containers: chests, sacks, bags, baskets, shelves and supply piles.
-- [ ] Preserve general-container inventories, locks, keys, ownership, theft legality and replenishment.
-- [ ] Convert fish traps, water/fish baskets and beehive storage interactions.
+- [x] Stage and install native storage for all 2,769 remaining initial-world stashes, including chests, sacks, bags, baskets, shelves and supply piles.
+- [x] Convert 174 authored inventory presets and resolve their 589 item types, including 312 additional KCD1 wearable components.
+- [ ] Validate locks, keys, model changes, replenishment and save/load across the converted containers; restore ownership and theft rules when homes/NPCs are converted.
+- [x] Include fish traps, water/fish baskets and beehives in the native storage conversion.
+- [ ] Validate their specialised behaviour, replenishment and interaction effects in game.
 - [ ] Convert bird nests, contents, physics and associated sounds.
 - [ ] Convert digging spots, graves and buried sacks, including tools, contents and dug-state persistence.
 - [ ] Extend usable beds and their ownership/access rules across the world.
@@ -196,8 +200,8 @@ The following snapshot compares source mission/layer entities selected by the co
 
 | Area | Source audit | Current conversion gap |
 |---|---:|---|
-| Storage | 2,778 `Stash` entities | Installed level has 11 native stashes, including nine personal chests; general storage is not converted. |
-| Fish traps | 63 stashes using three fish-trap model types | Part of general storage; water/fish baskets are additional variants. |
+| Storage | 2,778 `Stash` entities | 2,769 converted stashes registered at runtime; nine shared personal chests preserved. Sampled storage/fruit-loot tests passed; ownership, special-service contents and persistence remain open. |
+| Fish traps | 63 stashes using three fish-trap model types | Included in native storage conversion; water/fish baskets are additional variants. Specialised behaviour and replenishment remain unverified. |
 | Nests | 103 | No converted nest registrations in the inspected level. |
 | Digging | 79 holes: 63 grave pits and 16 buried sacks | No converted digging registrations. |
 | Ambient fish | 41 fish-group entities | Separate from trap/container interaction; not converted. |
@@ -211,7 +215,7 @@ Some KCD2 systems use different entity classes, so class counts alone are not pr
 
 ## Next priorities
 
-1. **General containers:** convert the authored `Stash` family and inventory dependencies, covering ordinary chests, sacks, bags, shelves, fish traps and beehives. Preserve personal shared storage as a distinct contract.
+1. **Container acceptance and special storage:** verify item transfer, locks, phase changes, wearable fit, replenishment and save/load; complete merchant/NPC-generated stock and campaign-driven storage contracts.
 2. **Nests and digging:** add native interactions, contents, effects and persistent state.
 3. **World activities:** extend beds, sharpening, alchemy and minigames; validate ladder access throughout the world.
 4. **Population and ownership:** expand NPCs, livestock, homes, schedules and regional services.

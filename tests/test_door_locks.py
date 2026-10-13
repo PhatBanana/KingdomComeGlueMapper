@@ -93,5 +93,18 @@ class DoorLockTests(unittest.TestCase):
             self.assertEqual(row.get('Type'),'4');self.assertEqual(row.get('IconId'),'key_general')
             self.assertIsNone(row.get('SubType'))
 
+    def test_container_keys_have_separate_definition_namespace(self):
+        rows={n:{} for n in SourceKeyAdapter.FIELDS}
+        rows['pickable_item']={'weight':'0','price':'0'}
+        identity='12345678-1234-1234-1234-123456789abc'
+        plan=ImportPlan(source=dict(category='key',rows=rows))
+        _,door,_=SourceKeyAdapter(None,'worlddoors').convert(identity,plan,{})
+        _,container,_=SourceKeyAdapter(None,'containerkeys').convert(identity,plan,{})
+        self.assertFalse(set(door)&set(container))
+        a=E.fromstring(next(iter(door.values()))).find('ItemClasses/MiscItem')
+        b=E.fromstring(next(iter(container.values()))).find('ItemClasses/MiscItem')
+        self.assertEqual(a.get('Id'),b.get('Id'))
+        self.assertNotEqual(a.get('Name'),b.get('Name'))
+
 
 if __name__=='__main__':unittest.main()

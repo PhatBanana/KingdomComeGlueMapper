@@ -11,8 +11,8 @@ from PIL import Image
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from building_blend import bake_atlas, rgba_dds, decode_texture, sample_wrap
-from building_blend_mesh import reatlas
-from building_materials import blend_inputs
+from building_blend_mesh import reatlas, render_material_ids
+from building_materials import blend_inputs, convert
 from clothing_regions import Chunk, read_chunks, write_chunks
 from static_assets import convert_material_features
 from build_building_blend_test import merge_baked_material
@@ -40,6 +40,15 @@ def triangle_mesh():
 
 
 class BuildingBlendTests(unittest.TestCase):
+    def test_unused_shared_material_slot_needs_no_atlas(self):
+        blob = triangle_mesh()
+        self.assertEqual(render_material_ids(blob), {0})
+        doc = ET.fromstring('<Material><SubMaterials><Material Shader="Illum"/><Material Shader="Illum" StringGenMask="%SNDUVS%BLENDLAYER%DETAIL_MAPPING"><Textures><Texture Map="[1] Diffuse" File="unused.dds"/><Texture Map="Opacity" File="unused_mask.dds"/></Textures></Material></SubMaterials></Material>')
+        def unexpected_read(name): raise AssertionError('Unused texture read: '+name)
+        result, emitted = convert(doc, blob, 'test', unexpected_read, {})
+        self.assertEqual(result, blob)
+        self.assertEqual(emitted, {})
+
     def test_focused_package_keeps_native_secondary_detail_dependencies(self):
         current = ET.fromstring('''<Material><SubMaterials>
           <Material Name="roof" Shader="Illum" StringGenMask="%BLENDLAYER%DETAIL_MAPPING%SNDUVS">
@@ -113,6 +122,21 @@ class BuildingBlendTests(unittest.TestCase):
         self.assertEqual(image.shape,(8,8,4));np.testing.assert_array_equal(image[0,0],[255,0,0,255])
         with self.assertRaisesRegex(ValueError,'Missing or incompatible'):
             decode_texture(bytes(header)+block,{})
+
+    def test_bc4_single_channel_mask_reassembles_streamed_mips(self):
+        header=bytearray(148);header[:4]=b'DDS '
+        struct.pack_into('<7I',header,4,124,0x2100f,8,8,32,0,2)
+        struct.pack_into('<II4s',header,76,32,4,b'DX10')
+        struct.pack_into('<I',header,108,0x401008)
+        struct.pack_into('<5I',header,128,80,3,0,1,0)
+        # Endpoint 64, index zero at every pixel; BC4 carries linear mask values.
+        block=bytes([64,192])+bytes(6)
+        image=decode_texture(bytes(header)+block,{'1':block*4})
+        self.assertEqual(image.shape,(8,8,4))
+        np.testing.assert_array_equal(image[:,:,0],np.full((8,8),64))
+        np.testing.assert_array_equal(image[:,:,3],np.full((8,8),255))
+        with self.assertRaisesRegex(ValueError,'Missing or incompatible'):
+            decode_texture(bytes(header)+block,{'1':block})
 
     def test_chart_repack_preserves_geometry_and_physics(self):
         original=triangle_mesh()
