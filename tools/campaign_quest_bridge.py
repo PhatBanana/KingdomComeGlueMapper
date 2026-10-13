@@ -86,9 +86,15 @@ class QuestBridge:
                 raise UnsupportedOperation('Objective condition needs an adapter: ' + function)
             kind, port = 'condition', objective_identifier(objective) + '_' + OBJECTIVE_CONDITIONS[function]
         else:
-            # AfterReset and gate cancellation/lifetime are not a boolean check.
-            # Keep the source gate intact until its native semantics are tested.
-            raise UnsupportedOperation('Quest objective gate lifecycle needs an adapter: ' + function)
+            # State membership can drive a native continuous barrier. Keep
+            # cancellation/restart policy on that barrier, not a one-shot check.
+            if function not in OBJECTIVE_CONDITIONS.values():
+                raise UnsupportedOperation('Quest objective gate lifecycle needs an adapter: ' + function)
+            if attrs.get('RunLogic') not in ('Halt', 'KeepRunning') or attrs.get('NegateTo') not in ('true', 'false'):
+                raise UnsupportedOperation('Quest objective gate needs explicit native lifecycle and negation')
+            if set(attrs) - {'questName', 'objectiveName', 'objectiveState', 'NegateTo', 'RunLogic'}:
+                raise UnsupportedOperation('Unconverted quest objective gate metadata')
+            kind, port = 'condition', objective_identifier(objective) + '_' + function
         if kind == 'condition' and attrs.get('failSubtMissing', 'false') not in ('false', '0'):
             raise UnsupportedOperation('Missing-branch failure semantics need an adapter')
         name = self._name(kind, quest, port)
@@ -103,6 +109,10 @@ class QuestBridge:
         binding = self.resolve(node, owner)
         if binding['kind'] == 'action':
             return dict(op='SendAIConceptSignal_' + binding['name'], attributes={}, children=[], text='')
+        if node['op'] == 'QuestObjectiveGate':
+            return dict(op='GameContextBarrier', attributes=dict(context=binding['name'],
+                Negation=literal(node['attributes']['NegateTo']), RunLogic=literal(node['attributes']['RunLogic'])),
+                children=copy.deepcopy(node['children']), text=node.get('text', ''))
         return dict(op='GameContextCheck', attributes={'context': binding['name'], 'saveVersion': '2'},
                     children=copy.deepcopy(node['children']), text=node.get('text', ''))
 

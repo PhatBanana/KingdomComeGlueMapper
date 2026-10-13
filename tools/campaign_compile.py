@@ -20,6 +20,8 @@ from campaign_bindings import build_bindings, registration_errors
 from campaign_behavior import convert_behaviors, native_catalog
 from campaign_character_dependencies import CharacterPartAdapter
 from campaign_ai_types import AITypeSource, AIEnumAdapter, AIStructureAdapter
+from campaign_link_types import LinkTypeAdapter
+from campaign_item_names import registered_item_name
 from campaign_ai_registration import (NativeAIRegistry, MailboxAdapter, BrainAdapter,
     SubbrainAdapter, ConvertedTreeAdapter, SmartEntityAdapter, controller_definition, quest_controller_brains)
 from campaign_doors import NativeDoorCatalog, AnimatedDoorAssetAdapter, DoorEntityConversion
@@ -177,6 +179,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         cache.mkdir()
         ai_types = AITypeSource.load(source, resolver, project, Path(temporary) / 'type-cache')
         native_ai = NativeAIRegistry.load(target, project)
+        link_types = LinkTypeAdapter.load(source, target, resolver, project, Path(temporary) / 'link-cache')
         export_version = int.from_bytes(hashlib.sha256(area_data + project.encode()).digest()[:4], 'little') or 1
         assets = LazyAdapter(lambda: StaticAssetAdapter(stack, GameLibrary(paths), project, cache))
         native_doors = NativeDoorCatalog(target, stack)
@@ -212,13 +215,14 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                                     {r.get('id'):r.get('name') for r in weapons[0]}, components)
         importer = DependencyImporter(dict(
             entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids),
-            items=LazyAdapter(item_adapter), inventories=InventoryAdapter(tables, project),
+            items=LazyAdapter(item_adapter), inventories=InventoryAdapter(tables, project,
+                lambda identity: registered_item_name(identity, native_item_definitions, importer.files)),
             clothing=LazyAdapter(lambda: ClothingAdapter(tables, assets.materialize(), target, stack)),
             document_images=LazyAdapter(lambda: DocumentImageAdapter(source, resolver, project)),
             buffs=LazyAdapter(lambda: BuffAdapter(tables, native_buff_contract(target), project)),
             souls=SoulAdapter(tables, souls),
             character_parts=CharacterPartAdapter(tables, target, stack, assets, project),
-            ai_types=AIStructureAdapter(ai_types), ai_enums=AIEnumAdapter(ai_types),
+            ai_types=AIStructureAdapter(ai_types), ai_enums=AIEnumAdapter(ai_types), link_types=link_types,
             world_profiles=WorldProfileAdapter(source_profiles, project,
                 [dict(archive='Data/Levels/' + level + '/level.pak', entry='whdata_1',
                       sha256=hashlib.sha256(profiles_data).hexdigest())]),
@@ -289,7 +293,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 wire_bridge(native_files, project, behavior_bridge_files, behavior, 'source_behavior_bridge')
                 native_files, registration_files, registration_report = assemble_registrations(
                     project, native_files, {m['quest']: bindings[m['quest']] for m in eligible if m['quest'] in bindings},
-                    importer.registered, importer.files, export_version)
+                    importer.registered, importer.files, export_version,
+                    source_world=links['world'], importer=importer)
                 quest_report['files'] = {n: hashlib.sha256(b).hexdigest() for n, b in native_files.items()}
             except ValueError as error:
                 failures.append(dict(kind='native_quest_emission', reason=str(error)))

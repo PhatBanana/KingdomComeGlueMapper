@@ -9,6 +9,7 @@ from campaign_dependencies import DependencyImporter, ImportPlan
 from campaign_dependency_adapters import EntityAdapter, InventoryAdapter, ItemAdapter
 from campaign_trigger_areas import TriggerArea, write_areas, read_areas
 from campaign_entity_links import native_guid
+from campaign_item_names import registered_item_name
 
 
 class Adapter:
@@ -96,11 +97,30 @@ class CampaignDependencyTests(unittest.TestCase):
         iid, inv = 'original-item', 'original-inventory'
         tables = Tables({'inventory/inventory': [dict(inventory_id=inv, max_items='', read_only='False', restock_interval='0')],
             'inventory/inventory2item': [dict(inventory_id=inv, item_id=iid, amount='3', amount_random_add='0', health='0.7')]})
-        importer = DependencyImporter(dict(inventories=InventoryAdapter(tables, 'any_campaign'), items=Adapter()))
+        class ImportedItem(Adapter):
+            def convert(self, identity, plan, registered):
+                return 'converted-original-item', {'Libs/Tables/item/item__test.xml':
+                    b'<database><ItemClasses><MiscItem Id="converted-original-item" Name="actual_native_name"/></ItemClasses></database>'}, {}
+        importer = DependencyImporter(dict(inventories=InventoryAdapter(tables, 'any_campaign',
+            lambda target: registered_item_name(target, {}, importer.files)), items=ImportedItem()))
         self.assertIsNotNone(importer.ensure('inventories', inv))
         data = next(v for k,v in importer.files.items() if 'InventoryPreset__' in k)
         item = E.fromstring(data).find('InventoryPresets/InventoryPreset/PresetItem')
-        self.assertEqual(item.attrib, dict(ItemClassId='converted-original-item', Amount='3', Health='0.7'))
+        self.assertEqual(item.attrib, dict(Name='actual_native_name', Amount='3', Health='0.7'))
+
+    def test_inventory_item_name_requires_unambiguous_registered_definition(self):
+        native = {'id-a': E.fromstring('<MiscItem Id="id-a" Name="native_food"/>')}
+        self.assertEqual(registered_item_name('ID-A', native, {}), 'native_food')
+        with self.assertRaisesRegex(ValueError, 'Missing registered'):
+            registered_item_name('source-id', native, {})
+        duplicate = {'Libs/Tables/item/item__new.xml':
+            b'<database><ItemClasses><Food Id="id-b" Name="NATIVE_FOOD"/></ItemClasses></database>'}
+        with self.assertRaisesRegex(ValueError, 'Ambiguous'):
+            registered_item_name('id-a', native, duplicate)
+        conflict = {'Libs/Tables/item/item__new.xml':
+            b'<database><ItemClasses><Food Id="id-a" Name="different_name"/></ItemClasses></database>'}
+        with self.assertRaisesRegex(ValueError, 'Conflicting'):
+            registered_item_name('id-a', native, conflict)
 
 
 if __name__ == '__main__': unittest.main()

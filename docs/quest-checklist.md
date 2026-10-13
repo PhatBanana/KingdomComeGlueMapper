@@ -1,6 +1,6 @@
 # Quest conversion checklist
 
-Status: 13 October 2026. This tracks the original KCD1 campaign conversion into
+Status: 14 October 2026. This tracks the original KCD1 campaign conversion into
 KCD2. A checked implementation milestone means that specific capability exists;
 it does not mark an entire quest complete. Development scene tests are separate
 from the normal coach-travel installation route and published installers.
@@ -46,6 +46,51 @@ Validation: 160 campaign tests and 67 character tests pass. The source-backed
 Skalitz preflight is staged in `outputs/OpeningStart/StateDependencies01`.
 These changes have not been installed or validated in game. The complete
 opening-to-attack sequence remains unaccepted.
+
+### Starting-state and work-program conversion follow-up
+
+The installed development scene still uses selected opening fragments and
+schedule arrival/housework-sweeping support. It does **not** run the complete
+source startup controller, housework cycle or blacksmith cycle. The source
+hunger/time/equipment adapters are not proof that those effects occur in game.
+
+- [x] Follow database-dispatched area work, object work and literal
+  `CallBehavior` callbacks in addition to `IncludeTree` dependencies. Preserve
+  all matching source implementations, their registry rows and provenance.
+  Dynamic dispatch and missing source documents remain explicit unresolved
+  dependencies; a missing secondary document no longer hides every other
+  valid program in the import.
+- [x] Add native contracts for work-loop iteration, save-load branching,
+  reservations, mailboxes, interruption gates and search/execution structure.
+  Unsupported children still withhold their entire tree and its callers.
+- [x] Convert supported continuous objective-state gates while retaining their
+  `Halt`/`KeepRunning` and negation policies. Bind object-relative quest names
+  only at database-registered quest callbacks.
+- [x] Register source AI link types, translate link-data variables and literal
+  search masks consistently, and assemble original world edges after both
+  endpoints have converted. Preserve untagged tool edges and graph cycles.
+- [x] Correct native inventory presets to reference actual registered item
+  names rather than unsupported `ItemClassId` attributes. Resolve replacement
+  IDs through emitted definitions and reject absent or ambiguous names.
+- [ ] Translate the remaining source work-request lifecycle, animation events,
+  item pickup/release, LOD transitions and cleanup semantics.
+- [ ] Finish type defaults, home-link pruning/ownership, actor brains and
+  area/object behavior registration needed by the complete work programs.
+- [ ] Integrate source startup state at its original guarded execution sites,
+  then test fresh New Game, dialogue interruption/resumption and save/load.
+
+The source-backed audit at `outputs/OpeningStart/ControllerAudit07` discovers
+1,361 trees through includes and conservative database callback dependencies;
+239 whole trees convert. Those totals include shared library programs and
+alternative registrations, so they are **not** a percentage of quest completion
+or proof that each program is reachable. The complete parent routines remain
+blocked: `housework` has six unresolved sites and `BlackSmith_new` has 41.
+The audit records 30 referenced source documents absent from the effective
+retail sources. Its fragments are outside an installable `Data` tree.
+
+Validation for this follow-up: 202 campaign tests, 67 character tests and seven
+quest-import tests pass. No new package from this follow-up has been installed,
+and complete starting-state/schedule runtime acceptance remains open.
 
 ## Original New Game and character creation
 

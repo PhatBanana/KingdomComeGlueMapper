@@ -6,6 +6,7 @@ node or missing dependency is withheld as a whole, including its callers.
 Native examples establish format compatibility, not a retail execution result.
 """
 from collections import Counter
+import copy
 import hashlib
 from pathlib import Path
 import re
@@ -18,6 +19,8 @@ from campaign_quest_graph import identifier, xml
 from campaign_sources import key
 from campaign_rpg_script import upgrade as upgrade_rpg_script
 from campaign_time import TimeBridge
+from campaign_behavior_contracts import WORK_CONTRACTS
+from campaign_link_types import data_expression, link_list
 from quest_import import behavior_path, literal
 from upgrade_map import read
 
@@ -81,8 +84,8 @@ CONTRACTS = {
     # replacing the lookup with a named actor would change quest semantics.
     'GraphSearch': {'Origin': 'reference', 'Borders': 'reference',
                     'depth': 'expression', 'selection': 'expression',
-                    'SearchPattern': 'value', 'EdgePruning': 'string_expression',
-                    'AllowedEdges': 'string_expression', 'SubGraph': 'reference',
+                    'SearchPattern': 'value', 'EdgePruning': 'link_list',
+                    'AllowedEdges': 'link_list', 'SubGraph': 'reference',
                     'AllowSubtraph': 'value', 'includeOrigin': 'value',
                     'excludeOrigin': 'value', 'failOnEmpty': 'value',
                     'SetOperationChoice': 'value', 'errorOnEmpty': 'value',
@@ -96,6 +99,7 @@ CONTRACTS = {
 }
 TYPE_ADAPTERS = {name: name for name in ('_bool', '_int', '_int64', '_float', '_string', '_wuid')}
 TYPE_ADAPTERS['common:wuid'] = '_wuid'
+CONTRACTS.update(WORK_CONTRACTS)
 
 # Native AI/_lukas/test_lukas_helper.xml supplies both movement ABIs. Destination
 # fields are variable references, not quoted strings or guessed coordinates.
@@ -200,6 +204,12 @@ class BehaviorCompiler:
         self.records = {}
         self.converted = Counter()
         self.variables = {}
+        self.object_scopes = {}
+        for owner, model in self.models.items():
+            definition = model.get('controller_registration') or {}
+            for entry in definition.get('entry_points', []):
+                if entry.get('kind') == 'behavior_callback':
+                    self.object_scopes[(owner, key(behavior_path(entry['file'])), entry['tree'])] = owner
 
     def destination(self, owner, document):
         document = key(document)
@@ -285,7 +295,15 @@ class BehaviorCompiler:
                     raise UnsupportedOperation('Installed native profile streaming helper is required')
                 node = self.profile_bridge.lower(source, site)
             elif op in OPERATIONS:
-                converted = self.bridge.lower(source, owner)
+                scoped = source
+                if (owner, document, tree) in self.object_scopes:
+                    scoped = copy.deepcopy(source)
+                    for field in ('quest', 'questName'):
+                        if literal(scoped['attributes'].get(field, '')) in ('$__object.name', '__object.name'):
+                            scoped['attributes'][field] = self.object_scopes[(owner, document, tree)]
+                converted = self.bridge.lower(scoped, owner)
+                if converted['op'] == 'GameContextBarrier' and converted['op'] not in self.catalog['nodes']:
+                    raise UnsupportedOperation('Native continuous quest-state barrier is unavailable')
                 node = ET.Element(converted['op'], converted['attributes'])
             else:
                 if op not in CONTRACTS or op not in self.catalog['nodes']:
@@ -309,7 +327,30 @@ class BehaviorCompiler:
                             raise UnsupportedOperation('Dynamic behavior include needs runtime dispatch')
                         target_doc = key(behavior_path(raw))
                         value = quote(self.destination(self.include_owner(owner, target_doc), target_doc))
-                    elif kind in ('mailbox', 'message_type'):
+                    elif kind == 'link_list':
+                        # Without script edges, legacy unit/API callers still
+                        # retain the shared engine edge vocabulary.
+                        if value and not self.importer and any(t.strip().lower() not in ('parent', 'inventory') for t in value.split(',')):
+                            raise UnsupportedOperation('Graph edge mask requires a link-type importer')
+                        try:
+                            value = link_list(value, self.importer, site)
+                        except ValueError as error:
+                            raise UnsupportedOperation(str(error)) from error
+                        value = quote(value) if value else ''
+                    elif kind == 'empty_script':
+                        if value:
+                            raise UnsupportedOperation('SetVariable script requires a semantic adapter')
+                    elif kind == 'link_type':
+                        if not value or value.startswith('$'):
+                            raise UnsupportedOperation('Dynamic link data type requires runtime dispatch')
+                        target = self.importer.ensure('link_types', value, site) if self.importer else None
+                        if target is None:
+                            raise UnsupportedOperation('Referenced AI link type conversion did not complete: ' + value)
+                        value = quote(target)
+                    elif kind in ('mailbox', 'message_type', 'optional_message_type'):
+                        if kind == 'optional_message_type' and not value:
+                            values[name] = ''
+                            continue
                         if not value or value.startswith('$'):
                             raise UnsupportedOperation('Dynamic/empty source ' + kind + ' needs runtime resolution')
                         group = 'mailboxes' if kind == 'mailbox' else 'ai_types'
@@ -320,6 +361,20 @@ class BehaviorCompiler:
                             target = self.importer.adapters[group].name(value)
                         value = quote(target)
                     values[name] = value
+                if op == 'LinkDataFilter':
+                    source_tag = literal(attrs['tag'])
+                    record_type = self.importer.jobs[('link_types', source_tag.lower())]
+                    row = record_type['source']['row']
+                    symbol = row.get('variableName') or row['name']
+                    values['condition'] = data_expression(values.get('condition', ''), symbol, record_type['target'])
+                if op == 'LinkTagFilter' and self.importer is not None and 'link_types' in self.importer.adapters:
+                    source_tag = literal(attrs.get('tag', ''))
+                    if not source_tag or source_tag.startswith('$'):
+                        raise UnsupportedOperation('Dynamic source link tag needs a runtime identity map')
+                    target = self.importer.ensure('link_types', source_tag, site)
+                    if target is None:
+                        raise UnsupportedOperation('Referenced AI link type conversion did not complete: ' + source_tag)
+                    values['tag'] = quote(target)
                 if op == 'IncludeTree':
                     target_tree = literal(attrs.get('Name', ''))
                     if not target_tree or target_tree.startswith('$'):

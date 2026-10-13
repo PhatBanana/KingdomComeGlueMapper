@@ -18,6 +18,21 @@ def behavior(m, body):
 
 
 class QuestBridgeTests(unittest.TestCase):
+    def test_objective_gate_retains_continuous_lifecycle_and_negation(self):
+        m = model()
+        for policy in ('Halt', 'KeepRunning'):
+            bridge = QuestBridge([m], 'Other')
+            node = ast(E.fromstring('''<QuestObjectiveGate questName="" objectiveName="first"
+              objectiveState="Started" NegateTo="true" RunLogic="''' + policy + '''">
+              <CallBehavior Target="$work" BehaviorName="use"/></QuestObjectiveGate>'''))
+            result = bridge.lower(node, m['quest'])
+            self.assertEqual(result['op'], 'GameContextBarrier')
+            self.assertEqual(result['attributes']['RunLogic'], policy)
+            self.assertEqual(result['attributes']['Negation'], 'true')
+            self.assertEqual(result['children'], node['children'])
+            _, wiring = bridge.emit()
+            self.assertEqual(wiring[0]['quest_port'], 'first_Started')
+
     def test_actions_keep_guard_and_order_and_are_wired_to_real_quest_ports(self):
         m = behavior(model(), '''<Root><IfCondition condition="$ready"><Sequence>
 <Wait duration="2s"/><SetQuestObjective quest="" objective="first" function="CompleteObjective"/>

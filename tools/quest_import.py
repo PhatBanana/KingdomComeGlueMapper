@@ -153,6 +153,12 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
         table_only={i: n for i, n in table_objectives.items() if i not in graph_objectives})
     resolve_null_tracking_edges(graph, tables)
     documents = {}
+    work_calls, work_tables, missing_documents = [], {}, {}
+    def work_rows(name):
+        if name not in work_tables:
+            record = resolve(game, {'work': ('Tables.pak', 'Libs/Tables/ai/' + name + '.xml')})['work']
+            work_tables[name] = record
+        return [dict(r.attrib) for r in ET.fromstring(work_tables[name]['data']).findall('./table/rows/row')]
     pending = [item for label, item in sources.items() if label != 'graph']
     while pending:
         source = pending.pop(0); entry = key(source['entry'])
@@ -165,9 +171,16 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
                 if node['op'] == 'IncludeTree':
                     value = literal(node['attributes']['File'])
                     if not value.startswith('$'): includes.add(behavior_path(value))
+        from campaign_work_sources import discover
+        for call in discover(trees, work_rows):
+            work_calls.append(dict(document=entry, **call))
+            includes.update(candidate['file'] for candidate in call['candidates'])
         for include in sorted(includes):
-            if key(include) not in documents and not any(key(s['entry']) == key(include) for s in pending):
-                pending.append(resolve(game, {'include': ('Scripts.pak', include)})['include'])
+            if key(include) not in documents and key(include) not in missing_documents and not any(key(s['entry']) == key(include) for s in pending):
+                try:
+                    pending.append(resolve(game, {'include': ('Scripts.pak', include)})['include'])
+                except MissingRetailSource as error:
+                    missing_documents[key(include)] = str(error)
     operations = Counter(); references = []; unresolved = []; lua = []; variables = []
     for entry, doc in documents.items():
         for name, tree in doc['trees'].items():
@@ -185,15 +198,22 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
                         continue
                     ref = dict(site, target=key(behavior_path(attrs['File'])), name=literal(attrs['Name']))
                     references.append(ref)
-                    if ref['name'] not in documents[ref['target']]['trees']: unresolved.append(ref)
+                    if ref['name'] not in documents.get(ref['target'], {}).get('trees', {}): unresolved.append(ref)
                 if op in ('ExecuteLua', 'LuaGate'):
                     lua.append(dict(site, op=op, code=literal(attrs.get('code', ''))))
+    for call in work_calls:
+        for candidate in call['candidates']:
+            if candidate['tree'] not in documents.get(key(candidate['file']), {}).get('trees', {}):
+                call['unresolved'].append('Registered work program is missing: ' + candidate['file'] + ':' + candidate['tree'])
     model = {'schema': 1, 'quest': quest, 'quest_id': identity, 'tables': tables,
              'behavior_entry': key(behavior_entry) if 'behavior' in sources else None,
              'behavior_status': 'source_program' if 'behavior' in sources else 'no_same_named_retail_program',
              'executable': False, 'graph': graph,
              'behavior_documents': {entry: {'trees': doc['trees'], 'provenance': doc['source']['candidates']}
                                     for entry, doc in documents.items()},
+             'work_program_calls': work_calls,
+             'work_program_tables': {name: record['candidates'] for name, record in work_tables.items()},
+             'missing_behavior_documents': missing_documents,
              'persistent_variables': variables, 'includes': references, 'lua_sites': lua,
              'operations': dict(sorted(operations.items())), 'unresolved_includes': unresolved,
              'graph_provenance': sources['graph']['candidates'],
@@ -202,9 +222,12 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
                           'Native startup and save/load have not been validated']}
     if graph['unresolved_edges']: model['blockers'].append('Source graph contains unresolved edge endpoints')
     if unresolved: model['blockers'].append('Behavior includes require runtime resolution or reference missing trees')
+    if any(call['unresolved'] for call in work_calls):
+        model['blockers'].append('Work dispatch has dynamic, fallback or missing program dependencies')
     raw = {sources['graph']['entry']: sources['graph']['data']}
     raw.update({doc['source']['entry']: doc['source']['data'] for doc in documents.values()})
     raw.update({item['entry']: item['data'] for item in table_sources.values()})
+    raw.update({item['entry']: item['data'] for item in work_tables.values()})
     return model, raw
 
 

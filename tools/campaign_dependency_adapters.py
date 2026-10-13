@@ -54,8 +54,9 @@ class LazyAdapter:
 
 
 class InventoryAdapter:
-    def __init__(self, tables, namespace):
+    def __init__(self, tables, namespace, item_name=None):
         self.tables, self.namespace = tables, identifier(namespace).lower()
+        self.item_name = item_name
 
     def plan(self, identity):
         source = resolve_inventory(identity, {n: self.tables.get('inventory/' + n)['rows'] for n in INVENTORY_TABLES})
@@ -74,7 +75,13 @@ class InventoryAdapter:
         for row in source['direct_items']:
             if any(row.get(k) not in ('', '0', None) for k in ('amount_random_add', 'priority', 'health_offset')):
                 raise ValueError('Random source item selection/condition needs native conversion')
-            attrs = dict(ItemClassId=registered['items'][row['item_id'].lower()], Amount=row['amount'])
+            target_item = registered['items'][row['item_id'].lower()]
+            if self.item_name is None:
+                raise ValueError('Inventory preset requires registered native item names')
+            name = self.item_name(target_item)
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError('Missing registered inventory item name: ' + target_item)
+            attrs = dict(Name=name, Amount=row['amount'])
             if row.get('health'):
                 attrs['Health'] = row['health']
             ET.SubElement(preset, 'PresetItem', attrs)

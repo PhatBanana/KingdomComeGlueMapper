@@ -49,5 +49,24 @@ class CampaignRegistrationTests(unittest.TestCase):
             assemble_registrations('AnyCampaign', {'AnyCampaign.xml':b'<Database><Skald><Project Name="AnyCampaign"/></Skald></Database>'},
                 {}, {}, {'world/triggerareas/a.fubar':write_areas([area], 1)}, 1)
 
+    def test_source_world_edges_belong_to_their_actual_source_entity(self):
+        first, second = native_guid(11), native_guid(12)
+        imported = {
+            'world/entities/a.xml': E.tostring(E.Element('Entity', EntityGuid=first, EntityClass='TagPoint')),
+            'world/entities/b.xml': E.tostring(E.Element('Entity', EntityGuid=second, EntityClass='TagPoint')),
+        }
+        registered = {'entities': {first: first, second: second}}
+        importer = DependencyImporter({}, registered)
+        world = dict(entities={str(i): dict(attributes={'EntityGuid': format(i, '016x')}) for i in (11,12)},
+            links=[{'from':'11', 'to':'12', 'source_link':{'Name':''}},
+                   {'from':'12', 'to':'11', 'source_link':{'Name':''}}])
+        _, files, report = assemble_registrations('AnyCampaign',
+            {'AnyCampaign.xml':b'<Database><Skald><Project Name="AnyCampaign"/></Skald></Database>'},
+            {}, registered, imported, 1, source_world=world, importer=importer)
+        entities = {e.get('EntityGuid'):e for e in E.fromstring(files['world/registration/objects_mission0.xml'])}
+        for source, target in ((first, second), (second, first)):
+            self.assertEqual(entities[source].find('EntityLinks/Link').get('TargetGuid'), target)
+        self.assertFalse(report['source_world_links']['pending'])
+
 
 if __name__ == '__main__': unittest.main()

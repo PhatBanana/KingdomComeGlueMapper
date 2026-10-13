@@ -1,0 +1,67 @@
+"""Source/native AI contracts used by complete work and controller trees.
+
+These are operation schemas, not substitutions for named jobs. The compiler
+also checks each field against the installed game's runtime examples.
+"""
+
+WORK_CONTRACTS = {
+    'LinkDataFilter': {'tag': 'link_type', 'condition': 'expression',
+                       'prune': 'value', 'negprune': 'value',
+                       'Parent': 'reference', 'Child': 'reference', 'Data': 'reference'},
+    'Child0': {'canSkip': 'value'},
+    'ForEach': {'startIndex': 'expression', 'step': 'expression',
+                'array': 'reference', 'iterator': 'reference',
+                'value': 'reference', 'break': 'expression'},
+    'LoopUntil': {'until': 'value', 'attemptCount': 'expression'},
+    'Nodalyzer': {'Quantifiers': 'value', 'Parent': 'reference',
+                  'Child': 'reference', 'id': 'reference', 'saveVersion': 'value'},
+    'DistanceGate': {'Origin': 'reference', 'ReferencePt': 'reference',
+                     'Low': 'expression', 'High': 'expression', 'Negation': 'value',
+                     'OpenInMiddle': 'value', 'RunLogic': 'value'},
+    'DialogGate': {'Who': 'reference', 'Negation': 'value',
+                   'EndDialogInRoot': 'value', 'WaitForTwins': 'value',
+                   'Condition': 'value', 'RunLogic': 'value'},
+    'DeadUnconsciousGate': {'Who': 'reference', 'Negation': 'value',
+                            'State': 'value', 'RunLogic': 'value'},
+    'NPCStateGate': {'Target': 'reference', 'State': 'value',
+                     'Low': 'expression', 'High': 'expression',
+                     'Negation': 'value', 'RunLogic': 'value'},
+    'ReadMessage': {'timeout': 'string_expression', 'timeType': 'value',
+                    'variable': 'reference', 'senderInfo': 'reference',
+                    'inbox': 'mailbox', 'condition': 'expression'},
+    'ClearInbox': {'inbox': 'mailbox', 'type': 'optional_message_type',
+                   'condition': 'expression'},
+    'InstantMultiSendMessageToNPC': {'targets': 'reference', 'type': 'message_type',
+                                    'values': 'expression', 'variable': 'reference',
+                                    'failureMode': 'value', 'successMode': 'value'},
+    'SetVariable': {'variable': 'reference', 'script': 'empty_script',
+                    'values': 'expression'},
+    'CallBehavior': {'Target': 'reference', 'BehaviorName': 'string_expression',
+                     'ignoreDropUnloading': 'value', 'stopAfterFirstFound': 'value',
+                     'nodeLabel': 'value'},
+    'ErrorNode': {'Message': 'string_expression'},
+    'LogToConsole': {'Message': 'string_expression', 'LogLevel': 'value'},
+    'WaitAction': {},
+    'IsLoadedGate': {'saveVersion': 'value'},
+    'WUIDFilter': {'Child': 'reference', 'Parent': 'reference', 'Source': 'value',
+                   'WUID': 'reference', 'negprune': 'value', 'prune': 'value'},
+    'HasBehaviorFilter': {'BehaviorList': 'string_expression', 'Child': 'reference',
+                          'FilterChoice': 'value', 'Parent': 'reference', 'Source': 'value',
+                          'negprune': 'value', 'prune': 'value'},
+    'ReserveBehavior': {'behaviorName': 'string_expression', 'reserveFrom': 'reference',
+                        'saveVersion': 'value'},
+    'ReserveBehaviorSearch': {},
+    'Search': {'canSkip': 'value'},
+    'Exec': {'canSkip': 'value'},
+    'Subtree': {'canSkip': 'value'},
+    'TryCatch': {'atomicCatch': 'value'},
+    'IfGate': {'RunLogic': 'value', 'atomic': 'value', 'condition': 'expression'},
+    'ContinuousSwitch': {},
+}
+
+_SEMAPHORE = dict(atomic='value', OutsideQueuePosVariable='reference',
+    InsidePosVariable='reference', TimerType='value', OutsideTimerValue='string_expression',
+    LockManagerType='value', SemaphoreName='string_expression', SemaphoreCount='expression')
+WORK_CONTRACTS['Semaphore'] = dict(_SEMAPHORE)
+WORK_CONTRACTS['Synchronize'] = dict(_SEMAPHORE, InsideTimerValue='string_expression',
+    InvalidateOnExpire='value', RunLogic='value')

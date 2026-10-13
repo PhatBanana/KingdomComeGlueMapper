@@ -19,7 +19,8 @@ def payload(value):
     return value.read_bytes() if isinstance(value, Path) else value
 
 
-def assemble_registrations(project, quest_files, bindings, registered, imported_files, export_version):
+def assemble_registrations(project, quest_files, bindings, registered, imported_files, export_version,
+                           source_world=None, importer=None):
     """Link successful imports individually; retain exact unresolved call sites."""
     identifier(project)
     root = ET.fromstring(quest_files[project + '.xml'])
@@ -96,17 +97,28 @@ def assemble_registrations(project, quest_files, bindings, registered, imported_
             raise ValueError('Project/imported entity GUID collision')
         entity.set('EntityId', str(index))
         by_guid[entity.get('EntityGuid')] = entity
-    cry_links = ET.SubElement(holder, 'EntityLinks')
+    source_link_report = None
+    if source_world is not None:
+        if importer is None:
+            raise ValueError('Source world links require the dependency importer')
+        from campaign_link_types import convert_world_links
+        source_links, source_link_report = convert_world_links(source_world, importer, set(by_guid))
+        links.extend(source_links)
     for source, target, definition in links:
+        cry_links = by_guid[source].find('EntityLinks')
+        if cry_links is None:
+            cry_links = ET.SubElement(by_guid[source], 'EntityLinks')
         ET.SubElement(cry_links, 'Link', TargetId=by_guid[target].get('EntityId'), TargetGuid=target, Name=definition)
     updated = dict(quest_files)
     updated[project + '.xml'] = xml(root)
     files = {'world/registration/objects_mission0.xml': xml(objects),
-             'world/registration/waitinglinks.xml': append_links(None, links),
+             'world/registration/waitinglinks.xml': append_links(None, links, allow_untagged=True),
              'world/registration/whdata_0': xml(souls),
              'world/registration/triggerareas.fubar': write_areas(shapes.values(), export_version)}
     report = dict(schema=1, project=project, assets=resolved, pending=pending,
                   entities=len(entities), areas=len(shapes), native_links=len(links),
                   source_profiles=profiles, export_version=export_version,
                   profile_activation_converted=False, runtime_validated=False)
+    if source_link_report is not None:
+        report['source_world_links'] = source_link_report
     return updated, files, report

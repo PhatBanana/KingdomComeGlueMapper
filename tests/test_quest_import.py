@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from quest_import import behavior_path, import_quest, parse_behavior, parse_graph, resolve_null_tracking_edges, walk
+from campaign_sources import MissingRetailSource
 
 
 GRAPH = b'''<Graph><Nodes><Node Id="2" Class="Quest:Begin"><Inputs Name="q_test"/></Node>
@@ -80,6 +81,44 @@ class QuestImportTests(unittest.TestCase):
     def test_ambiguous_behavior_names_are_rejected(self):
         with self.assertRaises(ValueError):
             parse_behavior(b'<BehaviorTrees><BehaviorTree name="x"><Root/></BehaviorTree><BehaviorTree name="x"><Root/></BehaviorTree></BehaviorTrees>', 'test')
+
+    def test_database_dispatched_work_is_followed_and_missing_include_is_reported(self):
+        documents = {
+            'Libs/Tables/quest/quest.xml': b'<database><table name="quest"><rows><row quest_id="7" quest_name="q_test"/></rows></table></database>',
+            'Libs/Tables/quest/quest_objective.xml': b'<database><table name="quest_objective"><rows><row quest_id="7" objective_id="5" objective_name="speakWithFather"/></rows></table></database>',
+            'Libs/quests/flowgraphs/q_test.xml': GRAPH,
+            'Libs/AI/quests/q_test.xml': b'''<BehaviorTrees><BehaviorTree name="onUpdate"><Root>
+<SmartAreaBehaviorTag preferredBehaviors="arbitraryJob" preferredBehaviorsOnly="true"/>
+</Root></BehaviorTree></BehaviorTrees>''',
+            'Libs/Tables/ai/sa_behaviour_tag.xml': b'''<database><table><rows>
+<row sa_behaviour_tag_name="arbitraryJob" tree_file="final/any_work.xml" tree_name="doWork"/>
+</rows></table></database>''',
+            'Libs/AI/final/any_work.xml': b'''<BehaviorTrees><BehaviorTree name="doWork"><Root>
+<IncludeTree File="final/absent.xml" Name="helper"/>
+</Root></BehaviorTree></BehaviorTrees>''',
+        }
+        def resolve(game, requested):
+            result = {}
+            for label, (pak, entry) in requested.items():
+                if entry not in documents:
+                    raise MissingRetailSource('Fixture missing ' + entry)
+                result[label] = dict(entry=entry, data=documents[entry],
+                                     candidates=[dict(archive=pak, sha256='fixture')])
+            return result
+        with tempfile.TemporaryDirectory() as temp:
+            game = Path(temp); (game / 'Data').mkdir()
+            with zipfile.ZipFile(game / 'Data/Tables.pak', 'w') as archive:
+                for entry, data in documents.items():
+                    if entry.startswith('Libs/Tables/'):
+                        archive.writestr(entry, data)
+            model, raw = import_quest(game, 'q_test', source_reader=resolve)
+        self.assertIn('libs/ai/final/any_work.xml', model['behavior_documents'])
+        self.assertIn('Libs/Tables/ai/sa_behaviour_tag.xml', raw)
+        self.assertEqual(model['work_program_calls'][0]['candidates'][0]['tree'], 'doWork')
+        self.assertFalse(model['work_program_calls'][0]['unresolved'])
+        self.assertIn('libs/ai/final/absent.xml', model['missing_behavior_documents'])
+        self.assertEqual(model['unresolved_includes'][0]['name'], 'helper')
+        self.assertFalse(model['executable'])
 
     def test_null_asset_requires_exact_database_evidence(self):
         data = b'''<Graph><Nodes><Node Id="2" Class="Quest:Begin"><Inputs Name="q_test"/></Node>
