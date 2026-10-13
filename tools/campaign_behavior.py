@@ -139,6 +139,10 @@ def native_catalog(game):
                     record['children'].update(c.tag for c in node)
                     for value in node.attrib.values():
                         enum_types.update(re.findall(r'\$enum:([A-Za-z_]\w*)\.', value))
+    # Example coverage is incomplete. Additional contracts must carry native
+    # validation evidence bound to the tested engine, not a permissive fallback.
+    from campaign_native_contracts import supplement
+    supplement(game, nodes)
     return dict(nodes={n: dict(r, attributes=sorted(r['attributes']), children=sorted(r['children']))
                        for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types))
 
@@ -294,6 +298,9 @@ class BehaviorCompiler:
                 if self.profile_streaming is None:
                     raise UnsupportedOperation('Installed native profile streaming helper is required')
                 node = self.profile_bridge.lower(source, site)
+            elif op in ('SmartAreaBehaviorTag', 'SmartObjectBehaviorTag'):
+                from campaign_work_requests import lower as lower_work_request
+                node = lower_work_request(source, self.catalog)
             elif op in OPERATIONS:
                 scoped = source
                 if (owner, document, tree) in self.object_scopes:
@@ -340,6 +347,23 @@ class BehaviorCompiler:
                     elif kind == 'empty_script':
                         if value:
                             raise UnsupportedOperation('SetVariable script requires a semantic adapter')
+                    elif kind == 'behavior_request_event':
+                        # Native BehaviorTagCatch still registers these exact
+                        # event names, including the original BehSucces spelling.
+                        if value not in ('NotFound', 'MaxInstance', 'NotEnabled', 'GeneralRQFail',
+                                         'RequestOK', 'BehSucces', 'BehFail', 'MissingSource'):
+                            raise UnsupportedOperation('Unknown behavior request event: ' + value)
+                    elif kind == 'numeric_operand':
+                        # Native numerical inputs accept a literal or a bare
+                        # variable path; unlike OutVariableName these are not
+                        # serialized with the expression-reference sigil.
+                        if value and not re.fullmatch(r'-?\d+(?:\.\d+)?', value):
+                            value = reference(value).removeprefix('$')
+                            if not re.fullmatch(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*', value):
+                                raise UnsupportedOperation('Unsupported numerical operand: ' + value)
+                    elif kind == 'numeric_operation':
+                        if value != 'randRange':
+                            raise UnsupportedOperation('Numerical operation requires a validated contract: ' + value)
                     elif kind == 'link_type':
                         if not value or value.startswith('$'):
                             raise UnsupportedOperation('Dynamic link data type requires runtime dispatch')

@@ -27,6 +27,20 @@ def importer_at(path):
 
 
 class AITypeImportTests(unittest.TestCase):
+    def test_string_defaults_are_raw_text_and_not_enum_expressions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = AITypeSource(E.fromstring('''<TypeDefinitions version="1"><Type name="work">
+              <Member name="duration" type="string">1h</Member>
+              <Member name="label" type="_string">$enum:literal.text &amp; 'quotes'</Member>
+              </Type></TypeDefinitions>'''), [], 'AnyCampaign', Path(tmp))
+            importer = DependencyImporter(dict(ai_types=AIStructureAdapter(source)))
+            self.assertEqual(importer.ensure('ai_types','work'), 'anycampaign:work')
+            root = E.parse(next(iter(importer.files.values()))).getroot()
+            members = {n.get('Name'): n for n in root.findall('.//Member')}
+            self.assertEqual(members['duration'].get('InitialValue'), '1h')
+            self.assertEqual(members['label'].get('InitialValue'), "$enum:literal.text & 'quotes'")
+            self.assertFalse(any(group=='ai_enums' for group, _ in importer.jobs))
+
     def test_serialized_enum_fills_missing_metadata_without_importing_engine_types(self):
         saved = E.fromstring('''<TypeDefinitions version="1">
           <enum name="animationOverride"><userControlled value="0"/>

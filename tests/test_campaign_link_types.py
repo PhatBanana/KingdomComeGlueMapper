@@ -46,15 +46,25 @@ class LinkTypeTests(unittest.TestCase):
             self.assertEqual({n.get('name') for n in merged}, {'native_tag', 'imported_StoryActor', 'imported_StoryPlace'})
             self.assertEqual(merged.find("LinkTag[@name='imported_StoryActor']").get('ownershipInclude'), '0')
 
-    def test_unknown_pruning_and_missing_type_prevent_registration(self):
+    def test_invalid_pruning_and_missing_type_prevent_registration(self):
         with tempfile.TemporaryDirectory() as directory:
-            adapter = self.adapter(directory, '<LinkTag name="Pruned" defaultPruning="1"/>')
+            adapter = self.adapter(directory, '<LinkTag name="Pruned" defaultPruning="maybe"/>')
             importer = DependencyImporter({'link_types': adapter})
             self.assertIsNone(importer.ensure('link_types', 'Pruned'))
             self.assertIsNone(importer.ensure('link_types', 'StoryActor'))
             self.assertIsNone(importer.ensure('link_types', 'NotDeclared'))
             self.assertFalse(importer.registered['link_types'])
             self.assertFalse(importer.files)
+
+    def test_home_inverse_preserves_default_pruning(self):
+        with tempfile.TemporaryDirectory() as directory:
+            importer = DependencyImporter({'link_types': self.adapter(directory,
+                '<LinkTag name="Resident" defaultPruning="1" persistent="1"/>'
+                '<LinkTag name="Home" autoInverse="Resident" persistent="1"/>')})
+            self.assertEqual(importer.ensure('link_types', 'Home'), 'imported_Home')
+            root = E.parse(importer.files['AI/LinkTagDefinitions.xml']).getroot()
+            self.assertEqual(root.find("LinkTag[@name='imported_Resident']").get('defaultPruning'), '1')
+            self.assertEqual(root.find("LinkTag[@name='imported_Home']").get('autoInverse'), 'imported_Resident')
 
     def test_link_data_symbol_is_token_aware_and_preserves_literals(self):
         self.assertEqual(data_expression("$data == '$data' | $database == $data.field", 'data', 'newtag'),

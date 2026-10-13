@@ -19,6 +19,48 @@ class Inbox:
 
 
 class WorkBehaviorTests(unittest.TestCase):
+    def test_random_job_selection_preserves_operand_and_proximity_reference_formats(self):
+        model = source('''<Root><Sequence>
+          <NumericalOperation In1VariableName="&quot;0&quot;" In2VariableName="&quot;jobCount&quot;"
+            In3VariableName="&quot;&quot;" OutVariableName="&quot;jobIndex&quot;" Operation="&quot;randRange&quot;"/>
+          <NotNearPlayer target="&quot;this.id&quot;" result="&quot;visibleCheck&quot;"/>
+          </Sequence></Root>''')
+        files, _, report = convert_behaviors([model], 'Converted', catalog())
+        root = E.fromstring(next(iter(files.values())))
+        self.assertEqual(root.find('.//NumericalOperation').attrib, dict(In1VariableName='0',
+            In2VariableName='jobCount', In3VariableName='', OutVariableName='$jobIndex', Operation='randRange'))
+        self.assertEqual(root.find('.//NotNearPlayer').attrib, dict(target='$this.id',result='$visibleCheck'))
+        self.assertEqual(report['whole_trees_emitted'], 1)
+
+    def test_unverified_numeric_operation_and_expression_operand_are_rejected(self):
+        for operand, operation in [('jobCount + 1','randRange'), ('jobCount','inventedOp')]:
+            model = source(f'''<Root><NumericalOperation In1VariableName="&quot;{operand}&quot;"
+              OutVariableName="&quot;result&quot;" Operation="&quot;{operation}&quot;"/></Root>''')
+            files, _, report = convert_behaviors([model], 'Converted', catalog())
+            self.assertFalse(files)
+            self.assertEqual(report['blocked_trees'], 1)
+
+    def test_exclusive_area_and_object_jobs_keep_target_and_request_policy(self):
+        for operation, target in [('SmartAreaBehaviorTag','smartArea'), ('SmartObjectBehaviorTag','smartObject')]:
+            model = source(f'''<Root><{operation} {target}="&quot;workplace&quot;"
+              preferredBehaviors="&quot;AnyImportedJob&quot;" forbiddenBehaviors="&quot;&quot;"
+              preferredBehaviorsOnly="&quot;true&quot;" stopAfterFirstFound="&quot;false&quot;"
+              ignoreDropUnloading="&quot;true&quot;"/></Root>''')
+            files, _, report = convert_behaviors([model], 'Converted', catalog())
+            self.assertEqual(report['whole_trees_emitted'], 1)
+            call = E.fromstring(next(iter(files.values()))).find('.//CallBehavior')
+            self.assertEqual(call.attrib, dict(Target='$workplace', BehaviorName="'AnyImportedJob'",
+                stopAfterFirstFound='false', ignoreDropUnloading='true'))
+
+    def test_work_request_selection_policy_is_not_silently_discarded(self):
+        for extra in ['preferredBehaviorsOnly="&quot;false&quot;"',
+                      'preferredBehaviorsOnly="&quot;true&quot;" forbiddenBehaviors="&quot;OtherJob&quot;"']:
+            model = source(f'''<Root><SmartAreaBehaviorTag smartArea="&quot;workplace&quot;"
+              preferredBehaviors="&quot;AnyImportedJob&quot;" {extra}/></Root>''')
+            files, _, report = convert_behaviors([model], 'Converted', catalog())
+            self.assertFalse(files)
+            self.assertEqual(report['blocked_trees'], 1)
+
     def test_object_quest_scope_requires_a_registered_controller_callback(self):
         model = source('''<Root><QuestObjectiveCondition quest="&quot;$__object.name&quot;"
           objective="&quot;first&quot;" function="&quot;IsObjectiveStarted&quot;">
@@ -97,6 +139,25 @@ class WorkBehaviorTests(unittest.TestCase):
         self.assertIsNotNone(reservation.find('Search/ReserveBehaviorSearch/GraphSearch/HasBehaviorFilter'))
         self.assertEqual(reservation.find('Exec/CallBehavior').get('BehaviorName'), reservation.get('behaviorName'))
         self.assertEqual(report['whole_trees_emitted'], 1)
+
+    def test_request_events_keep_handlers_and_cleanup_order(self):
+        model = source('''<Root><TryCatch atomicCatch="&quot;true&quot;">
+          <BehaviorTagCatch Reason="&quot;RequestOK&quot;" ConsumeInnerEvents="&quot;true&quot;">
+            <Expression expressions="&quot;$working = true&quot;"/></BehaviorTagCatch>
+          <BehaviorTagCatch Reason="&quot;BehSucces&quot;" ConsumeInnerEvents="&quot;true&quot;"><Success/></BehaviorTagCatch>
+          <BehaviorTagCatch Reason="&quot;BehFail&quot;" ConsumeInnerEvents="&quot;true&quot;"><Fail/></BehaviorTagCatch>
+          <Subtree><CallBehavior Target="&quot;station&quot;" BehaviorName="&quot;use&quot;"/></Subtree>
+          </TryCatch></Root>''')
+        files, _, report = convert_behaviors([model], 'Converted', catalog())
+        catch = E.fromstring(next(iter(files.values()))).find('.//TryCatch')
+        self.assertEqual([n.get('Reason') for n in catch.findall('BehaviorTagCatch')], ['RequestOK','BehSucces','BehFail'])
+        self.assertEqual(catch[0].find('Expression').get('expressions'), '$working = true')
+        self.assertEqual(catch[-1].tag, 'Subtree')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        model = source('<Root><BehaviorTagCatch Reason="&quot;TypoEvent&quot;"/></Root>')
+        files, _, report = convert_behaviors([model], 'Converted', catalog())
+        self.assertFalse(files)
+        self.assertIn('Unknown behavior request event', report['trees'][0]['unresolved'][0]['reason'])
 
     def test_nonempty_variable_script_blocks_the_whole_caller(self):
         model = source('''<Root><Sequence><SetVariable variable="&quot;parameters&quot;"

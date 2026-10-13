@@ -50,15 +50,14 @@ class LinkTypeAdapter:
                    'autoInverse', 'variableName', 'ownershipIgnore', 'defaultPruning'}
         if set(row) - allowed:
             raise ValueError('Unconverted source AI link metadata')
-        # Default graph-search pruning is a source runtime policy. It cannot
-        # be replaced with an unrelated native flag or silently discarded.
-        if row.get('defaultPruning', '0') != '0':
-            raise ValueError('Source default link pruning requires graph-search conversion')
+        # The native C_TagLibrary loader still reads defaultPruning as a
+        # boolean even though no shipped target XML sets it. Preserve the
+        # source traversal policy, including on auto-inverse home edges.
         # KCD2 ownershipInclude is opt-in; its inverse is not sufficient
         # evidence for the source ownership traversal's default behavior.
         if row.get('ownershipIgnore') not in (None, '1'):
             raise ValueError('Source ownership-traversable link requires ownership conversion')
-        for field in ('persistent', 'doNotLoadIfSaved'):
+        for field in ('persistent', 'doNotLoadIfSaved', 'defaultPruning'):
             if field in row and row[field] not in ('0', '1'):
                 raise ValueError('Invalid source AI link boolean: ' + field)
         identifier(row['name'])
@@ -72,7 +71,7 @@ class LinkTypeAdapter:
     def convert(self, identity, plan, registered):
         row = plan.source['row']
         target = self.namespace + '_' + row['name']
-        attrs = {k: v for k, v in row.items() if k in ('color', 'persistent', 'doNotLoadIfSaved')}
+        attrs = {k: v for k, v in row.items() if k in ('color', 'persistent', 'doNotLoadIfSaved', 'defaultPruning')}
         attrs['name'] = target
         if row.get('ownershipIgnore') == '1':
             attrs['ownershipInclude'] = '0'

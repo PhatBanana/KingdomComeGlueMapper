@@ -218,9 +218,8 @@ class AIStructureAdapter:
             seen.add(attrs['name'])
             dependencies.append(('ai_types',attrs['type']))
             default=(member.text or '').strip()
-            for match in ENUM_REF.finditer(default):dependencies.append(('ai_enums',match[1]))
-            if default and SCALARS.get(attrs['type'])=='string':
-                raise ValueError('Nonempty string default requires verified native serialization: ' + name+'.'+attrs['name'])
+            if SCALARS.get(attrs['type']) != 'string':
+                for match in ENUM_REF.finditer(default):dependencies.append(('ai_enums',match[1]))
             members.append(dict(name=attrs['name'],type=attrs['type'],default=default))
         return ImportPlan(dependencies,dict(name=name,members=members,provenance=self.source.provenance))
 
@@ -232,7 +231,11 @@ class AIStructureAdapter:
         for member in source['members']:
             attrs=dict(Name=member['name'],Type=registered['ai_types'][member['type'].lower()])
             if member['default']:
-                attrs['InitialValue']=self.source.enum_expression(member['default'],registered)
+                # Native Member.InitialValue is type-directed: string defaults
+                # are raw text. Adding expression quotes changes the value to
+                # include those quotes (verified with a native AI brain probe).
+                attrs['InitialValue']=(member['default'] if attrs['Type']=='string'
+                    else self.source.enum_expression(member['default'],registered))
             ET.SubElement(node,'Member',attrs)
         self.source.selected_types[source['name']]=node
         return self.source.type_name(identity),self.source.output('ai_types'),dict(source_name=source['name'],members=source['members'])

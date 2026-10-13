@@ -72,25 +72,33 @@ hunger/time/equipment adapters are not proof that those effects occur in game.
 - [x] Correct native inventory presets to reference actual registered item
   names rather than unsupported `ItemClassId` attributes. Resolve replacement
   IDs through emitted definitions and reject absent or ambiguous names.
-- [ ] Translate the remaining source work-request lifecycle, animation events,
+- [x] Preserve behavior-request lifecycle handlers, string type defaults,
+  home-link pruning and exclusive named area/object requests. Convert the
+  housework random selection and player-proximity operations using native
+  evidence, including a runtime probe for string defaults and random selection.
+- [ ] Translate the remaining source animation events,
   item pickup/release, LOD transitions and cleanup semantics.
-- [ ] Finish type defaults, home-link pruning/ownership, actor brains and
+- [ ] Finish remaining type contracts, home-link ownership, actor brains and
   area/object behavior registration needed by the complete work programs.
 - [ ] Integrate source startup state at its original guarded execution sites,
   then test fresh New Game, dialogue interruption/resumption and save/load.
 
-The source-backed audit at `outputs/OpeningStart/ControllerAudit07` discovers
+The source-backed audit at `outputs/OpeningStart/ControllerAudit09` uses the
+discovery from `ControllerAudit07`:
 1,361 trees through includes and conservative database callback dependencies;
-239 whole trees convert. Those totals include shared library programs and
+279 whole trees convert (previously 239). Those totals include shared library programs and
 alternative registrations, so they are **not** a percentage of quest completion
-or proof that each program is reachable. The complete parent routines remain
-blocked: `housework` has six unresolved sites and `BlackSmith_new` has 41.
+or proof that each program is reachable. `housework` and the `fatherPatch`
+scheduling wrapper now emit completely. `BlackSmith_new` still requires 29
+operation-site conversions; the mother's wrapper needs its dialogue helper.
 The audit records 30 referenced source documents absent from the effective
 retail sources. Its fragments are outside an installable `Data` tree.
 
-Validation for this follow-up: 202 campaign tests, 67 character tests and seven
-quest-import tests pass. No new package from this follow-up has been installed,
-and complete starting-state/schedule runtime acceptance remains open.
+Validation for this follow-up: 211 campaign tests, 67 character tests and seven
+quest-import tests pass. A temporary native contract probe was run and removed;
+the production schedule package has not been replaced. See
+[native work-contract validation](native-work-contract-validation.md) for
+runtime evidence and the remaining integration milestones.
 
 ## Original New Game and character creation
 

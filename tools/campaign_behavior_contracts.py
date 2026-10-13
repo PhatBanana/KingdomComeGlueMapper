@@ -55,6 +55,11 @@ WORK_CONTRACTS = {
     'Exec': {'canSkip': 'value'},
     'Subtree': {'canSkip': 'value'},
     'TryCatch': {'atomicCatch': 'value'},
+    'BehaviorTagCatch': {'Reason': 'behavior_request_event', 'ConsumeInnerEvents': 'value'},
+    'NotNearPlayer': {'target': 'reference', 'result': 'reference'},
+    'NumericalOperation': {'In1VariableName': 'numeric_operand', 'In2VariableName': 'numeric_operand',
+                           'In3VariableName': 'numeric_operand', 'OutVariableName': 'reference',
+                           'Operation': 'numeric_operation'},
     'IfGate': {'RunLogic': 'value', 'atomic': 'value', 'condition': 'expression'},
     'ContinuousSwitch': {},
 }
