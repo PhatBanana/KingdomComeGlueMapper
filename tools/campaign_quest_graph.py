@@ -160,8 +160,13 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
     for name, value in [('started', 'Active'), ('completed', 'Done'), ('failed', 'Failed'), ('unchanged', 'None')]:
         port(name, 'Out', 'bool'); edge(output, 'quest_progress.' + value, name)
     ET.SubElement(quest, 'QuestName', Text=localization.get('name', model['quest']))
-    if localization.get('description'): ET.SubElement(quest, 'Text', Text=localization['description'])
+    if localization.get('description'): ET.SubElement(quest, 'QuestDescription', Text=localization['description'])
     states = {}
+    tracked = defaultdict(list)
+    for row in model['tables'].get('quest_tracked_asset', {}).get('rows', []):
+        if row['quest_id'] != model['quest_id'] or row['objective_id'] not in by_id:
+            raise ValueError('Tracked asset refers to an unknown quest objective')
+        tracked[row['objective_id']].append(row)
     for i, row in sorted(by_id.items(), key=lambda pair: int(pair[0])):
         name = objective_identifier(row['objective_name'])
         state_name = 'objective_' + i
@@ -190,7 +195,13 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
             edge(trace, state_name + '.State', 'Value')
             edge(trace, state_name + '.OnExec', 'Exec')
         report['objectives'].append(dict(source=row, native_state=state_name, journal_visible=not hidden))
-        immediate = (row.get('condition', '').strip() == '1'
+        # A true expression is only one part of a tracked objective's policy.
+        # For example, collecting ten items must still wait for those items.
+        # Withhold automatic completion until tracking has a native adapter.
+        if tracked[i]:
+            report['unsupported'].append(dict(kind='tracked_completion', objective=name,
+                                              assets=tracked[i]))
+        immediate = (not tracked[i] and row.get('condition', '').strip() == '1'
                      and row.get('autocomplete_timeout_str') in ('', '-1', None)
                      and row.get('expiration_timeout_str') in ('', '-1', None)
                      and row.get('time', '0') in ('', '0'))
@@ -236,7 +247,9 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
     for table, payload in model['tables'].items():
         if table.startswith('quest_reward') and payload['rows']:
             report['unsupported'].append(dict(kind='rewards', table=table, rows=payload['rows']))
-    return xml(root), report
+    from campaign_quest_text import register_journal_strings
+    blob, report['journal_strings'] = register_journal_strings(xml(root))
+    return blob, report
 
 
 def emit_project(models, project, startup_quest=None, localization=None, diagnostics=False):
@@ -320,6 +333,10 @@ def main():
     for name, payload in files.items():
         path = a.output / 'Data/Quests' / name
         path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(payload)
+    from campaign_quest_text import localization_table
+    locale_path = a.output / 'Localization' / (a.locale + '_xml') / 'text_ui_quest.xml'
+    locale_path.parent.mkdir(parents=True, exist_ok=True)
+    locale_path.write_bytes(localization_table([s for q in report['quests'] for s in q['journal_strings']]))
     (a.output / 'project-entities.xml').write_bytes(project_entities(a.project, 'Quests/' + a.project + '.xml'))
     (a.output / 'conversion.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
     print(json.dumps(dict(project=a.project, objectives=sum(len(q['objectives']) for q in report['quests']),

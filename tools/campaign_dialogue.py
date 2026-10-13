@@ -19,6 +19,7 @@ from campaign_sources import retail_sources
 from campaign_quest_graph import definition, identifier, xml
 from upgrade_map import read
 from campaign_entity_links import native_guid
+from campaign_dialogue_conditions import QuestConditions
 
 
 TABLES = ('topic', 'topic2sequence', 'sequence', 'sequence_line', 'response',
@@ -42,13 +43,22 @@ def group(rows, key):
     return result
 
 
-def resolve(tables, alias):
+def resolve(tables, alias=None, *, start_topic=None):
     topics = unique_index(tables['topic'], 'topic_id')
     sequences = unique_index(tables['sequence'], 'sequence_id')
     membership = group(tables['topic2sequence'], 'topic_id')
-    starts = [r for r in topics.values() if r['label'] == alias]
-    if len(starts) != 1: raise ValueError('Dialogue alias is missing or ambiguous: ' + alias)
-    start = starts[0]['topic_id']
+    if (alias is None) == (start_topic is None):
+        raise ValueError('Select exactly one dialogue alias or source start topic')
+    if start_topic is not None:
+        start = str(start_topic)
+        if start not in topics or not any(r['start_topic'] == start for r in tables['v_branch']):
+            raise ValueError('Source start topic is not a registered dialogue branch: ' + start)
+        alias = topics[start]['label']
+    else:
+        if not alias: raise ValueError('Empty dialogue alias; use its source start topic')
+        starts = [r for r in topics.values() if r['label'] == alias]
+        if len(starts) != 1: raise ValueError('Dialogue alias is missing or ambiguous: ' + alias)
+        start = starts[0]['topic_id']
     queue, selected, seq_ids = deque([start]), {}, set()
     while queue:
         tid = queue.popleft()
@@ -85,14 +95,14 @@ def resolve(tables, alias):
                 moods=tables['dialogue_mood'], executable=False)
 
 
-def load(game, alias, locale='English'):
+def load(game, alias=None, locale='English', *, start_topic=None):
     if not re.fullmatch(r'[A-Za-z]+', locale): raise ValueError('Invalid locale')
     paths = {n: ('Tables.pak', 'Libs/Tables/text/' + n + '.xml') for n in TABLES}
     paths['role'] = ('Tables.pak', 'Libs/Tables/rpg/role.xml')
     sources = retail_sources(game, paths)
     tables = {n: [dict(r.attrib) for r in ET.fromstring(s['data']).findall('./table/rows/row')]
               for n, s in sources.items()}
-    model = resolve(tables, alias)
+    model = resolve(tables, alias, start_topic=start_topic)
     model['roles'] = {r['role_id']: r for r in tables['role']}
     with zipfile.ZipFile(Path(game) / 'Localization' / (locale + '_xml.pak')) as z:
         data = read(z, 'text_ui_dialog.xml')
@@ -206,11 +216,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
     scripts = []
     visited = set()
     converted_commands = []
-
-    def constant_condition(value):
-        if value.strip() in ('', '1'): return ''
-        if value.strip() == '0': return 'false'
-        raise ValueError('Unconverted dialogue condition: ' + value)
+    conditions = QuestConditions(quest_models)
 
     def decision(parent, tid):
         visited.add(tid)
@@ -223,10 +229,10 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             source, entry = record['source'], record['entry']; sid = source['sequence_id']
             if source['type'] != '0' or source['group'] != '0' or source['skill_check_difficulty_id'] or source['reputation'] != '0':
                 raise ValueError('Unconverted dialogue selection semantics for sequence ' + sid)
-            condition = constant_condition(entry['entry_condition'])
+            condition = conditions.compile(entry['entry_condition'])
             if entry['npc_entry_condition']: raise ValueError('Unconverted NPC dialogue condition')
             if tid == model['start_topic']:
-                condition = ' AND '.join(x for x in ("Port('" + active_port + "')", condition) if x)
+                condition = "Port('" + active_port + "')" + (' AND (' + condition + ')' if condition else '')
             attrs = dict(Name='seq_' + sid, EndType='EndDialogue')
             if condition: attrs['EntryCondition'] = condition
             if source['script']:
@@ -295,7 +301,10 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                 else:
                     s.set('EndType', 'Decision'); decision(s, nxt)
     decision(dialogue, model['start_topic'])
-    return xml(root), dict(actions=actions, exit_scripts=scripts, presentation_pending=presentation,
+    for port in conditions.bindings:
+        ET.SubElement(ports, 'Port', Name=port, Direction='In', Type='bool')
+    return xml(root), dict(actions=actions, conditions=conditions.bindings, active_port=active_port,
+                           exit_scripts=scripts, presentation_pending=presentation,
                            converted_commands=converted_commands, presentation_runtime_verified=False,
                            source_alias=model['alias'], native_name=name, kind=kind,
                            topic_count=len(model['topics']), campaign_ready=False)
@@ -340,7 +349,9 @@ def voices(game, model, directory):
 def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--kcd1', type=Path, required=True)
-    p.add_argument('--alias', required=True)
+    selection = p.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--alias')
+    selection.add_argument('--start-topic', help='Original database branch start topic, including unnamed branches')
     p.add_argument('--name', required=True)
     p.add_argument('--quest-ir', type=Path, action='append', required=True)
     p.add_argument('--voice-directory', required=True)
@@ -351,7 +362,7 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     a = p.parse_args()
     if a.output.exists(): raise FileExistsError('Choose a new staging directory')
-    model = load(a.kcd1, a.alias, a.locale)
+    model = load(a.kcd1, a.alias, a.locale, start_topic=a.start_topic)
     data, report = emit(model, a.name, [json.loads(p.read_text(encoding='utf-8')) for p in a.quest_ir], kind=a.kind,
                         convert_presentation=a.convert_presentation)
     audio, report['voices'] = voices(a.kcd1, model, a.voice_directory)

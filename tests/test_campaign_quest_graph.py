@@ -28,6 +28,20 @@ def model():
 
 
 class QuestGraphTests(unittest.TestCase):
+    def test_true_condition_does_not_bypass_tracked_item_requirements(self):
+        m = model()
+        m['tables']['quest_objective']['rows'][1]['condition'] = '1'
+        tracking = dict(quest_id='42', objective_id='4', quest_asset_id='90', count='10')
+        m['tables']['quest_tracked_asset'] = dict(rows=[tracking])
+        files, report = emit_project([m], 'Example')
+        q = E.fromstring(files['Example/arbitrary_quest.xml'])
+        self.assertIsNone(q.find(".//Timer[@Name='complete_4_queued']"))
+        pending = [r for r in report['quests'][0]['unsupported'] if r['kind'] == 'tracked_completion']
+        self.assertEqual(pending, [dict(kind='tracked_completion', objective='first', assets=[tracking])])
+        tracking['objective_id'] = '999'
+        with self.assertRaisesRegex(ValueError, 'unknown quest objective'):
+            emit_project([m], 'Example')
+
     def test_constant_true_objective_completes_on_start_but_timed_condition_does_not(self):
         m = model()
         m['tables']['quest_objective']['rows'][0]['condition'] = '1'

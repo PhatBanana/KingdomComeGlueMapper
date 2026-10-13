@@ -13,7 +13,8 @@ import zipfile
 
 from upgrade_map import read, xml
 from campaign_quest_graph import emit_project
-from campaign_quest_text import load as load_quest_text
+from campaign_quest_text import load as load_quest_text, localization_table
+from campaign_quest_scope import bind_level
 from campaign_dialogue_runtime import attach_dialogue
 from campaign_scene import attach_scene, stat_effects, bind_stat_effects, bind_scene_cameras, bind_scene_positions
 from character_person import resolve_person, register_person, actor_resources
@@ -163,6 +164,12 @@ def build(a):
         if path.startswith('tables/'):
             resources[f'Mods/{modid}/Data/Levels/{a.level}/{path}']=blob
     package=a.output/'package';package.mkdir(parents=True)
+    entry_path = a.project_path.rsplit('/', 1)[0] + '/entry/' + a.level + '.xml'
+    with zipfile.ZipFile(travel) as archive:
+        entry_blob = resources.get(entry_path, read(archive, entry_path))
+    resources[a.project_path], resources[entry_path], scope_report = bind_level(
+        resources[a.project_path], entry_blob, graphs[project_name + '/' + quest_model['quest'] + '.xml'],
+        quest_model['quest'], a.level)
     rewrite(travel,package/'Data/gluemappertravel.pak',resources)
     rewrite(level,package/'Data/Levels'/a.level/'level.pak',files)
     audio = {p.relative_to(a.runtime/'Localization/English').as_posix():p.read_bytes()
@@ -175,6 +182,8 @@ def build(a):
     with zipfile.ZipFile(locale) as z:
         strings={'text_ui_dialog.xml':merge_audio_strings(read(z,'text_ui_dialog.xml'),
             (a.runtime/'Localization/English_xml/text_ui_dialog.xml').read_bytes())}
+        strings['text_ui_quest.xml'] = merge_audio_strings(read(z, 'text_ui_quest.xml'),
+            localization_table([s for q in quest_report['quests'] for s in q['journal_strings']]))
         with zipfile.ZipFile(a.source/'Localization/English_xml.pak') as original:
             key=person['instance'].findtext('StaticData/NameStringId');t=ET.Element('Table')
             t.append(next(r for r in ET.fromstring(read(original,'text_ui_soul.xml')) if r.findtext('Cell')==key))
@@ -185,7 +194,7 @@ def build(a):
     receipt=dict(runtime_verified=False,source_alias=model['alias'],placements=spots,actor=voice_receipt,
                  rewards=effects,animations=animation_report,world=world_receipt,cameras=camera_report,
                  scene_placement=placement_report,
-                 quest_conversion=quest_report,quest_localization=quest_text_report,
+                 quest_conversion=quest_report,quest_localization=quest_text_report,quest_scope=scope_report,
                  baseline={str(p.relative_to(a.mod)):digest(p) for p in (travel,level,audio_pak,locale)},
                  pending=['Full original campaign continuation','Original facial tracks','In-game two-round choices and gameplay handoff'])
     (a.output/'scene-test.json').write_text(json.dumps(receipt,indent=2))

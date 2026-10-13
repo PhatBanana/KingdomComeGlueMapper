@@ -118,8 +118,12 @@ def attach_dialogue(files, project, dialogue_blob, report, activation):
     node_port(source, port, 'Out', 'bool')
     inputs = [p.get('Name') for p in native.findall('Ports/Port')
               if p.get('Direction') == 'In' and p.get('Type') == 'bool']
-    if len(inputs) != 1:
-        raise ValueError('Expected one source dialogue activation port')
+    conditions = report.get('conditions', {})
+    active = report.get('active_port', inputs[0] if len(inputs) == 1 else None)
+    if active in conditions or set(inputs) != set(conditions) | {active}:
+        raise ValueError('Dialogue condition report does not match its input ports')
+    for binding in conditions.values():
+        node_port(binding['quest'], binding['output'], 'Out', 'bool')
     declared = {p.get('Name') for p in native.findall('Ports/Port') if p.get('Direction') == 'Out'}
     if declared != report['actions'].keys():
         raise ValueError('Dialogue objective report does not match its output ports')
@@ -129,7 +133,9 @@ def attach_dialogue(files, project, dialogue_blob, report, activation):
     path = project + '/' + name + '.xml'
     ET.SubElement(definitions, 'Definition', File=path)
     instance = ET.SubElement(nodes, name, Name=name)
-    ET.SubElement(instance, 'Edge', From=activation, To=inputs[0])
+    ET.SubElement(instance, 'Edge', From=activation, To=active)
+    for port, binding in conditions.items():
+        ET.SubElement(instance, 'Edge', From=binding['quest'] + '.' + binding['output'], To=port)
     result[path] = dialogue_blob
     result[project + '.xml'] = xml(root)
     return result

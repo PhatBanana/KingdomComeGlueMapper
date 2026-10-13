@@ -17,6 +17,44 @@ TABLES = ('skald_objective', 'skald_objective_string', 'skald_objective_string_t
           'skald_quest_string', 'skald_quest_string_type')
 
 
+def register_journal_strings(blob):
+    """Native journal fields require registered keys, not Text-only fallbacks."""
+    root = ET.fromstring(blob)
+    quest = root.find('./Skald/Quest')
+    if quest is None: raise ValueError('Expected a quest journal definition')
+    records = []
+
+    def bind(element, identity):
+        if element is None: return
+        text = element.get('Text', '')
+        key = 'gmq_' + hashlib.sha256((quest.get('Name') + ':' + identity).encode()).hexdigest()[:24]
+        element.set('StringName', key)
+        records.append(dict(key=key, text=text))
+
+    bind(quest.find('QuestName'), 'name')
+    bind(quest.find('QuestDescription'), 'description')
+    for objective in quest.findall('Objectives/Objective'):
+        identity = objective.get('Name')
+        bind(objective.find('LocalizedName'), identity + ':name')
+        for state in objective.findall('Logs/EnumLog'):
+            bind(state.find('Log'), identity + ':' + state.get('Name'))
+    return ET.tostring(root, encoding='utf-8', xml_declaration=True), records
+
+
+def localization_table(records):
+    table = ET.Element('Table')
+    seen = {}
+    for row in records:
+        if row['key'] in seen:
+            if seen[row['key']] != row['text']: raise ValueError('Conflicting quest journal string')
+            continue
+        seen[row['key']] = row['text']
+        element = ET.SubElement(table, 'Row')
+        for value in (row['key'], row['text'], row['text']):
+            ET.SubElement(element, 'Cell').text = value
+    return ET.tostring(table, encoding='utf-8', xml_declaration=True)
+
+
 def resolve(models, tables, strings):
     objective_types = {r['skald_objective_string_type_id']: r['skald_objective_string_type_name']
                        for r in tables['skald_objective_string_type']}

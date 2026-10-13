@@ -194,12 +194,13 @@ Sources: [combined setup backend](tools/desktop_setup.py), [region builder](tool
 - [x] Import the mother's original voice recordings, dialogue choices and character appearance into a native dialogue scene.
 - [x] Convert source scene markers into native dialogue-entry placement; both participants remain inside the house through the tested two-choice conversation and return to gameplay.
 - [x] Resolve the quest-graph loading stall and reconnect original objective callbacks and stat-reward bindings.
+- [x] Register original opening quest text and bind the quest to its native destination region; journal text and region have in-game acceptance.
 - [ ] Verify all character-stat choice branches and prevention of repeated rewards.
 - [ ] Restore remaining original gestures, lip-sync and starting-player equipment; validate every choice branch.
 - [ ] Verify the complete movie → conversation → quest gameplay sequence, including movie skipping and save/load.
 - [ ] Convert subsequent main, side and DLC quests with their actors, objectives, world changes, rewards and persistence.
 
-**Current boundary:** the development test loads all 109 source objective states, awards both Speech choices, advances the original opening objectives and returns to gameplay with correct actor placement. Speech 7 survived a quicksave/reload without replaying the opening conversation. Other stat branches, journal/marker presentation and subsequent interactions remain unverified; this is not a completed character-creation or campaign conversion. The ordinary setup still uses coach travel. See the [quest conversion checklist](docs/quest-checklist.md) for implementation milestones and per-quest acceptance requirements.
+**Current boundary:** the development test loads all 109 source objective states, awards both Speech choices, advances the original opening objectives and returns to gameplay with correct actor placement. Speech 7 survived a quicksave/reload without replaying the opening conversation. Opening journal text and region are now confirmed in game. Other stat branches, quest markers and subsequent interactions remain unverified; this is not a completed character-creation or campaign conversion. The ordinary setup still uses coach travel. See the [quest conversion checklist](docs/quest-checklist.md) for implementation milestones and per-quest acceptance requirements.
 
 ### Packaging and quality
 

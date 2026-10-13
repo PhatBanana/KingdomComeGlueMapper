@@ -25,9 +25,11 @@ from the normal coach-travel installation route and published installers.
 - [ ] Convert incompatible tutorial calls and suppress unrelated exploration quest notifications during New Game.
 - [ ] Verify a fresh complete movie and a skipped movie both enter the correct conversation once.
 - [x] Verify dialogue completion completes source `objectiveStart`, activates its original successor objectives, and releases the conversation to gameplay.
-- [ ] Verify the resulting journal presentation and quest markers, and connect the father's original interaction.
+- [x] Register original journal strings and place the quest under its destination Level; opening journal text and region are confirmed in game.
+- [ ] Verify quest markers and connect the father's original interaction.
 - [ ] Validate saving/loading before and after the conversation, stat persistence and prevention of repeated rewards or scene replay.
 - [ ] Integrate the accepted opening into the campaign installer with its movie-conversion prerequisites.
+- [ ] Connect the menu's native New Game route to the accepted opening package; validate movie completion and skipping, two fresh starts, and Continue without replaying the opening.
 
 The placement test uses the original participant transforms. Both real actors
 and dialogue copies measured 63.9089 m during the first menu; the real actors
@@ -45,6 +47,19 @@ text and all eight stat-reward bindings. The graph is not a complete quest:
 unsupported behaviour, conditions, timers and interactions remain reported.
 The sampled save/load retained Speech 7 and did not replay character creation;
 that does not yet establish persistence of every objective or reward guard.
+
+The journal correction registers 59 source strings and moves the quest instance
+under its native Level while preserving graph connections. The user confirmed
+the region correction in the fresh JournalRegion01 development build. Existing
+saves from the earlier project-root quest layout have not been migration-tested.
+
+The next quest pass discovers 94 source dialogue branches referencing Skalitz,
+including anonymous entry topics, and reports two orphaned callbacks. Supported
+boolean quest predicates are converted to validated native dialogue ports.
+Tracked objectives no longer complete merely because their source condition is
+constant true: their item/NPC tracking still needs conversion. This prevents
+false completion; it does not yet make father's errands playable. Persuasion,
+reputation, remaining conditions and interactions stay open.
 
 ## Campaign conversion milestones
 
