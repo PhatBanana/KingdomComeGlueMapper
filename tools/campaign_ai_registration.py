@@ -19,7 +19,7 @@ from upgrade_map import read
 
 TABLES = ('brain', 'brain2mailbox', 'brain2subbrain', 'brain_variable',
           'mailbox', 'mailbox_filter', 'subbrain', 'subbrain_behaviour_tree',
-          'subbrain_smart_object', 'mailbox_action_type', 'subbrain_type',
+          'subbrain_smart_object', 'subbrain_smart_area', 'mailbox_action_type', 'subbrain_type',
           'ai_variable_form', 'ai_variable_sync')
 
 
@@ -189,6 +189,8 @@ class SubbrainAdapter:
         type_name = self.tables.row('ai/subbrain_type', 'subbrain_type_id', row['subbrain_type'])['subbrain_type_name']
         if type_name == 'SmartObject':
             table, tree_fields = 'subbrain_smart_object', ('on_update_tree', 'on_request_tree', 'on_release_tree')
+        elif type_name == 'SmartArea':
+            table, tree_fields = 'subbrain_smart_area', ('on_update_tree', 'on_request_tree', 'on_release_tree', 'on_enter_tree', 'on_exit_tree')
         elif type_name == 'BehaviorTree':
             table, tree_fields = 'subbrain_behaviour_tree', ('tree_name',)
         else:
@@ -200,7 +202,14 @@ class SubbrainAdapter:
         references = {field: tree_identity(owner, behavior['file_name'], behavior[field])
                       for field in tree_fields if behavior.get(field)}
         if not references:
-            raise ValueError('Source subbrain has no entry trees')
+            # Empty default subbrains are real authored registrations. Reuse
+            # their empty native contract only when the target table confirms
+            # the same file and no callbacks, rather than inventing a tree.
+            matches = [r for r in self.native.tables[table]['rows']
+                       if r.get('file_name') == behavior.get('file_name')
+                       and not any(r.get(field) for field in tree_fields)]
+            if not matches:
+                raise ValueError('Empty source subbrain has no matching native contract')
         return ImportPlan([('behavior_trees', r) for r in references.values()], dict(
             row=row, behavior=behavior, table=table, references=references, native_type=typ,
             provenance=self.tables.get('ai/' + table)['provenance']))
@@ -218,9 +227,12 @@ class SubbrainAdapter:
             path, name = registered['behavior_trees'][ref.lower()].split('|')
             behavior[field] = name
             paths.add(path)
-        if len(paths) != 1:
+        if not paths:
+            behavior['file_name'] = source['behavior']['file_name']
+        elif len(paths) != 1:
             raise ValueError('Subbrain entry trees were emitted into different documents')
-        behavior['file_name'] = paths.pop()
+        else:
+            behavior['file_name'] = paths.pop()
         files = self.native.emit('subbrain', target, [row])
         files.update(self.native.emit(source['table'], target, [behavior]))
         return target, files, dict(entry_points=behavior, runtime_validated=False)

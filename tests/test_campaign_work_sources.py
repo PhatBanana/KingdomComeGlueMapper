@@ -1,10 +1,26 @@
 import unittest
 import xml.etree.ElementTree as E
 from test_campaign_behavior import source
-from campaign_work_sources import discover
+from campaign_work_sources import discover, area_context
 
 
 class WorkSourcesTests(unittest.TestCase):
+    def test_area_context_follows_sibling_jobs_and_all_lifecycle_callbacks(self):
+        rows={
+            'sa_behaviour_tag':[dict(sa_behaviour_tag_id='main',sa_behaviour_tag_name='work',tree_file='work.xml',tree_name='Work'),
+                                dict(sa_behaviour_tag_id='secondary',sa_behaviour_tag_name='cleanup',tree_file='clean.xml',tree_name='Clean')],
+            'sa_smart_area2sa_behaviour_tag':[dict(sa_smart_area_id='area',sa_behaviour_tag_id=t) for t in ('main','secondary')],
+            'sa_smart_area':[dict(sa_smart_area_id='area',brain_id='brain')],
+            'brain2subbrain':[dict(brain_id='brain',subbrain_id='sub')],
+            'subbrain':[dict(subbrain_id='sub',subbrain_type='99')],
+            'subbrain_type':[dict(subbrain_type_id='99',subbrain_type_name='SmartArea')],
+            'subbrain_smart_area':[dict(subbrain_id='sub',file_name='lifecycle.xml',on_enter_tree='Enter',on_exit_tree='Exit',
+                on_update_tree='Update',on_request_tree='Request',on_release_tree='Release')],
+        }
+        result=area_context([dict(table='sa_behaviour_tag',row=rows['sa_behaviour_tag'][0])],rows.__getitem__)
+        self.assertEqual({p['tree'] for p in result['programs']},{'Work','Clean','Enter','Exit','Update','Request','Release'})
+        self.assertEqual(result['templates'],rows['sa_smart_area'])
+
     def trees(self, expression, only='true'):
         m = source('''<Root><SmartAreaBehaviorTag preferredBehaviors="&quot;''' + expression +
             '''&quot;" preferredBehaviorsOnly="&quot;''' + only + '''&quot;"/></Root>''')

@@ -19,6 +19,25 @@ class Inbox:
 
 
 class WorkBehaviorTests(unittest.TestCase):
+    def test_tool_search_preserves_categories_helpers_and_literal_concat_patterns(self):
+        model=source('''<Root><Sequence>
+          <GraphSearch Origin="&quot;workplace&quot;">
+            <CategoryFilter categories="&quot;Anvil&quot;" Source="&quot;Child&quot;" Child="&quot;station&quot;"/>
+          </GraphSearch>
+          <GetHelper smartObjectName="&quot;station&quot;" helperName="&quot;stand&quot;" categoryName="&quot;&quot;"
+            targetVar="&quot;point&quot;" policy="&quot;Name&quot;"/>
+          <Concatenation OutString="&quot;alias&quot;" Pattern="&quot;$prefix;$index;&quot;"/>
+          <ForceLook LookTarget="&quot;partner&quot;" DisableVariations="&quot;false&quot;">
+            <DoDialog DialogId="&quot;$dialogId&quot;"/></ForceLook>
+          </Sequence></Root>''')
+        files,_,report=convert_behaviors([model],'Converted',catalog())
+        self.assertEqual(report['whole_trees_emitted'],1)
+        root=E.fromstring(next(iter(files.values())))
+        self.assertEqual(root.find('.//CategoryFilter').get('categories'),"'Anvil'")
+        self.assertEqual(root.find('.//GetHelper').get('smartObjectName'),'$station')
+        self.assertEqual(root.find('.//Concatenation').get('Pattern'),"'$prefix;$index;'")
+        self.assertEqual(root.find('.//ForceLook/DoDialog').get('DialogId'),'$dialogId')
+
     def test_random_job_selection_preserves_operand_and_proximity_reference_formats(self):
         model = source('''<Root><Sequence>
           <NumericalOperation In1VariableName="&quot;0&quot;" In2VariableName="&quot;jobCount&quot;"

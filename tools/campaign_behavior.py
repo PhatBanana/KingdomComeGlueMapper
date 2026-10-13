@@ -329,6 +329,10 @@ class BehaviorCompiler:
                         value = self.typed_expression(raw)
                     elif kind == 'string_expression':
                         value = self.typed_expression(raw) if value.startswith('$') else (quote(value) if value else '')
+                    elif kind == 'literal_pattern':
+                        # Concatenation parses variable markers inside a string
+                        # pattern; a leading $ does not make it an expression.
+                        value = quote(value) if value else ''
                     elif kind == 'include_file':
                         if value.startswith('$'):
                             raise UnsupportedOperation('Dynamic behavior include needs runtime dispatch')

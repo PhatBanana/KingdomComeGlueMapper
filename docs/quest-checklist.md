@@ -72,6 +72,12 @@ hunger/time/equipment adapters are not proof that those effects occur in game.
 - [x] Correct native inventory presets to reference actual registered item
   names rather than unsupported `ItemClassId` attributes. Resolve replacement
   IDs through emitted definitions and reject absent or ambiguous names.
+- [x] Discover area lifecycle callbacks and sibling work programs in addition
+  to the initially requested job. Register converted smart-area templates and
+  their native SmartArea subbrains, retaining enter/exit/request/release/update
+  entry points. Convert quest-bound work-area placement and geometry.
+- [x] Preserve compiled world-space area vertices, or transform source XML
+  local-space vertices once when the compiled polygon is absent.
 - [x] Preserve behavior-request lifecycle handlers, string type defaults,
   home-link pruning and exclusive named area/object requests. Convert the
   housework random selection and player-proximity operations using native
@@ -83,20 +89,24 @@ hunger/time/equipment adapters are not proof that those effects occur in game.
 - [ ] Integrate source startup state at its original guarded execution sites,
   then test fresh New Game, dialogue interruption/resumption and save/load.
 
-The source-backed audit at `outputs/OpeningStart/ControllerAudit09` uses the
-discovery from `ControllerAudit07`:
-1,361 trees through includes and conservative database callback dependencies;
-279 whole trees convert (previously 239). Those totals include shared library programs and
+The source-backed rebuild at `outputs/OpeningStart/ControllerAudit10` discovers
+1,426 trees through includes, database callbacks and area-context dependencies;
+334 whole trees convert (previously 279 of 1,361). Those totals include shared library programs and
 alternative registrations, so they are **not** a percentage of quest completion
 or proof that each program is reachable. `housework` and the `fatherPatch`
-scheduling wrapper now emit completely. `BlackSmith_new` still requires 29
+scheduling wrapper now emit completely. `BlackSmith_new` still requires 18
 operation-site conversions; the mother's wrapper needs its dialogue helper.
-The audit records 30 referenced source documents absent from the effective
-retail sources. Its fragments are outside an installable `Data` tree.
+The area registration pass attempts all 74 discovered candidate templates.
+One complete template (`sa_watch`) registers; the home and forge templates
+still need their other job programs and lifecycle dependencies converted.
+The housework entry tree alone is not the complete housework cycle.
+The fragments remain outside an installable `Data` tree.
 
-Validation for this follow-up: 211 campaign tests, 67 character tests and seven
-quest-import tests pass. A temporary native contract probe was run and removed;
-the production schedule package has not been replaced. See
+Validation for this follow-up: 220 campaign tests, 67 character tests and seven
+quest-import tests pass. The prior temporary native contract probe was run and
+removed; this area-registration follow-up has source-rebuild and regression-test
+coverage, not new in-game acceptance. The production schedule package has not
+been replaced. See
 [native work-contract validation](native-work-contract-validation.md) for
 runtime evidence and the remaining integration milestones.
 

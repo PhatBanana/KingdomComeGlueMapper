@@ -21,6 +21,7 @@ from campaign_behavior import convert_behaviors, native_catalog
 from campaign_character_dependencies import CharacterPartAdapter
 from campaign_ai_types import AITypeSource, AIEnumAdapter, AIStructureAdapter
 from campaign_link_types import LinkTypeAdapter
+from campaign_smart_areas import SmartAreaAdapter, area_bindings
 from campaign_item_names import registered_item_name
 from campaign_ai_registration import (NativeAIRegistry, MailboxAdapter, BrainAdapter,
     SubbrainAdapter, ConvertedTreeAdapter, SmartEntityAdapter, controller_definition, quest_controller_brains)
@@ -214,7 +215,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             return WorldItemAdapter(tables, project, native_item_definitions,
                                     {r.get('id'):r.get('name') for r in weapons[0]}, components)
         importer = DependencyImporter(dict(
-            entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids),
+            entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids,
+                area_bindings(bindings, dict(entities=all_entities))),
             items=LazyAdapter(item_adapter), inventories=InventoryAdapter(tables, project,
                 lambda identity: registered_item_name(identity, native_item_definitions, importer.files)),
             clothing=LazyAdapter(lambda: ClothingAdapter(tables, assets.materialize(), target, stack)),
@@ -263,7 +265,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             eligible, project + '_behavior', catalog, importer.registered, importer, profile_streaming)
         importer.adapters.update(behavior_trees=ConvertedTreeAdapter(behavior, behavior_files),
             subbrains=SubbrainAdapter(tables, native_ai), brains=BrainAdapter(tables, native_ai, ai_types),
-            smart_entities=SmartEntityAdapter(tables, native_ai))
+            smart_entities=SmartEntityAdapter(tables, native_ai),
+            smart_areas=SmartAreaAdapter(tables, native_ai))
         controllers = quest_controller_brains(eligible, tables, importer)
         progress('Importing quest dependencies', 0, len(bindings), 'Actors, inventory, items, models and trigger areas')
         import_binding_dependencies(bindings, importer)

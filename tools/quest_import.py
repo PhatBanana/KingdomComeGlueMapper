@@ -153,12 +153,13 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
         table_only={i: n for i, n in table_objectives.items() if i not in graph_objectives})
     resolve_null_tracking_edges(graph, tables)
     documents = {}
-    work_calls, work_tables, missing_documents = [], {}, {}
+    work_calls, work_tables, missing_documents, work_table_rows = [], {}, {}, {}
     def work_rows(name):
         if name not in work_tables:
             record = resolve(game, {'work': ('Tables.pak', 'Libs/Tables/ai/' + name + '.xml')})['work']
             work_tables[name] = record
-        return [dict(r.attrib) for r in ET.fromstring(work_tables[name]['data']).findall('./table/rows/row')]
+            work_table_rows[name] = [dict(r.attrib) for r in ET.fromstring(record['data']).findall('./table/rows/row')]
+        return work_table_rows[name]
     pending = [item for label, item in sources.items() if label != 'graph']
     while pending:
         source = pending.pop(0); entry = key(source['entry'])
@@ -172,7 +173,7 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
                     value = literal(node['attributes']['File'])
                     if not value.startswith('$'): includes.add(behavior_path(value))
         from campaign_work_sources import discover
-        for call in discover(trees, work_rows):
+        for call in discover(trees, work_rows, include_area_context=True):
             work_calls.append(dict(document=entry, **call))
             includes.update(candidate['file'] for candidate in call['candidates'])
         for include in sorted(includes):

@@ -133,9 +133,10 @@ class SoulAdapter:
 
 
 class EntityAdapter:
-    def __init__(self, world, souls, area_data, export_version, doors=None, controllers=None):
+    def __init__(self, world, souls, area_data, export_version, doors=None, controllers=None, smart_areas=None):
         self.doors = doors
         self.controllers = controllers or {}
+        self.smart_areas = smart_areas or {}
         self.entities = {}
         for record in world['entities'].values():
             text = record['attributes'].get('EntityGuid', '')
@@ -162,6 +163,12 @@ class EntityAdapter:
                 raise ValueError('Placed actor has no shared retail soul identity: ' + identity)
             dependencies.append(('souls', shared))
         source = copy.deepcopy(source)
+        if source['attributes'].get('EntityClass') == 'SmartAreaShape':
+            identities = self.smart_areas.get(identity, [])
+            if len(identities) != 1:
+                raise ValueError('Placed work area requires an unambiguous campaign template binding')
+            source['area_identity'] = identities[0]
+            dependencies.append(('smart_areas',identities[0]))
         if source['attributes'].get('EntityClass') == 'AnimDoor' and self.doors is not None:
             door = self.doors.plan(source)
             dependencies.extend(door.dependencies)
@@ -177,7 +184,7 @@ class EntityAdapter:
     def convert(self, identity, plan, registered):
         source = plan.source['attributes']
         cls = source['EntityClass']
-        if cls not in ('TriggerArea', 'TagPoint', 'NPC', 'NPC_Female', 'AnimDoor', 'QuestObject'):
+        if cls not in ('TriggerArea', 'TagPoint', 'NPC', 'NPC_Female', 'AnimDoor', 'QuestObject', 'SmartAreaShape'):
             raise ValueError('Native entity-class conversion is not implemented: ' + cls)
         attrs = {k: source[k] for k in ('Name', 'Pos', 'Rotate', 'Scale', 'EntityClass', 'CastShadowMinSpec') if k in source}
         attrs['EntityGuid'] = identity
@@ -189,7 +196,17 @@ class EntityAdapter:
                         profile=source.get('Layer'), transform_preserved=True)
         if source.get('ParentGuid') not in (None, '', '0'):
             raise ValueError('Parented entity attachment conversion is required: ' + identity)
-        if cls == 'TriggerArea':
+        if cls == 'SmartAreaShape':
+            from campaign_smart_areas import place_area, source_geometry
+            area_identity = plan.source['area_identity']
+            place_area(entity, plan.source['entity'], registered['smart_areas'][area_identity.lower()])
+            number = guid_value(identity)
+            geometry = self.areas.get(number)
+            if geometry is None:
+                geometry = source_geometry(plan.source['entity'])
+            files['world/triggerareas/' + identity + '.fubar'] = write_areas([geometry], self.export_version)
+            evidence.update(vertices=len(geometry.points), area_template=area_identity)
+        elif cls == 'TriggerArea':
             number = guid_value(identity)
             if number not in self.areas:
                 raise ValueError('Source trigger polygon is missing: ' + identity)
