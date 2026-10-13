@@ -24,6 +24,7 @@ from clothing_regions import assign_body_regions, assign_upper_garment_regions, 
 from static_assets import asset_pack
 from upgrade_map import read, xml
 from character_person import native_xml
+from character_clothing_variant import resolve_variant
 from character_source_clothing import female_role, native_role, source_item, garment_layout
 from character_native_materials import convert_character_materials
 
@@ -133,7 +134,9 @@ def build_appearance(source, target, person, namespace, output):
                               and garment_layout(p)[2] > source_layer for p in parts)
                 if covered and '#A_Shrink' in morphs:
                     fitting = {'#A_Shrink': 1.0}
-            blob, detail = upgrade_skin(blob, skeleton, variant=part.get('morph_target') or None,
+            variant, variant_evidence = resolve_variant(part, morphs,
+                tables.get('item/clothing')['rows'] if kind == 'cloth' else [])
+            blob, detail = upgrade_skin(blob, skeleton, variant=variant,
                 discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=fitting,
                 clear_hiding=kind != 'cloth' or sex == 'female', geometry_field=geometry_field)
             blob, _ = limit_skin_influences(blob)
@@ -157,6 +160,7 @@ def build_appearance(source, target, person, namespace, output):
                     ET.SubElement(elements, 'SkinElement', EquipmentPart=region, Model=filename,
                                   Material=stem + '.mtl', BodyLayerId='0', KeepBodyLayer='true', IsFinalLayer='false')
             evidence.append(dict(kind=kind, model=model, clothing=part.get('clothing_name'), upgrade=detail,
+                                 variant=variant_evidence,
                                  internal_translation=internal_offset))
         if 'beard' not in appearance:
             appearance['beard'] = namespace + '_empty_beard'

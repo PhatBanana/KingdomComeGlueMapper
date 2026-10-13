@@ -103,6 +103,20 @@ class PersonAITests(unittest.TestCase):
             with zipfile.ZipFile(path/'level.pak','w') as z:z.writestr('triggerareas.fubar',write_areas([],123))
             with patch('character_person_world.native_wait_activity',return_value=(activity,terminal)):
                 result, report = register_person_world(files, people, directory, None)
+                shared = dict(files)
+                existing = E.fromstring(files['objects_mission0.xml'])
+                area = E.fromstring(home)
+                area.set('EntityGuid', native_guid(16)); area.set('EntityId', '5')
+                area.set('EntityClass', 'SmartAreaShape'); existing.append(area)
+                shared['objects_mission0.xml'] = E.tostring(existing)
+                reused, _ = register_person_world(shared, people, directory, None)
+                self.assertEqual(len(E.fromstring(reused['objects_mission0.xml']).findall(
+                    "Entity[@EntityClass='SmartAreaShape']")), 1)
+                self.assertEqual(len(read_areas(reused['triggerareas.fubar'])['areas']), 1)
+                area.set('Pos', '11,20,30')
+                shared['objects_mission0.xml'] = E.tostring(existing)
+                with self.assertRaisesRegex(ValueError, 'transform differs'):
+                    register_person_world(shared, people, directory, None)
         root=E.fromstring(result['tables/ai/scheduler.xml'])
         self.assertEqual(root.find(".//C_SmartHub[@EntityGuid='3']/Links/S_ActivityLink/Parameters").get('BehaviorName'),'use')
         p=root.find(".//C_SmartHub[@EntityGuid='2']/Links/S_ActivityLink/Parameters")

@@ -16,7 +16,7 @@ from world_item_documents import DocumentImageAdapter
 from upgrade_map import read
 
 
-def build(source, target, mod, output, identifiers, *, asset_namespace='containeritems'):
+def build(source, target, mod, output, identifiers, *, asset_namespace='containeritems', origin='container_loot'):
     source, target, mod, output = map(Path, (source, target, mod, output))
     if output.exists(): raise FileExistsError('Choose a fresh dependency output')
     output.mkdir(parents=True)
@@ -43,7 +43,7 @@ def build(source, target, mod, output, identifiers, *, asset_namespace='containe
             'assets': assets, 'strings': ItemTextAdapter(source, 'containeritems', 'English')},
             registered={'items': native_item_registry(native)})
         for index, identifier in enumerate(sorted(set(identifiers))):
-            importer.ensure('items', identifier, {'origin':'container_loot'})
+            importer.ensure('items', identifier, {'origin':origin})
             if index % 50 == 0: print('Container item dependencies', index, '/', len(identifiers), flush=True)
         report = importer.report()
         report['required_items'] = len(set(identifiers))

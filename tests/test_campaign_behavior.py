@@ -32,6 +32,20 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_movement_preserves_authored_references_speed_and_tolerances(self):
+        m = source('''<Root><Behavior><Sequence><Move destinationSpecification="&quot;workTarget&quot;"
+            speed="&quot;Walk&quot;" stopWithinDistance="&quot;0.2&quot;" stopDistanceVariation="&quot;0.1&quot;"/>
+            <ExactMove destinationSpecification="&quot;nextTarget&quot;" directionSpecification="&quot;nextTarget&quot;"
+            directionType="&quot;AlignWithEntity&quot;" speed="&quot;Run&quot;" precise="&quot;false&quot;"/>
+            </Sequence></Behavior></Root>''')
+        files, _, report = convert_behaviors([m], 'Imported', catalog())
+        root = E.fromstring(next(iter(files.values())))
+        self.assertEqual(root.find('.//Move').get('destinationSpecification'), '$workTarget')
+        self.assertEqual(root.find('.//Move').get('speed'), 'Walk')
+        self.assertEqual(root.find('.//Move').get('stopWithinDistance'), '0.2')
+        self.assertEqual(root.find('.//ExactMove').get('directionSpecification'), '$nextTarget')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+
     def test_profile_activation_keeps_authored_order_and_native_fader(self):
         from test_campaign_profiles import complete_importer, HELPER
         m = source('''<Root><Sequence><FaderBarrier Fader="&quot;newGameFader&quot;" MuteSounds="&quot;true&quot;">

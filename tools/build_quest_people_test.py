@@ -1,0 +1,122 @@
+"""Stage missing explicit quest NPCs, their source appearance, and journal markers.
+
+Keeps existing actors and packages. Does not install or claim dialogue conversion.
+"""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import xml.etree.ElementTree as ET
+import zipfile
+from campaign_sources import RetailSourceReader
+from campaign_dependency_adapters import SourceTables
+from campaign_quest_people import dependencies, bind_markers
+from character_person import resolve_person, register_person, actor_resources
+from character_person_appearance import build_appearance
+from character_person_world import register_person_world
+from build_english_audio_test import merge_audio_strings
+from build_horse_trader_test import rewrite
+from upgrade_map import read, xml
+
+
+def build(a):
+    if a.output.exists(): raise FileExistsError('Choose a fresh stage')
+    a.output.mkdir(parents=True)
+    package = a.output / 'package'
+    (package / 'Data').mkdir(parents=True)
+    model = json.loads(a.model.read_text(encoding='utf-8'))
+    with RetailSourceReader(a.source) as reader:
+        tables = SourceTables(a.source, reader)
+        source_souls = {r['soul_id']: r['soul_name'] for r in tables.get('rpg/soul')['rows']}
+    travel = a.mod / 'Data/gluemappertravel.pak'
+    level = a.mod / 'Data/Levels' / a.level / 'level.pak'
+    locale = a.mod / 'Localization/English_xml.pak'
+    with zipfile.ZipFile(travel) as z:
+        resources = {n: read(z, n) for n in z.namelist() if n.startswith('Libs/')}
+        project_blob, quest_blob = read(z, a.project_path), read(z, a.quest_path)
+    with zipfile.ZipFile(level) as z:
+        files = {n: read(z, n) for n in ('objects_mission0.xml', 'whdata_0',
+                 'tables/ai/scheduler.xml', 'triggerareas.fubar', 'waitinglinks.xml')}
+    mission, wh = ET.fromstring(files['objects_mission0.xml']), ET.fromstring(files['whdata_0'])
+    registered = {s.findtext('SharedSoulGuid') for s in wh.findall('./SoulList/Souls/Soul')
+                  if any(e.get('EntityGuid') == s.findtext('EntityGuid') for e in mission)}
+    next_id = max(int(e.get('EntityId', '0')) for e in mission) + 1
+    def add(name, cls, pos, guid, rotation):
+        nonlocal next_id
+        if any(e.get('Name') == name or e.get('EntityGuid') == guid for e in mission):
+            raise ValueError('Conflicting actor: ' + name)
+        e = ET.SubElement(mission, 'Entity', Name=name, EntityClass=cls, Pos=pos,
+                          EntityGuid=guid, EntityId=str(next_id), CastShadowMinSpec='1')
+        if rotation: e.set('Rotate', rotation)
+        next_id += 1
+        return e
+    people, converted, existing, pending, names, item_tables = [], [], [], [], ET.Element('Table'), []
+    seen = set()
+    for aid, row in dependencies(model).items():
+        sid = row.get('soul_id')
+        if not sid or row.get('soul_class_id') or row.get('soul_faction_id'):
+            pending.append(dict(asset=aid, reason='Filtered or non-explicit soul')); continue
+        if sid in seen: continue
+        seen.add(sid)
+        if sid in registered:
+            existing.append(dict(soul_id=sid, person=source_souls.get(sid))); continue
+        if sid not in source_souls: raise ValueError('Missing source soul: ' + sid)
+        person = resolve_person(a.source, source_souls[sid], a.source_level)
+        namespace = 'gm_person_' + sid.replace('-', '')
+        appearance = a.output / 'people' / namespace
+        try:
+            character = build_appearance(a.source, a.target, person, namespace, appearance)
+        except ValueError as error:
+            pending.append(dict(asset=aid, person=person['name'], reason=str(error)))
+            print(json.dumps(pending[-1]), flush=True)
+            continue
+        (appearance / 'appearance-result.json').write_text(json.dumps(character, indent=2))
+        resources = actor_resources(a.target, person, character, namespace,
+            role_name=namespace + '_role', native_soul_table='Libs/Tables/rpg/soul__ttac.xml',
+            native_soul_name='ttac_procek', native_role_name='PREVOZNIK_TROSECKO', resources=resources)
+        # Keep each actor's geometry in its own ZIP32 archive. The shared world
+        # archive is already large and must not grow past the engine's limit.
+        with zipfile.ZipFile(package / 'Data' / (namespace + '.pak'), 'x', zipfile.ZIP_STORED, allowZip64=False) as actor_pak:
+            for p in appearance.rglob('*'):
+                if not p.is_file(): continue
+                name = p.relative_to(appearance).as_posix()
+                if name.startswith('objects/'): actor_pak.write(p, name)
+                elif name.startswith('Libs/'): resources[name] = p.read_bytes()
+        strings = appearance / 'Localization/English/text_ui_items.xml'
+        if strings.exists(): item_tables.append(strings.read_bytes())
+        with zipfile.ZipFile(a.source / 'Localization/English_xml.pak') as z:
+            key = person['instance'].findtext('StaticData/NameStringId')
+            names.append(next(r for r in ET.fromstring(read(z, 'text_ui_soul.xml')) if r.findtext('Cell') == key))
+        register_person(add, wh, person)
+        people.append(person); registered.add(sid)
+        converted.append(dict(person=person['name'], soul_id=sid, position=person['actor'].get('Pos'),
+                              source_level=person['source_level'], namespace=namespace))
+    files['objects_mission0.xml'], files['whdata_0'] = xml(mission), xml(wh)
+    files, world = register_person_world(files, people, a.source, a.target)
+    resources[a.project_path], resources[a.quest_path], markers = bind_markers(project_blob, quest_blob, model, registered)
+    modid = ET.parse(a.mod / 'mod.manifest').findtext('info/modid')
+    for path, blob in files.items():
+        if path.startswith('tables/'): resources[f'Mods/{modid}/Data/Levels/{a.level}/{path}'] = blob
+    with zipfile.ZipFile(locale) as z:
+        strings = {'text_ui_soul.xml': merge_audio_strings(read(z, 'text_ui_soul.xml'), xml(names))}
+        if item_tables:
+            blob = read(z, 'text_ui_items.xml')
+            for table in item_tables: blob = merge_audio_strings(blob, table)
+            strings['text_ui_items.xml'] = blob
+    rewrite(travel, package / 'Data/gluemappertravel.pak', resources)
+    rewrite(level, package / 'Data/Levels' / a.level / 'level.pak', files)
+    rewrite(locale, package / 'Localization/English_xml.pak', strings)
+    report = dict(converted=converted, existing=existing, pending=pending, markers=markers, world=world,
+        runtime_verified=False, dialogue_converted=False,
+        baseline={str(p.relative_to(a.mod)): hashlib.sha256(p.read_bytes()).hexdigest() for p in (travel, level, locale)})
+    (a.output / 'report.json').write_text(json.dumps(report, indent=2))
+    print(json.dumps(dict(converted=len(converted), existing=len(existing), markers=len(markers['converted']))))
+
+
+if __name__ == '__main__':
+    p = argparse.ArgumentParser(description=__doc__)
+    for name in ('source', 'target', 'mod', 'model', 'output'): p.add_argument('--' + name, type=Path, required=True)
+    p.add_argument('--source-level', default='rataje'); p.add_argument('--level', default='kcd1_travel')
+    p.add_argument('--project-path', default='Quests/GlueTravel/GlueTravel_kcd1.xml')
+    p.add_argument('--quest-path', required=True)
+    build(p.parse_args())

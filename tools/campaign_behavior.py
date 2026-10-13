@@ -79,6 +79,17 @@ CONTRACTS = {
 TYPE_ADAPTERS = {name: name for name in ('_bool', '_int', '_int64', '_float', '_string', '_wuid')}
 TYPE_ADAPTERS['common:wuid'] = '_wuid'
 
+# Native AI/_lukas/test_lukas_helper.xml supplies both movement ABIs. Destination
+# fields are variable references, not quoted strings or guessed coordinates.
+_MOVEMENT = dict(destinationSpecification='reference', destinationSpecification2='reference',
+    destinationSpecification3='reference', speed='value', additionalParams='reference',
+    pathFindingParams='reference', staminaPolicy='reference', pathInfo='reference',
+    AnimationToPlay='value', AnimationContext='value')
+CONTRACTS['Move'] = dict(_MOVEMENT, stopWithinDistance='value', stopDistanceVariation='value',
+                         rayCasteFlee='value', successDistance='value')
+CONTRACTS['ExactMove'] = dict(_MOVEMENT, directionType='value', directionSpecification='reference',
+                              animationTriggerDist='value', precise='value')
+
 
 def native_catalog(game):
     """Read evidence from runtime Roots only, excluding editor duplicates."""

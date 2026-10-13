@@ -1,0 +1,54 @@
+"""Stage source-driven schedule arrival conversion for registered actors."""
+import argparse
+import json
+from pathlib import Path
+import zipfile
+from campaign_sources import RetailSourceReader
+from campaign_dependency_adapters import SourceTables
+from character_person import resolve_person
+from character_schedule import plan
+from character_schedule_world import resolve_arrivals, bind_arrivals, arrival_resources
+from build_horse_trader_test import rewrite
+from upgrade_map import read
+from character_schedule_jobs import bind_jobs
+from world_item_definitions import native_items, native_item_registry
+
+
+def build(a):
+    if a.output.exists(): raise FileExistsError('Choose a fresh staging directory')
+    schedules = {}
+    with RetailSourceReader(a.source) as reader, zipfile.ZipFile(a.source / 'Data/Levels' / a.source_level / 'level.pak') as archive:
+        tables = SourceTables(a.source, reader)
+        for name in a.person:
+            schedule = plan(resolve_person(a.source, name, a.source_level), tables)
+            if schedule['pending']: raise ValueError('Unresolved source schedule: ' + name)
+            schedules[name] = resolve_arrivals(schedule, archive)
+    with zipfile.ZipFile(a.level_pak) as archive:
+        files = {n:read(archive,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml')}
+    files, report = bind_arrivals(files, schedules, a.target)
+    if a.jobs:
+        with zipfile.ZipFile(a.travel_pak) as pak:
+            items=[read(pak,n) for n in pak.namelist() if n.lower().startswith('libs/tables/item/item__') and n.endswith('.xml')]
+        registered=native_item_registry(native_items(a.target,items))
+        with zipfile.ZipFile(a.source/'Data/Levels'/a.source_level/'level.pak') as archive:
+            files,jobs=bind_jobs(files,schedules,archive,a.target,registered)
+        report=dict(arrivals=report,jobs=jobs)
+    resources = arrival_resources()
+    resources[f'Mods/{a.mod_id}/Data/Levels/{a.level}/tables/ai/scheduler.xml'] = files['tables/ai/scheduler.xml']
+    a.output.mkdir(parents=True)
+    rewrite(a.level_pak, a.output / 'level.pak', files)
+    rewrite(a.travel_pak, a.output / 'gluemappertravel.pak', resources)
+    (a.output / 'report.json').write_text(json.dumps(report, indent=2), encoding='utf-8')
+    print(json.dumps(report, indent=2))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ('source','target','level-pak','travel-pak','output'):
+        parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--person', action='append', required=True)
+    parser.add_argument('--source-level', default='rataje')
+    parser.add_argument('--level', default='kcd1_travel')
+    parser.add_argument('--mod-id', default='kingdomcomegluemapper')
+    parser.add_argument('--jobs', action='store_true', help='Activate supported native work phases and their reserved tools')
+    build(parser.parse_args())

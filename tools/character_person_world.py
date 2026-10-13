@@ -125,8 +125,11 @@ def register_person_world(files, people, source, target):
                 if src.get('Rotate'): area.set('Rotate', src.get('Rotate'))
                 # Ownership geometry is separate from crime/trespass zoning.
                 ET.SubElement(area, 'Properties', bSaved_by_game='0')
-            elif area.get('EntityClass') != 'TriggerArea':
+            elif area.get('EntityClass') not in ('TriggerArea', 'SmartAreaShape'):
                 raise ValueError('Source home identity has an incompatible destination entity')
+            elif (area.get('Pos') != src.get('Pos') or
+                  area.get('Rotate', '1,0,0,0') != src.get('Rotate', '1,0,0,0')):
+                raise ValueError('Existing home transform differs from source')
             geometry = source_shapes[level].get(area_guid)
             if geometry is None: geometry = source_home_geometry(src)
             # FUBAR serializes float32, while XML arithmetic uses doubles.

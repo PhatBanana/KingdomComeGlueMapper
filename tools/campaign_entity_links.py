@@ -24,11 +24,13 @@ def guid_value(value):
     return result
 
 
-def append_links(data, links):
+def append_links(data, links, *, allow_untagged=False):
     """Merge explicit (source GUID, target GUID, definition) links, deduplicated.
 
     Existing level links are retained verbatim. Only the supplied records are
     converted; callers must resolve source IDs and profile/layer dependencies.
+    allow_untagged permits the native reservation-point -> ItemSlot edge, whose
+    empty LinkDefinition is meaningful. Other callers reject empty definitions.
     """
     root = ET.fromstring(data) if data else ET.Element('StaticLinksInfo', version='1')
     if root.tag != 'StaticLinksInfo' or root.get('version') != '1':
@@ -39,13 +41,13 @@ def append_links(data, links):
              for n in waiting.findall('WaitingLink')}
     for source, target, definition in links:
         key = (guid_value(source), guid_value(target))
-        if not isinstance(definition, str) or not definition.strip():
+        if not isinstance(definition, str) or (not definition.strip() and not (allow_untagged and definition == '')):
             raise ValueError('An explicit AI link definition is required')
         if key not in index:
             index[key] = ET.SubElement(waiting, 'WaitingLink', SourceId=native_guid(key[0]),
                                       TargetId=native_guid(key[1]))
         node = index[key]
-        if definition not in [n.text for n in node.findall('LinkDefinition')]:
+        if definition not in [n.text or '' for n in node.findall('LinkDefinition')]:
             ET.SubElement(node, 'LinkDefinition').text = definition
     ET.indent(root)
     return ET.tostring(root, encoding='utf-8', xml_declaration=True)

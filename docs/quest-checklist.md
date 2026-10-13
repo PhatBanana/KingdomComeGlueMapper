@@ -62,6 +62,70 @@ constant true: their item/NPC tracking still needs conversion. This prevents
 false completion; it does not yet make father's errands playable. Persuasion,
 reputation, remaining conditions and interactions stay open.
 
+The next development package adds native inventory descriptors and event-driven
+completion for 12 supported item-tracked objectives. The original crossguard
+and beer item dependencies are imported through the existing item converters.
+Completion checks retain source quantities, require the objective to be active,
+and recheck inventory after a queued event. Fourteen tracked objectives still
+need NPC, location or other predicate support. This implementation does not yet
+verify inventory thresholds in game or connect the father's interaction.
+Build with [the quest-item staging tool](../tools/build_quest_items_test.py);
+the staging tool never installs implicitly.
+
+The quest-person staging tool now discovers explicit `quest_npc` soul dependencies,
+reuses actors already present, and imports missing source appearances, identities,
+homes and authored entity placements. The Skalitz development package adds father,
+`ska_sarka`, `ska_blanka`, `ska_fricek` and Kunesh; mother and Theresa are reused.
+Six active objective logs now reference registered soul assets, including both
+father objectives. These markers follow actors; source quest-editor coordinates
+are not world positions. Archive integrity, actor/soul identity and original
+placement checks pass, but in-game visibility, markers and save/load remain unverified.
+
+`vra_vanek` now converts with his original outfit. All six installed base/patch
+copies of the lowered-hood mesh lack the table's requested `#V_001`; another
+source clothing record explicitly uses the same mesh without a variant. The
+importer retains that dedicated base geometry only when matching source records
+support it and the mesh has no selectable variant shapes, recording the decision.
+Shared location/home areas are reused after transform and polygon validation.
+All eight explicit NPC dependencies are registered. Vanek's authored world
+placement is at Vranik; his Skalitz quest-stage relocation remains unconverted.
+New actors use the existing native interruptible
+idle baseline; their authored work routines, dialogue roles/conversations and
+hand-ins are not converted by this dependency pass. Existing actor presence also
+does not establish the correct quest-stage placement (notably Theresa).
+Build with [the quest-person staging tool](../tools/build_quest_people_test.py).
+
+Schedule conversion now resolves source daycycle intervals through activity links,
+smart-area templates and behavior-tag tables using [the generic schedule resolver](../tools/character_schedule.py).
+The parents resolve to `final/sa_smithy.xml:BlackSmith_new` and
+`final/sa_home.xml:housework`, both all-day `work` entries. These are complete
+activity graphs, not fixed walking targets. Native `Move` and `ExactMove` lowering
+preserves variable destinations, speed, direction and arrival tolerances.
+The schedule staging tool now registers native movement activities at the source
+area arrival positions and uses the original daycycle intervals. Runtime testing
+moved father from the house to the smithy, but he became stuck before reaching
+the final target. This is not a completed forging routine.
+
+[The generic job-item helper](../tools/character_job_items.py) reads KCD2's native
+job reservation graph, registers/reuses source tool slots, supplies pickup
+helpers, and replaces decorative NPC-tool meshes without duplicating the item.
+The housework sweeping adapter uses the source-linked broom and the native
+`schedulerReservedItem['use','tavern_broom']` contract. In `ParentSchedules04`,
+mother collected one broom, held an item in her hand, and entered native
+`SweepingFloor`; the pickup logged an animation fallback. No NPC-specific
+inventory injection, animation timer, or teleport implements this job.
+
+- [x] Source-linked broom registration, native reservation, collection and sweeping tested.
+- [ ] Resolve the pickup-animation fallback and verify tool return after interruption.
+- [ ] Convert the original sweeping route points and the remaining housework activities.
+- [ ] Resolve father's blocked approach and convert the full forging/tool cycle.
+- [ ] Verify shared-tool contention, missing/stolen tools and save/load persistence.
+
+Build with [the schedule staging tool](../tools/build_person_schedule_test.py),
+using `--jobs` for supported work phases. Its report lists unconverted activity
+phases explicitly. Other NPCs' idle baselines and existing authored jobs are
+preserved; complete schedules across Skalitz are not yet verified.
+
 ## Campaign conversion milestones
 
 - [x] Provide source quest, dialogue and dependency inspection and bounded graph-conversion tooling.
