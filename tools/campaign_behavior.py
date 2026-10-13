@@ -23,6 +23,7 @@ from campaign_behavior_contracts import WORK_CONTRACTS
 from campaign_link_types import data_expression, link_list
 from quest_import import behavior_path, literal
 from upgrade_map import read
+from campaign_speech_messages import MESSAGE as MONOLOGUE_MESSAGE, validate_request, native_consumer
 
 
 # Attribute kinds come from the two shipped AI serializations. This is an
@@ -116,6 +117,7 @@ CONTRACTS['ExactMove'] = dict(_MOVEMENT, directionType='value', directionSpecifi
 def native_catalog(game):
     """Read evidence from runtime Roots only, excluding editor duplicates."""
     nodes, types, enum_types = {}, set(), set()
+    speech_consumer = False
     with zipfile.ZipFile(Path(game) / 'Data/Scripts.pak') as archive:
         for entry in archive.namelist():
             if not key(entry).startswith('ai/') or not key(entry).endswith('.xml'):
@@ -127,6 +129,8 @@ def native_catalog(game):
                 continue
             if document.tag != 'BehaviorTrees':
                 continue
+            if key(entry) == 'ai/speech/sb_dialog.xml':
+                speech_consumer = native_consumer(document)
             for tree in document.findall('BehaviorTree'):
                 types.update(v.get('type') for v in tree.findall('./Variables/Variable'))
                 root = tree.find('Root')
@@ -144,7 +148,8 @@ def native_catalog(game):
     from campaign_native_contracts import supplement
     supplement(game, nodes)
     return dict(nodes={n: dict(r, attributes=sorted(r['attributes']), children=sorted(r['children']))
-                       for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types))
+                       for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types),
+                native_monologue_consumer=speech_consumer)
 
 
 def quote(value):
@@ -376,6 +381,9 @@ class BehaviorCompiler:
                             raise UnsupportedOperation('Referenced AI link type conversion did not complete: ' + value)
                         value = quote(target)
                     elif kind in ('mailbox', 'message_type', 'optional_message_type'):
+                        if kind == 'message_type' and value == MONOLOGUE_MESSAGE and op in ('SendMessageToNPC', 'InstantSendMessageToNPC'):
+                            values[name] = quote(validate_request(literal(attrs.get('values', '')), self.catalog))
+                            continue
                         if kind == 'optional_message_type' and not value:
                             values[name] = ''
                             continue

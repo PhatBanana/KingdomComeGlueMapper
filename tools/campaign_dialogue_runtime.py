@@ -130,7 +130,7 @@ def bind_recordings(blob, model, media, native_voices, language='ENG', *, parent
     identifier(name)
     for segment in parent_namespace: identifier(segment)
     audio_folder = '/'.join((*parent_namespace, name)).lower()
-    if host.tag not in ('ForcedDialog', 'FaderDialog'):
+    if host.tag not in ('ForcedDialog', 'FaderDialog', 'Dialog'):
         raise ValueError('Expected a native dialogue definition')
     by_stem = {}
     for path, payload in media.items():

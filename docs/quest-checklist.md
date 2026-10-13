@@ -7,6 +7,28 @@ from the normal coach-travel installation route and published installers.
 
 ## Current work boundary: New Game to the start of the Skalitz attack
 
+### Latest accepted development checks: Father greeting and skill check
+
+On 14 October 2026 the user confirmed that Father's automatic proximity callout
+and the skill-check conversation both worked in the installed development build.
+This supersedes the earlier unverified status for these two acceptance targets.
+
+- [x] Father calls out on approach without the player selecting Talk.
+- [x] Father's skill-check conversation is reachable and works in the live test.
+- [ ] Verify all skill-check outcomes, greeting replay rules and save/load.
+
+The generic proximity adapter converts the source observer's objective gate,
+delays, distance thresholds and monologue aliases into native quest nodes. It
+runs alongside the accepted smithy routine. In-world monologues retain native
+speech handling and recording bindings. The dialogue emitter registers local
+sequence-history references with `Visibility="Internal"`; omitting this caused
+runtime `SequenceUsed` evaluation errors and prevented the greeting.
+
+Validation: 241 campaign tests passed. The installed package and hash receipt
+are in `outputs/OpeningStart/FatherGreetingRuntime03`. Only the two greeting
+dialogue definitions changed in that final package correction. These checks do
+not establish completion of every work routine or the opening-to-attack quest.
+
 The requested next milestone ends when Skalitz is attacked. Playable escape to
 Talmberk is outside this pass. Dependencies must be discovered from source
 records and upgraded or merged through reusable adapters; actor-specific

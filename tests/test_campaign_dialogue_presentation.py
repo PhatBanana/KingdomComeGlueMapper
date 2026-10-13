@@ -24,6 +24,21 @@ def model():
 
 
 class DialoguePresentationTests(unittest.TestCase):
+    def test_in_world_monologue_retains_alias_without_becoming_a_fader(self):
+        source = model()
+        source['branch'] = [dict(start_topic='1', priority='0', allow_greeting='True',
+                                 branch_type_id='6', reputation_condition_id='')]
+        blob, report = emit(source, 'world_speech', [], kind='Dialog')
+        host = ET.fromstring(blob).find('./Skald/Dialog')
+        self.assertEqual(host.find('Dialogue').get('Type'), 'ingame monolog')
+        self.assertEqual(host.find('.//Decision').get('Alias'), 'opening')
+        self.assertEqual(report['kind'], 'Dialog')
+        with self.assertRaisesRegex(ValueError, 'branch type'):
+            emit(source, 'wrong_mode', [])
+        source['branch'][0]['branch_type_id'] = '0'
+        with self.assertRaisesRegex(ValueError, 'branch type'):
+            emit(source, 'wrong_mode', [], kind='Dialog')
+
     def test_source_branch_priority_and_greeting_are_not_reset_to_defaults(self):
         source = model()
         source['branch'] = [dict(start_topic='1', priority='2', allow_greeting='True',

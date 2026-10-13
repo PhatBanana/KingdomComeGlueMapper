@@ -66,6 +66,14 @@ class RuntimeDialogueTests(unittest.TestCase):
         self.assertEqual(list(media), ['dialog/scene/voice_line_aBcD.ogg'])
         self.assertFalse(report['runtime_verified'])
 
+    def test_in_world_monologue_uses_its_instantiated_audio_scope(self):
+        blob, model, media, voices = self.sample()
+        blob = blob.replace(b'ForcedDialog', b'Dialog')
+        output, recordings, report = bind_recordings(blob, model, media, voices,
+                                                     parent_namespace=('world',))
+        self.assertEqual(list(recordings), ['dialog/world/scene/voice_line_aBcD.ogg'])
+        self.assertIsNotNone(ET.fromstring(output).find('./Skald/Dialog'))
+
     def test_unresolved_and_ambiguous_recordings_fail(self):
         blob, model, media, voices = self.sample()
         with self.assertRaises(ValueError): bind_recordings(blob, model, {}, voices)

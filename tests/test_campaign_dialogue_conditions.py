@@ -1,11 +1,12 @@
 import sys
 from pathlib import Path
 import unittest
+import copy
 import xml.etree.ElementTree as E
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from campaign_dialogue_conditions import QuestConditions
-from campaign_dialogue import emit, resolve
+from campaign_dialogue import emit, resolve, expose_sequence_history
 from campaign_dialogue_runtime import attach_dialogue
 from campaign_quest_graph import emit_project
 from test_campaign_quest_graph import model as quest
@@ -13,6 +14,57 @@ from test_campaign_dialogue_presentation import model as dialogue
 
 
 class ConditionsTests(unittest.TestCase):
+    def test_sequence_availability_preserves_conditions_and_once_only_history(self):
+        d = dialogue()
+        first = d['topics']['1']['sequences'][0]
+        first['source']['timeout'] = '-1'
+        first['entry']['entry_condition'] = "IsObjectiveStarted('arbitrary_quest','first')"
+        second = copy.deepcopy(first)
+        second['source']['sequence_id'] = '11'
+        second['entry']['entry_condition'] += ' AND !IsSeqAvailable(10)'
+        d['topics']['1']['sequences'].append(second)
+        blob, report = emit(d, 'conversation', [quest()])
+        rows = E.fromstring(blob).findall('.//Sequence')
+        self.assertIn("!SequenceUsed('seq_10')", rows[0].get('EntryCondition'))
+        self.assertIn("!SequenceUsed('seq_10')", rows[1].get('EntryCondition'))
+        self.assertIn("!SequenceUsed('seq_11')", rows[1].get('EntryCondition'))
+        self.assertEqual([r.get('Visibility') for r in rows], ['Internal', 'Internal'])
+        self.assertEqual({b['output'] for b in report['conditions'].values()}, {'first_Started'})
+        first['source']['timeout'] = '0'
+        blob, _ = emit(d, 'conversation', [quest()])
+        self.assertNotIn("SequenceUsed('seq_10')", blob.decode())
+        self.assertIsNone(E.fromstring(blob).find('.//Sequence').get('Visibility'))
+
+    def test_history_registration_rejects_missing_or_ambiguous_targets(self):
+        for targets in ('', '<Sequence Name="missing"/><Sequence Name="missing"/>'):
+            root = E.fromstring('<Dialogue><Sequence EntryCondition="SequenceUsed(\'missing\')"/>' + targets + '</Dialogue>')
+            with self.assertRaisesRegex(ValueError, 'Unresolved or ambiguous'):
+                expose_sequence_history(root)
+
+    def test_history_registration_preserves_exported_visibility_and_is_idempotent(self):
+        root = E.fromstring('<Dialogue><Sequence Name="a" Visibility="Public" EntryCondition="SequenceUsed(\'a\')"/></Dialogue>')
+        self.assertEqual(expose_sequence_history(root), [])
+        self.assertEqual(root.find('Sequence').get('Visibility'), 'Public')
+
+    def test_sequence_dependencies_fail_closed_without_leaking_ports(self):
+        d = dialogue()
+        record = d['topics']['1']['sequences'][0]
+        record['entry']['entry_condition'] = "IsQuestStarted('arbitrary_quest') AND IsSeqAvailable(10)"
+        compiler = QuestConditions([quest()], sequences={'10': record})
+        with self.assertRaisesRegex(ValueError, 'Cyclic'):
+            compiler.compile('IsSeqAvailable(10)')
+        self.assertEqual(compiler.bindings, {})
+        with self.assertRaisesRegex(ValueError, 'Unregistered'):
+            compiler.compile('IsSeqAvailable(99)')
+        record['entry']['entry_condition'] = '1'
+        record['source']['timeout'] = '30'
+        with self.assertRaisesRegex(ValueError, 'cooldown'):
+            emit(d, 'conversation', [quest()])
+        record['source']['timeout'] = '-1'
+        with self.assertRaises(ValueError):
+            compiler.compile('IsSeqAvailable(10) AND invalid')
+        self.assertEqual(compiler.bindings, {})
+
     def test_database_function_item_dependencies_and_local_variables(self):
         item = '11111111-2222-3333-4444-555555555555'
         functions = {'owns_tools': "GetAmountOfActorItems('" + item + "') > 0"}

@@ -18,6 +18,35 @@ import zipfile
 from campaign_sources import retail_sources
 from campaign_quest_graph import definition, identifier, objective_identifier, xml
 from upgrade_map import read
+
+
+def expose_sequence_history(root):
+    """Register local history references with the native dialogue evaluator.
+
+    Shipped KCD2 dialogues mark SequenceUsed targets Visibility=Internal;
+    the default None makes evaluation fail, including self references.
+    Apply within each dialogue so identical names in other graphs cannot bind.
+    """
+    changed = []
+    dialogues = [root] if root.tag == 'Dialogue' else list(root.iter('Dialogue'))
+    for dialogue in dialogues:
+        sequences = list(dialogue.iter('Sequence'))
+        targets = defaultdict(list)
+        for sequence in sequences:
+            targets[sequence.get('Name')].append(sequence)
+        references = set()
+        for element in dialogue.iter():
+            for expression in element.attrib.values():
+                references.update(re.findall(r"\bSequenceUsed\('([^']+)'\)", expression))
+        for name in sorted(references):
+            matches = targets.get(name, [])
+            if len(matches) != 1:
+                raise ValueError('Unresolved or ambiguous local sequence history: ' + name)
+            target = matches[0]
+            if target.get('Visibility', 'None') == 'None':
+                target.set('Visibility', 'Internal')
+                changed.append(name)
+    return changed
 from campaign_entity_links import native_guid
 from campaign_dialogue_conditions import QuestConditions
 from campaign_dialogue_effects import predicate as effect_predicate
@@ -232,7 +261,7 @@ def camera_assets(model, level_archive):
 def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
          selection_compiler=None, registered_items=(), participant_assets=None):
     identifier(name); identifier(active_port)
-    if kind not in ('FaderDialog', 'ForcedDialog'): raise ValueError('Unsupported dialogue mode')
+    if kind not in ('FaderDialog', 'ForcedDialog', 'Dialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
     ports = ET.SubElement(host, 'Ports')
     ET.SubElement(ports, 'Port', Name=active_port, Direction='In', Type='bool')
@@ -243,11 +272,14 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
         if len(branches) != 1 or branches[0]['start_topic'] != model['start_topic']:
             raise ValueError('Ambiguous source dialogue branch settings')
         branch = branches[0]
-        if branch.get('branch_type_id', '0') != '0' or branch.get('reputation_condition_id'):
+        expected_type = '6' if kind == 'Dialog' else '0'
+        if branch.get('branch_type_id', '0') != expected_type or branch.get('reputation_condition_id'):
             raise ValueError('Dialogue branch type/reputation policy requires conversion')
         priority = branch['priority']
         if not priority.isdigit() or int(priority) > 2147483647:
             raise ValueError('Invalid source dialogue priority')
+        if kind == 'Dialog' and priority != '0':
+            raise ValueError('Nondefault in-world branch priority requires conversion')
         if branch['allow_greeting'] not in ('True', 'False'):
             raise ValueError('Invalid source dialogue greeting policy')
         if kind == 'FaderDialog':
@@ -255,6 +287,15 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             # conversations with Priority=1/2 distinguish mandatory branches
             # from the ordinary Priority=0 question menu.
             settings.update(Priority=priority, AllowGreeting=branch['allow_greeting'].lower())
+    elif kind == 'Dialog':
+        raise ValueError('In-world dialogue requires its source branch declaration')
+    if kind == 'Dialog':
+        # Shipped ingame monologues use Dialog, not ForcedDialog: they must
+        # leave the player's camera/control alone. Invocation is owned by the
+        # source controller adapter; merely registering this graph does not
+        # schedule a bark or establish a proximity trigger.
+        settings = dict(TechnicalStatus='Enabled', Type='ingame monolog',
+                        Initiator='NonPlayer', ClashPriority='Flavor')
     dialogue = ET.SubElement(host, 'Dialogue', settings)
     quest_ids = {m['quest_id']: m for m in quest_models}
     actions = {}
@@ -264,7 +305,15 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
     scripts = []
     visited = set()
     converted_commands = []
-    conditions = QuestConditions(quest_models, model.get('functions'), registered_items, participant_assets)
+    sequence_records = {}
+    for topic in model['topics'].values():
+        for record in topic['sequences']:
+            sid = record['source']['sequence_id']
+            if sid in sequence_records and sequence_records[sid] != record:
+                raise ValueError('Conflicting source sequence: ' + sid)
+            sequence_records[sid] = record
+    conditions = QuestConditions(quest_models, model.get('functions'), registered_items,
+                                 participant_assets, sequence_records)
 
     def decision(parent, tid):
         visited.add(tid)
@@ -281,7 +330,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                 selection_attrs, expression = selection_compiler.compile(source, expression)
             elif source['type'] != '0' or source['group'] != '0' or source['skill_check_difficulty_id'] or source['reputation'] != '0':
                 raise ValueError('Unconverted dialogue selection semantics for sequence ' + sid)
-            condition = conditions.compile(expression)
+            condition = conditions.sequence_condition(sid, expression)
             if entry['npc_entry_condition']: raise ValueError('Unconverted NPC dialogue condition')
             if tid == model['start_topic']:
                 condition = "Port('" + active_port + "')" + (' AND (' + condition + ')' if condition else '')
@@ -376,6 +425,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                 else:
                     s.set('EndType', 'Decision'); decision(s, nxt)
     decision(dialogue, model['start_topic'])
+    expose_sequence_history(dialogue)
     for port in conditions.bindings:
         ET.SubElement(ports, 'Port', Name=port, Direction='In', Type='bool')
     return xml(root), dict(actions=actions, action_programs=action_programs, conditions=conditions.bindings, active_port=active_port,
@@ -433,7 +483,7 @@ def main():
     p.add_argument('--quest-ir', type=Path, action='append', required=True)
     p.add_argument('--voice-directory', required=True)
     p.add_argument('--locale', default='English')
-    p.add_argument('--kind', choices=['FaderDialog', 'ForcedDialog'], default='FaderDialog')
+    p.add_argument('--kind', choices=['FaderDialog', 'ForcedDialog', 'Dialog'], default='FaderDialog')
     p.add_argument('--convert-presentation', action='store_true', help='Emit original camera, gesture and facial-mood commands; requires matching assets and runtime testing')
     p.add_argument('--camera-level', type=Path, help='Source level.pak from which referenced custom cameras are converted')
     p.add_argument('--output', type=Path, required=True)

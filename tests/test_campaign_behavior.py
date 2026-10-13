@@ -32,6 +32,25 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_speech_request_reaches_native_consumer_without_cloned_message_type(self):
+        m = source('''<Root><SendMessageToNPC target="&quot;this.id&quot;"
+          type="&quot;dialog:monologRequest&quot;" values="&quot;alias(arbitraryGreeting),lookAtId($__player)&quot;"
+          timeType="&quot;GameTime&quot;" timeoutType="&quot;OnProcessed&quot;" timeout="&quot;-1&quot;" answer="&quot;&quot;"/></Root>''')
+        native = catalog()
+        files, _, report = convert_behaviors([m], 'Imported', native)
+        self.assertFalse(files)
+        native['native_monologue_consumer'] = True
+        files, _, report = convert_behaviors([m], 'Imported', native)
+        node = E.fromstring(next(iter(files.values()))).find('.//SendMessageToNPC')
+        self.assertEqual(node.get('type'), "'dialog:monologRequest'")
+        self.assertEqual(node.get('target'), '$this.id')
+        self.assertEqual(node.get('timeoutType'), 'OnProcessed')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        root = m['behavior_documents']['libs/ai/quests/q_test.xml']['trees']['onUpdate']['root']
+        root['children'][0]['attributes']['values'] = '"alias(arbitraryGreeting),priority(8)"'
+        files, _, report = convert_behaviors([m], 'Imported', native)
+        self.assertFalse(files)
+
     def test_loading_lock_and_iteration_preserve_startup_order(self):
         m = source('''<Root><ExternalLock atomic="&quot;false&quot;"
           OutsideQueuePosVariable="&quot;&quot;" InsidePosVariable="&quot;&quot;"

@@ -39,15 +39,40 @@ def expand_functions(expression, functions, stack=()):
 
 
 class QuestConditions:
-    def __init__(self, models, functions=None, registered_items=(), participant_assets=None):
+    def __init__(self, models, functions=None, registered_items=(), participant_assets=None, sequences=None):
         self.quests = {m['quest']: {r['objective_name'] for r in m['tables']['quest_objective']['rows']}
                        for m in models}
         self.bindings = {}
         self.functions = dict(functions or {})
         self.registered_items = {str(i).lower() for i in registered_items}
         self.participant_assets = dict(participant_assets or {})
+        self.sequences = dict(sequences or {})
 
-    def compile(self, expression):
+    def sequence_condition(self, sid, expression=None, stack=()):
+        """Preserve eligibility and source cooldown, including referenced sequences.
+
+        KCD1 cooldown -1 disables a sequence after use; zero has no cooldown.
+        Positive cooldowns require an elapsed-time adapter and cannot be dropped.
+        Native SequenceUsed accepts the emitted sequence name in this dialogue.
+        """
+        if sid in stack or len(stack) >= 64:
+            raise ValueError('Cyclic dialogue sequence availability: ' + ' -> '.join((*stack, sid)))
+        if sid not in self.sequences:
+            raise ValueError('Unregistered dialogue sequence availability: ' + sid)
+        record = self.sequences[sid]
+        source, entry = record['source'], record['entry']
+        cooldown = source.get('timeout', '0')
+        if cooldown not in ('0', '-1'):
+            raise ValueError('Unconverted dialogue sequence cooldown: ' + sid + ':' + cooldown)
+        if entry.get('npc_entry_condition'):
+            raise ValueError('Unconverted NPC dialogue condition')
+        condition = self.compile(entry['entry_condition'] if expression is None else expression, (*stack, sid))
+        if cooldown == '-1':
+            unused = "!SequenceUsed('seq_" + sid + "')"
+            condition = '(' + condition + ') AND ' + unused if condition else unused
+        return condition
+
+    def compile(self, expression, sequence_stack=()):
         source = expand_functions(expression, self.functions).strip()
         if not source or source == '1': return ''
         tokens, offset = [], 0
@@ -73,6 +98,24 @@ class QuestConditions:
             if token == '!': return '!(' + atom() + ')'
             if token == '(':
                 value = disjunction(); take(')'); return '(' + value + ')'
+            if token == 'IsSeqAvailable':
+                take('('); sid = take(); take(')')
+                if not re.fullmatch(r'\d+', sid):
+                    raise ValueError('Expected literal dialogue sequence identity')
+                # Stage nested bindings separately: a failed outer expression
+                # must not leave graph ports behind.
+                nested = QuestConditions([], self.functions, self.registered_items,
+                                         self.participant_assets, self.sequences)
+                nested.quests = self.quests
+                record = self.sequences.get(sid)
+                if record and (record['source'].get('type', '0') != '0'
+                               or record['source'].get('group', '0') != '0'
+                               or record['source'].get('skill_check_difficulty_id', '')
+                               or record['source'].get('reputation', '0') != '0'):
+                    raise ValueError('Unconverted referenced sequence selection: ' + sid)
+                value = nested.sequence_condition(sid, stack=sequence_stack)
+                pending.update(nested.bindings)
+                return '(' + (value or 'true') + ')'
             if token in ENGINE_PREDICATES:
                 take('('); take(')')
                 name = 'condition_' + hashlib.sha256(('engine:' + token).encode()).hexdigest()[:20]

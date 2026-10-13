@@ -127,6 +127,7 @@ def build(a):
         model = remap_roles(model, mapping)
         name = a.namespace + '_' + topic
         blob, report = emit(model, name, quests, selection_compiler=selection, registered_items=items,
+                            kind=getattr(a, 'kind', 'FaderDialog'),
                             participant_assets=dict(p.split('=',1) for p in a.participant_asset))
         media, voice_report = voices(a.source, model, name)
         blob, bound_media, binding_report = bind_recordings(blob, model, media, native_voices,
@@ -182,6 +183,8 @@ if __name__ == '__main__':
     p.add_argument('--start-topic', action='append')
     p.add_argument('--discover-quests', action='store_true', help='Import the complete source dialogue closure of the supplied quest IRs')
     p.add_argument('--namespace', required=True)
+    p.add_argument('--kind', choices=('FaderDialog', 'Dialog'), default='FaderDialog',
+                   help='Dialog registers in-world monologues; source controllers must still request them')
     p.add_argument('--container', required=True, help='Definition path relative to Quests/')
     p.add_argument('--container-name', required=True)
     p.add_argument('--activation', required=True)
