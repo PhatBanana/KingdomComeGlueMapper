@@ -217,7 +217,7 @@ def response_camera_command(response, commands, model, *, in_world=False):
         dialogue_command_type='2', int_param=mode, char_param=''), model)
 
 
-def presentation_command(command, model):
+def presentation_command(command, model, *, scene_bound=True):
     """Translate authored dialogue commands into native KCD2 command records.
 
     Preserve camera identities and fragment/variant requests. Their assets must
@@ -251,6 +251,12 @@ def presentation_command(command, model):
         if command['int_param'] == '0' and not command['char_param']:
             return ET.Element('CameraCommand', attrs)
         if command['int_param'] == '5' and command['char_param']:
+            # A world-space CameraSource is only meaningful with scene placement.
+            # Free conversations can start after either participant has moved.
+            # Keep the authored target role and timing, but let the native rig
+            # resolve its shot against that actor's current transform.
+            if not scene_bound:
+                return ET.Element('CameraCommand', attrs)
             return ET.Element('CameraCommand', attrs, CustomCamera=command['char_param'])
         modes = {'1': 'Master', '2': 'Medium', '3': 'CloseShot', '4': 'CloseUp'}
         if command['int_param'] not in modes or command['char_param']:
@@ -306,7 +312,7 @@ def camera_assets(model, level_archive):
 
 def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
          selection_compiler=None, registered_items=(), participant_assets=None, area_assets=None,
-         context_entities=None):
+         context_entities=None, scene_bound=False):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog', 'Dialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -448,7 +454,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                         commands = current_response.find('Commands')
                         if commands is None: commands = ET.SubElement(current_response, 'Commands')
                         for command in pending_commands:
-                            converted = presentation_command(command, model)
+                            converted = presentation_command(command, model, scene_bound=scene_bound)
                             commands.append(converted)
                             converted_commands.append(dict(sequence=sid, response=row['sequence_line_id'],
                                                            source=command, target=dict(tag=converted.tag, **converted.attrib)))
@@ -541,6 +547,7 @@ def main():
     p.add_argument('--kind', choices=['FaderDialog', 'ForcedDialog', 'Dialog'], default='FaderDialog')
     p.add_argument('--convert-presentation', action='store_true', help='Emit original camera, gesture and facial-mood commands; requires matching assets and runtime testing')
     p.add_argument('--camera-level', type=Path, help='Source level.pak from which referenced custom cameras are converted')
+    p.add_argument('--scene-bound', action='store_true', help='Retain fixed custom cameras for a scene with explicit actor placement; otherwise use actor-relative shots')
     p.add_argument('--output', type=Path, required=True)
     contract_source = p.add_mutually_exclusive_group()
     contract_source.add_argument('--selection-contract', type=Path,
@@ -574,7 +581,7 @@ def main():
         p.error('Registered items must be a JSON list of item GUIDs')
     data, report = emit(model, a.name, [json.loads(p.read_text(encoding='utf-8')) for p in a.quest_ir], kind=a.kind,
                         convert_presentation=a.convert_presentation, selection_compiler=selection_compiler,
-                        registered_items=registered_items)
+                        registered_items=registered_items, scene_bound=a.scene_bound)
     if a.selection_contract:
         report['selection_contract_sha256'] = hashlib.sha256(a.selection_contract.read_bytes()).hexdigest()
     audio, report['voices'] = voices(a.kcd1, model, a.voice_directory)

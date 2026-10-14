@@ -10,6 +10,21 @@ from test_campaign_quest_graph import model
 
 
 class RefreshTests(unittest.TestCase):
+    def test_free_camera_refresh_retargets_fixed_room_but_placed_scene_keeps_it(self):
+        from test_campaign_dialogue_presentation import model as dialogue_model
+        from campaign_refresh import dialogue_camera_selection
+        source = dialogue_model()
+        command = source['topics']['1']['sequences'][0]['lines'][0]['commands'][0]
+        command.update(dialogue_command_type='2', int_param='5', char_param='original_room', delay='0')
+        blob = b'<Database><Skald><ForcedDialog><Dialogue><Sequence Name="seq_10"><Elements><Response Role="renamed"><Text StringName="speech"/><Commands><CameraCommand CustomCamera="original_room"/><FacialMoodCommand FacialMood="happy"/></Commands></Response></Elements></Sequence></Dialogue></ForcedDialog></Skald></Database>'
+        free, report = dialogue_camera_selection(blob, source)
+        self.assertEqual(ET.fromstring(free).find('.//CameraCommand').attrib, {'Role': 'renamed', 'Delay': '0'})
+        self.assertEqual(report['world_cameras_to_actor'], 1)
+        self.assertEqual(free, dialogue_camera_selection(free, source)[0])
+        scene, _ = dialogue_camera_selection(blob, source, {'original_room'}, scene_bound=True)
+        self.assertEqual(ET.fromstring(scene).find('.//CameraCommand').get('CustomCamera'), 'original_room')
+        self.assertIsNotNone(ET.fromstring(free).find('.//FacialMoodCommand'))
+
     def test_automatic_camera_refresh_preserves_other_commands_and_is_idempotent(self):
         from test_campaign_dialogue_presentation import model as dialogue_model
         from campaign_refresh import dialogue_camera_selection
@@ -32,14 +47,14 @@ class RefreshTests(unittest.TestCase):
         command = source['topics']['1']['sequences'][0]['lines'][0]['commands'][0]
         command.update(dialogue_command_type='2', int_param='5', char_param='source_cam')
         blob = b'<Database><Skald><FaderDialog><Dialogue><Sequence Name="seq_10"><Elements><Response Role="native_actor"><Text StringName="speech"/><Commands><FacialMoodCommand FacialMood="happy"/></Commands></Response></Elements></Sequence></Dialogue></FaderDialog></Skald></Database>'
-        result, changes = dialogue_cameras(blob, source, {'source_cam'}, {'MOTHER':'native_actor'})
-        repeated, _ = dialogue_cameras(result, source, {'source_cam'}, {'MOTHER':'native_actor'})
+        result, changes = dialogue_cameras(blob, source, {'source_cam'}, {'MOTHER':'native_actor'}, scene_bound=True)
+        repeated, _ = dialogue_cameras(result, source, {'source_cam'}, {'MOTHER':'native_actor'}, scene_bound=True)
         self.assertEqual(result, repeated)
         self.assertEqual(ET.fromstring(result).find('.//CameraCommand').get('Role'), 'native_actor')
         self.assertIsNotNone(ET.fromstring(result).find('.//FacialMoodCommand'))
         self.assertEqual(changes[0]['response'], '21')
         with self.assertRaisesRegex(ValueError, 'Unregistered source camera'):
-            dialogue_cameras(blob, source, set())
+            dialogue_cameras(blob, source, set(), scene_bound=True)
 
     def test_refresh_keeps_runtime_bindings_and_is_repeatable(self):
         source = model()

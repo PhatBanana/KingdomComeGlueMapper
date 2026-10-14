@@ -24,6 +24,17 @@ def model():
 
 
 class DialoguePresentationTests(unittest.TestCase):
+    def test_free_conversation_retargets_fixed_camera_without_losing_role_or_delay(self):
+        source = model()
+        command = source['topics']['1']['sequences'][0]['lines'][0]['commands'][0]
+        command.update(dialogue_command_type='2', int_param='5', char_param='original_room')
+        free, _ = emit(source, 'conversation', [], convert_presentation=True)
+        scene, _ = emit(source, 'scene', [], convert_presentation=True, scene_bound=True)
+        free_cameras = ET.fromstring(free).findall('.//CameraCommand')
+        self.assertTrue(all('CustomCamera' not in c.attrib for c in free_cameras))
+        self.assertEqual(free_cameras[-1].attrib, {'Role': 'MOTHER', 'Delay': '2.571127'})
+        self.assertEqual(ET.fromstring(scene).findall('.//CameraCommand')[-1].get('CustomCamera'), 'original_room')
+
     def test_default_camera_preserves_speakers_without_invalid_enum(self):
         import copy
         source = model()

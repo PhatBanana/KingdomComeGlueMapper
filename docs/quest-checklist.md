@@ -645,3 +645,51 @@ The development game reaches the menu. Speaker switching remains pending a
 live conversation check. Earlier logs also report invalid bone cameras and a
 missing camera-animation timing GUID; whether those remain after the restored
 cut requests must be checked before declaring the camera work complete.
+
+### Repeat-conversation camera placement (14 October)
+
+The user confirmed Mother's lip-sync works, but reopening her conversation
+still selected fixed opening-room cameras. The runtime log confirms the repeat
+branch requested `cam_26424_mother*` and `cam_26424_henry*`. Source camera
+references alone do not establish that participants remain at those positions.
+
+Generic dialogue emission and refresh now adapt custom world cameras to native
+actor-targeted automatic cuts unless the conversation has explicit scene
+placement. Authored role targets and delays are retained. The package refresher
+checks DialogueHolder bindings on graph instances; mixed placed/free instances
+of a shared definition fail rather than silently choosing one policy. Standalone
+scene conversion can retain fixed cameras with `--scene-bound`, which requires
+the caller to provide the corresponding actor placement.
+
+`RepeatConversationCamera01` is installed and hash-verified. Its only changed
+archive entry is Mother's repeat conversation: 34 fixed camera commands became
+actor-targeted cuts. The opening definition and its 27 authored commands are
+unchanged. All 279 campaign tests pass; non-camera XML was compared and is
+unchanged. Live repeat-conversation framing after Mother moves remains unverified.
+
+### Native-head facial compatibility trial (14 October)
+
+Mother's original imported face was confirmed moving by the user. Henry uses
+native facial controls, while the imported recordings previously supplied only
+KCD1 controller IDs. The active native male skeleton and shipped facial DBAs
+use `FA_POSE_*` controls; the separate legacy Henry head preview rig is not the
+correct vocabulary for those speech tracks.
+
+`facial_rig_adapter.py` validates a reusable semantic mapping against the source
+and target rigs. Forty source controls add 43 native controls for jaw opening,
+lip shapes, eyes and expressions. Original controller IDs and shared compressed
+curves remain intact, so source heads retain their animation. The adapter updates
+both DBA controller counts and facial-index counts. Missing controls, competing
+drivers and hash collisions fail explicitly. Thirteen source expressive controls
+have no mapped native equivalent; their original tracks remain. This is a
+compatibility mapping, not proof of identical acting on the different face rigs.
+
+`HenryFacialRig01` is installed with a backup and verified checksum. It covers
+293 recordings in 30 DBAs, including 125 Henry recordings. Package validation
+confirmed every original controller, curve buffer and timing record is retained;
+Henry's native jaw aliases reference his source jaw tracks. All 288 dialogue and
+campaign tests pass. An incremental rebuild produces identical entry contents.
+The user confirmed Henry's facial animation works in-game after launching this
+installed package. Mother was confirmed working before the native-rig adapter;
+a separate post-adapter Mother regression check and broader NPC facial acting
+coverage remain unverified.

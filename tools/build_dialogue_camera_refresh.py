@@ -13,13 +13,19 @@ from upgrade_map import read
 
 def build(source, archive, output):
     output.mkdir(parents=True, exist_ok=False)
-    selected, aliases = [], set()
+    selected, aliases, placements = [], set(), {}
     with zipfile.ZipFile(archive) as pak:
         for name in pak.namelist():
             if not name.lower().startswith('quests/') or not name.endswith('.xml'):
                 continue
             blob = read(pak, name)
             root = ET.fromstring(blob)
+            # Resolve placement from instances of the imported definition, not
+            # from its name or whether it is a forced/player-started dialogue.
+            for parent in root.iter('Nodes'):
+                for node in parent:
+                    placements.setdefault(node.tag, []).append(
+                        node.find("./Asset[@Name='DialogueHolder']") is not None)
             aliases.update(a.get('Name') for a in root.iter('CameraAsset'))
             skald = root.find('Skald')
             if skald is None or len(skald) != 1:
@@ -39,7 +45,12 @@ def build(source, archive, output):
     models = load_many(source, [(None, topic) for _, _, topic in selected])
     changes, reports = {}, {}
     for (name, blob, _), model in zip(selected, models):
-        changes[name], reports[name] = dialogue_camera_selection(blob, model, aliases)
+        definition = ET.fromstring(blob).find('Skald')[0].get('Name')
+        bindings = placements.get(definition, [])
+        if any(bindings) and not all(bindings):
+            raise ValueError('Shared dialogue has mixed scene/free placement: ' + str(definition))
+        changes[name], reports[name] = dialogue_camera_selection(
+            blob, model, aliases, scene_bound=bool(bindings) and all(bindings))
     target = output / archive.name
     rewrite(archive, target, changes)
     report = dict(source_archive=str(archive), before_sha256=digest(archive),

@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from campaign_quest_graph import emit_quest, xml
 
 
-def dialogue_camera_selection(blob, model, camera_aliases=()):
+def dialogue_camera_selection(blob, model, camera_aliases=(), *, scene_bound=False):
     """Refresh only camera commands from source responses and authored cuts.
 
     Infer role renaming from validated installed response identities. Preserve
@@ -47,13 +47,16 @@ def dialogue_camera_selection(blob, model, camera_aliases=()):
                     pending = []
             if pending or next(responses, None) is not None:
                 raise ValueError('Unmatched source presentation/response: ' + sid)
-    report = dict(responses=len(pairs), automatic=0, authored=0)
+    report = dict(responses=len(pairs), automatic=0, authored=0, scene_bound=scene_bound,
+                  world_cameras_to_actor=0)
     for response, source, pending in pairs:
         cameras = []
         initial = response_camera_command(source, pending, model)
         if initial is not None:
             cameras.append(initial)
-        cameras.extend(presentation_command(c, model) for c in pending)
+        cameras.extend(presentation_command(c, model, scene_bound=scene_bound) for c in pending)
+        report['world_cameras_to_actor'] += sum(c.get('int_param') == '5' and bool(c.get('char_param'))
+                                                for c in pending) if not scene_bound else 0
         commands = response.find('Commands')
         if commands is None:
             commands = ET.SubElement(response, 'Commands')
@@ -72,7 +75,7 @@ def dialogue_camera_selection(blob, model, camera_aliases=()):
     return xml(root), report
 
 
-def dialogue_cameras(blob, model, camera_aliases, role_mapping=None):
+def dialogue_cameras(blob, model, camera_aliases, role_mapping=None, *, scene_bound=False):
     """Refresh source camera commands while retaining converted voices/actions.
 
     Camera assets must already be registered in an ancestor graph. Other
@@ -105,8 +108,8 @@ def dialogue_cameras(blob, model, camera_aliases, role_mapping=None):
                     for old in list(commands):
                         if old.tag == 'CameraCommand': commands.remove(old)
                     for command in pending:
-                        native = presentation_command(command, model)
-                        if native.get('CustomCamera') not in camera_aliases:
+                        native = presentation_command(command, model, scene_bound=scene_bound)
+                        if native.get('CustomCamera') and native.get('CustomCamera') not in camera_aliases:
                             raise ValueError('Unregistered source camera: ' + str(native.get('CustomCamera')))
                         role = native.get('Role')
                         if role_mapping is not None:

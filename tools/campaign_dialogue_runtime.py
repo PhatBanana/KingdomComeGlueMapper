@@ -337,6 +337,7 @@ def main():
     parser.add_argument('--project', required=True)
     parser.add_argument('--activation', required=True)
     parser.add_argument('--target', type=Path, required=True)
+    parser.add_argument('--source-game', type=Path, required=True, help='Original installation supplying recording-linked facial tracks')
     parser.add_argument('--existing-dubbing', type=Path)
     parser.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -363,6 +364,14 @@ def main():
     files = attach_dialogue(files, args.project, dialogue, report, args.activation)
     existing = args.existing_dubbing.read_bytes() if args.existing_dubbing else None
     depot, receipt['dubbing'] = dubbing_index(args.target, recordings, existing)
+    from dialogue_facials import FacialImporter
+    facial = FacialImporter(args.source_game, args.target)
+    try:
+        facial.add(recordings)
+        facial_resources = facial.resources()
+        receipt['facials'] = facial.report()
+    finally:
+        facial.close()
     strings = ET.Element('Table')
     for key, text in sorted(model['strings'].items()):
         row = ET.SubElement(strings, 'Row')
@@ -370,6 +379,7 @@ def main():
             ET.SubElement(row, 'Cell').text = value
     outputs = {'Data/Quests/' + path: payload for path, payload in files.items()}
     outputs.update(imported_resources(source, report))
+    outputs.update({'Data/' + path: payload for path, payload in facial_resources.items()})
     outputs.update({'Localization/English/' + path: payload for path, payload in recordings.items()})
     outputs['Localization/English/' + DEPOT] = depot
     outputs['Localization/English_xml/text_ui_dialog.xml'] = xml(strings)

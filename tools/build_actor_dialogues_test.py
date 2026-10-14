@@ -192,13 +192,30 @@ def build(a):
             speaker['voice']['voice_technical_name'], role, ui)
         voice_receipts.append(receipt)
     depot, dubbing = dubbing_index(a.target, recordings, depot)
+    from dialogue_facials import FacialImporter, INDEX
+    facial_pak = a.mod / 'Data/gluemapper_dialogue_facials.pak'
+    facial_existing = {}
+    if facial_pak.exists():
+        with zipfile.ZipFile(facial_pak) as z:
+            facial_existing = {n:read(z,n) for n in z.namelist()}
+    facial = FacialImporter(a.source, a.target, facial_existing.get(INDEX))
+    try:
+        facial.add(recordings)
+        facial_existing.update(facial.resources())
+        facial_report = facial.report()
+    finally:
+        facial.close()
     resources.update(selection.resources())
     resources.update({'Quests/' + n:b for n,b in files.items()})
     package = a.output / 'package'
+    facial_output = package / 'Data/gluemapper_dialogue_facials.pak'
+    facial_output.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(facial_output, 'x', zipfile.ZIP_STORED) as z:
+        for path, payload in facial_existing.items(): z.writestr(path,payload)
     rewrite(travel, package / 'Data/gluemappertravel.pak', resources)
     rewrite(audio, package / 'Localization/English.pak', dict(recordings, **{DEPOT:depot}))
     rewrite(locale, package / 'Localization/English_xml.pak', {'text_ui_dialog.xml':strings_blob})
-    report = dict(conversations=reports, discovery=discovery, roles=mapping, dubbing=dubbing, actor_voices=voice_receipts,
+    report = dict(conversations=reports, discovery=discovery, roles=mapping, dubbing=dubbing, facials=facial_report, actor_voices=voice_receipts,
         baseline={str(p):digest(p) for p in (travel,audio,locale)},
         installed=False, runtime_verified=False,
         files={p.relative_to(package).as_posix():digest(p) for p in package.rglob('*.pak')})
