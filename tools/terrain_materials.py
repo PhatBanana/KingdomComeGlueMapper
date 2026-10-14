@@ -19,6 +19,7 @@ def package_materials(library, surfaces, package, namespace, blend_factor=None):
         # streamed mips that HD packages augment rather than replace.
         paths = [p for p in root.glob("*.pak") if p.name.startswith(("GameData", "Textures", "Objects", "Buildings"))]
         paths.sort(key=lambda p: ("_HD" in p.name, p.name.lower()))
+        paths.extend(sorted((root / 'patch').glob('*.pak')))
         for path in paths:
             archive = stack.enter_context(zipfile.ZipFile(path))
             for entry in archive.infolist():
@@ -74,6 +75,11 @@ def package_materials(library, surfaces, package, namespace, blend_factor=None):
         # split alpha/gloss mips (.a/.1a/etc.). Never copy base DDS alone.
         indexed = texture_families(index)
         families = {texture: sorted(name for name, _ in indexed[texture]) for texture in sorted(textures)}
+        from texture_streaming import validate_family
+        for texture,members in families.items():
+            sizes={name[len(texture):]:range(index[name][1].file_size) for name in members if name!=texture}
+            if '.a' in sizes:sizes['.a']=read(texture+'.a')
+            validate_family(read(texture),sizes)
         manifest = []
         with zipfile.ZipFile(package, "x", zipfile.ZIP_STORED) as output:
             for name, data in materials.items():

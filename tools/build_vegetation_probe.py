@@ -66,7 +66,9 @@ def main():
         index = {}
         paths = [p for p in (args.library / "KingdomComeDeliverance/Data").glob("*.pak") if p.name.startswith(("GameData", "Textures", "Objects", "Buildings"))]
         paths.extend((args.library / "KingdomComeDeliverance/Engine").glob("*.pak"))
-        for path in sorted(paths, key=lambda p: ("_HD" in p.name,p.name.lower())):
+        paths = sorted(paths, key=lambda p: ("_HD" in p.name,p.name.lower()))
+        paths.extend(sorted((args.library / "KingdomComeDeliverance/Data/patch").glob("*.pak")))
+        for path in paths:
             archive = stack.enter_context(zipfile.ZipFile(path))
             for entry in archive.infolist():
                 name = entry.filename.replace("\\", "/").lower()
@@ -102,6 +104,12 @@ def main():
                     texture_names[original] = prefix + "t" + str(len(texture_names)) + "_" + PurePosixPath(original).name
                     if original not in index:
                         raise FileNotFoundError(original)
+                    from texture_streaming import validate_family
+                    base_bytes = asset_read(original)
+                    member_sizes = {suffix: range(index[member][1].file_size)
+                                    for member, suffix in families[original] if suffix}
+                    if '.a' in member_sizes: member_sizes['.a'] = asset_read(original+'.a')
+                    validate_family(base_bytes, member_sizes)
                     for member, suffix in families[original]:
                         emitted[texture_names[original]+suffix] = asset_read(member)
                 tex.set("File",texture_names[original])

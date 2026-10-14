@@ -1,5 +1,41 @@
 # Runtime warning and placeholder repairs
 
+## 15 October 2026: vegetation streaming comparison
+
+The reported forest traversal session recorded one `StreamOnComplete` state
+check failure (state 6), followed by 594 merged-render-node error messages.
+It also recorded 91 Henry idle/run facial animation queue overflows, 231
+water-emitter particle-limit warnings and 20 empty brush bounding boxes.
+These are separate symptoms; the log does not establish a texture-memory
+exhaustion cause. Missing material textures are present as well.
+
+Compared the installed vegetation-GI bake with the previous complete lighting
+set using two fresh development-client processes, the same direct map load,
+1280x720 window, frozen playline and fixed 84-second flight route. Seven legs
+crossed the area around (1777,1173), continued to the river around (2485,764),
+then returned. Both runs acknowledged all seven legs and completion. Neither
+run reproduced the streaming completion failure or merged-node errors; neither
+reproduced the facial queue or water-emitter warnings during the route.
+
+This is an **inconclusive reproduction**, not a fix or a performance benchmark.
+Programmatic flight at fixed altitude and a fresh direct-map session do not
+reproduce the original gameplay state, camera path, dwell times or animation
+transitions. An attempted time-of-day command was unsupported, so explicit
+time-of-day control was not established. No matched frame-time measurements
+were collected. A longer normal-gameplay reproduction is still required.
+
+All 83,431 installed merged-sector files passed structural record/coordinate
+validation. Archive entry CRC/size comparison found no merged-sector changes
+between the previous and current terrain packages; only `terrain/terrain.dat`
+changed. The level archive has identical entry contents. This rules out removed
+sector files in this update, not runtime format incompatibility or contention.
+
+The current vegetation lighting was restored after testing. All ten installed
+package SHA-256 hashes match its installation receipt, and exactly its eight
+SVO shards are present. Local evidence, scripts, route logs and restoration
+checks are under `outputs/StreamingAudit/2026-10-15/`. The streaming issue remains
+open; do not treat a successful bake/install as runtime streaming acceptance.
+
 ## 13 October 2026
 
 The converter now rejects native item definitions whose models point to the

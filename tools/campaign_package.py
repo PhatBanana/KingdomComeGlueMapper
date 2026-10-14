@@ -16,6 +16,7 @@ import zipfile
 from campaign_sources import opening_sources
 from upgrade_map import read, xml
 from setup_progress import progress
+from texture_streaming import generated_entries, checked_entries
 
 LEVEL = 'kcd1_rataje'
 LEVEL_ID = 1000
@@ -25,14 +26,14 @@ REFERENCE = re.compile(rb'(?:' + b'|'.join(p.encode() for p in PREFIXES)
                        + rb')/[A-Za-z0-9_./\\-]+', re.I)
 
 
-def write_asset_shards(directory, entries, max_bytes=1024 ** 3, max_entries=50000, total_entries=0):
+def write_asset_shards(directory, entries, max_bytes=1024 ** 3, max_entries=50000, total_entries=0, streaming_compiler=None):
     """Write stored ZIP32 archives below retail's size and entry-count limits."""
     directory = Path(directory)
     reports, assets = [], []
     archive = None
     size, count = 22, 0
     try:
-        for name, payload in entries:
+        for name, payload in checked_entries(generated_entries(entries, streaming_compiler)):
             name = safe_name(name)
             cost = len(payload) + 76 + 2 * len(name.encode('utf-8'))
             if cost + 22 > max_bytes:
