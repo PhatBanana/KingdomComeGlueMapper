@@ -1,0 +1,4 @@
+# Optional offline world surface baker; the game runtime does not need these.
+numpy>=2.3
+Pillow>=11.3
+numba==0.68.0

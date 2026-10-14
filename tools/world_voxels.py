@@ -47,12 +47,22 @@ def build(source, destination, tile=None):
     return report
 
 
-def configure_environment(blob):
+def configure_environment(blob, *, surface_channels=False):
+    """Configure the mission for its packaged channel layout.
+
+    Mode 1 requires a validated surface bake; callers must not enable it for
+    the legacy opacity-only output of build(). The accepted offline surface
+    path keeps lighting dynamic while streaming precomputed geometry.
+    """
     root = ET.fromstring(blob)
     gi = root.find('Environment/Total_Illumination_v2')
     if gi is None:
         raise ValueError('Missing level GI configuration')
     gi.set('Active', '1')
-    gi.set('IntegrationMode', '0')
-    gi.set('UseLightProbes', '1')
+    gi.set('IntegrationMode', '1' if surface_channels else '0')
+    gi.set('UseLightProbes', '0' if surface_channels else '1')
+    if surface_channels:
+        gi.set('UpdateLighting','1')
+        gi.set('UpdateGeometry','0')
+        gi.set('StreamVoxels','1')
     return ET.tostring(root, encoding='utf-8')
