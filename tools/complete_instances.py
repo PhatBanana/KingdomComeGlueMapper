@@ -16,6 +16,7 @@ from merged_vegetation import inventory
 from static_assets import asset_pack, install_staged
 from entity_visuals import initial_layer
 from building_brushes import resource_table
+from vegetation_gi import upgrade_group
 
 
 def main():
@@ -61,8 +62,10 @@ def main():
         for group, mapped in group_map.items():
             old = source.data[source.tables['vegetation']['offset']+group*360:source.tables['vegetation']['offset']+(group+1)*360]
             new = group_data[mapped*360:(mapped+1)*360]
+            old, new = upgrade_group(old), upgrade_group(new)
             if old[256:320]+old[324:336]+old[340:] != new[256:320]+new[324:336]+new[340:]:
                 raise ValueError('Inherited group identity mismatch')
+            group_data[mapped*360:(mapped+1)*360] = new
         Path('outputs').mkdir(exist_ok=True)
         cache = stack.enter_context(tempfile.TemporaryDirectory(prefix='instances-',dir='outputs'))
         index, emitted, material, mesh_bytes = asset_pack(stack,args.library,prefix,cache)
@@ -93,7 +96,7 @@ def main():
             struct.pack_into('<i',record,320,mapped+1)
             # Override is bound into each mesh and its own LOD atlas.
             struct.pack_into('<i',record,336,target_material)
-            group_data.extend(record)
+            group_data.extend(upgrade_group(record))
         additions = [r for r in additions if r['group'] in group_map]
         print(f'Appending {len(additions)} instances; {len(group_map)-len(old_groups)} new groups',flush=True)
         material_start = baseline.tables['materials']['offset']-4

@@ -381,3 +381,55 @@ terrain layer blending, vegetation translucency/native filtering and runtime
 visual equivalence still require verification. Empty `pending_categories` means
 all listed object categories have an explicit policy, not that native visual
 parity or in-game installation has been established.
+
+## Native vegetation GI eligibility (2026-10-15)
+
+Direct inspection of installed native KCD2 terrain tables found `SIGC_GI_MODE`
+enabled in all 597 Trosky groups and all 599 Kuttenberg groups, including grass
+and forest undergrowth. The converted KCD1 table instead retained 160 enabled
+and 348 disabled groups. Consequently, the previous coverage pass selected
+603,634 individual placements and omitted 879,591 based on the legacy flag.
+
+`vegetation_gi.py` now defines the shared `kcd2-vegetation-gi-v1` policy. The
+vegetation importer upgrades this one group bit, preserving every other byte.
+The completion importer normalizes inherited groups as well as newly appended
+groups. Herb provenance matching normalizes the same bit on both sides so the
+upgrade does not invalidate item registration. This is generic group conversion,
+not a list of selected trees or regions.
+
+The surface planner applies the same eligibility policy and records original
+flags separately. Hidden and proxy render-node exclusions remain in place;
+alpha-tested foliage keeps the existing material sampling. The staging tool
+packages an upgraded `terrain.pak` together with the SVO shards and mission.
+Both runtime eligibility and baked inputs must be installed together.
+
+`reuse_equivalent_world_tiles.py` is a narrowly scoped migration for this
+eligibility-only change. A freshly regenerated scene must match the previous
+asset catalog, decoded mesh arrays, material bindings and base placements.
+Only tiles with identical vegetation mesh/transform multisets may be reused.
+Reference reports must match the supplied pre-change builder digest, supported
+sample count/backend settings and verified voxel hashes. It is not permission
+to reuse results across rasterizer or shader changes.
+
+This observation establishes vegetation group eligibility, not that native
+KCD2 voxelizes every grass blade. Merged vegetation remains excluded from the
+standalone static-node pass under the existing reference-derived policy.
+Native translucency/filtering parity and the forest's in-game appearance still
+need verification after the expanded bake is installed.
+
+The native comparison also found zero serialized GI mode on all 46,569 Trosky
+and 64,236 Kuttenberg merged-vegetation nodes, matching the converted world's
+83,431 such nodes. This supports retaining the existing separate merged-node
+treatment; group eligibility is the demonstrated mismatch. The evidence is
+`World01/native-vegetation-gi-audit.json` under the offline-lighting outputs.
+
+The fresh plan selects 1,483,225 individual vegetation instances, with 879,591
+legacy-disabled instances upgraded. Equivalent-input validation retained 932
+tiles and identified 288 for rebuilding. `SceneNativeGI01` and
+`StagedNativeGI01` are separate from the previously installed coverage build.
+
+`install_world_surfaces.py` verifies staged hashes/CRCs, unique tile ownership,
+the full previous shard set, and baseline installed hashes. It requires the
+game to be closed, retains the old package set under a new recovery directory,
+verifies copied files, replaces the complete set, and rolls back on failure.
+The receipt records installation verification separately from in-game testing.

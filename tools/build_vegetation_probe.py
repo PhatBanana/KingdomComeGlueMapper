@@ -15,6 +15,7 @@ from compiled_terrain import parse
 from upgrade_map import read, xml
 from vegetation import read_instances, verify_target_hlods, convert_instance
 from merged_vegetation import inventory, convert_cell, build_tree
+from vegetation_gi import upgrade_group
 
 
 def main():
@@ -154,7 +155,7 @@ def main():
             record[:256] = (target+".cgf").encode().ljust(256,b"\0")
             struct.pack_into("<i",record,320,group_map[group]+1)
             struct.pack_into("<i",record,336,-1)  # use embedded namespaced material
-            group_bytes.extend(record)
+            group_bytes.extend(upgrade_group(record))
 
         base = data_root / "Levels" / args.base_level
         with zipfile.ZipFile(base/"terrain.pak") as archive:

@@ -1,8 +1,8 @@
 """Resolve static GI category coverage without changing the accepted base scene.
 
 Water/decal/merged render nodes are not standalone static voxelizer inputs in
-CryEngine's reference GatherObjects path. Authored vegetation group GI flags
-select foliage, with its full scaled/rotated/terrain-aligned placement.
+CryEngine's reference GatherObjects path. Native KCD2 group GI eligibility
+selects foliage, with its full scaled/rotated/terrain-aligned placement.
 This remains an experimental offline bake, not a claim of native bake parity.
 """
 import argparse
@@ -21,6 +21,7 @@ from upgrade_map import read
 from vegetation import verify_target_hlods
 from water_volumes import read_water
 from world_surface_scene import tile_origins
+from vegetation_gi import POLICY,GI_ENABLED,eligible_instance
 
 
 def gi_mode(flags):
@@ -129,6 +130,11 @@ def augment(source,output):
     with zipfile.ZipFile(Path(plan['level'])/'level.pak') as z:data=read(z,'terrain/hlods.dat')
     verify_target_hlods(data)
     groups={i:vegetation_group(terrain,i) for i in range(len(terrain.tables['vegetation']['paths']))}
+    for group in groups.values():
+        group['source_gi_enabled']=group['gi_enabled']
+        group['source_flags']=group['flags']
+        group['flags']|=GI_ENABLED
+        group['gi_enabled']=True
     selected={};counts=Counter();node_modes=Counter();cursor=4
     while cursor<len(data):
         size=struct.unpack_from('<I',data,cursor)[0];cursor+=4;end=cursor+size
@@ -139,8 +145,8 @@ def augment(source,output):
                 if group not in groups:raise ValueError('Unknown HLOD vegetation group')
                 flags=struct.unpack_from('<Q',data,cursor+32)[0];node_modes[gi_mode(flags)]+=1
                 counts['total']+=1
-                if not groups[group]['gi_enabled']:counts['group_gi_disabled']+=1
-                elif flags&((1<<8)|(1<<22)|(1<<27)):counts['hidden_or_proxy']+=1
+                if not groups[group]['source_gi_enabled']:counts['legacy_gi_disabled_upgraded']+=1
+                if not eligible_instance(flags):counts['hidden_or_proxy']+=1
                 else:
                     selected.setdefault(group,[]).append(cursor);counts['selected']+=1
             cursor+=104 if kind==1 else 64
@@ -169,7 +175,7 @@ def augment(source,output):
     if errors:
         (output/'coverage-errors.json').write_text(json.dumps(errors,indent=2));raise ValueError('Vegetation mesh failures: '+str(errors))
     np.savez(output/'vegetation.npz',transforms=np.concatenate(all_transforms) if all_transforms else np.empty((0,3,4)),groups=np.concatenate(all_groups) if all_groups else np.empty(0,np.uint16))
-    plan['vegetation']={'groups':metadata,'counts':dict(counts),'serialized_node_modes':dict(node_modes),'sha256':hashlib.sha256((output/'vegetation.npz').read_bytes()).hexdigest()}
+    plan['vegetation']={'policy':POLICY,'groups':metadata,'counts':dict(counts),'serialized_node_modes':dict(node_modes),'sha256':hashlib.sha256((output/'vegetation.npz').read_bytes()).hexdigest()}
     excluded=Counter()
     def inspect(d,o,s,k):
         if k in (7,9,23):
@@ -183,7 +189,7 @@ def augment(source,output):
         del plan['pending_categories'][name]
     if plan['pending_categories'].get('hlod_vegetation')!=counts['total']:raise ValueError('Vegetation count mismatch')
     del plan['pending_categories']['hlod_vegetation']
-    coverage['hlod_vegetation']={'count':counts['total'],'policy':'authored group SIGC_GI_MODE; hidden/proxy exclusion; full placement transforms','included':count,'counts':dict(counts)}
+    coverage['hlod_vegetation']={'count':counts['total'],'policy':POLICY+'; all groups eligible; hidden/proxy exclusion; full placement transforms','included':count,'counts':dict(counts)}
     plan['category_policy']=coverage;plan['tiles']=[jobs[k] for k in sorted(jobs)]
     plan['status']='category coverage resolved; experimental bake and runtime validation required'
     plan['coverage_reference']='https://github.com/ValtoGameEngines/CryEngine/blob/release/Code/CryEngine/Cry3DEngine/SVO/VoxelSegment.cpp'

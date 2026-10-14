@@ -7,6 +7,7 @@ import zipfile
 from audit_herb_pickup import normalize, table_rows
 from compiled_terrain import parse
 from upgrade_map import read, xml
+from vegetation_gi import upgrade_group
 
 
 def recover_report_model_map(source_game, terrain_pak, vegetation_report, instances_report):
@@ -36,7 +37,7 @@ def recover_report_model_map(source_game, terrain_pak, vegetation_report, instan
     for i, g in enumerate(groups):
         def signature(terrain, index):
             start = terrain.tables['vegetation']['offset'] + index * 360
-            record = terrain.data[start:start+360]
+            record = upgrade_group(terrain.data[start:start+360])
             return record[256:320]+record[324:336]+record[340:]
         expected = 'glueveg/' + (old['level'] if i < len(old_groups) else completed['level']) + '/mesh' + str(i) + '.cgf'
         actual = normalize(target.tables['vegetation']['paths'][i])
@@ -60,6 +61,7 @@ def recover_model_map(source_game, terrain_pak):
         start = terrain.tables['vegetation']['offset']
         for i, path in enumerate(terrain.tables['vegetation']['paths']):
             record = terrain.data[start+i*360:start+(i+1)*360]
+            record = upgrade_group(record)
             yield normalize(path), record[256:320]+record[324:336]+record[340:]
     identities = {}
     for name, signature in rows(source):
