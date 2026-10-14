@@ -39,6 +39,53 @@ recovery and automatic speaker-camera switching remain unverified in-game.
 The subsequent crash occurred while loading Kuttenberg, not the converted
 Skalitz level; its cause has not been established.
 
+### Kenish quest-line focus (14 October)
+
+The source actor is `ska_kunes`. The actor-scoped audit selects branches through
+source soul/role membership within the opening quest closure, without matching
+dialogue labels or embedding topic IDs in importer rules. Reproduce with
+`tools/audit_actor_quest_dialogues.py`, supplying the source/target/mod paths,
+quest IR, quest-scoped closure and `--soul-name`. The retained audit is
+`outputs/OpeningStart/KenishAudit02/report.json`.
+
+Thirteen branches are selected. Five emit XML; eight still fail conversion:
+one requires area/context bindings, two require actor-identity predicates,
+four require branch-type/reputation policies, and one references three missing
+localized source responses. XML emission is not voice packaging, runtime
+registration or a completed quest. Friend-assistance branches not owned by
+this actor remain additional dependencies of the full quest line.
+
+The generic dialogue condition importer now supports `IsActorInside` with
+explicitly resolved context and area bindings. It emits the shipped native
+`wh::rpgmodule::AreaCheck` contract and requires Soul/Area assets of the correct
+types. Source numeric context indexes are not guessed from sorted roles.
+Unknown contexts, missing areas and failed expressions cannot create partial
+condition ports. This adapter is not yet bound to the source encounter.
+
+- [ ] Resolve and register the original encounter area and dialogue contexts.
+- [ ] Connect the first debt conversation, choices, voices and quest effects.
+- [ ] Convert combat initiation, win/loss/flee outcomes and follow-up dialogue.
+- [ ] Preserve goods, key/chest access, ownership and objective completion.
+- [ ] Connect friend assistance and quest-controlled work interruptions.
+- [ ] Verify each supported route and save/load in game.
+
+Validation: 266 campaign tests pass. No package was installed in this pass;
+the installed travel package still matches `CameraEnumRecovery01`.
+
+The subsequent area dependency pass discovers literal `IsActorInside` references
+after expanding source dialogue functions, including objective-effect conditions.
+It stages the source encounter trigger in `outputs/OpeningStart/KenishAreas01`:
+one entity, original GUID `b3533381-56bd-4678`, four unchanged world-space polygon
+vertices. Existing entities and polygons are preserved; conflicting or missing
+source areas fail the merge. This package is not installed yet. The actor is
+already installed, but was missing this referenced trigger entity.
+
+Read-only native inspection finds `IsActorInside` in Framework.dll and `IsActor`
+in RPGModule.dll; a shipped native test dialogue also uses `IsActor`. The saved
+binary hashes/string offsets are discovery evidence, not proof of equivalent
+dialogue context indexing. Check that contract before substituting a fixed actor
+or enabling encounter branches. Validation now passes 269 campaign tests.
+
 ### Latest accepted development checks: Father greeting and skill check
 
 On 14 October 2026 the user confirmed that Father's automatic proximity callout
@@ -492,3 +539,81 @@ Validation: 184 campaign tests and 67 character tests pass. Package integrity
 and installed hashes pass, with no archive entries removed. The complete
 Skalitz controller, all schedules, Henry's initialization and the attack
 handoff remain unfinished. The current scope ends at the start of the attack.
+
+
+### Debt conversation dependency conversion (14 October)
+
+The generic actor branch selector now follows source role membership within
+the quest dependency closure. Dialogue entity predicates preserve the original
+context index and resolve source names against installed actors and converted
+trigger areas. The area importer preserves source polygon geometry and rejects
+missing or ambiguous references instead of substituting a position check.
+
+`KenishRuntime01` installs the first debt conversation with 23 recordings,
+source-derived voice registration and its original trigger area. All four
+archives were backed up and hash-verified. The development game reached Skalitz
+gameplay without a new dialogue-expression load error; condition evaluation and
+the complete debt quest remain unverified. The explicit threaten-to-might skill
+upgrade also needs gameplay validation; identical check mathematics is not claimed.
+
+A proposed single-predecessor exclusive-objective rule was withdrawn before
+installation: it would activate both caught and escaped branches, and source
+selection semantics have not been established. `KenishConnected01` is marked
+rejected and must not be installed. No source-exclusive transition is forced on
+to make the conversation available. Combat outcomes, friend assistance, goods
+collection, and return-to-father progression still require integration and tests.
+
+Validation: 271 campaign unit tests pass. This is package/load verification,
+not an end-to-end quest pass.
+
+
+### Debt-state transition correction and outcome dependencies (14 October)
+
+The earlier concern about starting exclusive objectives was based on an
+incomplete interpretation. The developer Quest System Documentation specifies
+that exclusivity applies to predecessors: completing one alternative cancels
+its exclusive siblings and starts their successor. Exclusive objectives can
+themselves be started normally. The importer previously inspected the target
+flag and incorrectly suppressed these transitions.
+
+The generic graph emitter now handles ordinary all-predecessor joins and
+exclusive alternative joins, emits guarded sibling cancellation, and permits
+restarting canceled objectives on subsequent predecessor completion. Mixed
+exclusive/nonexclusive joins remain explicitly unresolved because their
+combination is not established by the documentation. The effective Skalitz
+source has no such mixed joins. A transition refresh replaces generated graph
+wiring while retaining installed dialogue, inventory, journal and reward logic.
+
+Reference: https://modding.wiki/en/kingdomcomedeliverance/developers/quest-system-documentation
+
+`KenishRuntime02` installs this graph correction, two additional dialogue actor
+dependencies (from source normal-profile membership), and three outcome
+conversations with four recordings. Six archives were backed up as applicable,
+installed and hash-verified. Source profile membership disambiguates roles
+shared with the Theresa campaign. Missing or multiply matched actors still
+fail conversion rather than selecting the first soul.
+
+Validation: 274 campaign tests pass, including alternative-join truth cases,
+sibling cancellation wiring, shared-role resolution, and preservation and
+idempotence of transition refresh. The restarted game reached Skalitz gameplay;
+the opening dialogue and its ordinary-question handoff appear in the log.
+The pre-existing DialogueHolder reset warning remains and is also present in
+`KenishRuntime01/startup.log`. This is not an end-to-end debt quest pass.
+
+Still pending: original voice abbreviation `fwri` needs a destination voice
+registration for the friend conversation; the complete combat behavior needs
+its source operation/dependency adapters and dispatch; work/home links and
+friend assistance, goods collection and return-to-father must be tested.
+No installed quest outcome was forced through a debug completion call.
+
+### Additional behavior adapters (14 October)
+
+Explicit buff removal now accepts the native no-tag sentinel `BuffTagId="-1"`
+when the referenced buff is registered. Link-data assignments resolve their
+source link tags and typed dependencies before emitting native writes; local
+variables and quoted strings are preserved. Missing or ambiguous link types
+remain conversion errors. These adapters are source-tested but have not been
+rebuilt into the installed `KenishRuntime02` package.
+
+Validation: all 276 campaign unit tests pass. Combat dispatch and end-to-end
+debt progression remain unverified; this does not mark the quest complete.

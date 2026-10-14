@@ -298,7 +298,8 @@ def camera_assets(model, level_archive):
 
 
 def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
-         selection_compiler=None, registered_items=(), participant_assets=None):
+         selection_compiler=None, registered_items=(), participant_assets=None, area_assets=None,
+         context_entities=None):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog', 'Dialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -352,7 +353,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                 raise ValueError('Conflicting source sequence: ' + sid)
             sequence_records[sid] = record
     conditions = QuestConditions(quest_models, model.get('functions'), registered_items,
-                                 participant_assets, sequence_records)
+                                 participant_assets, sequence_records, area_assets, context_entities)
 
     def decision(parent, tid):
         visited.add(tid)

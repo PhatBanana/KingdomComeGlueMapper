@@ -263,6 +263,12 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
         if binding.get('kind') == 'engine_function':
             if {k:v for k,v in binding.items() if k != 'kind'} not in ENGINE_PREDICATES.values():
                 raise ValueError('Unrecognized native dialogue engine predicate')
+        elif binding.get('kind') == 'area_check':
+            assets = {n.get('Name'): n.get('Target') or
+                      {'SoulAsset': 'Soul', 'TriggerAreaAsset': 'Area'}.get(n.tag)
+                      for n in host.findall('Assets/*')}
+            if assets.get(binding.get('asset')) != 'Soul' or assets.get(binding.get('area')) != 'Area':
+                raise ValueError('Missing or incompatible dialogue area/subject assets')
         elif binding.get('kind') == 'inventory_comparison':
             assets = {n.get('Name') for n in host.findall('Assets/*')}
             if binding.get('asset') not in assets:
@@ -291,6 +297,19 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
                           DeclaringType=binding['declaring_type'])
             ET.SubElement(instance, 'Edge', From=predicate + '.' + binding['output'], To=port)
             condition_outputs[port] = predicate + '.' + binding['output']
+        elif binding.get('kind') == 'area_check':
+            stem = name + '_' + port
+            if any(n.get('Name') == stem for n in nodes):
+                raise ValueError('Dialogue area predicate collision')
+            # Native fist_fights_common_library/fistfights__before_fight_without_payment.xml
+            # evaluates AreaCheck continuously and exposes its IsInside output.
+            check = ET.SubElement(nodes, 'Function', Name=stem,
+                MethodName='wh::rpgmodule::AreaCheck', DeclaringType='wh::rpgmodule')
+            ET.SubElement(check, 'Asset', Name='Souls', Alias=binding['asset'])
+            ET.SubElement(check, 'Asset', Name='Areas', Alias=binding['area'])
+            output = stem + '.IsInside'
+            ET.SubElement(instance, 'Edge', From=output, To=port)
+            condition_outputs[port] = output
         elif binding.get('kind') == 'inventory_comparison':
             stem = name + '_' + port
             if any(n.get('Name', '').startswith(stem) for n in nodes):

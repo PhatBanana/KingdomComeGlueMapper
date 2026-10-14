@@ -28,6 +28,48 @@ def model():
 
 
 class QuestGraphTests(unittest.TestCase):
+    def test_exclusive_predecessors_advance_on_either_completion_and_cancel_sibling(self):
+        m = model()
+        for row in m['tables']['quest_objective']['rows']:
+            if row['objective_id'] in ('4', '5'):
+                row['is_exclusive'] = 'True'
+                m['graph']['nodes'][row['objective_id']]['payload'][0]['attributes']['IsExclusive'] = '1'
+        files, report = emit_project([m], 'Example')
+        root = E.fromstring(files['Example/arbitrary_quest.xml'])
+        nodes = {n.get('Name'): n for n in root.find('./Skald/Quest/Nodes')}
+        def evaluate(port, state):
+            if port in state: return state[port]
+            node = nodes[port.split('.')[0]]
+            inputs={e.get('To'): evaluate(e.get('From'),state) for e in node.findall('Edge')}
+            if node.get('MethodName') == 'math::boolean::And': return inputs['A'] and inputs['B']
+            if node.get('MethodName') == 'math::boolean::Or': return inputs['A'] or inputs['B']
+            self.fail('Unexpected boolean expression')
+        condition=nodes['advance_6'].find("Edge[@To='Condition']").get('From')
+        for first,second,unchanged,canceled,expected in (
+            (False,False,True,False,False), (True,False,True,False,True),
+            (False,True,True,False,True), (True,False,False,True,True),
+            (True,False,False,False,False)):
+            self.assertEqual(evaluate(condition,{'objective_4.Completed':first,
+                'objective_5.Completed':second,'objective_6.Unchanged':unchanged,
+                'objective_6.Canceled':canceled}),expected)
+        # Exclusive objectives themselves still start from their incoming edge.
+        self.assertIn('advance_4',nodes)
+        self.assertIn('advance_5',nodes)
+        for winner,other in [('4','5'),('5','4')]:
+            name='exclusive_cancel_'+winner+'_'+other
+            self.assertEqual(nodes[name].find("Edge[@To='Exec']").get('From'),
+                'objective_'+winner+'.OnCompleted')
+            self.assertEqual(nodes['objective_'+other].find("Edge[@From='"+name+".True']").get('To'),'SetCanceled')
+        self.assertEqual(len(report['quests'][0]['exclusive_cancellations']),2)
+
+    def test_mixed_predecessor_policy_is_explicitly_unresolved(self):
+        m=model()
+        m['tables']['quest_objective']['rows'][1]['is_exclusive']='True'
+        m['graph']['nodes']['4']['payload'][0]['attributes']['IsExclusive']='1'
+        files,report=emit_project([m],'Example')
+        self.assertIsNone(E.fromstring(files['Example/arbitrary_quest.xml']).find(".//If[@Name='advance_6']"))
+        self.assertTrue(any(r['kind']=='mixed_exclusive_transition' for r in report['quests'][0]['unsupported']))
+
     def test_source_game_time_autocomplete_preserves_duration_and_cancel_gate(self):
         m = model()
         row = m['tables']['quest_objective']['rows'][0]

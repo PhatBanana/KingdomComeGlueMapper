@@ -88,6 +88,25 @@ class LinkTypeAdapter:
             target_variable='__link_' + target, runtime_validated=False)
 
 
+def assignment_expression(expression, importer, site=None):
+    """Resolve a link-data write using its declared source symbol and type."""
+    match = re.match(r'\s*\$([A-Za-z_]\w*)\.([A-Za-z_]\w*)\s*=(?!=)', expression)
+    if not match or importer is None or 'link_types' not in importer.adapters:
+        raise ValueError('Link-data assignment requires a declared link symbol')
+    symbol = match[1]
+    adapter = importer.adapters['link_types']
+    rows = [row for row in adapter.source.values() if (row.get('variableName') or row['name']) == symbol]
+    if len(rows) != 1:
+        raise ValueError('Missing or ambiguous link-data symbol: ' + symbol)
+    row = rows[0]
+    if not row.get('type'):
+        raise ValueError('Link-data assignment targets an untyped link: ' + symbol)
+    target = importer.ensure('link_types', row['name'], site)
+    if target is None:
+        raise ValueError('Link-data assignment dependency did not convert: ' + row['name'])
+    return data_expression(expression, symbol, target)
+
+
 def data_expression(expression, source_variable, target_tag):
     """Rewrite a resolved link data symbol; never replace text or prefixes."""
     identifier(source_variable)

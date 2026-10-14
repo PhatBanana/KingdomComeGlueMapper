@@ -32,6 +32,24 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_explicit_buff_removal_accepts_native_no_tag_sentinel(self):
+        buff='12345678-1234-1234-1234-123456789abc'
+        def run(tag, registered=True):
+            m=source('<Root><RemoveBuffs SoulWUID="&quot;this.id&quot;" BuffGUID="&quot;'+buff+
+                     '&quot;" BuffTagId="&quot;'+tag+'&quot;"/></Root>')
+            importer=DependencyImporter({}, {'buffs':{buff:'mapped-buff'}} if registered else {})
+            return convert_behaviors([m],'Imported',catalog(),importer=importer)
+        for tag in ('-1',''):
+            files,_,report=run(tag)
+            node=E.fromstring(next(iter(files.values()))).find('.//RemoveBuffs')
+            self.assertEqual(node.get('BuffGUID'),"'mapped-buff'")
+            self.assertEqual(node.get('BuffTagId'),tag)
+            self.assertEqual(node.get('SoulWUID'),'$this.id')
+            self.assertEqual(report['whole_trees_emitted'],1)
+        for tag in ('0','7','$dynamicTag'):
+            self.assertFalse(run(tag)[0])
+        self.assertFalse(run('-1',False)[0])
+
     def test_predefined_route_uses_native_parameter_type_and_source_defaults(self):
         m = source('''<Root><Move destinationSpecification="&quot;route&quot;"
           destinationSpecification2="&quot;params&quot;" speed="&quot;Walk&quot;"/></Root>''')

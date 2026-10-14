@@ -98,7 +98,7 @@ def validate_model(model):
     return by_id, begin[0], end[0]
 
 
-def all_of(nodes, name, values):
+def boolean_fold(nodes, name, values, operation):
     values = list(values)
     if not values: raise ValueError('Empty conjunction')
     if len(values) == 1: return values[0]
@@ -107,10 +107,18 @@ def all_of(nodes, name, values):
     for i, value in enumerate(values[1:]):
         node_name = name + '_' + str(i)
         node = ET.SubElement(nodes, 'Function', Name=node_name,
-                             MethodName='math::boolean::And', DeclaringType='math::boolean')
+                             MethodName='math::boolean::' + operation, DeclaringType='math::boolean')
         edge(node, result, 'A'); edge(node, value, 'B')
         result = node_name + '.bool'
     return result
+
+
+def all_of(nodes, name, values):
+    return boolean_fold(nodes, name, values, 'And')
+
+
+def any_of(nodes, name, values):
+    return boolean_fold(nodes, name, values, 'Or')
 
 
 def emit_quest(model, progress_type, localization=None, diagnostics=False):
@@ -230,28 +238,43 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
                                               condition=row.get('condition'),
                                               autocomplete=row.get('autocomplete_timeout_str'),
                                               expiration=row.get('expiration_timeout_str')))
-    # Preserve the original directed graph with explicit all-predecessor gates.
-    # A disabled transition can never activate an objective. Completed/canceled
-    # states are not reset by a repeated predecessor notification.
+    # KCD1 developer Quest System Documentation: exclusivity belongs to the
+    # predecessors, not the destination. Alternative exclusive predecessors
+    # cancel their siblings upon completion. Nonexclusive joins require all.
+    # https://modding.wiki/en/kingdomcomedeliverance/developers/quest-system-documentation
     incoming = defaultdict(list)
     for r in report['transitions']:
         if r['enabled'] == 'True': incoming[r['to_objective_id']].append(r['from_objective_id'])
+    cancellation_pairs = set()
     for target, predecessors in incoming.items():
         if target == end:
             report['unsupported'].append(dict(kind='quest_end_policy', predecessors=predecessors))
             continue
-        row = by_id[target]
-        if row['is_exclusive'] == 'True':
-            report['unsupported'].append(dict(kind='exclusive_transition', objective=row['objective_name']))
+        exclusive = [p for p in predecessors if p != begin and by_id[p]['is_exclusive'] == 'True']
+        if exclusive and len(exclusive) != len(predecessors):
+            report['unsupported'].append(dict(kind='mixed_exclusive_transition',
+                objective=by_id[target]['objective_name'], predecessors=predecessors))
             continue
         terms = [('quest_progress.Active' if p == begin else 'objective_' + p + '.Completed') for p in predecessors]
-        terms.append('objective_' + target + '.Unchanged')
-        condition = all_of(nodes, 'ready_' + target, terms)
+        prerequisite = (any_of if exclusive else all_of)(nodes, 'ready_' + target + '_predecessors', terms)
+        restartable = any_of(nodes, 'ready_' + target + '_restartable',
+            ['objective_' + target + '.Unchanged', 'objective_' + target + '.Canceled'])
+        condition = all_of(nodes, 'ready_' + target, [prerequisite, restartable])
         gate = ET.SubElement(nodes, 'If', Name='advance_' + target)
         edge(gate, condition, 'Condition')
         for p in predecessors:
             edge(gate, 'quest_progress.OnActive' if p == begin else 'objective_' + p + '.OnCompleted', 'Exec')
         edge(states[target], 'advance_' + target + '.True', 'SetStarted')
+        cancellation_pairs.update((winner, other) for winner in exclusive for other in exclusive if winner != other)
+    for winner, other in sorted(cancellation_pairs):
+        name = 'exclusive_cancel_' + winner + '_' + other
+        condition = any_of(nodes, 'exclusive_ready_' + winner + '_' + other,
+            ['objective_' + other + '.Unchanged', 'objective_' + other + '.Started'])
+        gate = ET.SubElement(nodes, 'If', Name=name)
+        edge(gate, condition, 'Condition')
+        edge(gate, 'objective_' + winner + '.OnCompleted', 'Exec')
+        edge(states[other], name + '.True', 'SetCanceled')
+    report['exclusive_cancellations'] = [dict(completed=a, canceled=b) for a,b in sorted(cancellation_pairs)]
     for table, payload in model['tables'].items():
         if table.startswith('quest_reward') and payload['rows']:
             report['unsupported'].append(dict(kind='rewards', table=table, rows=payload['rows']))

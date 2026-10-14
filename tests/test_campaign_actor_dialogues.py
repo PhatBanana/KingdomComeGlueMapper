@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from campaign_actor_dialogues import discover, role_bindings, register_roles, remap_roles
+from campaign_actor_dialogues import discover, role_bindings, register_roles, remap_roles, actor_branches, required_actor_souls
 from build_actor_dialogues_test import actor_voice_bindings, actor_ui_name
 
 
@@ -25,6 +25,26 @@ def tables():
 
 
 class ActorDialogueTests(unittest.TestCase):
+    def test_required_souls_include_connected_silent_participants_and_reject_ambiguity(self):
+        t=tables()
+        _,models=discover(t,['abc'])
+        self.assertEqual(required_actor_souls(list(models.values()),t['soul2role'],t['role'],t['metarole']),
+                         {'12':'abc','13':'def'})
+        t['soul2role'].append(dict(soul_id='different_person',role_id='13'))
+        self.assertEqual(required_actor_souls(list(models.values()),t['soul2role'],t['role'],t['metarole'],{'abc','def'}),{'12':'abc','13':'def'})
+        with self.assertRaisesRegex(ValueError,'ambiguous dialogue actor'):
+            required_actor_souls(list(models.values()),t['soul2role'],t['role'],t['metarole'])
+
+    def test_actor_scope_uses_memberships_not_labels_or_topic_numbers(self):
+        closure = dict(branches=[
+            dict(source=dict(start_topic='901'), topic=dict(label=''), participants=[dict(role_id='12')]),
+            dict(source=dict(start_topic='4'), topic=dict(label='arbitrary_worker'), participants=[dict(role_id='13')])])
+        selected = actor_branches(closure, tables()['soul2role'], ['ABC'])
+        self.assertEqual([b['source']['start_topic'] for b in selected], ['901'])
+        self.assertEqual(len(closure['branches']), 2)
+        with self.assertRaisesRegex(ValueError, 'Missing source'):
+            actor_branches(closure, tables()['soul2role'], ['missing'])
+
     def test_voice_registration_reuses_actor_display_name_and_rejects_ambiguous_rules(self):
         rule = b'<storm><rules><rule><selectors><hasName name="worker"/></selectors><operations><setUiName name="worker_original"/></operations></rule></rules></storm>'
         resources = {'Libs/Storm/names/person.xml': rule}

@@ -11,6 +11,46 @@ from campaign_dialogue import resolve, unique_index, index_tables
 from campaign_quest_graph import identifier, xml
 
 
+def actor_branches(closure, memberships, soul_ids):
+    """Restrict an already quest-scoped closure using source soul/role links.
+
+    Names and dialogue labels are not selectors. Connected topics remain part
+    of each selected branch's normal dialogue traversal.
+    """
+    requested = {s.lower() for s in soul_ids}
+    owned = defaultdict(set)
+    for row in memberships:
+        owned[row['soul_id'].lower()].add(row['role_id'])
+    if requested - owned.keys():
+        raise ValueError('Missing source dialogue memberships: ' + ', '.join(sorted(requested - owned.keys())))
+    roles = set().union(*(owned[s] for s in requested))
+    return [b for b in closure['branches']
+            if roles & {p['role_id'] for p in b['participants']}]
+
+
+def required_actor_souls(models, memberships, roles, metaroles, eligible_souls=None):
+    """Resolve every NPC participant, including silent presentation roles.
+
+    Shared roles need an explicit source population resolver; choosing their
+    first member would silently bind the wrong actor.
+    """
+    from campaign_dialogue import referenced_roles
+    role_index = unique_index(roles, 'role_id')
+    meta_index = unique_index(metaroles, 'metarole_id')
+    members = defaultdict(set)
+    for row in memberships: members[row['role_id']].add(row['soul_id'])
+    result = {}
+    for role in sorted(set().union(*(referenced_roles(m) for m in models))):
+        record = role_index[role]
+        if meta_index[record['metarole_id']]['metarole_name'] != 'NPC': continue
+        candidates = members[role]
+        if eligible_souls is not None: candidates = candidates & set(eligible_souls)
+        if len(candidates) != 1:
+            raise ValueError('Missing or ambiguous dialogue actor for role ' + role)
+        result[role] = next(iter(candidates))
+    return result
+
+
 def discover(tables, soul_ids):
     roles = unique_index(tables['role'], 'role_id')
     metaroles = unique_index(tables['metarole'], 'metarole_id')

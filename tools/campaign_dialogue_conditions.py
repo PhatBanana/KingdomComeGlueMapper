@@ -39,7 +39,8 @@ def expand_functions(expression, functions, stack=()):
 
 
 class QuestConditions:
-    def __init__(self, models, functions=None, registered_items=(), participant_assets=None, sequences=None):
+    def __init__(self, models, functions=None, registered_items=(), participant_assets=None, sequences=None,
+                 area_assets=None, context_entities=None):
         self.quests = {m['quest']: {r['objective_name'] for r in m['tables']['quest_objective']['rows']}
                        for m in models}
         self.bindings = {}
@@ -47,6 +48,8 @@ class QuestConditions:
         self.registered_items = {str(i).lower() for i in registered_items}
         self.participant_assets = dict(participant_assets or {})
         self.sequences = dict(sequences or {})
+        self.area_assets = dict(area_assets or {})
+        self.context_entities = dict(context_entities or {})
 
     def sequence_condition(self, sid, expression=None, stack=()):
         """Preserve eligibility and source cooldown, including referenced sequences.
@@ -105,7 +108,7 @@ class QuestConditions:
                 # Stage nested bindings separately: a failed outer expression
                 # must not leave graph ports behind.
                 nested = QuestConditions([], self.functions, self.registered_items,
-                                         self.participant_assets, self.sequences)
+                                         self.participant_assets, self.sequences, self.area_assets, self.context_entities)
                 nested.quests = self.quests
                 record = self.sequences.get(sid)
                 if record and (record['source'].get('type', '0') != '0'
@@ -120,6 +123,39 @@ class QuestConditions:
                 take('('); take(')')
                 name = 'condition_' + hashlib.sha256(('engine:' + token).encode()).hexdigest()[:20]
                 pending[name] = dict(kind='engine_function', **ENGINE_PREDICATES[token])
+                return "Port('" + name + "')"
+            if token in ('IsActor', 'IsActorInside') and token in self.context_entities:
+                take('('); argument = take(); take(')')
+                if not argument.startswith("'") or argument[1:-1] not in self.context_entities[token]:
+                    raise ValueError('Unregistered dialogue context entity: ' + argument)
+                mapped = self.context_entities[token][argument[1:-1]]
+                if not re.fullmatch(r'[A-Za-z_]\w*', mapped):
+                    raise ValueError('Invalid native dialogue context entity')
+                selector = ''
+                if index < len(tokens) and tokens[index] == '[':
+                    take('['); context = take(); take(']')
+                    if not re.fullmatch(r'\d+', context) or int(context) > 255:
+                        raise ValueError('Unsupported dialogue context index: ' + context)
+                    selector = '[' + context + ']'
+                # These predicates belong to the native expression evaluator.
+                # Preserve its dynamic dialogue context instead of selecting a
+                # fixed NPC from role order (which changes for NPC-led dialogue).
+                return token + "('" + mapped + "')" + selector
+            if token == 'IsActorInside':
+                take('('); area = take(); take(')')
+                if not area.startswith("'") or area[1:-1] not in self.area_assets:
+                    raise ValueError('Unregistered dialogue area: ' + area)
+                # Source context indexes are not soul IDs or sorted role indexes.
+                # Require the caller's resolved context; never guess the actor.
+                take('['); selector = take(); take(']')
+                subject = selector[1:-1] if selector.startswith("'") else selector
+                if subject not in self.participant_assets:
+                    raise ValueError('Unregistered area predicate participant: ' + selector)
+                binding = dict(kind='area_check', asset=self.participant_assets[subject],
+                               area=self.area_assets[area[1:-1]])
+                identity = repr(sorted(binding.items()))
+                name = 'condition_' + hashlib.sha256(identity.encode()).hexdigest()[:20]
+                pending[name] = binding
                 return "Port('" + name + "')"
             if token in ('var', 'GetAmountOfActorItems', 'CountOfActorItems'):
                 take('('); argument = take(); take(')')

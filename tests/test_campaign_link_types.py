@@ -22,6 +22,22 @@ class Scalar:
 
 
 class LinkTypeTests(unittest.TestCase):
+    def test_link_data_write_uses_registered_type_and_preserves_local_rhs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            types=AITypeSource(E.fromstring('<TypeDefinitions version="1"><Type name="reactionState"><Member name="expiration" type="int"/></Type></TypeDefinitions>'), [], 'Imported', directory)
+            importer=DependencyImporter({'link_types':self.adapter(directory,
+                '<LinkTag name="temporaryReaction" variableName="reactionData" type="reactionState"/>'),
+                'ai_types':AIStructureAdapter(types)})
+            model=source('<Root><LinkDataExpression From="&quot;this.id&quot;" To="&quot;__player&quot;" '
+                'Expresssion="&quot;$reactionData.expiration = $timestamp&quot;"/></Root>')
+            files,_,report=convert_behaviors([model],'Converted',catalog(),importer=importer)
+            node=E.fromstring(next(iter(files.values()))).find('.//LinkDataExpression')
+            self.assertEqual(node.get('Expresssion'),'$__link_imported_temporaryReaction.expiration = $timestamp')
+            self.assertEqual(node.get('From'),'$this.id')
+            self.assertEqual(node.get('To'),'$__player')
+            self.assertEqual(report['whole_trees_emitted'],1)
+            self.assertFalse(convert_behaviors([model],'Converted',catalog())[0])
+
     def test_contextual_work_fields_keep_their_source_names_and_types(self):
         with tempfile.TemporaryDirectory() as directory:
             types = AITypeSource(E.fromstring('''<TypeDefinitions version="1"><Type name="workRequest">

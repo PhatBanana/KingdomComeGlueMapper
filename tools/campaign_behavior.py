@@ -20,7 +20,7 @@ from campaign_sources import key
 from campaign_rpg_script import upgrade as upgrade_rpg_script
 from campaign_time import TimeBridge
 from campaign_behavior_contracts import WORK_CONTRACTS
-from campaign_link_types import data_expression, link_list
+from campaign_link_types import data_expression, link_list, assignment_expression
 from quest_import import behavior_path, literal
 from upgrade_map import read
 from campaign_speech_messages import MESSAGE as MONOLOGUE_MESSAGE, validate_request, native_consumer
@@ -53,6 +53,7 @@ CONTRACTS = {
     'CreateItem': {'ItemGUID': 'string_expression', 'Amount': 'expression',
                    'CreatedItem': 'reference', 'Target': 'reference', 'NotifyUI': 'value'},
     'EquipItem': {'item': 'reference', 'Target': 'reference'},
+    'LinkDataExpression': {'From': 'reference', 'To': 'reference', 'Expresssion': 'expression'},
     'AddBuff': {'BuffGUID': 'string_expression', 'SoulWUID': 'reference'},
     'RemoveBuffs': {'BuffGUID': 'string_expression', 'SoulWUID': 'reference', 'BuffTagId': 'value'},
     'SetExternalLock': {'LockManagerType': 'value', 'Locked': 'value', 'LockName': 'string_expression'},
@@ -427,6 +428,11 @@ class BehaviorCompiler:
                             target = self.importer.adapters[group].name(value)
                         value = quote(target)
                     values[name] = value
+                if op == 'LinkDataExpression':
+                    try:
+                        values['Expresssion'] = assignment_expression(values['Expresssion'], self.importer, site)
+                    except ValueError as error:
+                        raise UnsupportedOperation(str(error)) from error
                 if op == 'LinkDataFilter':
                     source_tag = literal(attrs['tag'])
                     record_type = self.importer.jobs[('link_types', source_tag.lower())]
@@ -462,7 +468,9 @@ class BehaviorCompiler:
                 if op in ('AddBuff', 'RemoveBuffs'):
                     buff = literal(attrs.get('BuffGUID', ''))
                     record['buff_dependencies'].append(dict(buff=buff, site=site))
-                    if not buff or buff.startswith('$') or literal(attrs.get('BuffTagId', '')):
+                    # Native explicit-GUID removals serialize the no-tag sentinel -1.
+                    # A real tag selection still requires its own identity adapter.
+                    if not buff or buff.startswith('$') or literal(attrs.get('BuffTagId', '')) not in ('', '-1'):
                         raise UnsupportedOperation('Dynamic, empty or tag-selected buffs require a runtime buff map')
                     target = self.importer.ensure('buffs', buff, site) if self.importer else None
                     if target is None:

@@ -12,6 +12,7 @@ from campaign_sources import RetailSourceReader
 from campaign_dependency_adapters import SourceTables
 from campaign_quest_people import dependencies, bind_markers
 from campaign_profile_actors import collect as collect_profile_actors
+from campaign_actor_dialogues import required_actor_souls
 from character_person import resolve_person, register_person, actor_resources
 from character_person_appearance import build_appearance
 from character_person_world import register_person_world
@@ -29,6 +30,18 @@ def build(a):
     with RetailSourceReader(a.source) as reader:
         tables = SourceTables(a.source, reader)
         source_souls = {r['soul_id']: r['soul_name'] for r in tables.get('rpg/soul')['rows']}
+        dialogue_models = [json.loads(p.read_text(encoding='utf-8')) for p in getattr(a,'dialogue_model',[])]
+        eligible_souls = None
+        if getattr(a, 'dialogue_profile', None):
+            with zipfile.ZipFile(a.source / 'Data/Levels' / a.source_level / 'level.pak') as z:
+                documents = {n:read(z,n) for n in z.namelist()
+                    if n.replace('\\','/').lower().startswith('layers/') and n.lower().endswith('.xml')}
+                eligible_souls = {r['soul_id'] for r in collect_profile_actors(
+                    ET.fromstring(read(z,'whdata_1')), ET.fromstring(read(z,'whdata_0')),
+                    documents, a.dialogue_profile)}
+        dialogue_souls = required_actor_souls(dialogue_models,
+            tables.get('rpg/soul2role')['rows'], tables.get('rpg/role')['rows'],
+            tables.get('rpg/metarole')['rows'], eligible_souls) if dialogue_models else {}
     travel = a.mod / 'Data/gluemappertravel.pak'
     level = a.mod / 'Data/Levels' / a.level / 'level.pak'
     locale = a.mod / 'Localization/English_xml.pak'
@@ -54,6 +67,7 @@ def build(a):
     people, converted, existing, pending, names, item_tables = [], [], [], [], ET.Element('Table'), []
     seen = set()
     requested = dict(dependencies(model))
+    requested.update({"dialogue_role_" + role: dict(soul_id=sid) for role,sid in dialogue_souls.items()})
     profile_actors = []
     if getattr(a, 'source_profile', None):
         with zipfile.ZipFile(a.source / 'Data/Levels' / a.source_level / 'level.pak') as z:
@@ -120,7 +134,7 @@ def build(a):
     rewrite(level, package / 'Data/Levels' / a.level / 'level.pak', files)
     rewrite(locale, package / 'Localization/English_xml.pak', strings)
     report = dict(converted=converted, existing=existing, pending=pending, markers=markers, world=world,
-        source_profile_actors=profile_actors,
+        source_profile_actors=profile_actors, dialogue_actor_dependencies=dialogue_souls,
         profile_activation_converted=False,
         profile_activation_note='Staged actors are mission placements; conditional profile lifecycle still requires conversion',
         runtime_verified=False, dialogue_converted=False,
@@ -137,4 +151,8 @@ if __name__ == '__main__':
     p.add_argument('--quest-path', required=True)
     p.add_argument('--source-profile', action='append', default=[],
         help='Also stage actors placed in this authored source profile; does not activate a profile')
+    p.add_argument('--dialogue-profile', action='append', default=[],
+        help='Resolve shared dialogue roles within these authored source profiles')
+    p.add_argument('--dialogue-model', action='append', type=Path, default=[],
+        help='Include every source NPC role dependency from a resolved dialogue model')
     build(p.parse_args())

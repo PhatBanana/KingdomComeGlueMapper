@@ -5,7 +5,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import zipfile
 
-from campaign_actor_dialogues import register_roles, remap_roles
+from campaign_actor_dialogues import register_roles, remap_roles, actor_branches
 from campaign_dependency_adapters import SourceTables
 from campaign_sources import RetailSourceReader
 from campaign_dialogue import load_many, emit, voices, TABLES, referenced_roles
@@ -60,6 +60,8 @@ def actor_ui_name(resources, soul_name):
 
 
 def build(a):
+    if getattr(a, 'actor_soul', None) and not getattr(a, 'discover_quests', False):
+        raise ValueError('Actor filtering requires source quest discovery')
     if a.output.exists():
         raise FileExistsError('Choose a fresh dialogue stage')
     travel = a.mod / 'Data/gluemappertravel.pak'
@@ -97,14 +99,36 @@ def build(a):
                 discovery.append(closure)
                 if closure['unresolved']:
                     raise ValueError('Unresolved source dialogue dependencies: ' + json.dumps(closure['unresolved']))
-                topics.update(b['source']['start_topic'] for b in closure['branches'])
+                branches = closure['branches']
+                if getattr(a, 'actor_soul', None):
+                    branches = actor_branches(closure, source_tables.get('rpg/soul2role')['rows'], a.actor_soul)
+                topics.update(b['source']['start_topic'] for b in branches)
     if not topics:
         raise ValueError('Select source topics or discover the supplied quests')
     topics = sorted(topics, key=int)
     models = dict(zip(topics, load_many(a.source, [(None, topic) for topic in topics])))
+    context_entities = None
+    if getattr(a, 'level_archive', None):
+        with zipfile.ZipFile(a.level_archive) as archive:
+            mission = ET.fromstring(read(archive, 'objects_mission0.xml'))
+            from campaign_trigger_areas import read_areas
+            from campaign_entity_links import guid_value
+            polygons = {p.guid for p in read_areas(read(archive, 'triggerareas.fubar'))['areas']}
+        areas = {}
+        for entity in mission.iter('Entity'):
+            if entity.get('EntityClass') != 'TriggerArea': continue
+            if guid_value(entity.get('EntityGuid')) not in polygons:
+                raise ValueError('Registered dialogue area lacks geometry: ' + entity.get('Name', ''))
+            name = entity.get('Name')
+            if name in areas: raise ValueError('Ambiguous dialogue area name: ' + name)
+            areas[name] = name
+        context_entities = {'IsActorInside': areas}
     needed = set().union(*(referenced_roles(m) for m in models.values()))
     with RetailSourceReader(a.source) as reader:
         tables = SourceTables(a.source, reader)
+        if context_entities is not None:
+            context_entities['IsActor'] = {s['soul_name']: souls[s['soul_id']]
+                for s in tables.get('rpg/soul')['rows'] if s['soul_id'] in souls}
         roles = {r['role_id']:r for r in tables.get('rpg/role')['rows']}
         meta = {r['metarole_id']:r['metarole_name'] for r in tables.get('rpg/metarole')['rows']}
         needed = {r for r in needed if meta[roles[r]['metarole_id']] == 'NPC'}
@@ -133,7 +157,9 @@ def build(a):
         name = a.namespace + '_' + topic
         blob, report = emit(model, name, quests, selection_compiler=selection, registered_items=items,
                             kind=getattr(a, 'kind', 'FaderDialog'),
-                            participant_assets=dict(p.split('=',1) for p in a.participant_asset))
+                            participant_assets=dict(p.split('=',1) for p in a.participant_asset),
+                            area_assets=dict(p.split('=',1) for p in getattr(a, 'area_asset', [])),
+                            context_entities=context_entities)
         media, voice_report = voices(a.source, model, name)
         blob, bound_media, binding_report = bind_recordings(blob, model, media, native_voices,
                                                          parent_namespace=parent_namespace)
@@ -187,6 +213,8 @@ if __name__ == '__main__':
     p.add_argument('--quest-ir', action='append', type=Path, required=True)
     p.add_argument('--start-topic', action='append')
     p.add_argument('--discover-quests', action='store_true', help='Import the complete source dialogue closure of the supplied quest IRs')
+    p.add_argument('--actor-soul', action='append', help='Filter discovered branches by source soul GUID and role membership')
+    p.add_argument('--level-archive', type=Path, help='Validate named native dialogue context references against this converted level')
     p.add_argument('--quest-owned-scope', action='store_true',
         help='Use source subchapter ownership to exclude unrelated later-quest references')
     p.add_argument('--namespace', required=True)
@@ -197,4 +225,5 @@ if __name__ == '__main__':
     p.add_argument('--activation', required=True)
     p.add_argument('--skill-upgrade', action='append', default=[])
     p.add_argument('--participant-asset', action='append', default=[], help='Source inventory selector=registered container soul asset')
+    p.add_argument('--area-asset', action='append', default=[], help='Source area name=registered container area asset')
     print(json.dumps(build(p.parse_args()), indent=2))
