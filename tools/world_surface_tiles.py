@@ -45,9 +45,17 @@ class MeshCache(OrderedDict):
 
 def code_digest():
     h=hashlib.sha256()
-    for name in ('world_surface_tiles.py','voxel_surfaces.py','voxel_raster_fast.py','voxel_raster_cuda.py','voxel_raster_cuda.cu','voxel_optix_shared.h','voxel_optix_device.cu','voxel_optix_host.h','geometry_opacity.py'):
+    for name in ('world_surface_tiles.py','voxel_surfaces.py','voxel_raster_fast.py','voxel_raster_cuda.py','voxel_raster_cuda.cu','voxel_optix_shared.h','voxel_optix_device.cu','voxel_optix_host.h','geometry_opacity.py','world_surface_coverage.py'):
         h.update(Path(__file__).with_name(name).read_bytes())
     return h.hexdigest()
+
+
+def gpu_configuration():
+    return {k:os.environ.get(k,default) for k,default in [('GLUEMAPPER_GPU_BATCH','64'),('GLUEMAPPER_GPU_PIPELINE','1'),('GLUEMAPPER_OPTIX_TRIANGLES','0'),('GLUEMAPPER_GPU_ASYNC','0'),('GLUEMAPPER_GPU_GRAPHS','0')]}
+
+
+def tile_signature(version,asset_digest,plan,job,samples,experimental_base_materials,backend,gpu_config):
+    return hashlib.sha256(json.dumps([version,asset_digest,plan['source_packages'],plan.get('vegetation'),job,samples,experimental_base_materials,backend,gpu_config]).encode()).hexdigest()
 
 
 def build(scene, *, only_origin=None, samples=2, experimental_base_materials=False, backend='compiled', output=None,workers=1,start_index=1):
@@ -60,6 +68,11 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
     records=json.loads((scene/'placements.json').read_text())
     assets=Assets(plan['pak_root'],plan['overrides']); texture_cache=TextureCache(); roots={};mesh_cache=MeshCache()
     destination=Path(output) if output is not None else scene/'tiles';destination.mkdir(parents=True,exist_ok=True)
+    vegetation=None
+    if plan.get('vegetation'):
+        path=scene/'vegetation.npz'
+        if hashlib.sha256(path.read_bytes()).hexdigest()!=plan['vegetation']['sha256']:raise ValueError('Vegetation placement data changed')
+        with np.load(path) as data:vegetation=(data['transforms'],data['groups'])
     jobs=plan['tiles']
     if not 1<=start_index<=len(jobs):raise ValueError('Start index outside scene plan')
     jobs=jobs[start_index-1:]
@@ -73,8 +86,8 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         report_path=destination/(stem+'.json'); start=time.time()
         # Include the scene bytes, placement IDs and conversion policy in each
         # resume signature. A changed decoder or instance invalidates the tile.
-        gpu_config={k:os.environ.get(k,default) for k,default in [('GLUEMAPPER_GPU_BATCH','64'),('GLUEMAPPER_GPU_PIPELINE','1'),('GLUEMAPPER_OPTIX_TRIANGLES','0'),('GLUEMAPPER_GPU_ASYNC','0'),('GLUEMAPPER_GPU_GRAPHS','0')]}
-        digest=hashlib.sha256(json.dumps([version,asset_digest,plan['source_packages'],job,samples,experimental_base_materials,backend,gpu_config]).encode()).hexdigest()
+        gpu_config=gpu_configuration()
+        digest=tile_signature(version,asset_digest,plan,job,samples,experimental_base_materials,backend,gpu_config)
         if report_path.exists():
             old=json.loads(report_path.read_text())
             if old.get('signature')==digest and old.get('status')=='built':
@@ -86,8 +99,16 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         audit['gpu_config']=gpu_config
         try:
             triangles=[];uvs=[];ids=[];materials=[];mapping={};material_audit=[]
-            for record_id in job['placements']:
-                record=records[record_id];key=record['cache_key']
+            def selected_records():
+                for record_id in job['placements']:yield records[record_id]
+                for record_id in job.get('vegetation',[]):
+                    if vegetation is None:raise ValueError('Missing vegetation placement data')
+                    matrices,groups=vegetation
+                    group=plan['vegetation']['groups'][str(int(groups[record_id]))]
+                    yield {'cache_key':group['cache_key'],'transform':matrices[record_id]}
+            audit['vegetation_instances']=len(job.get('vegetation',[]))
+            for record in selected_records():
+                key=record['cache_key']
                 if key not in mesh_cache:
                     meta=json.loads((scene/'meshes'/(key+'.json')).read_text())
                     with np.load(scene/'meshes'/(key+'.npz')) as data:
@@ -146,13 +167,18 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         audit['seconds']=round(time.time()-start,3)
         temporary=report_path.with_suffix('.json.tmp');temporary.write_text(json.dumps(audit,indent=2)+'\n');temporary.replace(report_path)
         results.append(audit)
-        summary={'status':'intermediate static-brush conversion; not installable',
+        summary={'status':('incomplete category coverage; not installable' if plan['pending_categories'] else 'experimental complete-category bake; validation required'),
                  'pending_categories':plan['pending_categories'],'selected_tiles':len(jobs),
                  'start_index':start_index,'total_scene_tiles':len(plan['tiles']),
                  'processed_tiles':len(results),'built':sum(r['status']=='built' for r in results),
                  'failed':[{'tile':r['tile'],'error':r['error']} for r in results if r['status']!='built']}
         ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary,indent=2)+'\n')
         print(f'Tile {number+1}/{len(jobs)} {stem}: {audit["status"]} ({audit["seconds"]}s) '+audit.get('error',''),flush=True)
+    summary={'status':('incomplete category coverage; not installable' if plan['pending_categories'] else 'experimental complete-category bake; validation required'),
+             'pending_categories':plan['pending_categories'],'selected_tiles':len(jobs),'start_index':start_index,
+             'total_scene_tiles':len(plan['tiles']),'processed_tiles':len(results),'built':sum(r['status']=='built' for r in results),
+             'failed':[{'tile':r['tile'],'error':r.get('error','Unknown failure')} for r in results if r['status']!='built']}
+    ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary,indent=2)+'\n')
     return results
 
 

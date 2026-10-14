@@ -92,6 +92,20 @@ class SurfaceTests(unittest.TestCase):
         np.testing.assert_array_equal(a[1,3,2,1],[102,51,255,0])
         np.testing.assert_array_equal(a[2,3,2,1],[255,127,127,255])
 
+    def test_channel_roundoff_is_saturated_but_invalid_values_rejected(self):
+        fields={k:np.zeros((16,16,16,3)) for k in ('opacity','albedo','normals')}
+        fields['albedo'][0,0,0,0]=1.
+        baseline=encode_brick(fields)
+        fields['albedo'][0,0,0,0]=np.nextafter(1.,2.)
+        self.assertEqual(encode_brick(fields),baseline)
+        for name in fields:
+            for value in (1.000001,float('nan'),float('inf')):
+                bad={k:v.copy() for k,v in fields.items()};bad[name][0,0,0,0]=value
+                with self.assertRaises(ValueError):encode_brick(bad)
+        fields['opacity'][0,0,0,0]=-np.finfo(float).eps
+        fields['normals'][0,0,0,0]=np.nextafter(-1.,-2.)
+        encode_brick(fields)
+
     def test_octree_payload_and_world_position(self):
         t=quad(10,12,20,22,30.5);uv=np.zeros((2,3,2))
         idx,vox,report=build_tile(t,uv,np.zeros(2,dtype=int),[Surface(np.ones((1,1,4)),[1,0,0])],(0,0,0),64,8)

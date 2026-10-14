@@ -282,8 +282,13 @@ def encode_brick(fields):
     if any(np.asarray(fields[k]).shape != (16,16,16,3) for k in ('opacity','albedo','normals')):
         raise ValueError('A brick must contain 16 cubed RGB surface values')
     opacity,albedo,normals=[np.asarray(fields[k]) for k in ('opacity','albedo','normals')]
-    if not all(np.isfinite(a).all() for a in (opacity,albedo,normals)) or any(np.any((a<0)|(a>1)) for a in (opacity,albedo)) or np.any(np.abs(normals)>1):
-        raise ValueError('Invalid surface channel values')
+    # Weighted double-precision averages can exceed a closed interval by a
+    # few ULPs. Reject invalid data first; saturate only roundoff at encoding.
+    tolerance=32*np.finfo(np.float64).eps
+    for name,array,low in (('opacity',opacity,0.),('albedo',albedo,0.),('normals',normals,-1.)):
+        if not np.isfinite(array).all() or np.any(array<low-tolerance) or np.any(array>1+tolerance):
+            raise ValueError(f'Invalid surface channel {name}: min={np.nanmin(array)!r}, max={np.nanmax(array)!r}')
+    opacity=np.clip(opacity,0,1);albedo=np.clip(albedo,0,1);normals=np.clip(normals,-1,1)
     occupied=opacity.max(axis=-1)
     arrays=np.zeros((3,16,16,16,4),np.uint8)
     arrays[0,...,:3]=np.rint(opacity[...,::-1]*255).astype(np.uint8)

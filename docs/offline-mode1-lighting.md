@@ -322,3 +322,62 @@ it. The erroneous experimental outputs were never used by the world build.
 Continuation retains 312 binary/hash-verified completed tiles and starts at
 index 313. The audit is `Scene/batch-continuation.json`. The resumed worker is
 shown in a Command Prompt window at the user's request, with a persistent log.
+
+
+## Coverage completion and roundoff repair (2026-10-14)
+
+The completed initial pass had 1,219 successful tiles and one rejected tile,
+`2432_2688_0128_0256`. Diagnostic channel extrema identified an albedo maximum
+of `1.0000000000000002`, with finite opacity and normals. The encoder now
+accepts only 32 double-precision epsilons of endpoint roundoff and clips it
+before byte encoding. Non-finite values and larger violations still fail.
+The repaired tile and all 1,220 initial tile pairs passed structure/hash checks.
+
+`world_surface_coverage.py` extends an existing scene into a separate directory.
+It decodes the installed vegetation group table, including the authored
+`SIGC_GI_MODE` bit at offset 332, material override, and terrain-alignment
+coefficient. It preserves byte-angle XYZ rotations (255 = full turn), scale,
+world translation, and terrain alignment sampled from the converted heightfield.
+Shared mesh caches are hard-linked; transforms are stored compactly in NPZ.
+Material/texture decoding and alpha testing use the existing generic surface
+importer. No hand-authored tree, house, or region lists are used.
+
+Reference semantics were checked against the engine source:
+- [Vegetation transform calculation](https://github.com/ValtoGameEngines/CryEngine/blob/release/Code/CryEngine/Cry3DEngine/Vegetation.cpp).
+- [Static voxelizer object collection](https://github.com/ValtoGameEngines/CryEngine/blob/release/Code/CryEngine/Cry3DEngine/SVO/VoxelSegment.cpp).
+- [Vegetation group GI flags](https://github.com/ValtoGameEngines/CryEngine/blob/release/Code/CryEngine/Cry3DEngine/terrain_compile.cpp).
+
+The reference static object collector includes brushes and vegetation, rather
+than water-volume, decal, or merged-mesh render nodes. The installed 278 water,
+15,698 decal, and 83,431 merged-vegetation nodes all have zero serialized GI mode.
+They are explicitly accounted for as excluded from standalone static surface
+voxelization; they remain in the game world. Unknown/nonzero modes on these
+excluded types fail conversion. This is a reference-derived conversion policy,
+not proof of identical behavior in Warhorse's proprietary engine fork.
+
+The 1,483,225 HLOD vegetation placements resolve to 603,634 instances in
+GI-enabled groups and 879,591 in GI-disabled groups. All selected groups decoded
+successfully (119 mesh/material groups). Their geometry affects 287 of the 1,220
+tiles. `validate_world_surfaces.py --reuse-base` explicitly reuses the other 933
+only after checking the unchanged source packages, base placements, mesh/UV/
+material metadata bytes, and the validated output hashes. This compatibility
+operation applies to this category-only extension and roundoff fix; it must not
+be used to bless arbitrary rasterizer changes.
+
+The expanded regression tile at origin `(2304,2560,0)` includes 1,298 vegetation
+instances and 12,994,598 triangles. It completed in 20.498 seconds (12.059 seconds
+preparation, 8.427 seconds voxel generation). This is a single development run,
+not a world ETA or matched performance claim. The 72 focused tests passed.
+
+`stage_world_surfaces.py` refuses incomplete category coverage, missing/corrupt
+tiles, mismatched vegetation counts, and changed installed source packages. It
+writes complete SVO shards and a mode-1 mission into a fresh staging directory,
+checks package CRCs, and records checksums. It does not install. Any later
+installation must replace the whole old SVO shard set, not overlay a differently
+partitioned set of shards (which would leave duplicate tile owners).
+
+The full expanded bake remains experimental: base-only layered materials,
+terrain layer blending, vegetation translucency/native filtering and runtime
+visual equivalence still require verification. Empty `pending_categories` means
+all listed object categories have an explicit policy, not that native visual
+parity or in-game installation has been established.
