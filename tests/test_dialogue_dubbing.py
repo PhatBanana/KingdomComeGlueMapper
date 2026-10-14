@@ -64,6 +64,10 @@ class DubbingTests(unittest.TestCase):
     def test_rebuilding_preserves_original_subtitles(self):
         text=b'<Table><Row><Cell>line</Cell><Cell>Hello.</Cell><Cell>Hello.</Cell></Row></Table>'
         self.assertEqual(len(ET.fromstring(merge_audio_strings(text,text))),1)
+        row = b'<Row><Cell>new</Cell><Cell>Item</Cell><Cell>Item</Cell></Row>'
+        self.assertEqual(len(ET.fromstring(merge_audio_strings(text,b'<Table>'+row+row+b'</Table>'))),2)
+        with self.assertRaises(ValueError):
+            merge_audio_strings(text,b'<Table>'+row+row.replace(b'Item',b'Other')+b'</Table>')
         with self.assertRaises(ValueError):merge_audio_strings(text,text.replace(b'Hello.',b'Goodbye.'))
 
 

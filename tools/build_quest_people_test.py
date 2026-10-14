@@ -1,4 +1,4 @@
-"""Stage missing explicit quest NPCs, their source appearance, and journal markers.
+"""Stage quest/profile NPCs, their source appearance, and journal markers.
 
 Keeps existing actors and packages. Does not install or claim dialogue conversion.
 """
@@ -11,6 +11,7 @@ import zipfile
 from campaign_sources import RetailSourceReader
 from campaign_dependency_adapters import SourceTables
 from campaign_quest_people import dependencies, bind_markers
+from campaign_profile_actors import collect as collect_profile_actors
 from character_person import resolve_person, register_person, actor_resources
 from character_person_appearance import build_appearance
 from character_person_world import register_person_world
@@ -52,7 +53,17 @@ def build(a):
         return e
     people, converted, existing, pending, names, item_tables = [], [], [], [], ET.Element('Table'), []
     seen = set()
-    for aid, row in dependencies(model).items():
+    requested = dict(dependencies(model))
+    profile_actors = []
+    if getattr(a, 'source_profile', None):
+        with zipfile.ZipFile(a.source / 'Data/Levels' / a.source_level / 'level.pak') as z:
+            documents = {n:read(z,n) for n in z.namelist()
+                         if n.replace('\\','/').lower().startswith('layers/') and n.lower().endswith('.xml')}
+            profile_actors = collect_profile_actors(ET.fromstring(read(z,'whdata_1')),
+                ET.fromstring(read(z,'whdata_0')), documents, a.source_profile)
+        for actor in profile_actors:
+            requested['profile_actor_' + actor['entity_guid']] = dict(soul_id=actor['soul_id'])
+    for aid, row in requested.items():
         sid = row.get('soul_id')
         if not sid or row.get('soul_class_id') or row.get('soul_faction_id'):
             pending.append(dict(asset=aid, reason='Filtered or non-explicit soul')); continue
@@ -62,6 +73,8 @@ def build(a):
             existing.append(dict(soul_id=sid, person=source_souls.get(sid))); continue
         if sid not in source_souls: raise ValueError('Missing source soul: ' + sid)
         person = resolve_person(a.source, source_souls[sid], a.source_level)
+        if aid.startswith('profile_actor_') and person['actor'].get('EntityGuid', '').lower() != aid[14:].lower():
+            raise ValueError('Profile actor resolved to a different source placement: ' + person['name'])
         namespace = 'gm_person_' + sid.replace('-', '')
         appearance = a.output / 'people' / namespace
         try:
@@ -107,6 +120,9 @@ def build(a):
     rewrite(level, package / 'Data/Levels' / a.level / 'level.pak', files)
     rewrite(locale, package / 'Localization/English_xml.pak', strings)
     report = dict(converted=converted, existing=existing, pending=pending, markers=markers, world=world,
+        source_profile_actors=profile_actors,
+        profile_activation_converted=False,
+        profile_activation_note='Staged actors are mission placements; conditional profile lifecycle still requires conversion',
         runtime_verified=False, dialogue_converted=False,
         baseline={str(p.relative_to(a.mod)): hashlib.sha256(p.read_bytes()).hexdigest() for p in (travel, level, locale)})
     (a.output / 'report.json').write_text(json.dumps(report, indent=2))
@@ -119,4 +135,6 @@ if __name__ == '__main__':
     p.add_argument('--source-level', default='rataje'); p.add_argument('--level', default='kcd1_travel')
     p.add_argument('--project-path', default='Quests/GlueTravel/GlueTravel_kcd1.xml')
     p.add_argument('--quest-path', required=True)
+    p.add_argument('--source-profile', action='append', default=[],
+        help='Also stage actors placed in this authored source profile; does not activate a profile')
     build(p.parse_args())

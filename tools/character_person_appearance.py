@@ -88,7 +88,10 @@ def build_appearance(source, target, person, namespace, output):
                 source_soul['character_' + kind + '_id'] = value
         source_soul['initial_clothing_preset_id'] = instance.findtext('InitialClothingDescription/PresetId')
         parts = resolve_parts(source_soul, lambda table: tables.get(table)['rows'])
-        sex = {'1': 'male', '2': 'female'}[next(p['gender_id'] for p in parts if p['kind'] == 'body')]
+        bodies = [p for p in parts if p['kind'] == 'body']
+        if len(bodies) != 1 or bodies[0].get('gender_id') not in ('1', '2'):
+            raise ValueError('Source person requires a resolved body definition: ' + person['name'])
+        sex = {'1': 'male', '2': 'female'}[bodies[0]['gender_id']]
         native = Assets(Path(target), stack)
         skeleton, rig = native.get(f'objects/characters/humans/{sex}/skeleton/{sex}.chr')
         cache = stack.enter_context(tempfile.TemporaryDirectory(prefix='person-assets-', dir=output.parent))

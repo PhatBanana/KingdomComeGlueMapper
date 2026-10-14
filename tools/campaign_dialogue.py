@@ -58,6 +58,20 @@ TABLES = ('topic', 'topic2sequence', 'sequence', 'sequence_line', 'response',
           'v_branch', 'v_topic2subchapter_id', 'dialogue_mood')
 
 
+def referenced_roles(model):
+    """Include silent presentation participants as well as response speakers."""
+    needed = {p['role_id'] for p in model.get('participants', []) if p['topic_id'] in model['topics']}
+    for topic in model['topics'].values():
+        for sequence in topic['sequences']:
+            for line in sequence['lines']:
+                if line.get('response'): needed.add(line['response']['role_id'])
+                for command in line['commands']:
+                    needed.update(command[k] for k in ('who', 'target') if command.get(k) not in (None, '', '0'))
+    missing = needed - model['roles'].keys()
+    if missing: raise ValueError('Unresolved dialogue role dependencies: ' + ', '.join(sorted(missing)))
+    return needed
+
+
 def unique_index(rows, key):
     result = {}
     for row in rows:
@@ -183,6 +197,19 @@ def load_many(game, selections, locale='English'):
     return models
 
 
+def response_camera_command(response, commands, model, *, in_world=False):
+    """Materialize source automatic cuts; explicit authored shots take priority."""
+    mode = response.get('camera_mode', '0')
+    if in_world:
+        return None
+    if mode == '0' and any(c['dialogue_command_type'] == '2' for c in commands):
+        return None
+    if mode not in ('0', '1', '2', '3', '4'):
+        raise ValueError('Unconverted response camera mode: ' + mode)
+    return presentation_command(dict(who=response['role_id'], target='0',
+        dialogue_command_type='2', int_param=mode, char_param=''), model)
+
+
 def presentation_command(command, model):
     """Translate authored dialogue commands into native KCD2 command records.
 
@@ -199,6 +226,13 @@ def presentation_command(command, model):
             raise ValueError('Non-finite presentation delay')
         attrs['Delay'] = delay
     typ = command['dialogue_command_type']
+    if typ == '4':
+        target = model['roles'].get(command.get('target'))
+        if target is None or command.get('target') == '0':
+            raise ValueError('Unresolved look-at target role: ' + command.get('target', ''))
+        if command.get('char_param') or command.get('int_param'):
+            raise ValueError('Unconverted look-at parameters')
+        return ET.Element('LookAtCommand', attrs, LookAtRole=target['role_name'])
     if command.get('target', '0') != '0':
         raise ValueError('Unconverted presentation target: ' + command['target'])
     if typ == '1':
@@ -207,9 +241,12 @@ def presentation_command(command, model):
             raise ValueError('Unknown source facial mood')
         return ET.Element('FacialMoodCommand', attrs, FacialMood=moods[command['int_param']])
     if typ == '2':
-        if command['int_param'] != '5' or not command['char_param']:
-            raise ValueError('Unconverted non-custom camera command')
-        return ET.Element('CameraCommand', attrs, CustomCamera=command['char_param'])
+        if command['int_param'] == '5' and command['char_param']:
+            return ET.Element('CameraCommand', attrs, CustomCamera=command['char_param'])
+        modes = {'0': 'Auto', '1': 'Master', '2': 'Medium', '3': 'CloseShot', '4': 'CloseUp'}
+        if command['int_param'] not in modes or command['char_param']:
+            raise ValueError('Unconverted camera command')
+        return ET.Element('CameraCommand', attrs, CameraType=modes[command['int_param']])
     if typ == '3':
         if not command['char_param'] or int(command['int_param']) < 0:
             raise ValueError('Invalid source animation fragment/variant')
@@ -394,8 +431,12 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                     role = model['roles'][response['role_id']]['role_name']
                     current_response = ET.SubElement(elements, 'Response', Role=role)
                     ET.SubElement(current_response, 'Text', StringName=response['string_name'], Text=model['strings'][response['string_name']])
+                    camera = response_camera_command(response, pending_commands, model, in_world=kind == 'Dialog')
+                    if camera is not None:
+                        ET.SubElement(current_response, 'Commands').append(camera)
                     if pending_commands:
-                        commands = ET.SubElement(current_response, 'Commands')
+                        commands = current_response.find('Commands')
+                        if commands is None: commands = ET.SubElement(current_response, 'Commands')
                         for command in pending_commands:
                             converted = presentation_command(command, model)
                             commands.append(converted)
@@ -411,7 +452,11 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                         # Attaching to the preceding spoken line shifts every shot.
                         pending_commands.extend(line['commands'])
                     else:
-                        presentation.append(dict(kind='response_commands', sequence=sid, line=row, commands=line['commands']))
+                        targeting = [c for c in line['commands'] if c['dialogue_command_type'] in ('2', '4')]
+                        pending_commands.extend(targeting)
+                        remaining = [c for c in line['commands'] if c['dialogue_command_type'] not in ('2', '4')]
+                        if remaining:
+                            presentation.append(dict(kind='response_commands', sequence=sid, line=row, commands=remaining))
                 elif typ in ('2', '4'):
                     presentation.append(dict(kind='authoring_direction', sequence=sid, line=row))
                 else:

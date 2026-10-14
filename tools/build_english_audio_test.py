@@ -33,6 +33,10 @@ def merge_audio_strings(native, additions):
             if [c.text for c in row]!=[c.text for c in known[key]]:
                 raise ValueError('Changed original audio subtitle: '+key)
             incoming.remove(row)
+        else:
+            # Separate items can share a source label in the same batch.
+            # Deduplicate identical rows without accepting conflicting text.
+            known[key]=row
     return merge_localization(native,xml(incoming))
 
 

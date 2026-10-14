@@ -143,7 +143,7 @@ def discover(tables, quest_id, quest_name, behavior_model=None):
                 unresolved=unresolved, inactive_source_records=inactive, runtime_verified=False, executable=False)
 
 
-def import_participants(closure, dialogue_tables, source_tables, importer):
+def import_participants(closure, dialogue_tables, source_tables, importer, *, eligible_souls=None):
     """Request source NPC souls even when they lack explicit quest asset links."""
     roles = {r['role_id']: r for r in source_tables.get('rpg/role')['rows']}
     meta = {r['metarole_id']: r['metarole_name'] for r in source_tables.get('rpg/metarole')['rows']}
@@ -152,8 +152,25 @@ def import_participants(closure, dialogue_tables, source_tables, importer):
         memberships[row['role_id']].add(row['soul_id'])
     reached = set(closure['reachable_topics'])
     requested = {}
-    for participant in dialogue_tables['topictorole']:
-        if participant['topic_id'] not in reached: continue
+    participants = [dict(p, dependency_kind='topic_participant') for p in dialogue_tables['topictorole']
+                    if p['topic_id'] in reached]
+    sequence_topics = defaultdict(set)
+    for row in dialogue_tables.get('topic2sequence', []):
+        if row['topic_id'] in reached:
+            sequence_topics[row['sequence_id']].add(row['topic_id'])
+    line_topics = {row['sequence_line_id']: sequence_topics[row['sequence_id']]
+                   for row in dialogue_tables.get('sequence_line', []) if row['sequence_id'] in sequence_topics}
+    for row in dialogue_tables.get('response', []):
+        for topic in sorted(line_topics.get(row['sequence_line_id'], ())):
+            participants.append(dict(topic_id=topic, role_id=row['role_id'],
+                                     sequence_line_id=row['sequence_line_id'], dependency_kind='response_speaker'))
+    for row in dialogue_tables.get('v_dialogue_commands', []):
+        for topic in sorted(line_topics.get(row['sequence_line_id'], ())):
+            for field in ('who', 'target'):
+                if row.get(field) not in (None, '', '0'):
+                    participants.append(dict(topic_id=topic, role_id=row[field],
+                        sequence_line_id=row['sequence_line_id'], dependency_kind='command_' + field))
+    for participant in participants:
         rid = participant['role_id']
         role = roles.get(rid)
         if role is None or role['metarole_id'] not in meta:
@@ -162,11 +179,71 @@ def import_participants(closure, dialogue_tables, source_tables, importer):
         if meta[role['metarole_id']] != 'NPC': continue
         if not memberships[rid]:
             closure['unresolved'].append(dict(reason='NPC dialogue role has no source soul', role_id=rid))
-        for soul in sorted(memberships[rid]):
+        candidates = memberships[rid]
+        if eligible_souls is not None:
+            candidates = candidates & set(eligible_souls)
+            if not candidates and memberships[rid]:
+                closure['unresolved'].append(dict(reason='NPC dialogue role has no actor in selected source profiles',
+                    role_id=rid, candidates=sorted(memberships[rid]), site=participant))
+        for soul in sorted(candidates):
             target = importer.ensure('souls', soul, dict(kind='dialogue_participant', quest=closure['quest'],
-                                     topic_id=participant['topic_id'], role_id=rid))
+                                     **participant))
             requested[soul] = target
     return requested
+
+
+def scope_to_quest(closure, dialogue_tables, quest_subchapters):
+    """Separate later quest references using source ownership, not name prefixes.
+
+    Unowned branches remain candidates. Explicit behavior calls stay dependencies
+    even when their dialogue lives in another source subchapter. This is an
+    import boundary, not permission to execute a branch or advance quest state.
+    """
+    import copy
+    result = copy.deepcopy(closure)
+    owned = {r['skald_subchapter_id'] for r in quest_subchapters if r['quest_id'] == closure['quest_id']}
+    if not owned: raise ValueError('Source quest has no dialogue ownership declaration')
+    owners = defaultdict(set)
+    for row in dialogue_tables['v_topic2subchapter_id']:
+        owners[row['start_topic']].add(row['skald_subchapter_id'])
+    called = {r['topic_id'] for r in closure['references']
+              if any(s['kind'] == 'behavior_dialogue_alias' for s in r['sites'])}
+    selected, external = [], []
+    for branch in closure['branches']:
+        tid = branch['source']['start_topic']
+        if owners[tid] and not owners[tid] & owned and tid not in called:
+            external.append(dict(branch=branch, subchapters=sorted(owners[tid]),
+                                 reason='Different source quest ownership; reference is not an execution request'))
+        else: selected.append(branch)
+    # Keep every reachable child/availability dependency of selected roots.
+    edges = defaultdict(set)
+    seqs = {s['sequence_id']: s for s in dialogue_tables['sequence']}
+    membership = defaultdict(set)
+    for row in dialogue_tables['topic2sequence']:
+        membership[row['sequence_id']].add(row['topic_id'])
+    functions = {r['function_name']: r['expression'] for r in dialogue_tables.get('dialogue_functions', [])}
+    rows_by_topic = defaultdict(list)
+    for row in dialogue_tables['topic2sequence']:
+        rows_by_topic[row['topic_id']].append(row)
+    reached, queue = set(), deque(b['source']['start_topic'] for b in selected)
+    while queue:
+        tid = queue.popleft()
+        if tid in reached: continue
+        reached.add(tid)
+        for row in rows_by_topic[tid]:
+            nxt = seqs[row['sequence_id']]['next']
+            if nxt != '0': edges[tid].add(nxt)
+            for key in ('entry_condition', 'npc_entry_condition'):
+                expression = expand_functions(row.get(key, ''), functions)
+                code = re.sub(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"", "''", expression)
+                for sid in re.findall(r'\bIsSeqAvailable\s*\(\s*(\d+)\s*\)', code):
+                    if sid not in membership:
+                        raise ValueError('Scoped dialogue references missing sequence: ' + sid)
+                    edges[tid].update(membership[sid])
+        queue.extend(edges[tid] - reached)
+    result.update(branches=selected, reachable_topics=sorted(reached), excluded_external_branches=external,
+                  source_subchapters=sorted(owned))
+    return result
 
 
 def main():

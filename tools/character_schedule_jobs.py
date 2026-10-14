@@ -43,6 +43,10 @@ It does not represent the other housework activities as converted.
                 waiting.extend(links);report.append(dict(person=person,**item_report))
                 continue
             if (behavior['tree_file'].lower(),behavior['tree_name']) != ('final/sa_home.xml','housework'):
+                report.append(dict(person=person, source_behavior=dict(behavior),
+                    source_area=dict(entry['area']), source_links=copy.deepcopy(entry['target_links']),
+                    pending=['source work program and its dependency graph require conversion'],
+                    runtime_verified=False))
                 continue
             native,contracts=native_job(target,'so_sweeping')
             area=ET.Element('Entity',entry['area']);links=ET.SubElement(area,'EntityLinks')

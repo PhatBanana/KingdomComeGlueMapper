@@ -24,6 +24,28 @@ def model():
 
 
 class DialoguePresentationTests(unittest.TestCase):
+    def test_default_camera_cuts_follow_each_response_speaker(self):
+        import copy
+        source = model()
+        source['roles']['3'] = dict(role_name='HENRY')
+        lines = source['topics']['1']['sequences'][0]['lines']
+        second = copy.deepcopy(lines[1])
+        second['response']['role_id'] = '3'
+        second['source']['sequence_line_id'] = '22'
+        lines.append(second)
+        blob, _ = emit(source, 'conversation', [])
+        responses = ET.fromstring(blob).findall('.//Response')
+        self.assertEqual([r.find('./Commands/CameraCommand').attrib for r in responses],
+            [dict(Role='MOTHER', CameraType='Auto'), dict(Role='HENRY', CameraType='Auto')])
+
+    def test_default_camera_preserves_authored_shots_and_bark_player_control(self):
+        from campaign_dialogue import response_camera_command
+        source = model()
+        response = source['topics']['1']['sequences'][0]['lines'][1]['response']
+        self.assertIsNone(response_camera_command(response,
+            [dict(dialogue_command_type='2')], source))
+        self.assertIsNone(response_camera_command(response, [], source, in_world=True))
+
     def test_in_world_monologue_retains_alias_without_becoming_a_fader(self):
         source = model()
         source['branch'] = [dict(start_topic='1', priority='0', allow_greeting='True',
@@ -78,6 +100,70 @@ class DialoguePresentationTests(unittest.TestCase):
         self.assertEqual(presentation_command(base, model()).get('CustomCamera'), 'cam_original')
         base.update(dialogue_command_type='1', int_param='39')
         self.assertEqual(presentation_command(base, model()).get('FacialMood'), 'thinking1')
+
+    def test_look_at_keeps_actor_and_target_distinct_after_role_remap(self):
+        from campaign_actor_dialogues import remap_roles
+        source = model()
+        source['roles']['3'] = dict(role_name='HENRY')
+        source = remap_roles(source, {'MOTHER': 'imported_mother'})
+        command = dict(who='456', target='3', delay='0.25', int_param='', char_param='', dialogue_command_type='4')
+        converted = presentation_command(command, source)
+        self.assertEqual(converted.attrib, dict(Role='imported_mother', LookAtRole='HENRY', Delay='0.25'))
+        command['target'] = '999'
+        with self.assertRaisesRegex(ValueError, 'target role'):
+            presentation_command(command, source)
+
+    def test_response_camera_and_listener_camera_do_not_change_speaker(self):
+        source = model()
+        source['roles']['3'] = dict(role_name='HENRY')
+        lines = source['topics']['1']['sequences'][0]['lines']
+        lines[1]['response']['camera_mode'] = '4'
+        lines[0]['commands'] = [dict(who='3', target='0', delay='1.5', int_param='2', char_param='', dialogue_command_type='2')]
+        blob, _ = emit(source, 'example', [], convert_presentation=True)
+        response = ET.fromstring(blob).find('.//Response')
+        self.assertEqual(response.get('Role'), 'MOTHER')
+        cameras = response.findall('./Commands/CameraCommand')
+        self.assertEqual([(c.get('Role'), c.get('CameraType')) for c in cameras], [('MOTHER','CloseUp'), ('HENRY','Medium')])
+        self.assertEqual(cameras[1].get('Delay'), '1.5')
+
+    def test_targeting_is_converted_without_enabling_unverified_gestures(self):
+        source = model()
+        source['roles']['3'] = dict(role_name='HENRY')
+        lines = source['topics']['1']['sequences'][0]['lines']
+        lines[0]['commands'].append(dict(who='456', target='3', delay='', int_param='', char_param='', dialogue_command_type='4'))
+        blob, report = emit(source, 'example', [])
+        root = ET.fromstring(blob)
+        self.assertEqual(root.find('.//LookAtCommand').get('LookAtRole'), 'HENRY')
+        self.assertIsNone(root.find('.//AnimationCommand'))
+        self.assertEqual(report['presentation_pending'][0]['commands'][0]['dialogue_command_type'], '3')
+
+    def test_silent_look_at_actor_is_an_import_dependency(self):
+        from campaign_dialogue import referenced_roles
+        source = model()
+        source['roles']['99'] = dict(role_name='SILENT_LISTENER')
+        source['topics']['1']['sequences'][0]['lines'][0]['commands'].append(
+            dict(who='456', target='99', dialogue_command_type='4'))
+        self.assertEqual(referenced_roles(source), {'456', '99'})
+        del source['roles']['99']
+        with self.assertRaisesRegex(ValueError, 'role dependencies'):
+            referenced_roles(source)
+
+    def test_installed_reconciliation_is_idempotent_and_preserves_audio(self):
+        from campaign_dialogue_presentation import upgrade
+        source = model()
+        source['topics']['1']['sequences'][0]['lines'][1]['response']['camera_mode'] = '4'
+        original, _ = emit(model(), 'example', [])
+        root = ET.fromstring(original)
+        root.find('.//Response').set('ReferenceLength', '2.75')
+        changed, report = upgrade(ET.tostring(root), source)
+        self.assertEqual(len(report['added']), 1)
+        self.assertEqual(ET.fromstring(changed).find('.//Response').get('ReferenceLength'), '2.75')
+        twice, report = upgrade(changed, source)
+        self.assertEqual(report['added'], [])
+        self.assertEqual(changed, twice)
+        root.find('.//Text').set('StringName', 'missing')
+        with self.assertRaisesRegex(ValueError, 'Missing installed response'):
+            upgrade(ET.tostring(root), source)
 
     def test_orphaned_or_unknown_commands_fail_instead_of_disappearing(self):
         data = model()

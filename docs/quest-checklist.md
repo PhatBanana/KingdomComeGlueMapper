@@ -7,6 +7,12 @@ from the normal coach-travel installation route and published installers.
 
 ## Current work boundary: New Game to the start of the Skalitz attack
 
+The user reconfirmed this boundary on 14 October. See
+[opening dependency coverage](skalitz-dependency-coverage.md) for the current
+source-profile and dialogue closure audit, importer corrections, and unresolved
+actor/work-program dependencies. The broader profile rebuild is staged work;
+it does not establish an installed, complete opening-to-attack quest.
+
 ### Latest accepted development checks: Father greeting and skill check
 
 On 14 October 2026 the user confirmed that Father's automatic proximity callout

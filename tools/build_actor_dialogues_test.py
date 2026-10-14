@@ -8,8 +8,8 @@ import zipfile
 from campaign_actor_dialogues import register_roles, remap_roles
 from campaign_dependency_adapters import SourceTables
 from campaign_sources import RetailSourceReader
-from campaign_dialogue import load_many, emit, voices, TABLES
-from campaign_quest_dialogues import discover
+from campaign_dialogue import load_many, emit, voices, TABLES, referenced_roles
+from campaign_quest_dialogues import discover, scope_to_quest
 from campaign_dialogue_selection import SelectionCompiler, load_contract
 from campaign_dialogue_runtime import attach_dialogue, bind_recordings, voice_namespace
 from dialogue_dubbing import DEPOT, dubbing_index, bind_soul_voice
@@ -89,6 +89,11 @@ def build(a):
                                for name in (*TABLES, 'dialogue_functions')}
             for quest in quests:
                 closure = discover(dialogue_tables, quest['quest_id'], quest['quest'], quest)
+                if getattr(a, 'quest_owned_scope', False):
+                    scoped_tables = dict(dialogue_tables, v_topic2subchapter_id=
+                        source_tables.get('text/v_topic2subchapter_id')['rows'])
+                    closure = scope_to_quest(closure, scoped_tables,
+                        source_tables.get('quest/quest2skald_subchapter')['rows'])
                 discovery.append(closure)
                 if closure['unresolved']:
                     raise ValueError('Unresolved source dialogue dependencies: ' + json.dumps(closure['unresolved']))
@@ -97,7 +102,7 @@ def build(a):
         raise ValueError('Select source topics or discover the supplied quests')
     topics = sorted(topics, key=int)
     models = dict(zip(topics, load_many(a.source, [(None, topic) for topic in topics])))
-    needed = {p['role_id'] for m in models.values() for p in m['participants'] if p['topic_id'] in m['topics']}
+    needed = set().union(*(referenced_roles(m) for m in models.values()))
     with RetailSourceReader(a.source) as reader:
         tables = SourceTables(a.source, reader)
         roles = {r['role_id']:r for r in tables.get('rpg/role')['rows']}
@@ -182,6 +187,8 @@ if __name__ == '__main__':
     p.add_argument('--quest-ir', action='append', type=Path, required=True)
     p.add_argument('--start-topic', action='append')
     p.add_argument('--discover-quests', action='store_true', help='Import the complete source dialogue closure of the supplied quest IRs')
+    p.add_argument('--quest-owned-scope', action='store_true',
+        help='Use source subchapter ownership to exclude unrelated later-quest references')
     p.add_argument('--namespace', required=True)
     p.add_argument('--kind', choices=('FaderDialog', 'Dialog'), default='FaderDialog',
                    help='Dialog registers in-world monologues; source controllers must still request them')
