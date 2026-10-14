@@ -24,7 +24,7 @@ def model():
 
 
 class DialoguePresentationTests(unittest.TestCase):
-    def test_default_camera_cuts_follow_each_response_speaker(self):
+    def test_default_camera_preserves_speakers_without_invalid_enum(self):
         import copy
         source = model()
         source['roles']['3'] = dict(role_name='HENRY')
@@ -35,8 +35,11 @@ class DialoguePresentationTests(unittest.TestCase):
         lines.append(second)
         blob, _ = emit(source, 'conversation', [])
         responses = ET.fromstring(blob).findall('.//Response')
-        self.assertEqual([r.find('./Commands/CameraCommand').attrib for r in responses],
-            [dict(Role='MOTHER', CameraType='Auto'), dict(Role='HENRY', CameraType='Auto')])
+        self.assertEqual([r.get('Role') for r in responses], ['MOTHER', 'HENRY'])
+        self.assertTrue(all(r.find('./Commands/CameraCommand') is None for r in responses))
+        with self.assertRaisesRegex(ValueError, 'Unconverted camera command'):
+            presentation_command(dict(who='456', target='0', dialogue_command_type='2',
+                                      int_param='0', char_param=''), source)
 
     def test_default_camera_preserves_authored_shots_and_bark_player_control(self):
         from campaign_dialogue import response_camera_command

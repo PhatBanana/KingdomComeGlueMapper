@@ -22,6 +22,23 @@ still require in-game verification. The updated schedule planner resolves 46
 intervals with no exceptions and retains 21 intervals needing quest-assigned
 work or other link dependencies. Full routine execution remains unchecked.
 
+### Camera command regression correction (14 October)
+
+The automatic-cut update emitted `CameraType="Auto"`, which the target engine
+rejects during FaderDialog deserialization. This prevented the enclosing
+converted quest graph from loading, including Mother's opening. The importer
+now preserves response speakers without inventing an automatic camera enum;
+supported authored shot overrides remain intact. Explicit unsupported camera
+commands still fail conversion.
+
+The installed recovery removes 78 invalid commands across four dialogue files,
+preserving all other package entries. Backup, failed-session log and hash receipt
+are retained in `outputs/OpeningStart/CameraEnumRecovery01`. Validation: 261
+campaign tests pass. The corrected game was launched for user testing; opening
+recovery and automatic speaker-camera switching remain unverified in-game.
+The subsequent crash occurred while loading Kuttenberg, not the converted
+Skalitz level; its cause has not been established.
+
 ### Latest accepted development checks: Father greeting and skill check
 
 On 14 October 2026 the user confirmed that Father's automatic proximity callout

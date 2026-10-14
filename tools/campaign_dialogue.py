@@ -198,11 +198,13 @@ def load_many(game, selections, locale='English'):
 
 
 def response_camera_command(response, commands, model, *, in_world=False):
-    """Materialize source automatic cuts; explicit authored shots take priority."""
+    """Preserve native speaker selection; emit only supported shot overrides."""
     mode = response.get('camera_mode', '0')
     if in_world:
         return None
-    if mode == '0' and any(c['dialogue_command_type'] == '2' for c in commands):
+    # Automatic response mode is not a native CameraCommand enum.
+    # Keep Response.Role and let the native dialogue director select the shot.
+    if mode == '0':
         return None
     if mode not in ('0', '1', '2', '3', '4'):
         raise ValueError('Unconverted response camera mode: ' + mode)
@@ -243,7 +245,7 @@ def presentation_command(command, model):
     if typ == '2':
         if command['int_param'] == '5' and command['char_param']:
             return ET.Element('CameraCommand', attrs, CustomCamera=command['char_param'])
-        modes = {'0': 'Auto', '1': 'Master', '2': 'Medium', '3': 'CloseShot', '4': 'CloseUp'}
+        modes = {'1': 'Master', '2': 'Medium', '3': 'CloseShot', '4': 'CloseUp'}
         if command['int_param'] not in modes or command['char_param']:
             raise ValueError('Unconverted camera command')
         return ET.Element('CameraCommand', attrs, CameraType=modes[command['int_param']])
