@@ -35,6 +35,30 @@ def keep_body_under_outfit(sex, region):
     return sex == 'female' or region in ('arms', 'hands')
 
 
+def source_default_body(actor, assets):
+    """Retain the actor's authored CDF body when no modular body is specified."""
+    properties = actor.find('Properties')
+    if properties is None:
+        raise ValueError('Missing source character properties for default body')
+    config = properties.get('esClothingConfig')
+    if config not in ('male', 'female'):
+        raise ValueError('Unresolved source default body gender')
+    path = properties.get('fileModel', '')
+    if not path.lower().endswith('.cdf'):
+        raise ValueError('Missing source default character definition')
+    blob, provenance = assets.get(path)
+    root = ET.fromstring(blob)
+    bodies = [n for n in root.findall('AttachmentList/Attachment')
+              if n.get('Type') == 'CA_SKIN' and n.get('AName', '').casefold() == 'body']
+    if len(bodies) != 1 or not bodies[0].get('Binding') or not bodies[0].get('Material'):
+        raise ValueError('Missing or ambiguous authored default body attachment')
+    body = bodies[0]
+    if any(k in body.attrib for k in ('Position', 'Rotation', 'RelPosition', 'RelRotation')):
+        raise ValueError('Default body attachment requires transform conversion')
+    return dict(kind='body', gender_id='1' if config == 'male' else '2', model=body.get('Binding'),
+                material=body.get('Material'), source_cdf=path, source_cdf_provenance=provenance)
+
+
 def align_internal_translation(blob, *, max_translation=.01):
     """Normalize a small uniform source export offset without moving its surface.
 
@@ -69,6 +93,16 @@ def align_internal_translation(blob, *, max_translation=.01):
 
 
 def build_appearance(source, target, person, namespace, output):
+    result = _build_appearance(source, target, person, namespace, output)
+    accessories = result.pop('nonvisual_equipment', [])
+    if accessories:
+        from character_accessories import register_accessories
+        result['accessories'] = register_accessories(source, target, Path(output), namespace, accessories)
+        result['localization'] = 'Localization/English/text_ui_items.xml'
+    return result
+
+
+def _build_appearance(source, target, person, namespace, output):
     """Stage a namespaced fixed outfit. Never change existing NPC definitions."""
     output = Path(output)
     if output.exists():
@@ -88,6 +122,10 @@ def build_appearance(source, target, person, namespace, output):
                 source_soul['character_' + kind + '_id'] = value
         source_soul['initial_clothing_preset_id'] = instance.findtext('InitialClothingDescription/PresetId')
         parts = resolve_parts(source_soul, lambda table: tables.get(table)['rows'])
+        if not any(p['kind'] == 'body' for p in parts):
+            parts.insert(0, source_default_body(person['actor'], Assets(Path(source), stack)))
+        from character_accessories import partition_accessories
+        parts, accessories = partition_accessories(parts, tables)
         bodies = [p for p in parts if p['kind'] == 'body']
         if len(bodies) != 1 or bodies[0].get('gender_id') not in ('1', '2'):
             raise ValueError('Source person requires a resolved body definition: ' + person['name'])
@@ -163,14 +201,17 @@ def build_appearance(source, target, person, namespace, output):
                     ET.SubElement(elements, 'SkinElement', EquipmentPart=region, Model=filename,
                                   Material=stem + '.mtl', BodyLayerId='0', KeepBodyLayer='true', IsFinalLayer='false')
             evidence.append(dict(kind=kind, model=model, clothing=part.get('clothing_name'), upgrade=detail,
+                                 source_cdf=part.get('source_cdf'), source_cdf_provenance=part.get('source_cdf_provenance'),
                                  variant=variant_evidence,
                                  internal_translation=internal_offset))
         if 'beard' not in appearance:
             appearance['beard'] = namespace + '_empty_beard'
             ET.SubElement(derived, 'Beard', Name=appearance['beard'])
         if sex == 'female':
-            return finish_female(source, target, tables, namespace, output, prefix, emitted,
+            result = finish_female(source, target, tables, namespace, output, prefix, emitted,
                                  document, derived, appearance, garments, evidence, rig, native)
+            result['nonvisual_equipment'] = accessories
+            return result
         # Canonical palette and native body regions are shared with the accepted
         # generic character upgrade, preserving source geometry across all parts.
         canonical = canonicalize_skin_skeletons([g['skin'] for g in garments])
@@ -229,6 +270,7 @@ def build_appearance(source, target, person, namespace, output):
             dest.write_bytes(data.read_bytes() if isinstance(data, Path) else data)
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender=sex,
                 archetype=native_soul_archetype(archetypes, sex.title()), parts=evidence, rig=rig,
+                nonvisual_equipment=accessories,
                 outfit_mode='Fixed source outfit, using the existing skin upgrader', runtime_verified=False)
 
 

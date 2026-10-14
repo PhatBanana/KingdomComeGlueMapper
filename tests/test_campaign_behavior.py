@@ -32,6 +32,32 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_predefined_route_uses_native_parameter_type_and_source_defaults(self):
+        m = source('''<Root><Move destinationSpecification="&quot;route&quot;"
+          destinationSpecification2="&quot;params&quot;" speed="&quot;Walk&quot;"/></Root>''')
+        m['behavior_documents']['libs/ai/quests/q_test.xml']['trees']['onUpdate']['variables'].append(
+            dict(name='params', type='predefinedPathParams', values='', form='single'))
+        native = catalog()
+        self.assertFalse(convert_behaviors([m], 'Imported', native)[0])
+        native['variable_types'].append('predefinedPathParams')
+        files, _, report = convert_behaviors([m], 'Imported', native)
+        root = E.fromstring(next(iter(files.values())))
+        params = root.find(".//Variable[@name='params']")
+        self.assertEqual(params.get('type'), 'predefinedPathParams')
+        self.assertEqual(params.get('values'), 'reversePath(false),approachFirstNode(true)')
+        self.assertEqual(root.find('.//Move').get('destinationSpecification2'), '$params')
+        self.assertEqual(report['whole_trees_emitted'], 1)
+    def test_work_tool_filters_require_registered_item_class(self):
+        iid = '12345678-1234-1234-1234-123456789abc'
+        for operation in ('SlotClassFilter', 'ItemClassFilter'):
+            m = source('<Root><GraphSearch><' + operation + ' ClassId="&quot;' + iid +
+                       '&quot;" Category="&quot;&quot;" Child="&quot;tool&quot;"/></GraphSearch></Root>')
+            self.assertFalse(convert_behaviors([m], 'Imported', catalog())[0])
+            files, _, report = convert_behaviors([m], 'Imported', catalog(), registered={'items': {iid: 'mapped-tool'}})
+            node = E.fromstring(next(iter(files.values()))).find('.//' + operation)
+            self.assertEqual(node.get('ClassId'), "'mapped-tool'")
+            self.assertEqual(node.get('Child'), '$tool')
+            self.assertEqual(report['whole_trees_emitted'], 1)
     def test_speech_request_reaches_native_consumer_without_cloned_message_type(self):
         m = source('''<Root><SendMessageToNPC target="&quot;this.id&quot;"
           type="&quot;dialog:monologRequest&quot;" values="&quot;alias(arbitraryGreeting),lookAtId($__player)&quot;"

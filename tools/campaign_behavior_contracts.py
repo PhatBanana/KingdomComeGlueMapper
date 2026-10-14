@@ -73,6 +73,16 @@ WORK_CONTRACTS = {
                            'Operation': 'numeric_operation'},
     'IfGate': {'RunLogic': 'value', 'atomic': 'value', 'condition': 'expression'},
     'ContinuousSwitch': {},
+    'HandCheck': {'who': 'reference', 'LeftHand': 'reference', 'RightHand': 'reference'},
+    'GetPredefPathTraverseInfo': {'ObjectWuid': 'reference', 'PathWuid': 'reference',
+        'Out_ClosestPointOnPath': 'reference', 'Out_DistToEnd': 'reference', 'Out_DistToPath': 'reference'},
+    'NegationOp': {'Advance': 'value', 'EndOp': 'value', 'Results': 'value', 'saveVersion': 'value'},
+    'AnyLinkFilter': {'Child': 'reference', 'Parent': 'reference', 'Source': 'value',
+        'negprune': 'value', 'prune': 'value'},
+    'AddLink': {'From': 'reference', 'To': 'reference', 'Tag': 'link_type',
+        'Data': 'expression', 'LinkOpHandleMode': 'value'},
+    'RemoveLink': {'From': 'reference', 'To': 'reference', 'Tag': 'link_type',
+        'RemoveAll': 'value', 'LinkOpHandleMode': 'value'},
 }
 
 _SEMAPHORE = dict(atomic='value', OutsideQueuePosVariable='reference',
@@ -81,3 +91,9 @@ _SEMAPHORE = dict(atomic='value', OutsideQueuePosVariable='reference',
 WORK_CONTRACTS['Semaphore'] = dict(_SEMAPHORE)
 WORK_CONTRACTS['Synchronize'] = dict(_SEMAPHORE, InsideTimerValue='string_expression',
     InvalidateOnExpire='value', RunLogic='value')
+
+# Both native filters use item-class GUIDs, not placed-item WUIDs. Their
+# definitions must pass through the same registry as CreateItem and job slots.
+for _filter in ('SlotClassFilter', 'ItemClassFilter'):
+    WORK_CONTRACTS[_filter] = dict(ClassId='item_class', Category='empty_category',
+        Child='reference', Parent='reference', Source='value', negprune='value', prune='value')

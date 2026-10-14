@@ -135,7 +135,19 @@ def link_definition(label, importer, site=None):
             raise ValueError('AI link serialization requires verified source type metadata')
         typ = record['source']['row'].get('type', '')
         if item['named']:
-            raise ValueError('Structured AI link data requires field serialization')
+            if item['positional']:
+                raise ValueError('Mixed positional and named AI link data is ambiguous')
+            structure = importer.jobs.get(('ai_types', typ.lower()))
+            if not structure or structure['status'] != 'imported' or 'members' not in structure['source']:
+                raise ValueError('Structured AI link requires a converted source type')
+            members = {m['name']: m['type'] for m in structure['source']['members']}
+            fields = []
+            for field, value in item['named'].items():
+                if field not in members:
+                    raise ValueError('Unknown source AI link field: ' + field)
+                fields.append(field + '(' + scalar_link_value(value, members[field]) + ')')
+            definitions.append(target + '[' + ','.join(fields) + ']')
+            continue
         values = item['positional']
         if not typ:
             if values:
@@ -144,21 +156,27 @@ def link_definition(label, importer, site=None):
             continue
         if len(values) != 1:
             raise ValueError('A scalar source AI link requires exactly one value')
-        value = values[0]
-        if typ in ('string', '_string') and isinstance(value, str):
-            if any(c in value for c in "'\\\n\r"):
-                raise ValueError('Source AI link string escaping requires an adapter')
-            text = "'" + value + "'"
-        elif typ in ('bool', '_bool') and type(value) is bool:
-            text = str(value).lower()
-        elif typ in ('int', 'int64') and type(value) is int:
-            text = str(value)
-        elif typ == 'float' and type(value) in (int, float) and math.isfinite(value):
-            text = str(value)
-        else:
-            raise ValueError('Source AI link data/type mismatch: ' + typ)
+        text = scalar_link_value(values[0], typ)
         definitions.append(target + '[' + text + ']')
     return ','.join(definitions)
+
+
+def scalar_link_value(value, typ):
+    """Native link records use typed literals, including named struct fields."""
+    if typ in ('string', '_string') and isinstance(value, str):
+        if any(c in value for c in "'\\\n\r"):
+            raise ValueError('Source AI link string escaping requires an adapter')
+        return "'" + value + "'"
+    if typ in ('bool', '_bool') and type(value) is bool:
+        return str(value).lower()
+    if typ in ('int', '_int', 'int64') and type(value) is int:
+        bits = 64 if typ == 'int64' else 32
+        if not -(1 << (bits - 1)) <= value < (1 << (bits - 1)):
+            raise ValueError('Source AI link integer exceeds its declared type')
+        return str(value)
+    if typ in ('float', '_float') and type(value) in (int, float) and math.isfinite(value):
+        return str(value)
+    raise ValueError('Source AI link data/type mismatch: ' + typ)
 
 
 def convert_world_links(world, importer, placed):

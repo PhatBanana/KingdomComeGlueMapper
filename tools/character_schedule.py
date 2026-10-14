@@ -3,8 +3,9 @@
 Names, clocks, areas, routes and routines are source data. This planner does not
 replace an unsupported routine with a walk-to-point or an idle animation.
 """
-import re
 import xml.etree.ElementTree as ET
+from campaign_bindings import parse_link_labels
+from campaign_ai_registration import controller_definition
 
 
 def day_intervals(entries):
@@ -30,25 +31,37 @@ def plan(person, tables):
     behaviors = {r['sa_behaviour_tag_id']: r for r in tables.get('ai/sa_behaviour_tag')['rows']}
     resolved, pending = [], []
     for interval in day_intervals(person['ai']['schedule']):
-        links = [l for l in person['ai']['links'] if re.split(r'[\[,]', l['label'], maxsplit=1)[0].casefold()
-                 == interval['activity'].casefold()]
+        links = [(l, tag) for l in person['ai']['links'] for tag in parse_link_labels(l['label'])
+                 if tag['tag'].casefold() == interval['activity'].casefold()]
         if not links:
             pending.append(dict(interval, reason='No source activity link')); continue
-        for link in links:
-            match = re.fullmatch(r"\w+\[\('([^']+)'\)\]", link['label'])
-            if not match:
-                pending.append(dict(interval, link=link['label'], reason='Unsupported activity link expression')); continue
+        for link, tag in links:
+            if tag['named'] or len(tag['positional']) != 1 or not isinstance(tag['positional'][0], str):
+                pending.append(dict(interval, link=link['label'], parsed_link=tag,
+                                    reason='Activity link selection requires contextual dispatch')); continue
+            requested = tag['positional'][0]
             entity = ET.fromstring(link['source_xml'])
             props = entity.find('Properties')
             template = props.get('guidSmartAreaTemplate') if props is not None else None
+            if entity.get('EntityClass') == 'QuestObject':
+                definition = controller_definition(tables, dict(smart_object=entity.get('Name')))
+                matches = [b for b in definition['behaviors'] if b['row']['so_behaviour_tag_name'] == requested]
+                if len(matches) != 1:
+                    raise ValueError('Missing or ambiguous controller work behavior: ' + requested)
+                record = matches[0]
+                resolved.append(dict(interval, area=dict(entity.attrib), area_template=definition['smart_object'],
+                    behavior=dict(record['row']), binding=dict(record['link']), source_link=link['label'],
+                    target_kind='quest_controller', controller=definition,
+                    target_links=[dict(l.attrib) for l in entity.findall('EntityLinks/Link')], runtime_verified=False))
+                continue
             if template not in areas: raise ValueError('Unresolved source activity area template')
             candidates = [(b, behaviors[b['sa_behaviour_tag_id']]) for b in bindings
                           if b['sa_smart_area_id'] == template and
-                          behaviors[b['sa_behaviour_tag_id']]['sa_behaviour_tag_name'] == match[1]]
-            if len(candidates) != 1: raise ValueError('Missing or ambiguous source activity behavior: ' + match[1])
+                          behaviors[b['sa_behaviour_tag_id']]['sa_behaviour_tag_name'] == requested]
+            if len(candidates) != 1: raise ValueError('Missing or ambiguous source activity behavior: ' + requested)
             binding, behavior = candidates[0]
             resolved.append(dict(interval, area=dict(entity.attrib), area_template=areas[template],
-                behavior=dict(behavior), binding=dict(binding), source_link=link['label'],
+                behavior=dict(behavior), binding=dict(binding), source_link=link['label'], target_kind='smart_area',
                 target_links=[dict(l.attrib) for l in entity.findall('EntityLinks/Link')],
                 runtime_verified=False))
     return dict(person=person['name'], resolved=resolved, pending=pending, runtime_verified=False)

@@ -133,7 +133,8 @@ class SoulAdapter:
 
 
 class EntityAdapter:
-    def __init__(self, world, souls, area_data, export_version, doors=None, controllers=None, smart_areas=None):
+    def __init__(self, world, souls, area_data, export_version, doors=None, controllers=None, smart_areas=None,
+                 navigation=None):
         self.doors = doors
         self.controllers = controllers or {}
         self.smart_areas = smart_areas or {}
@@ -147,6 +148,8 @@ class EntityAdapter:
                       if s.findtext('EntityGuid')}
         self.areas = {a.guid: a for a in read_areas(area_data)['areas']}
         self.export_version = export_version
+        self.navigation = navigation
+        self.paths = None
 
     def plan(self, identity):
         matches = self.entities.get(identity, [])
@@ -163,6 +166,16 @@ class EntityAdapter:
                 raise ValueError('Placed actor has no shared retail soul identity: ' + identity)
             dependencies.append(('souls', shared))
         source = copy.deepcopy(source)
+        if source['attributes'].get('EntityClass') == 'PredefinedNavigationPath':
+            if self.navigation is None:
+                raise ValueError('Predefined route requires its source navigation graph')
+            from character_work_paths import read_paths, bind_path
+            if self.paths is None:
+                read_paths(read(self.navigation.target_level, 'ubernav.tmm'))
+                self.paths = read_paths(read(self.navigation.level, 'ubernav.tmm'))
+            original = ET.Element('Entity', source['attributes'])
+            _, source['route'] = bind_path(ET.Element('Objects'), original, self.paths)
+            dependencies.append(('navigation_base', self.navigation.identity))
         if source['attributes'].get('EntityClass') == 'SmartAreaShape':
             identities = self.smart_areas.get(identity, [])
             if len(identities) != 1:
@@ -184,7 +197,8 @@ class EntityAdapter:
     def convert(self, identity, plan, registered):
         source = plan.source['attributes']
         cls = source['EntityClass']
-        if cls not in ('TriggerArea', 'TagPoint', 'NPC', 'NPC_Female', 'AnimDoor', 'QuestObject', 'SmartAreaShape'):
+        if cls not in ('TriggerArea', 'TagPoint', 'NPC', 'NPC_Female', 'AnimDoor', 'QuestObject', 'SmartAreaShape',
+                       'PredefinedNavigationPath'):
             raise ValueError('Native entity-class conversion is not implemented: ' + cls)
         attrs = {k: source[k] for k in ('Name', 'Pos', 'Rotate', 'Scale', 'EntityClass', 'CastShadowMinSpec') if k in source}
         attrs['EntityGuid'] = identity
@@ -196,7 +210,10 @@ class EntityAdapter:
                         profile=source.get('Layer'), transform_preserved=True)
         if source.get('ParentGuid') not in (None, '', '0'):
             raise ValueError('Parented entity attachment conversion is required: ' + identity)
-        if cls == 'SmartAreaShape':
+        if cls == 'PredefinedNavigationPath':
+            ET.SubElement(entity, 'Properties', bSaved_by_game='0')
+            evidence['route'] = plan.source['route']
+        elif cls == 'SmartAreaShape':
             from campaign_smart_areas import place_area, source_geometry
             area_identity = plan.source['area_identity']
             place_area(entity, plan.source['entity'], registered['smart_areas'][area_identity.lower()])

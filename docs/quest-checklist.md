@@ -13,6 +13,15 @@ source-profile and dialogue closure audit, importer corrections, and unresolved
 actor/work-program dependencies. The broader profile rebuild is staged work;
 it does not establish an installed, complete opening-to-attack quest.
 
+The latest staged actor rebuild (`SkalitzProfileActors04`) resolves the ten
+previous appearance failures: eight clothing coverage cases, nonvisual ring
+equipment, and an explicit source CDF body fallback. It packages 48 new actors,
+preserves eight existing quest/profile actors and has no pending appearance
+failures. These are build checks; appearance, equipment and profile activation
+still require in-game verification. The updated schedule planner resolves 46
+intervals with no exceptions and retains 21 intervals needing quest-assigned
+work or other link dependencies. Full routine execution remains unchecked.
+
 ### Latest accepted development checks: Father greeting and skill check
 
 On 14 October 2026 the user confirmed that Father's automatic proximity callout

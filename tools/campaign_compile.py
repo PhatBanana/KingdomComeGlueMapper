@@ -218,7 +218,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                                     {r.get('id'):r.get('name') for r in weapons[0]}, components)
         importer = DependencyImporter(dict(
             entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids,
-                area_bindings(bindings, dict(entities=all_entities))),
+                area_bindings(bindings, dict(entities=all_entities)), navigation=navigation_source),
             items=LazyAdapter(item_adapter), inventories=InventoryAdapter(tables, project,
                 lambda identity: registered_item_name(identity, native_item_definitions, importer.files)),
             clothing=LazyAdapter(lambda: ClothingAdapter(tables, assets.materialize(), target, stack)),

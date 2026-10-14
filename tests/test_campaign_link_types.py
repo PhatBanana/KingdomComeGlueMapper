@@ -6,7 +6,8 @@ import xml.etree.ElementTree as E
 from test_campaign_behavior import source, catalog
 from campaign_behavior import convert_behaviors
 from campaign_dependencies import DependencyImporter, ImportPlan
-from campaign_link_types import LinkTypeAdapter, data_expression, convert_world_links
+from campaign_link_types import LinkTypeAdapter, data_expression, convert_world_links, link_definition
+from campaign_ai_types import AITypeSource, AIStructureAdapter
 from campaign_entity_links import native_guid
 
 
@@ -21,6 +22,40 @@ class Scalar:
 
 
 class LinkTypeTests(unittest.TestCase):
+    def test_contextual_work_fields_keep_their_source_names_and_types(self):
+        with tempfile.TemporaryDirectory() as directory:
+            types = AITypeSource(E.fromstring('''<TypeDefinitions version="1"><Type name="workRequest">
+              <Member name="event" type="string"/><Member name="work" type="string"/>
+              <Member name="priority" type="int"/><Member name="interrupt" type="bool"/>
+              </Type></TypeDefinitions>'''), [], 'Imported', directory)
+            importer = DependencyImporter({'link_types': self.adapter(directory,
+                '<LinkTag name="Work" type="workRequest"/>'), 'ai_types': AIStructureAdapter(types)})
+            self.assertEqual(link_definition("Work[event('questChanged'),work('sell'),priority(7),interrupt(true)]", importer),
+                "imported_Work[event('questChanged'),work('sell'),priority(7),interrupt(true)]")
+            for bad in ("Work[unknown('x')]", "Work[priority('seven')]", "Work[event('x'),1]",
+                        "Work[priority(2147483648)]"):
+                with self.subTest(label=bad), self.assertRaises(ValueError):
+                    link_definition(bad, importer)
+    def test_route_reservation_and_release_use_same_converted_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            importer = DependencyImporter({'link_types': self.adapter(directory,
+                '<LinkTag name="reservation" persistent="0"/>')})
+            model = source('''<Root><FuseBox><Child><Sequence>
+              <AddLink From="&quot;route&quot;" To="&quot;this.id&quot;" Tag="&quot;reservation&quot;"
+                       Data="&quot;&quot;" LinkOpHandleMode="&quot;Fail&quot;"/>
+              <HandCheck who="&quot;this.id&quot;" LeftHand="&quot;left&quot;" RightHand="&quot;right&quot;"/>
+              <GetPredefPathTraverseInfo ObjectWuid="&quot;this.id&quot;" PathWuid="&quot;route&quot;"
+                 Out_DistToEnd="&quot;remaining&quot;" Out_DistToPath="&quot;distance&quot;" Out_ClosestPointOnPath="&quot;point&quot;"/>
+              </Sequence></Child><OnFail><RemoveLink From="&quot;route&quot;" To="&quot;this.id&quot;"
+                 Tag="&quot;reservation&quot;" RemoveAll="&quot;false&quot;" LinkOpHandleMode="&quot;Success&quot;"/>
+              </OnFail></FuseBox></Root>''')
+            files, _, report = convert_behaviors([model], 'Converted', catalog(), importer=importer)
+            root = E.fromstring(next(iter(files.values())))
+            self.assertEqual(root.find('.//AddLink').get('Tag'), "'imported_reservation'")
+            self.assertEqual(root.find('.//OnFail/RemoveLink').get('Tag'), "'imported_reservation'")
+            self.assertEqual(root.find('.//HandCheck').get('RightHand'), '$right')
+            self.assertEqual(root.find('.//GetPredefPathTraverseInfo').get('PathWuid'), '$route')
+            self.assertEqual(report['whole_trees_emitted'], 1)
     def adapter(self, path, extra=''):
         return LinkTypeAdapter(E.fromstring('''<LinkTagDefinitions version="1">
           <LinkTag name="StoryActor" type="string" persistent="1" ownershipIgnore="1"/>

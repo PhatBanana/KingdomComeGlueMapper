@@ -2,12 +2,15 @@ import base64
 from pathlib import Path
 import struct
 import sys
+import tempfile
+from types import SimpleNamespace
 import unittest
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, unculled_garment_visibility
+from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections
+from npc_effects import write_float_dds
 from character_skin_upgrade import CompiledSkin, upgrade_skin
 from test_character_upgrade import sample_skin
 
@@ -17,6 +20,53 @@ def encoded(bits):
 
 
 class ClothingCoverageTests(unittest.TestCase):
+    def test_cutout_ray_hits_use_uv_material_and_wrapped_filter_footprint(self):
+        uv = np.array([[.25,.25]]*3 + [[.75,.75]]*3, dtype='<f4')
+        skin = SimpleNamespace(n=6, streams={2: SimpleNamespace(data=struct.pack('<6I', 0,2,6,8,0,0)+uv.tobytes())},
+                               faces=np.array([[0,1,2],[3,4,5]]),
+                               info={'subset_records': [dict(first_index=0,num_indices=6,material_id=0)]})
+        alpha = np.ones((8,8)); alpha[5:7,5:7] = 0
+        accept = alpha_intersections(skin, [(0.1,[alpha, np.ones((1,1))])], np.ones(2,bool))
+        np.testing.assert_array_equal(accept(np.array([0,1]),np.array([.2,.2]),np.array([.2,.2])), [True,False])
+        triangles = np.array([[[-1,-1,.02],[1,-1,.02],[0,1,.02]]]*2)
+        # A transparent near layer must not prevent a different opaque hit.
+        np.testing.assert_array_equal(covered_points([[0,0,0]], [[0,0,1]], triangles, accept_hit=accept), [True])
+        skin.info['subset_records'][0]['material_id'] = 1
+        with self.assertRaisesRegex(ValueError, 'material subset'):
+            alpha_intersections(skin, [(0.1,[alpha])], np.ones(2,bool))
+
+    def test_native_opacity_checks_material_threshold_and_every_mip(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            material = output / 'cloth.mtl'
+            material.write_text('<Material Shader="Illum" StringGenMask="%CLOTHING_SYSTEM" '
+                                'MtlFlags="524290" Opacity="1" AlphaTest="0.1">'
+                                '<Textures><Texture Map="Diffuse" File="cloth.dds"/></Textures></Material>')
+            pixels = np.ones((4, 4, 4), dtype=np.float32)
+            pixels[:, :, 3] = .25
+            write_float_dds(output / 'cloth.dds', pixels)
+            mask, evidence = opaque_native_surface(output, material, 3)
+            np.testing.assert_array_equal(mask, [True] * 3)
+            self.assertEqual(evidence[0]['mips'], 3)
+            # A bad distant mip must not be hidden by inspecting only level zero.
+            blob = bytearray((output / 'cloth.dds').read_bytes())
+            struct.pack_into('<e', blob, len(blob)-2, 0)
+            (output / 'cloth.dds').write_bytes(blob)
+            with self.assertRaisesRegex(ValueError, 'Cutout'):
+                opaque_native_surface(output, material, 3)
+            write_float_dds(output / 'cloth.dds', pixels)
+            material.write_text(material.read_text().replace('Opacity="1"', 'Opacity="0.5"'))
+            with self.assertRaisesRegex(ValueError, 'Unsupported'):
+                opaque_native_surface(output, material, 3)
+
+    def test_generated_opacity_keeps_visibility_and_rejects_wrong_topology(self):
+        rows = [dict(skin='a.skin', material='a.mtl', opaque_triangle_mask='',
+                     not_culled_triangle_mask=encoded([1, 0, 1]))]
+        np.testing.assert_array_equal(source_opacity(rows, 'a.skin', 'a.mtl', 3,
+                                      generated_opacity=np.ones(3, bool)), [1, 0, 1])
+        with self.assertRaisesRegex(ValueError, 'Invalid generated'):
+            source_opacity(rows, 'a.skin', 'a.mtl', 3, generated_opacity=np.ones(2, bool))
+
     def test_source_mask_bit_order_and_topology_guard(self):
         bits = [True, False, False, True, True, False, True, False, True]
         np.testing.assert_array_equal(triangle_mask(encoded(bits), 9), bits)

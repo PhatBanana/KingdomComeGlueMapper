@@ -32,9 +32,12 @@ every later-game or DLC soul sharing that role. Profile membership is resolved
 through GameProfile layers and persistent entity/SoulList identities, never
 through prefixes in character names.
 
-The complete profile schedule scan contains 32 unresolved daily intervals and
-one quest-controller work target that the area-only planner cannot yet resolve.
-The latter is the coal seller's authored `varlet_sellPlace` request. Missing
+The updated complete profile schedule scan resolves 46 daily intervals, with
+21 unresolved intervals and no planner exceptions. The planner uses the shared
+source link parser for bare, quoted and parenthesized job names and resolves
+quest-controller work targets, including the coal seller's `varlet_sellPlace`.
+Controller callbacks, behavior conditions and priorities remain in the plan;
+resolving them is not runtime dispatch. Missing
 ordinary activity links also include NPCs whose work is assigned through quest
 events. These require the original controller/event dependencies, not invented
 daily destinations.
@@ -67,18 +70,31 @@ conversion requirement; staging does not establish complete quest behavior.
 
 ## Remaining acceptance boundary
 
-`outputs/OpeningStart/SkalitzProfileActors03` contains 38 newly converted actor
+`outputs/OpeningStart/SkalitzProfileActors04` contains 48 newly converted actor
 appearances and world registrations, preserves eight previously registered
-quest/profile actors, and records ten appearance failures. Eight need clothing
-opacity-mask generation; one has a nonvisual ring routed through mesh conversion;
-one has no resolved source body. No substitution is counted as conversion.
+quest/profile actors, and has no pending appearance failures. The ten previous
+failures rebuilt under `outputs/OpeningStart/SkalitzAppearanceRepair01`:
+
+- Eight female outfits now generate missing coverage from converted diffuse
+  alpha. Opaque textures can prove full coverage; cutouts use the converted
+  mesh UVs and material subsets at ray intersections. Every bilinear footprint
+  must pass the alpha threshold in every mip. This conservatively retains skin
+  near transparent edges, rather than hiding it through a fabric opening.
+- Authored nonvisual accessories retain a native equipment component, source
+  item stats/text and clothing-preset membership. A ring is no longer sent to
+  the skin loader as an empty mesh path.
+- An actor without a modular body definition uses the explicit body attachment
+  in that actor's source CDF. The CDF asset provenance is retained. No unrelated
+  body or outfit is substituted.
+
 The package is staged, not installed. New actors currently have the explicit
 idle baseline until their full work programs are converted.
 
 Static package validation confirmed all 33,030 existing mission entities remain
 semantically unchanged, localization keys are unique, and the installed baseline
-hashes have not changed. There are 41 staged PAK files. Regression validation:
-253 campaign tests, 71 character tests and four dubbing/localization tests pass.
+hashes have not changed. Regression validation:
+253 campaign tests, 75 character tests, nine clothing coverage tests and four
+dubbing/localization tests pass.
 These checks do not establish in-game acceptance.
 
 - [ ] Resolve every required opening actor, original outfit, inventory and tool.
@@ -93,3 +109,50 @@ These checks do not establish in-game acceptance.
 Actor packaging and dependency tests are not completion of this checklist.
 The accepted Father greeting, skill check and forging behavior remain separate
 live results documented in `quest-checklist.md`.
+
+## Work program conversion follow-up
+
+The shared importer now discovers SmartObject sibling behaviors and brain
+request/update/release callbacks as well as SmartArea callbacks. Tool programs
+can therefore enter the dependency graph through their registry, rather than
+only through explicit `IncludeTree` nodes. A registry match remains a candidate;
+it is not proof that a particular placed object can execute that behavior.
+
+Added native operation adapters preserve route reservations (`AddLink` and
+`RemoveLink`), path-existence queries and filters, held-item checks and path
+traversal measurements. Item/slot class filters require a registered item GUID.
+Structured link data retains named, typed fields, including contextual work
+requests. Unknown fields, invalid scalar types and out-of-range integers fail
+conversion. The engine-owned `predefinedPathParams` record uses the native type
+and explicit source defaults instead of an incompatible namespaced copy.
+
+`character_work_paths.py` validates the complete version-38 predefined-route
+table in `ubernav.tmm`. Campaign entity conversion retains route GUIDs and
+depends on navigation registration. It does not approximate a route from an
+entity's single position or replace its authored vertices.
+
+Live-file evidence in `outputs/OpeningStart/WorkPrograms01/routes/report.json`:
+484 source routes and 289 native reference routes passed format validation.
+The normal Skalitz profile's 45 routes contain 222 points. The installed
+navigation graph matches the source bytes. Converted route entities are staged;
+this is not proof of NPC traversal.
+
+Simple untagged work animation calls can reuse shipped `AnimationAction`
+fragments after checking both human controller databases for an actual body
+animation. Tagged, aligned, context-locked or event-handle calls remain explicit
+conversion failures. The rebuild lowered 11 compatible calls, including the
+sweeping fragment; this does not make their containing routines executable.
+
+`outputs/OpeningStart/WorkPrograms01/conversion04/summary.json` records the
+current source rebuild: 354 of 1,436 non-function behavior trees emitted as
+conversion fragments. This helper closure includes shared programs outside the
+opening's active execution path, so the ratio is not a quest completion metric.
+The top-level housework selector emits, but its sweeping animation and other
+subjobs are not fully converted. `BlackSmith_new` still requires animation-event
+handling, movement/action coordination, item phase changes and additional state
+adapters. The fragments have not been installed. Complete routines, animation
+events, interruptions, resumption and save/load remain unverified in-game.
+
+Validation for this follow-up: 261 campaign tests, 80 character tests and seven
+quest-import tests pass. The accepted installed Father forging/greeting build
+has not been replaced by these incomplete work-program fragments.

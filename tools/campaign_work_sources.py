@@ -52,19 +52,28 @@ def area_context(candidates, table_rows):
     Retain all possible source areas; placement narrows which one is used.
     """
     from quest_import import behavior_path
-    tags={c['row']['sa_behaviour_tag_id'] for c in candidates
-          if c['table']=='sa_behaviour_tag' and c['row'].get('sa_behaviour_tag_id')}
-    if not tags:
-        return dict(templates=[],programs=[])
-    links=table_rows('sa_smart_area2sa_behaviour_tag')
-    ids={r['sa_smart_area_id'] for r in links if r['sa_behaviour_tag_id'] in tags}
-    areas=[dict(r) for r in table_rows('sa_smart_area') if r['sa_smart_area_id'] in ids]
-    sibling_ids={r['sa_behaviour_tag_id'] for r in links if r['sa_smart_area_id'] in ids}
-    programs=[]
-    for row in table_rows('sa_behaviour_tag'):
-        if row['sa_behaviour_tag_id'] in sibling_ids and row.get('tree_file') and row.get('tree_name'):
-            programs.append(dict(kind='area_behavior',table='sa_behaviour_tag',row=dict(row),
-                tag=row['sa_behaviour_tag_name'],file=behavior_path(row['tree_file']),tree=row['tree_name']))
+    areas, programs = [], []
+    # Tools dispatch through SmartObject registrations, including useItem's
+    # continuation and release callbacks. Following SmartAreas alone loses
+    # those jobs even when the area program itself was found successfully.
+    for prefix, entity_table in (('sa', 'sa_smart_area'), ('so', 'so_smart_object')):
+        tag_table = prefix + '_behaviour_tag'
+        tag_id, entity_id = tag_table + '_id', entity_table + '_id'
+        tags = {c['row'][tag_id] for c in candidates
+                if c['table'] == tag_table and c['row'].get(tag_id)}
+        if not tags:
+            continue
+        links = table_rows(entity_table + '2' + tag_table)
+        ids = {r[entity_id] for r in links if r[tag_id] in tags}
+        areas.extend(dict(r) for r in table_rows(entity_table) if r[entity_id] in ids)
+        sibling_ids = {r[tag_id] for r in links if r[entity_id] in ids}
+        for row in table_rows(tag_table):
+            if row[tag_id] in sibling_ids and row.get('tree_file') and row.get('tree_name'):
+                programs.append(dict(kind='area_behavior' if prefix == 'sa' else 'object_behavior',
+                    table=tag_table, row=dict(row), tag=row[tag_table + '_name'],
+                    file=behavior_path(row['tree_file']), tree=row['tree_name']))
+    if not areas:
+        return dict(templates=[], programs=programs)
     brains={r['brain_id'] for r in areas if r.get('brain_id')}
     if brains:
         sub_ids={r['subbrain_id'] for r in table_rows('brain2subbrain') if r['brain_id'] in brains}

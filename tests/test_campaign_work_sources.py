@@ -5,6 +5,24 @@ from campaign_work_sources import discover, area_context
 
 
 class WorkSourcesTests(unittest.TestCase):
+    def test_tool_object_dispatch_retains_use_return_and_brain_callbacks(self):
+        rows = {
+            'so_behaviour_tag': [dict(so_behaviour_tag_id=i, so_behaviour_tag_name=n,
+                tree_file='tools.xml', tree_name=n) for i, n in [('use', 'useItem'), ('return', 'returnItem')]],
+            'so_smart_object2so_behaviour_tag': [dict(so_smart_object_id='tool', so_behaviour_tag_id=i)
+                for i in ('use', 'return')],
+            'so_smart_object': [dict(so_smart_object_id='tool', brain_id='brain')],
+            'brain2subbrain': [dict(brain_id='brain', subbrain_id='sub')],
+            'subbrain': [dict(subbrain_id='sub', subbrain_type='object')],
+            'subbrain_type': [dict(subbrain_type_id='object', subbrain_type_name='SmartObject')],
+            'subbrain_smart_object': [dict(subbrain_id='sub', file_name='callbacks.xml',
+                on_request_tree='Request', on_release_tree='Release', on_update_tree='Update')],
+        }
+        result = area_context([dict(table='so_behaviour_tag', row=rows['so_behaviour_tag'][0])], rows.__getitem__)
+        self.assertEqual({p['tree'] for p in result['programs']},
+                         {'useItem', 'returnItem', 'Request', 'Release', 'Update'})
+        self.assertEqual(result['templates'], rows['so_smart_object'])
+
     def test_area_context_follows_sibling_jobs_and_all_lifecycle_callbacks(self):
         rows={
             'sa_behaviour_tag':[dict(sa_behaviour_tag_id='main',sa_behaviour_tag_name='work',tree_file='work.xml',tree_name='Work'),

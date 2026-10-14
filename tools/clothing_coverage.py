@@ -6,6 +6,8 @@ The bounded normal-ray policy is explicit and does not claim to reproduce the
 closed-source KCD1 raycaster exactly.
 """
 import base64
+import hashlib
+from pathlib import Path
 import struct
 import xml.etree.ElementTree as ET
 
@@ -24,7 +26,7 @@ def triangle_mask(encoded, count):
     return np.unpackbits(np.frombuffer(data[2:], dtype=np.uint8), bitorder='little')[:count].astype(bool)
 
 
-def source_opacity(rows, model, material, count, rendered_visibility=None):
+def source_opacity(rows, model, material, count, rendered_visibility=None, generated_opacity=None):
     def key(path):
         return path.replace('\\', '/').lower()
     matches = [r for r in rows if key(r['skin']) == key(model) and key(r['material']) == key(material)]
@@ -32,8 +34,12 @@ def source_opacity(rows, model, material, count, rendered_visibility=None):
         raise ValueError('Missing or ambiguous clothing raycast record: ' + model + ' / ' + material)
     row = matches[0]
     # An empty serialized field is unknown, not proof that every triangle is opaque.
-    if not row.get('opaque_triangle_mask'):
+    if not row.get('opaque_triangle_mask') and generated_opacity is None:
         raise ValueError('Source clothing raycast masks need generation: ' + material)
+    if generated_opacity is not None:
+        generated_opacity = np.asarray(generated_opacity)
+        if generated_opacity.dtype != np.dtype(bool) or generated_opacity.shape != (count,):
+            raise ValueError('Invalid generated garment opacity')
     if row.get('not_culled_triangle_mask'):
         visible = triangle_mask(row['not_culled_triangle_mask'], count)
     elif rendered_visibility is not None:
@@ -42,7 +48,108 @@ def source_opacity(rows, model, material, count, rendered_visibility=None):
             raise ValueError('Invalid converted garment visibility')
     else:
         raise ValueError('Source clothing raycast masks need generation: ' + material)
-    return triangle_mask(row['opaque_triangle_mask'], count) & visible
+    opaque = triangle_mask(row['opaque_triangle_mask'], count) if row.get('opaque_triangle_mask') else generated_opacity
+    return opaque & visible
+
+
+def native_alpha_surfaces(output, material_path):
+    """Read the supported converted cloth permutation and its complete alpha mips."""
+    root = ET.parse(material_path).getroot()
+    materials = list(root.find('SubMaterials')) if root.find('SubMaterials') is not None else [root]
+    evidence, surfaces = [], []
+    allowed = {'CLOTHING_SYSTEM', 'NORMAL_MAP', 'SPECULAR_MAP', 'SUBSURFACE_SCATTERING'}
+    for material in materials:
+        flags = set(filter(None, material.get('StringGenMask', '').split('%')))
+        threshold = float(material.get('AlphaTest', '0'))
+        if (material.get('Shader') != 'Illum' or 'CLOTHING_SYSTEM' not in flags or flags - allowed
+                or material.get('MtlFlags') != '524290' or float(material.get('Opacity', '0')) != 1
+                or not 0 <= threshold < 1 or material.find('SubMaterials') is not None):
+            raise ValueError('Unsupported generated clothing opacity material')
+        textures = material.findall("Textures/Texture[@Map='Diffuse']")
+        if len(textures) != 1:
+            raise ValueError('Missing or ambiguous clothing diffuse alpha')
+        if len(textures[0]) or textures[0].get('IsTileU', '1') != '1' or textures[0].get('IsTileV', '1') != '1':
+            raise ValueError('Unsupported clothing alpha UV transform or addressing')
+        path = (Path(output) / textures[0].get('File')).resolve()
+        if not path.is_relative_to(Path(output).resolve()):
+            raise ValueError('Clothing opacity texture outside converted output')
+        data = path.read_bytes()
+        if (len(data) < 148 or data[:4] != b'DDS ' or data[84:88] != b'DX10'
+                or struct.unpack_from('<I', data, 4)[0] != 124
+                or struct.unpack_from('<I', data, 76)[0] != 32
+                or struct.unpack_from('<5I', data, 128) != (10, 3, 0, 1, 0)):
+            raise ValueError('Generated clothing alpha requires native RGBA16_FLOAT DDS')
+        height, width = struct.unpack_from('<2I', data, 12)
+        mip_count = struct.unpack_from('<I', data, 28)[0]
+        if not width or not height or not 1 <= mip_count <= 32:
+            raise ValueError('Invalid clothing opacity dimensions')
+        offset = 148
+        levels = []
+        for mip in range(mip_count):
+            size = width * height * 8
+            if offset + size > len(data): raise ValueError('Truncated clothing alpha mip')
+            pixels = np.frombuffer(data, dtype='<f2', count=width*height*4, offset=offset).reshape(-1,4)
+            if not np.isfinite(pixels).all() or np.any(pixels[:,3] > 1) or np.any(pixels[:,3] < 0):
+                raise ValueError('Invalid clothing alpha pixels')
+            levels.append(pixels[:,3].reshape(height, width).copy())
+            offset += size
+            if width == height == 1 and mip != mip_count-1:
+                raise ValueError('Extra clothing alpha mip')
+            if mip < mip_count-1: width, height = max(1,width//2), max(1,height//2)
+        if width != 1 or height != 1 or offset != len(data):
+            raise ValueError('Incomplete clothing opacity mip chain')
+        evidence.append(dict(texture=textures[0].get('File'), sha256=hashlib.sha256(data).hexdigest(), mips=mip_count))
+        surfaces.append((threshold, levels))
+    if not evidence: raise ValueError('Empty clothing material')
+    return surfaces, evidence
+
+
+def opaque_native_surface(output, material_path, count):
+    """Prove full opacity across every texel and mip without a UV approximation."""
+    surfaces, evidence = native_alpha_surfaces(output, material_path)
+    if any(not np.all(level > threshold) for threshold, levels in surfaces for level in levels):
+        raise ValueError('Cutout clothing needs triangle opacity generation')
+    return np.ones(count, dtype=bool), evidence
+
+
+def alpha_intersections(skin, surfaces, selected):
+    """Filter ray hits using UVs, subset materials and conservative mip footprints.
+
+    All four bilinear texels must survive in every mip. This can retain extra
+    hidden skin near cutout edges, but never treats a transparent opening as
+    an opaque cover. No missing cache is replaced with all-opaque triangles.
+    """
+    stream = skin.streams[2]
+    if struct.unpack_from('<4I', stream.data) != (0, 2, skin.n, 8):
+        raise ValueError('Unsupported clothing coverage UV stream')
+    uv = np.frombuffer(stream.data[24:], '<f4').reshape(-1, 2)
+    if len(uv) != skin.n or not np.isfinite(uv).all():
+        raise ValueError('Invalid clothing coverage UVs')
+    materials = np.full(len(skin.faces), -1, dtype=int)
+    for subset in skin.info['subset_records']:
+        start, count, slot = (subset[k] for k in ('first_index', 'num_indices', 'material_id'))
+        if start % 3 or count % 3 or start < 0 or start + count > len(skin.faces)*3 or not 0 <= slot < len(surfaces):
+            raise ValueError('Invalid clothing coverage material subset')
+        target = materials[start//3:(start+count)//3]
+        if np.any(target != -1): raise ValueError('Overlapping clothing coverage subsets')
+        target[:] = slot
+    if np.any(materials == -1): raise ValueError('Unassigned clothing coverage triangles')
+    face_uv, materials = uv[skin.faces[selected]], materials[selected]
+
+    def accepts(triangle, u, v):
+        coords = face_uv[triangle]
+        point = coords[:,0] * (1-u-v)[:,None] + coords[:,1]*u[:,None] + coords[:,2]*v[:,None]
+        result = np.ones(len(triangle), bool)
+        for slot in np.unique(materials[triangle]):
+            indices = np.flatnonzero(materials[triangle] == slot)
+            threshold, levels = surfaces[slot]
+            for level in levels:
+                height, width = level.shape
+                xy = np.floor(point[indices] * [width, height] - .5).astype(np.int64)
+                for dx, dy in ((0,0), (1,0), (0,1), (1,1)):
+                    result[indices] &= level[(xy[:,1]+dy) % height, (xy[:,0]+dx) % width] > threshold
+        return result
+    return accepts
 
 
 def unculled_garment_visibility(skin):
@@ -64,7 +171,7 @@ def unculled_garment_visibility(skin):
     return np.ones(len(skin.faces), dtype=bool)
 
 
-def covered_points(points, normals, triangles, inward=.06, outward=.12):
+def covered_points(points, normals, triangles, inward=.06, outward=.12, accept_hit=None):
     """Test two-sided triangles along short surface-normal segments (metres)."""
     points, normals, triangles = (np.asarray(a, dtype=float) for a in (points, normals, triangles))
     result = np.zeros(len(points), dtype=bool)
@@ -85,6 +192,9 @@ def covered_points(points, normals, triangles, inward=.06, outward=.12):
         distance = np.einsum('tj,ntj->nt', edge2, q) * inv
         hits = valid & (u >= -1e-7) & (v >= -1e-7) & (u+v <= 1+1e-7)
         hits &= (distance >= -inward) & (distance <= outward)
+        if accept_hit is not None:
+            point_ids, triangle_ids = np.nonzero(hits)
+            hits[point_ids, triangle_ids] &= accept_hit(triangle_ids, u[point_ids, triangle_ids], v[point_ids, triangle_ids])
         result[start:start+len(p)] = hits.any(axis=1)
     return result
 
@@ -147,11 +257,18 @@ def register_coverage(output, component, garments, tables, namespace):
                     and r['material'].replace('\\', '/').lower() == garment['source_material'].replace('\\', '/').lower()]
         visibility = (unculled_garment_visibility(cover)
                       if len(matching) == 1 and not matching[0].get('not_culled_triangle_mask') else None)
+        generated, evidence, accept_hit = None, None, None
+        if len(matching) == 1 and not matching[0].get('opaque_triangle_mask'):
+            surfaces, evidence = native_alpha_surfaces(output, folder / (garment['stem'] + '.mtl'))
+            # Candidate triangles still pass the exact alpha test at each ray hit.
+            generated = np.ones(len(cover.faces), dtype=bool)
         opaque = source_opacity(rows, garment['source_model'], garment['source_material'], len(cover.faces),
-                                rendered_visibility=visibility)
+                                rendered_visibility=visibility, generated_opacity=generated)
+        if generated is not None:
+            accept_hit = alpha_intersections(cover, surfaces, opaque)
         visibility_sources.append(dict(garment=garment['stem'],
             visibility='source_cache' if matching[0].get('not_culled_triangle_mask') else 'converted_complete_mesh',
-            opacity='source_cache'))
+            opacity='source_cache' if generated is None else 'converted_alpha_intersections', evidence=evidence))
         triangles = cover.vertices[cover.faces[opaque]]
         _, region, layer = garment_layout(garment['part'])
         names = []
@@ -160,7 +277,7 @@ def register_coverage(output, component, garments, tables, namespace):
                 continue
             element = target['element']; path = folder / element.get('Model')
             skin = CompiledSkin(path.read_bytes())
-            covered = covered_points(skin.vertices, normals(skin), triangles)
+            covered = covered_points(skin.vertices, normals(skin), triangles, accept_hit=accept_hit)
             if not covered.any():
                 continue
             bit = 4 + index
@@ -172,7 +289,9 @@ def register_coverage(output, component, garments, tables, namespace):
             names.append(name)
             report.append(dict(cover=garment['stem'], target=element.get('Model'),
                                covered_vertices=int(covered.sum()), total_vertices=skin.n,
-                               opaque_triangles=int(opaque.sum()), hiding_group=name, bit=bit))
+                               candidate_triangles=int(opaque.sum()),
+                               opacity_test='source_triangle_mask' if generated is None else 'UV_alpha_at_intersection',
+                               hiding_group=name, bit=bit))
         node.set('HidingGroups', ' '.join(sorted(set(names))))
         # The fallback underwear uses the same mesh and must hide the same body
         # coverage when no equipped dress is present.
@@ -183,6 +302,6 @@ def register_coverage(output, component, garments, tables, namespace):
         path.write_bytes(apply_membership(path.read_bytes(), membership))
     path = output / ('Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml')
     path.write_bytes(xml(groups))
-    return dict(policy='Opaque source triangles, bounded normal rays after fitting',
+    return dict(policy='Source triangle masks or converted alpha intersections; bounded normal rays after fitting',
                 inward_metres=.06, outward_metres=.12, layers=report,
                 visibility_sources=visibility_sources, runtime_verified=False)

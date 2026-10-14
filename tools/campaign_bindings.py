@@ -20,7 +20,7 @@ ENTITY_ASSETS = {
     'SmartAreaShape': 'SmartAreaAsset', 'SmartObjectHolder': 'SmartObjectAsset',
     'Stash': 'StashAsset', 'AnimDoor': 'AnimDoorAsset', 'Camera': 'CameraAsset',
     'CameraSource': 'CameraAsset', 'CutsceneHolder': 'CutsceneHolderAsset',
-    'PredefinedPath': 'PredefinedPathAsset',
+    'PredefinedPath': 'PredefinedPathAsset', 'PredefinedNavigationPath': 'PredefinedPathAsset',
 }
 # These are source ABI names, not quest/actor names. The source questUtils
 # loadAllReferences routine populates these associative arrays from link tags.

@@ -112,6 +112,7 @@ CONTRACTS['Move'] = dict(_MOVEMENT, stopWithinDistance='value', stopDistanceVari
                          rayCasteFlee='value', successDistance='value')
 CONTRACTS['ExactMove'] = dict(_MOVEMENT, directionType='value', directionSpecification='reference',
                               animationTriggerDist='value', precise='value')
+CONTRACTS['ExistPath'] = {k: v for k, v in CONTRACTS['GraphSearch'].items() if k != 'id'}
 
 
 def native_catalog(game):
@@ -147,9 +148,10 @@ def native_catalog(game):
     # validation evidence bound to the tested engine, not a permissive fallback.
     from campaign_native_contracts import supplement
     supplement(game, nodes)
+    from campaign_work_animations import fragment_catalog
     return dict(nodes={n: dict(r, attributes=sorted(r['attributes']), children=sorted(r['children']))
                        for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types),
-                native_monologue_consumer=speech_consumer)
+                native_monologue_consumer=speech_consumer, work_animations=fragment_catalog(game))
 
 
 def quote(value):
@@ -249,6 +251,12 @@ class BehaviorCompiler:
         converted = []
         for part in parts:
             typ = TYPE_ADAPTERS.get(part)
+            # Both engines' Move consumes this engine-owned parameter record.
+            # KCD1 TypeDefinitions_SaveGame declares exactly reversePath and
+            # approachFirstNode; native AI/move/moveUtils.xml uses the same
+            # type and fields. A namespaced script copy is not the native ABI.
+            if part == 'predefinedPathParams' and part in self.catalog['variable_types']:
+                typ = part
             if typ is None and self.importer is not None:
                 typ = self.importer.ensure('ai_types', part, dict(kind='behavior_variable', variable=source))
                 if typ in ('bool','int','int64','float','string','wuid'):
@@ -260,6 +268,10 @@ class BehaviorCompiler:
         if set(source) - allowed:
             raise UnsupportedOperation('Unconverted variable metadata: ' + ', '.join(sorted(set(source) - allowed)))
         target = dict(source, type=','.join(converted))
+        if parts == ['predefinedPathParams'] and not source.get('values'):
+            # Preserve the authored KCD1 defaults explicitly, independent of
+            # the target engine's default constructor.
+            target['values'] = 'reversePath(false),approachFirstNode(true)'
         if source.get('values') and any(part.startswith('enum:') for part in parts):
             target['values'] = self.typed_expression(source['values'])
         # Variable values have their own typed serialization in both games.
@@ -299,6 +311,9 @@ class BehaviorCompiler:
                     node = self.time_bridge.lower(script, site)
                 else:
                     node = ET.Element('ExecuteLua', code=upgrade_rpg_script(script))
+            elif op == 'PlayAnimation':
+                from campaign_work_animations import lower as lower_work_animation
+                node = lower_work_animation(source, self.catalog)
             elif op == 'EnableProfile':
                 if self.profile_streaming is None:
                     raise UnsupportedOperation('Installed native profile streaming helper is required')
@@ -356,6 +371,21 @@ class BehaviorCompiler:
                     elif kind == 'empty_script':
                         if value:
                             raise UnsupportedOperation('SetVariable script requires a semantic adapter')
+                    elif kind == 'empty_category':
+                        if value:
+                            raise UnsupportedOperation('Source item category filter requires category conversion')
+                    elif kind == 'item_class':
+                        record['item_dependencies'].append(dict(item=value, site=site))
+                        if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value):
+                            raise UnsupportedOperation('Dynamic or missing job item class requires a runtime identity map')
+                        target = self.importer.ensure('items', value, site) if self.importer else None
+                        if target is None:
+                            group = self.registered.get('items', {})
+                            target = next((group[i] if isinstance(group, dict) else i for i in group
+                                           if i.lower() == value.lower()), None)
+                        if target is None:
+                            raise UnsupportedOperation('Job item class conversion did not complete: ' + value)
+                        value = quote(target)
                     elif kind == 'behavior_request_event':
                         # Native BehaviorTagCatch still registers these exact
                         # event names, including the original BehSucces spelling.
