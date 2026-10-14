@@ -153,3 +153,41 @@ zero missing dependencies and no further assets to package. The game log confirm
 that the supplemental archive mounted and the level reached `RUNNING`.
 The user confirmed that the performance issues were fixed after this installation.
 This is gameplay acceptance; no matched before/after FPS benchmark was recorded.
+
+## Player facial animation queue overflow (15 October 2026)
+
+The reported overflow resolves to `Dude`, native `male.chr`, and native facial
+idle/run/sprint clips. A short test with `ForceCharacterUpdate(0,true)` initially
+showed zero new warnings, but the user reproduced them by sprinting and returning
+to walking: 70 warnings accumulated after that first marker and another 46 after
+reapplying the setting. That first diagnostic is not a successful repair.
+
+The engine-wide `ca_ForceUpdateSkeletons=1` diagnostic stopped new warnings during
+the user's repeated sprint transitions. It has been restored to its original 0.
+The narrower `CharacterUpdateAlways(0,true)` flag is now under live test on the
+player. The related engine implementation distinguishes a character instance
+update flag from `ForceCharacterUpdate`, which modifies currently queued clips:
+https://github.com/aws/lumberyard/blob/master/dev/Gems/CryLegacy/Code/Source/CryEntitySystem/ScriptBind_Entity.cpp
+This related implementation is explanatory evidence, not KCD2 source code.
+
+`player_animation_updates.py` appends idempotent Player-only lifecycle wrappers
+after the existing travel/horse hooks. It reapplies the character flag after
+initialization, reset, AI load and model replacement, forwarding callback arguments
+and all return values. NPC classes and animation data remain unchanged. Executable
+Lua tests cover model replacement, lifecycle callbacks, nil return values,
+idempotence and preservation of NPC methods. Cold-start and dialogue regressions
+still require runtime verification; staging alone is not installation.
+
+The separate empty OSH preset dictionary and homeless NPC warnings predate these
+diagnostics and are not repaired by the animation update change.
+
+The player-only live diagnostic subsequently retained zero new overflows with
+the global override at zero. The persistent package is installed; its receipt
+and recoverable previous archive are in
+`outputs/AnimationOverflow/PlayerAlways01/`. Every other archive entry was
+verified unchanged. Restart persistence remains a separate runtime check.
+
+The user also reports white smoke, sweeping dust and eyelids. Investigate the
+particle lighting/material conversion and compare the eyelid material separately.
+A shared lighting cause is a hypothesis, not established by their similar colour;
+this animation change does not repair those materials.

@@ -5,6 +5,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 from upgrade_map import xml
 from campaign_entity_links import guid_value
+from player_animation_updates import patch_player
 
 
 def horse_recovery_resources(native_player, road_arrivals=None):
@@ -20,7 +21,7 @@ def horse_recovery_resources(native_player, road_arrivals=None):
         rows.append('['+json.dumps(level)+']={arrival='+vector(report['arrival'])+',positions={'+points+'}}')
     config=('\nGlueTravelHorseRoadArrivals={'+','.join(rows)+'}\n').encode('utf-8')
     hook=Path(__file__).with_name('region_travel_horse_recovery.lua').read_bytes()
-    return {'Scripts/Entities/actor/player.lua':native_player+config+hook}
+    return {'Scripts/Entities/actor/player.lua':patch_player(native_player+config+hook)}
 
 
 def import_horse_scheduler_table(destination, native, mission):
