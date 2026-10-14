@@ -617,3 +617,31 @@ rebuilt into the installed `KenishRuntime02` package.
 
 Validation: all 276 campaign unit tests pass. Combat dispatch and end-to-end
 debt progression remain unverified; this does not mark the quest complete.
+
+
+### Automatic conversation camera correction (14 October)
+
+The prior camera-enum recovery removed the entire automatic camera command.
+Native shipped conversations instead serialize automatic selection as a
+`CameraCommand` with no `CameraType` attribute. `Skald.Core` defines Auto as zero;
+27,311 shipped commands omit both CameraType and CustomCamera. A response role
+alone does not carry the explicit cut request.
+
+The generic emitter now emits that native command for the source response's
+speaker. Authored entry shots take precedence, while delayed cuts retain an
+initial automatic speaker shot. Explicit source automatic commands use the same
+serialization. No NPC-specific coordinates or camera choices are added.
+
+`build_dialogue_camera_refresh.py` discovers installed imported cinematic
+dialogues by their source topic identity and refreshes only their camera
+commands after validating source response order and role mapping. It preserves
+other commands, dialogue actions and recordings, and leaves in-world barks alone.
+
+`CameraSpeakerRefresh01` was backed up, installed and hash-verified. It restores
+104 automatic commands across ten cinematic dialogue definitions and retains
+66 authored camera commands, including the original opening cameras. All 277
+campaign tests pass, including refresh idempotence and preservation checks.
+The development game reaches the menu. Speaker switching remains pending a
+live conversation check. Earlier logs also report invalid bone cameras and a
+missing camera-animation timing GUID; whether those remain after the restored
+cut requests must be checked before declaring the camera work complete.

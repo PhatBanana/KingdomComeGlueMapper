@@ -9,6 +9,69 @@ import xml.etree.ElementTree as ET
 from campaign_quest_graph import emit_quest, xml
 
 
+def dialogue_camera_selection(blob, model, camera_aliases=()):
+    """Refresh only camera commands from source responses and authored cuts.
+
+    Infer role renaming from validated installed response identities. Preserve
+    voices, actions, other presentation commands, and in-world monologues.
+    """
+    from campaign_dialogue import presentation_command, response_camera_command
+    root = ET.fromstring(blob)
+    host = list(root.find('Skald'))[0]
+    if host.tag not in ('FaderDialog', 'ForcedDialog'):
+        raise ValueError('Camera refresh requires a cinematic dialogue')
+    sequences = {s.get('Name'): s for s in root.iter('Sequence')}
+    mapping, pairs = {}, []
+    for topic in model['topics'].values():
+        for record in topic['sequences']:
+            sid = record['source']['sequence_id']
+            target = sequences.get('seq_' + sid)
+            if target is None:
+                raise ValueError('Missing source sequence: ' + sid)
+            responses = iter(target.findall('./Elements/Response'))
+            pending = []
+            for line in record['lines']:
+                typ = line['source']['sequence_line_type']
+                if typ == '5':
+                    pending.extend(c for c in line['commands'] if c['dialogue_command_type'] == '2')
+                elif typ == '1':
+                    response = next(responses, None)
+                    if response is None or response.find('Text').get('StringName') != line['response']['string_name']:
+                        raise ValueError('Installed response order differs from source: ' + sid)
+                    source_role = model['roles'][line['response']['role_id']]['role_name']
+                    role = response.get('Role')
+                    if not role or (source_role in mapping and mapping[source_role] != role):
+                        raise ValueError('Ambiguous installed speaker role: ' + source_role)
+                    mapping[source_role] = role
+                    pairs.append((response, line['response'], pending))
+                    pending = []
+            if pending or next(responses, None) is not None:
+                raise ValueError('Unmatched source presentation/response: ' + sid)
+    report = dict(responses=len(pairs), automatic=0, authored=0)
+    for response, source, pending in pairs:
+        cameras = []
+        initial = response_camera_command(source, pending, model)
+        if initial is not None:
+            cameras.append(initial)
+        cameras.extend(presentation_command(c, model) for c in pending)
+        commands = response.find('Commands')
+        if commands is None:
+            commands = ET.SubElement(response, 'Commands')
+        for old in list(commands):
+            if old.tag == 'CameraCommand':
+                commands.remove(old)
+        for camera in cameras:
+            role = camera.get('Role')
+            if role not in mapping:
+                raise ValueError('Unresolved camera target role: ' + str(role))
+            camera.set('Role', mapping[role])
+            if camera.get('CustomCamera') and camera.get('CustomCamera') not in camera_aliases:
+                raise ValueError('Unregistered custom camera: ' + camera.get('CustomCamera'))
+            commands.append(camera)
+            report['authored' if camera.get('CustomCamera') or camera.get('CameraType') else 'automatic'] += 1
+    return xml(root), report
+
+
 def dialogue_cameras(blob, model, camera_aliases, role_mapping=None):
     """Refresh source camera commands while retaining converted voices/actions.
 

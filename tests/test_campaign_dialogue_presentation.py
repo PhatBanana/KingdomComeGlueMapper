@@ -36,10 +36,10 @@ class DialoguePresentationTests(unittest.TestCase):
         blob, _ = emit(source, 'conversation', [])
         responses = ET.fromstring(blob).findall('.//Response')
         self.assertEqual([r.get('Role') for r in responses], ['MOTHER', 'HENRY'])
-        self.assertTrue(all(r.find('./Commands/CameraCommand') is None for r in responses))
-        with self.assertRaisesRegex(ValueError, 'Unconverted camera command'):
-            presentation_command(dict(who='456', target='0', dialogue_command_type='2',
-                                      int_param='0', char_param=''), source)
+        self.assertEqual([r.find('./Commands/CameraCommand').attrib for r in responses],
+                         [{'Role': 'MOTHER'}, {'Role': 'HENRY'}])
+        self.assertEqual(presentation_command(dict(who='456', target='0', dialogue_command_type='2',
+                                      int_param='0', char_param=''), source).attrib, {'Role': 'MOTHER'})
 
     def test_default_camera_preserves_authored_shots_and_bark_player_control(self):
         from campaign_dialogue import response_camera_command
@@ -48,6 +48,8 @@ class DialoguePresentationTests(unittest.TestCase):
         self.assertIsNone(response_camera_command(response,
             [dict(dialogue_command_type='2')], source))
         self.assertIsNone(response_camera_command(response, [], source, in_world=True))
+        self.assertEqual(response_camera_command(response,
+            [dict(dialogue_command_type='2', delay='1.5')], source).attrib, {'Role': 'MOTHER'})
 
     def test_in_world_monologue_retains_alias_without_becoming_a_fader(self):
         source = model()

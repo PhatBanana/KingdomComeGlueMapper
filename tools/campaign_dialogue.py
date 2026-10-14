@@ -202,10 +202,15 @@ def response_camera_command(response, commands, model, *, in_world=False):
     mode = response.get('camera_mode', '0')
     if in_world:
         return None
-    # Automatic response mode is not a native CameraCommand enum.
-    # Keep Response.Role and let the native dialogue director select the shot.
+    # The shipped runtime represents Auto by omitting CameraType on a command,
+    # not by omitting the command itself. The command requests a fresh shot.
+    # An authored cut at response entry already owns that shot; delayed cuts
+    # still need an initial speaker shot before their scheduled override.
     if mode == '0':
-        return None
+        if any(c['dialogue_command_type'] == '2' and float(c.get('delay') or 0) <= 0
+               for c in commands):
+            return None
+        return ET.Element('CameraCommand', Role=model['roles'][response['role_id']]['role_name'])
     if mode not in ('0', '1', '2', '3', '4'):
         raise ValueError('Unconverted response camera mode: ' + mode)
     return presentation_command(dict(who=response['role_id'], target='0',
@@ -243,6 +248,8 @@ def presentation_command(command, model):
             raise ValueError('Unknown source facial mood')
         return ET.Element('FacialMoodCommand', attrs, FacialMood=moods[command['int_param']])
     if typ == '2':
+        if command['int_param'] == '0' and not command['char_param']:
+            return ET.Element('CameraCommand', attrs)
         if command['int_param'] == '5' and command['char_param']:
             return ET.Element('CameraCommand', attrs, CustomCamera=command['char_param'])
         modes = {'1': 'Master', '2': 'Medium', '3': 'CloseShot', '4': 'CloseUp'}

@@ -10,6 +10,22 @@ from test_campaign_quest_graph import model
 
 
 class RefreshTests(unittest.TestCase):
+    def test_automatic_camera_refresh_preserves_other_commands_and_is_idempotent(self):
+        from test_campaign_dialogue_presentation import model as dialogue_model
+        from campaign_refresh import dialogue_camera_selection
+        source = dialogue_model()
+        blob = b'<Database><Skald><FaderDialog><Dialogue><Sequence Name="seq_10"><Elements><Response Role="renamed"><Text StringName="speech"/><Commands><FacialMoodCommand FacialMood="happy"/><CameraCommand CameraType="CloseUp"/></Commands></Response></Elements></Sequence></Dialogue></FaderDialog></Skald></Database>'
+        result, report = dialogue_camera_selection(blob, source)
+        repeated, _ = dialogue_camera_selection(result, source)
+        self.assertEqual(result, repeated)
+        root = ET.fromstring(result)
+        self.assertEqual(root.find('.//CameraCommand').attrib, {'Role': 'renamed'})
+        self.assertIsNotNone(root.find('.//FacialMoodCommand'))
+        self.assertEqual(report['automatic'], 1)
+        source['topics']['1']['sequences'][0]['lines'][1]['response']['string_name'] = 'wrong'
+        with self.assertRaisesRegex(ValueError, 'order differs'):
+            dialogue_camera_selection(blob, source)
+
     def test_camera_refresh_preserves_runtime_voice_and_source_response_order(self):
         from test_campaign_dialogue_presentation import model as dialogue_model
         source = dialogue_model()
