@@ -37,7 +37,7 @@ def stage(game, package, output, level):
     lua = ('KingdomComeGlueMapper = KingdomComeGlueMapper or {}\n'
            'KingdomComeGlueMapper.startProbe = true\n'
            f'KingdomComeGlueMapper.campaignLevelId = {level_id}\n'
-           'KingdomComeGlueMapper.campaignMenuLabel = "New Game Debug Sasua region"\n'
+           'KingdomComeGlueMapper.campaignMenuLabel = "New Game Debug Sasau region"\n'
            'KingdomComeGlueMapper.campaignDescription = "Start the converted KCD1 opening. Campaign conversion is in progress."\n'
            + runtime.read_text(encoding='utf-8'))
     # The native loader selects the manifest's modid, not arbitrary Lua files.
