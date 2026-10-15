@@ -109,21 +109,30 @@ class BridgePackageTests(unittest.TestCase):
         (self.base/RECEIPT).write_text(json.dumps(receipt))
         level = 'Data/Levels/kcd1_travel/level.pak'
         pak(self.bridge/level, {'original': b'level'})
+        def activate(package, source):
+            self.assertEqual(source, 'source')
+            (package/'probe-activation-repair.json').write_text('{"restored_count": 1}')
+            return {'restored_count': 1}
         def finish(package, source):
             self.assertEqual(source, 'source')
+            self.assertTrue((package/'probe-activation-repair.json').is_file())
             self.assertTrue((package/f'Data/{MOD_ID}.pak').is_file())
             (package/level).write_bytes(b'repaired')
             (package/'roof-clip-repair.json').write_text('{}')
             return dict(roof_placements=3, changed_clip_count=2, linked_probe_count=1)
         with patch('travel_bridge_package.level_registration', return_value=self.native_level), \
+             patch('probe_activation.repair_package', side_effect=activate) as probes, \
              patch('roof_clip_repair.repair_package', side_effect=finish) as repair, \
              patch('brush_registration.repair_package', return_value={'changed_brushes': 7}) as brushes, \
              patch('water_layers.repair_package', return_value={'removed_water_volumes': 4}) as water:
             output = combine(self.base, self.bridge, 'target', self.root/'combined')
         self.assertEqual(repair.call_count, 1)
+        probes.assert_called_once_with(output, 'source')
         result = verify_package(output)
         self.assertEqual(result['files'][level], hashlib.sha256(b'repaired').hexdigest())
         self.assertIn('roof-clip-repair.json', result['files'])
+        self.assertIn('probe-activation-repair.json', result['files'])
+        self.assertEqual(result['travel_bridge']['probe_activation']['restored_count'], 1)
         self.assertEqual(result['travel_bridge']['roof_clipping']['changed_clip_count'], 2)
         brushes.assert_called_once_with(output)
         water.assert_called_once_with(output, 'source')

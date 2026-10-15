@@ -107,7 +107,7 @@ class ClothingAssemblyTests(unittest.TestCase):
     def test_tint_is_per_item_and_preserves_other_parameters(self):
         root = ET.fromstring('<Material Shader="Illum"><PublicParams Other="7" MaskHue2="13"/></Material>')
         tinted = apply_armor_colorization(root, dict(zone1_hue='.25', zone1_saturation='.5', brightness='.7'))
-        self.assertEqual(tinted.find('PublicParams').get('MaskHue1'), '90')
+        self.assertEqual(tinted.find('PublicParams').get('MaskHue1'), '45')
         self.assertEqual(tinted.find('PublicParams').get('MaskHue2'), '13')
         self.assertEqual(tinted.find('PublicParams').get('Other'), '7')
         self.assertIsNone(root.find('PublicParams').get('MaskHue1'))

@@ -10,16 +10,16 @@ from clothing_regions import Skin, read_chunks, write_chunks
 def apply_armor_colorization(material, armor):
     """Clone material XML and apply the item's four authored HSV zones.
 
-    Armour table hue offsets are turns; Illum's material parameters use degrees.
+    Armour table hue offsets normalize -180..180 degrees to -1..1.
     Defaults preserve an omitted zone. Separate clones prevent shared materials
     from acquiring the colour of the last item processed.
     """
     result = copy.deepcopy(material)
-    mapping = {'color_hue': ('ColorizingHue', 360),
+    mapping = {'color_hue': ('ColorizingHue', 180),
                'color_saturation': ('ColorizingSaturation', 1),
                'brightness': ('ColorizingBrightness', 1)}
     for zone in range(1, 4):
-        for source, target, scale in [('hue', 'Hue', 360), ('saturation', 'Saturation', 1),
+        for source, target, scale in [('hue', 'Hue', 180), ('saturation', 'Saturation', 1),
                                       ('brightness', 'Brightness', 1)]:
             mapping[f'zone{zone}_{source}'] = (f'Mask{target}{zone}', scale)
     values = {}

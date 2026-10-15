@@ -65,3 +65,62 @@ def equipment_sequence(plan, registered_items, target, variable_prefix):
         if item['equipped']:
             ET.SubElement(sequence, 'EquipItem', item='$' + variable, Target=target)
     return xml(sequence), variables
+
+
+def bind_player_before(blob, plan, registered_items, soul_asset, destination,
+                       input_port, source_event, namespace, definitions):
+    """Apply a resolved loadout on a caller-selected, once-only New Game edge.
+
+    Native inventory creation feeds its item descriptor directly to equipment.
+    No level-load callback, permanent outfit override, or inventory reset is used.
+    """
+    from campaign_quest_graph import constant, edge
+    identifier(namespace)
+    missing = set(plan['dependencies']) - registered_items.keys()
+    if missing:
+        raise ValueError('Unconverted initial equipment: '+', '.join(sorted(missing)))
+    registry = ET.fromstring(definitions)
+    for method, typ in [('CreateItems', 'EventMemberFunction'), ('EquipPlayersItem', 'MemberFunction')]:
+        found = [d for d in registry.iter('Definition') if d.get('TypeName') == typ and
+                 d.find("Properties/Property[@Name='MethodName'][@Value='"+method+"']") is not None]
+        if len(found) != 1:
+            raise ValueError('Missing native equipment contract: '+method)
+    root = ET.fromstring(blob)
+    hosts = list(root.find('Skald'))
+    if len(hosts) != 1: raise ValueError('Ambiguous graph host')
+    host = hosts[0]; nodes = host.find('Nodes')
+    if host.find("Assets/SoulAsset[@Name='"+soul_asset+"']") is None:
+        raise ValueError('Missing loadout soul asset')
+    targets = [n for n in nodes if n.get('Name') == destination]
+    links = [e for n in targets for e in n.findall('Edge')
+             if e.get('From') == source_event and e.get('To') == input_port]
+    if len(targets) != 1 or len(links) != 1:
+        raise ValueError('Expected exact once-only initialization edge')
+    if any(n.get('Name', '').startswith(namespace+'_') for n in nodes):
+        raise ValueError('Loadout already registered')
+    soul = ET.SubElement(nodes, 'ObjectProperties', Name=namespace+'_soul', DeclaringType='wh::rpgmodule::I_Soul')
+    ET.SubElement(soul, 'Asset', Name='I_Soul', Alias=soul_asset)
+    previous = source_event
+    for index, item in enumerate(plan['items']):
+        name = namespace+'_'+str(index)
+        create = ET.SubElement(nodes, 'EventMemberFunction', Name=name+'_create',
+                               MethodName='CreateItems', DeclaringType='wh::entitymodule::Inventory')
+        edge(create, namespace+'_soul.Inventory', 'Inventory')
+        constant(create, 'ItemClass', registered_items[item['item']])
+        constant(create, 'Amount', str(item['amount']))
+        constant(create, 'ShowUINotification', 'false')
+        # Native -1 defaults randomize item wear. Authored initial equipment is
+        # fresh; preserve that instead of inheriting random loot condition.
+        constant(create, 'Health', '1')
+        constant(create, 'Condition', '1')
+        edge(create, previous, 'Exec')
+        previous = name+'_create.OnExec'
+        if item['equipped']:
+            equip = ET.SubElement(nodes, 'MemberFunction', Name=name+'_equip',
+                                  MethodName='EquipPlayersItem', DeclaringType='wh::entitymodule::EquipmentManager')
+            edge(equip, namespace+'_soul.EquipmentManager', 'Manager')
+            edge(equip, name+'_create.ItemDescriptor', 'ItemDescriptor')
+            edge(equip, previous, 'Exec')
+            previous = name+'_equip.OnExec'
+    links[0].set('From', previous)
+    return xml(root)

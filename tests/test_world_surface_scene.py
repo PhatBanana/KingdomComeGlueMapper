@@ -21,7 +21,7 @@ class WorldSurfaceTests(unittest.TestCase):
         root=ET.fromstring(configure_environment(blob,surface_channels=True))
         settings=root.find('Environment/Total_Illumination_v2').attrib
         self.assertEqual(settings['IntegrationMode'],'1');self.assertEqual(settings['UseLightProbes'],'0')
-        self.assertEqual(settings['UpdateLighting'],'1');self.assertEqual(settings['UpdateGeometry'],'0')
+        self.assertEqual(settings['UpdateLighting'],'1');self.assertEqual(settings['UpdateGeometry'],'1')
         self.assertEqual(settings['SkyColorMultiplier'],'0.8')
         legacy=ET.fromstring(configure_environment(blob)).find('Environment/Total_Illumination_v2')
         self.assertEqual(legacy.get('IntegrationMode'),'0')

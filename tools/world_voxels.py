@@ -63,6 +63,9 @@ def configure_environment(blob, *, surface_channels=False):
     gi.set('UseLightProbes', '0' if surface_channels else '1')
     if surface_channels:
         gi.set('UpdateLighting','1')
-        gi.set('UpdateGeometry','0')
+        # Native streamed levels keep this enabled. A precomputed voxel payload
+        # does not replace runtime geometry/resource updates when cameras change
+        # between the inventory scene and the world.
+        gi.set('UpdateGeometry','1')
         gi.set('StreamVoxels','1')
     return ET.tostring(root, encoding='utf-8')

@@ -99,6 +99,12 @@ def convert_character_materials(output, components, assets, namespace, sex):
                         # serialized global mask; local .ext bits are not that mask.
                         for key in ('Shader', 'GenMask', 'StringGenMask', 'MtlFlags', 'Opacity', 'vertModifType'):
                             new.set(key, cloth_ref.get(key))
+                        # The donor's 0.75 macro scale leaves a 25% micro
+                        # reflectance floor even for near-black source fabric.
+                        # Source specular is baked below, so don't multiply it
+                        # by the source material constant a second time.
+                        new.find('PublicParams').set('MacroSpecularScale', '1')
+                        new.set('Specular', '1,1,1')
                         if spec is None:
                             spec = Image.new('RGBA', (4, 4), (255, 255, 255, 255))
                         if 'COLORIZING_WITH_MASK' in material.get('StringGenMask', ''):

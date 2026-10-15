@@ -61,6 +61,10 @@ This changes clip CGFs and qualified probe links/options. It does not change
 the building meshes, material textures, moss masks, cubemaps, probe influence
 boxes, voxel payloads, GI settings or exposure. The developer baseline retains
 the previous lower-Henry-probe disabled state; this pass does not toggle it.
+That diagnostic disable was subsequently identified as the cause of white
+interior debris and eyelid rims. The generic `probe_activation` reconciliation
+now restores source-authored activation when the complete converted bake exists,
+before this roof pass runs. See `particle-lighting-audit.md` for live evidence.
 
 Node transform and packed stream decoding follow the published
 [CGF loader](https://raw.githubusercontent.com/ValtoGameEngines/CryEngine/release/Code/CryEngine/Cry3DEngine/CGF/CGFLoader.cpp)

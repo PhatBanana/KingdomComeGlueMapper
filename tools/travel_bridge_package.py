@@ -128,6 +128,8 @@ def combine(base, bridge, target, output):
     unlinked(output/'mod.manifest').write_bytes(xml(manifest))
     roof_report = None
     if (output/'Data/Levels/kcd1_travel/level.pak').is_file():
+        from probe_activation import repair_package as repair_probe_activation
+        probe_report = repair_probe_activation(output, receipt['sources']['kcd1'])
         from roof_clip_repair import repair_package
         roof_report = repair_package(output, receipt['sources']['kcd1'])
         from brush_registration import repair_package as repair_brushes
@@ -137,6 +139,7 @@ def combine(base, bridge, target, output):
     receipt.update(version=VERSION, menu=False, start_probe=False,
                    travel_bridge=dict(files=bridge_files, destination='kcd1_travel', runtime_verified=False))
     if roof_report is not None:
+        receipt['travel_bridge']['probe_activation'] = probe_report
         receipt['travel_bridge']['brush_registration'] = {'changed_brushes': brush_report['changed_brushes']}
         receipt['travel_bridge']['water_layers'] = water_report
         receipt['travel_bridge']['roof_clipping'] = {
@@ -146,6 +149,7 @@ def combine(base, bridge, target, output):
     rewritten = {*bridge_files, BRIDGE_PAK, f'Data/{MOD_ID}.pak', 'mod.manifest'}
     if roof_report is not None:
         rewritten.update(('Data/Levels/kcd1_travel/level.pak', 'roof-clip-repair.json'))
+        rewritten.add('probe-activation-repair.json')
         rewritten.add('Data/Levels/kcd1_travel/terrain.pak')
     names = [p.relative_to(output).as_posix() for p in sorted(output.rglob('*')) if p.is_file() and p.name != RECEIPT]
     receipt['files'] = {n: base_files[n] if n in base_files and n not in rewritten else digest(output/n) for n in names}

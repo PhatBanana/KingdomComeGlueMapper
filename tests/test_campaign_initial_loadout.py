@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as E
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from campaign_initial_loadout import resolve, equipment_sequence
+from campaign_initial_loadout import resolve, equipment_sequence, bind_player_before
 from campaign_dependency_adapters import SoulAdapter
 
 
@@ -25,6 +25,32 @@ class Tables:
 
 
 class InitialLoadoutTests(unittest.TestCase):
+    def test_native_start_binding_preserves_gate_and_equipped_flags(self):
+        graph = b'''<Document><Skald><Project><Assets><SoulAsset Name="actor"/></Assets><Nodes>
+          <If Name="new_game_gate"><Edge From="not_started.bool" To="Condition"/></If>
+          <Function Name="next"><Edge From="new_game_gate.True" To="Exec"/></Function>
+          <Function Name="restore"><Edge From="load.OnLoad" To="Exec"/></Function>
+          </Nodes></Project></Skald></Document>'''
+        definitions = b'''<Definitions>
+          <Definition TypeName="EventMemberFunction"><Properties><Property Name="MethodName" Value="CreateItems"/></Properties></Definition>
+          <Definition TypeName="MemberFunction"><Properties><Property Name="MethodName" Value="EquipPlayersItem"/></Properties></Definition>
+          </Definitions>'''
+        args = (resolve(Tables(),'actor'), {'coat':'native_coat','arrows':'native_arrows'},
+                'actor','next','Exec','new_game_gate.True','initial',definitions)
+        result = bind_player_before(graph,*args)
+        nodes = E.fromstring(result).find('Skald/Project/Nodes')
+        self.assertEqual(len(nodes.findall("EventMemberFunction[@MethodName='CreateItems']")),2)
+        self.assertEqual(len(nodes.findall("MemberFunction[@MethodName='EquipPlayersItem']")),1)
+        for node in nodes.findall("EventMemberFunction[@MethodName='CreateItems']"):
+            self.assertEqual(node.find("Constant[@Name='Health']").get('Value'), '1')
+            self.assertEqual(node.find("Constant[@Name='Condition']").get('Value'), '1')
+        self.assertEqual(nodes.find("Function[@Name='next']/Edge").get('From'),'initial_1_create.OnExec')
+        self.assertEqual(nodes.find("Function[@Name='restore']/Edge").get('From'),'load.OnLoad')
+        self.assertEqual(nodes.find("If[@Name='new_game_gate']/Edge").get('From'),'not_started.bool')
+        self.assertEqual(nodes.find("MemberFunction[@Name='initial_0_equip']/Edge[@To='ItemDescriptor']").get('From'),
+                         'initial_0_create.ItemDescriptor')
+        with self.assertRaises(ValueError): bind_player_before(result,*args)
+
     def test_soul_dependency_discovery_includes_instance_outfit(self):
         tables = Tables()
         tables.data['item/clothing_preset'].append(dict(clothing_preset_id='work_outfit'))

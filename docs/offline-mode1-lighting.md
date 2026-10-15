@@ -433,3 +433,27 @@ the full previous shard set, and baseline installed hashes. It requires the
 game to be closed, retains the old package set under a new recovery directory,
 verifies copied files, replaces the complete set, and rolls back on failure.
 The receipt records installation verification separately from in-game testing.
+
+## Inventory exit crash investigation (2026-10-15)
+
+User reproduced a crash on ESC from inventory after changing equipped garments.
+The preserved log ends at ApseClose. The minidump identifies an access violation
+reading 0x1ba8 at CryRenderD3D12.dll RVA 0x3ac882 (BugSplat displays 0x3ab882).
+Instruction analysis identifies CSvoGiStage::ExecuteComputeShader, called with
+ComputeClearBricks from the TI_INJECT_CLEAR path. The caller adds 0x1b50 to a
+null stage member at offset 0x16b0; the faulting instruction reads +0x58.
+This establishes a missing GI render object, not a clothing-renderer stack.
+Device Removed is No. It does not by itself establish why the object is missing.
+
+The converted mission disabled UpdateGeometry while native Trosky uses 1 with
+IntegrationMode=1 and StreamVoxels=1. configure_environment now preserves this
+native runtime update configuration for surface bakes. Installed only that
+mission attribute change; voxel PAKs and clothing assets were not replaced.
+Evidence, crash dump, original log, backup and installation hashes are under
+outputs/InventoryExitCrash. Eight world-surface tests pass. Inventory exit
+reproduction after this candidate correction remains required; it is not yet a
+confirmed crash fix.
+
+The user subsequently confirmed the inventory ESC crash is fixed after installing
+this single-setting correction. This is runtime confirmation for the reported
+inventory-to-world transition, not a claim that all GI lifecycle paths are tested.

@@ -1,6 +1,8 @@
 """Wearable source pickup components, with source meshes on the native rig."""
 import xml.etree.ElementTree as ET
 import zipfile
+import tempfile
+from pathlib import Path
 from audit_character_bodies import Assets
 from build_npc_probe import asset_path, bind_material
 from campaign_dependencies import ImportPlan
@@ -12,6 +14,7 @@ from clothing_regions import assign_upper_garment_regions, split_skin_regions, r
 from garment_contracts import clothing_role, source_variant
 from character_source_clothing import female_role
 from upgrade_map import read, xml
+from character_native_materials import convert_character_materials
 
 
 class ClothingAdapter:
@@ -73,7 +76,7 @@ class ClothingAdapter:
             available = [m['name'] for c in read_chunks(blob) if c.kind == 0x2002 for m in read_morphs(c)]
             variant, missing_variant = source_variant(part.get('morph_target'), available)
             blob,detail = upgrade_skin(blob,skeleton,variant=variant,
-                discard_unused_variants=True,geometry_mode='preserve',clear_hiding=False)
+                discard_unused_variants=True,geometry_mode='preserve',clear_hiding=True)
             blob,_ = limit_skin_influences(blob)
             region = 'head'
             if horse: region = 'horse_back' if role in ('Saddle','Caparison') else 'horse_head'
@@ -88,6 +91,10 @@ class ClothingAdapter:
                 bones = CompiledSkin(blob).info['bones']
                 waist = float(matrix(next(b for b in bones if b['name']=='Hips')['bind'])[2,3])
                 regions = split_skin_regions(blob,assign_upper_garment_regions(blob,waist_z=waist))
+                if 'arms' in regions:
+                    # Native sleeved tunics use this group to hide just the
+                    # underlying upper arm, retaining hands and bare forearms.
+                    node.set('HidingGroups', 'MaleBodyUpperArms')
             elements = ET.SubElement(node,'Elements')
             # Native layer values are inherited by role; do not reuse KCD1's
             # numerical layers as KCD2 layers.
@@ -99,10 +106,28 @@ class ClothingAdapter:
                     ancestor = self.parents.get(ancestor)
                 files[prefix+region+'.skin'] = skin
                 element = ET.SubElement(elements,'SkinElement',EquipmentPart=region,Model=region+'.skin',
-                    Material='source.mtl',KeepBodyLayer='true',IsFinalLayer='true')
+                    Material='source.mtl',KeepBodyLayer=str(region not in ('torso','legs','feet')).lower(),IsFinalLayer='true')
                 if layer is not None: element.set('BodyLayerId',layer)
             files.update({n:a.emitted[n] for n in a.emitted if n not in before})
             files[prefix+'source.mtl'] = a.emitted[mat+'.mtl']
+            # Wearable items need the same native shader/vertex-feature upgrade
+            # as fixed NPC outfits. Legacy Illum permutations are not a native
+            # clothing contract, even when the item table imports successfully.
+            if not horse:
+                with tempfile.TemporaryDirectory(prefix='wearable-materials-') as temporary:
+                    folder = Path(temporary)
+                    # Material textures can be shared with an earlier item in
+                    # this import batch; include their already-emitted files.
+                    for path, payload in {**a.emitted, **files}.items():
+                        dest = folder/path; dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(payload.read_bytes() if isinstance(payload, Path) else payload)
+                    (folder/'Libs/Tables/Character').mkdir(parents=True,exist_ok=True)
+                    material_report = convert_character_materials(folder, component, self.native, name, sex)
+                    for path in folder.rglob('*'):
+                        if path.is_file():
+                            relative = path.relative_to(folder).as_posix()
+                            if relative.startswith(prefix) or relative.startswith('Libs/Tables/Character/ClothingMaterial__'):
+                                files[relative] = path.read_bytes()
         elif role not in ('HorseShoe','Ring','Necklace','Spurs'): raise ValueError('Source wearable is missing a model')
         files['Libs/Tables/Character/CharacterComponent__'+name+'.xml'] = xml(root)
         return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=True,
