@@ -5,7 +5,7 @@ import copy
 import xml.etree.ElementTree as E
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from campaign_dialogue_conditions import QuestConditions
+from campaign_dialogue_conditions import QuestConditions, normalize_boolean_literals
 from campaign_dialogue import emit, resolve, expose_sequence_history
 from campaign_dialogue_runtime import attach_dialogue
 from campaign_quest_graph import emit_project
@@ -14,6 +14,12 @@ from test_campaign_dialogue_presentation import model as dialogue
 
 
 class ConditionsTests(unittest.TestCase):
+    def test_native_boolean_refresh_preserves_names_and_quoted_literals(self):
+        source = "Port('false') AND false OR true AND var('true_flag') == 1"
+        expected = "Port('false') AND 0 OR 1 AND var('true_flag') == 1"
+        self.assertEqual(normalize_boolean_literals(source), expected)
+        self.assertEqual(normalize_boolean_literals(expected), expected)
+
     def test_sequence_availability_preserves_conditions_and_once_only_history(self):
         d = dialogue()
         first = d['topics']['1']['sequences'][0]
@@ -118,8 +124,8 @@ class ConditionsTests(unittest.TestCase):
                       "IsQuestStarted('arbitrary_quest'); true", '(1 OR 0', '1 0', 'skillCheckSuccess']:
             with self.subTest(value=value), self.assertRaises(ValueError): compiler.compile(value)
             self.assertEqual(compiler.bindings, {})
-        self.assertEqual(compiler.compile('!(0 OR 1) AND 1'), '!((false OR true)) AND true')
-        self.assertEqual(compiler.compile('FALSE | TRUE & !FALSE'), 'false OR true AND !(false)')
+        self.assertEqual(compiler.compile('!(0 OR 1) AND 1'), '!((0 OR 1)) AND 1')
+        self.assertEqual(compiler.compile('FALSE | TRUE & !FALSE'), '0 OR 1 AND !(0)')
 
     def test_unnamed_branch_keeps_original_identity(self):
         tables = dict(topic=[dict(topic_id='7', label='')], sequence=[dict(sequence_id='8', priority='0', next='0')],

@@ -30,7 +30,7 @@ class DialogueEffectsTests(unittest.TestCase):
                                 'arbitrary_quest.started')
         nodes = E.fromstring(files['world.xml']).find('./Skald/Project/Nodes')
         callbacks = E.fromstring(blob).findall('.//Sequence/Triggers/Port')
-        self.assertEqual([c.get('Name') for c in callbacks], ['effects_10'])
+        self.assertEqual([c.get('Name') for c in callbacks], ['gm_sequence_active', 'effects_10'])
         self.assertEqual(report['actions'], {})
         # Exercise the emitted event topology against live objective state.
         # In particular, the second predicate must see the first mutation.

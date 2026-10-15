@@ -64,7 +64,7 @@ def build(a):
         raise ValueError('Actor filtering requires source quest discovery')
     if a.output.exists():
         raise FileExistsError('Choose a fresh dialogue stage')
-    travel = a.mod / 'Data/gluemappertravel.pak'
+    travel = getattr(a, 'archive', None) or a.mod / 'Data/gluemappertravel.pak'
     audio = a.mod / 'Localization/English.pak'
     locale = a.mod / 'Localization/English_xml.pak'
     with zipfile.ZipFile(travel) as z:

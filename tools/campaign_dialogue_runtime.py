@@ -276,6 +276,11 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
         else:
             node_port(binding['quest'], binding['output'], 'Out', 'bool')
     declared = {p.get('Name') for p in native.findall('Ports/Port') if p.get('Direction') == 'Out'}
+    if report.get('activity_port'):
+        from campaign_dialogue_activity import ACTIVITY_PORT
+        if report['activity_port'] != ACTIVITY_PORT or native.find("Ports/Port[@Name='" + ACTIVITY_PORT + "'][@Type='trigger']") is None:
+            raise ValueError('Invalid dialogue activity contract')
+        declared.remove(ACTIVITY_PORT)
     programs = report.get('action_programs', {})
     if set(programs) & report['actions'].keys() or declared != report['actions'].keys() | programs.keys():
         raise ValueError('Dialogue objective report does not match its output ports')

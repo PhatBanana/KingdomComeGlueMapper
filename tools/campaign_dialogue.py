@@ -367,6 +367,8 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             sequence_records[sid] = record
     conditions = QuestConditions(quest_models, model.get('functions'), registered_items,
                                  participant_assets, sequence_records, area_assets, context_entities)
+    from campaign_dialogue_outcomes import outcomes, lower as lower_outcomes
+    outcome_specs = {}
 
     def decision(parent, tid):
         visited.add(tid)
@@ -379,6 +381,11 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             source, entry = record['source'], record['entry']; sid = source['sequence_id']
             selection_attrs = {}
             expression = entry['entry_condition']
+            variants = outcomes(expression, model.get('functions', {}))
+            if variants and selection_compiler is None:
+                raise ValueError('Skill outcome requires a selection compiler')
+            if variants:
+                expression = variants['Success']
             if selection_compiler is not None:
                 selection_attrs, expression = selection_compiler.compile(source, expression)
             elif source['type'] != '0' or source['group'] != '0' or source['skill_check_difficulty_id'] or source['reputation'] != '0':
@@ -387,6 +394,11 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             if entry['npc_entry_condition']: raise ValueError('Unconverted NPC dialogue condition')
             if tid == model['start_topic']:
                 condition = "Port('" + active_port + "')" + (' AND (' + condition + ')' if condition else '')
+            if variants:
+                failure = conditions.sequence_condition(sid, variants['Fail'])
+                if tid == model['start_topic']:
+                    failure = "Port('" + active_port + "')" + (' AND (' + failure + ')' if failure else '')
+                outcome_specs['seq_' + sid] = dict(Success=condition, Fail=failure)
             attrs = dict(Name='seq_' + sid, EndType='EndDialogue')
             if source['flags'] == '0' and source['next'] == '0':
                 # Native SequenceEndTypes.EndTopic is zero and the editor's
@@ -486,10 +498,15 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                 else:
                     s.set('EndType', 'Decision'); decision(s, nxt)
     decision(dialogue, model['start_topic'])
+    outcome_aliases = lower_outcomes(dialogue, outcome_specs)
     expose_sequence_history(dialogue)
+    from campaign_dialogue_activity import expose as expose_activity
+    activity_port = expose_activity(host)
     for port in conditions.bindings:
         ET.SubElement(ports, 'Port', Name=port, Direction='In', Type='bool')
     return xml(root), dict(actions=actions, action_programs=action_programs, conditions=conditions.bindings, active_port=active_port,
+                           activity_port=activity_port,
+                           skill_outcome_aliases=outcome_aliases,
                            branch_endings=branch_endings,
                            branch_settings=dict(source=branches, native=settings, runtime_verified=False),
                            exit_scripts=scripts, presentation_pending=presentation,

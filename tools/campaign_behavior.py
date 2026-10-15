@@ -24,6 +24,7 @@ from campaign_link_types import data_expression, link_list, assignment_expressio
 from quest_import import behavior_path, literal
 from upgrade_map import read
 from campaign_speech_messages import MESSAGE as MONOLOGUE_MESSAGE, validate_request, native_consumer
+from campaign_behavior_requests import dependencies as behavior_requests, resolve as resolve_behavior_request
 
 
 # Attribute kinds come from the two shipped AI serializations. This is an
@@ -503,6 +504,28 @@ class BehaviorCompiler:
                     record = dict(owner=owner, document=document, tree=name, includes=[],
                                   item_dependencies=[], buff_dependencies=[], unresolved=[], native_emitted=False,
                                   provenance=payload.get('provenance', []))
+                    # Message-dispatched behaviors are executable dependencies
+                    # too. Previously only IncludeTree participated in closure,
+                    # allowing a request to target a withheld/missing tree.
+                    record['behavior_requests'] = behavior_requests(source['root'])
+                    for request in record['behavior_requests']:
+                        if 'error' in request:
+                            record['unresolved'].append(dict(request=request, reason=request['error']))
+                            continue
+                        record['unresolved'].append(dict(request=request, reason=
+                            'Custom combat dispatch requires a native behavior-consumer adapter'))
+                        if request['source'] not in ('$this.id', '$__object.id', 'this.id', '__object.id'):
+                            record['unresolved'].append(dict(request=request, reason=
+                                'Dynamic behavior source requires source object resolution'))
+                            continue
+                        try:
+                            resolved = resolve_behavior_request(model, request)
+                            record['includes'].append((owner, resolved['document'], resolved['tree']))
+                        except UnsupportedOperation as error:
+                            record['unresolved'].append(dict(request=request, reason=str(error)))
+                            # Keep an unresolved dependency visible for older
+                            # IR snapshots without controller registration.
+                            record['includes'].append((owner, document, request['tree']))
                     self.records[identity] = record
                     tree = ET.Element('BehaviorTree', name=name)
                     variables = ET.SubElement(tree, 'Variables')

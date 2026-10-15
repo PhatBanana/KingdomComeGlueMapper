@@ -10,7 +10,7 @@ from campaign_quest_graph import constant, edge
 
 
 def predicate(expression):
-    tokens = re.findall(r"Port\('[A-Za-z_]\w*'\)|AND\b|OR\b|true\b|false\b|[!()]", expression)
+    tokens = re.findall(r"Port\('[A-Za-z_]\w*'\)|AND\b|OR\b|true\b|false\b|[01]\b|[!()]", expression)
     if ''.join(tokens) != re.sub(r'\s+', '', expression):
         raise ValueError('Dialogue effect requires a graph-readable predicate: ' + expression)
     position = 0
@@ -27,7 +27,8 @@ def predicate(expression):
                 raise ValueError('Unclosed dialogue effect predicate')
             position += 1
             return result
-        if token in ('true', 'false'): return dict(op='constant', value=token)
+        if token in ('true', 'false', '0', '1'):
+            return dict(op='constant', value='true' if token in ('true', '1') else 'false')
         if token.startswith('Port('): return dict(op='port', name=token[6:-2])
         raise ValueError('Invalid dialogue effect predicate token: ' + token)
 

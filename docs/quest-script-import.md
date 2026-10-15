@@ -95,6 +95,93 @@ The source IR retains unconverted operations and their original context;
 unsupported trees and their callers are withheld as complete units rather
 than executing extracted actions out of order.
 
+### Source-requested combat and work lifecycles
+
+`campaign_combat.py` discovers registered custom-behavior requests from each
+quest model. The campaign assembly pass now calls the same converter as
+`build_campaign_combat.py`; it supports both a Project host and an existing
+Level host. `combat-conversion.json` records discovered, converted and unresolved
+requests. Each request publishes its quest, AI and world changes together only
+after all required bindings validate. This does not make the incomplete main
+campaign pipeline installable: its conversation emission, player registration
+and native scheduler dependencies must also be present.
+
+The supported source shape includes optional home-tool cleanup before combat,
+guarded outcome conversations, a guarded home privacy-label change, and sitting
+in parallel with timed proximity barks. Actor roles, home links, slot item class,
+work placement, objective predicates, bark aliases, timing and distance gates
+come from the source program and world graph. Unknown control-flow shapes and
+unsupported sitting helpers are reported rather than replaced with an NPC
+exception. Ground sitting uses the shipped native sitting helper and action
+controller. Tool cleanup uses acknowledged native hand-item actions, upgrading
+the source instant pick/place request; combat waits for completion and dialogue
+release. No replacement tool is spawned.
+
+Interactive dialogue sequences expose `gm_sequence_active` before their quest
+effects; occupancy clears after the native scene-finished waiter. This also
+covers ordinary interaction routes where `BeforePlay` does not fire. Work
+phases request a native scheduler kick and return through the instance-bound
+`resultNotification` Success/Fail callbacks, replacing global completion
+signals. Failure cannot be mistaken for successful preparation, and a late
+callback after cancellation cannot advance the handoff.
+
+`EnableBehavior` availability also requires a compiled actor activity. The
+converter exports `tables/ai/scheduler.xml` with `S_ActivityLink` records pointing
+to the behavior host and an explicit positioning delegate. Terminal hosts need
+their own `C_SmartHub` records. Scene links and `waitinglinks.xml` alone do not
+provide this compiled schedule. Existing actor activities are preserved. The
+same exporter connects preparation, aftermath work and all source-defined fight
+participants. A consistency check rejects authoring routes without matching
+compiled activities before either the campaign assembly or package refresh can
+publish them. This corrects the links-only lifecycle07 package, whose actor
+still had only `schedulerWait` in its compiled schedule.
+
+The lifecycle08 and lifecycle09 runtime logs confirmed preparation Success
+but rejected the world-area scheduler asset. Changing the port type alone did
+not resolve it; this is not evidence that native generic pointer ports are
+unsupported. The native `duelbehavioradvanced` uses `SmartEntity*` itself.
+
+The current adapter follows the shipped dialogue-driven `bonzak_fistfight`:
+`bonzak_design` wires dialogue outputs into its duel, which calls native
+`utils/combat/fighteffect.xml`. Its QSO is a `SmartObjectAsset`, and
+`SmartEntity__so_kzik_openworld.xml` registers the shared
+`world/sa_land.xml:combat_fightRepeated_template` on that local host.
+The converter now registers that shipped behavior on its local work host and
+imports `fighteffect.xml` unchanged, with checked dependencies and a source
+hash in the build report. Actor schedules target the same host. Source role
+bindings and source outcome thresholds remain parameters, not character
+exceptions. `engaged` traces native combat-history notification separately
+from `started`, which only means the behavior was activated.
+
+The lifecycle10 gameplay trace confirmed engagement, victory, stop
+acknowledgement and the outcome dialogue. It subsequently recorded crime
+self-help dialogue requests and a failed aftermath routine. The source
+`suppressAssaultReactions` link was missing from the native mapping: retaining
+only its ten-second timer and `combat_arrangedFight` was insufficient.
+Conversion now recognizes the actor-to-player link and its expiration and
+applies native `combat_indifference` for the fight, stopping phase and source
+grace interval. This follows native `fistfightprotection` rather than globally
+clearing crimes or altering NPC personality. Native indifference is actor-wide
+for that limited interval, whereas the source link names the player.
+The aftermath routine needs another runtime check after this correction. The
+same log also exposed an unconverted `Utils.GiveItem` in the victory dialogue;
+that item-transfer issue remains separate and unresolved here.
+
+Persistent source protection buffs use native `AddBuff` before activation and
+`RemoveBuff` after acknowledged combat stop, including active cancellation.
+They cannot use `BuffEffect`, which KCD2 explicitly rejects for persistent
+buffs. Build validation checks required buff IDs against native tables and
+rejects persistent effect-node usage. These repairs still require an in-game
+fight test; successful preparation alone is not combat acceptance.
+
+The package refresh imports missing bark recordings, localization and facials
+through the ordinary dialogue importer when `--mod` supplies its existing media
+baseline. Companion packages are emitted with the quest and level packages and
+must be installed together. Source schedule-patch arguments are retained in the
+plan; priority/interruption parity with native `EnableBehavior` scheduling and
+save/load during these phases remain runtime validation requirements. Schema,
+graph and archive checks do not establish in-game behavior.
+
 ## Earlier individual-quest import and probes
 
 The first implemented stage imports patched **retail KCD1** quest data into a

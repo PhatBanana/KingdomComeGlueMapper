@@ -49,6 +49,7 @@ from world_item_documents import DocumentImageAdapter
 from character_person import native_xml
 from campaign_dialogue import TABLES as DIALOGUE_TABLES
 from campaign_quest_dialogues import discover as discover_dialogues, import_participants
+from campaign_combat import assemble as assemble_combat
 
 
 def quest_dependencies(model):
@@ -299,6 +300,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         for name, plan in bindings.items():
             missing[name] = registration_errors(plan, importer.registered)
         native_files, quest_report, registration_files, registration_report = {}, None, {}, None
+        combat_report = None
+        combat_files = {}
         if eligible:
             try:
                 native_files, quest_report = emit_project(eligible, project, diagnostics=False)
@@ -308,13 +311,28 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                     project, native_files, {m['quest']: bindings[m['quest']] for m in eligible if m['quest'] in bindings},
                     importer.registered, importer.files, export_version,
                     source_world=links['world'], importer=importer)
+                # The same converter used for package refreshes participates in
+                # normal campaign assembly. Missing world/dialogue dependencies
+                # are reported here instead of silently omitting the fight.
+                combined = {'Quests/' + n: b for n, b in native_files.items()}
+                combined.update(behavior_files)
+                converted, registration_files, combat_report = assemble_combat(
+                    eligible, {q: dict(b, _world=links['world']) for q, b in bindings.items()},
+                    combined, registration_files, project, target)
+                for path, data in converted.items():
+                    if path.startswith('Quests/') and path.removeprefix('Quests/') in native_files:
+                        native_files[path.removeprefix('Quests/')] = data
+                    elif path not in combined or data != combined[path]:
+                        combat_files[path] = data
+                failures.extend(dict(kind='combat_conversion', **issue) for issue in combat_report['unresolved'])
                 quest_report['files'] = {n: hashlib.sha256(b).hexdigest() for n, b in native_files.items()}
             except ValueError as error:
                 failures.append(dict(kind='native_quest_emission', reason=str(error)))
         # Conversion fragments are deliberately not an installable Data tree.
         # They cannot be mistaken for the complete source behavior program.
         for name, payload in {**{'Quests/' + n: b for n, b in native_files.items()}, **bridge_files,
-                              **behavior_bridge_files, **behavior_files, **importer.files, **registration_files}.items():
+                              **behavior_bridge_files, **behavior_files, **importer.files, **registration_files,
+                              **combat_files}.items():
             path = stage / 'native-fragments' / name
             path.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(payload, Path):
@@ -333,6 +351,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                       registration_errors=missing, quest_state_conversion=quest_report,
                       dependency_import_counts=importer.report()['counts'],
                       controller_brains=controllers,
+                      combat_conversion=combat_report,
                       dialogue_dependency_counts={name: len(r['branches']) for name, r in dialogues.items()},
                       behavior_operation_counts=dict(sorted(counts.items())),
                       source_behavior_executed=False, executable=False, ready_to_play=False,
@@ -344,6 +363,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                             ('dependency-imports.json', importer.report()), ('native-behavior-catalog.json', catalog),
                             ('native-registrations.json', registration_report),
                             ('dialogue-dependencies.json', dialogues),
+                            ('combat-conversion.json', combat_report),
                             ('campaign-conversion.json', report)]:
             (stage / name).write_text(json.dumps(value, indent=2), encoding='utf-8')
         report['files'] = {p.relative_to(stage).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -354,6 +374,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 converted_state_operations=len(bridge['converted']), state_operations_pending=len(bridge['unresolved']),
                 binding_plans=len(bindings), import_failures=len(failures), executable=False,
                 dependency_imports=importer.report()['counts'],
+                converted_combats=len((combat_report or {}).get('converted', [])),
+                unresolved_combats=len((combat_report or {}).get('unresolved', [])),
                 ready_to_play=False, report=str(output / 'campaign-conversion.json'))
 
 

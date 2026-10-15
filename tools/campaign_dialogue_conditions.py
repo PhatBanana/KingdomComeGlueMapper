@@ -20,6 +20,12 @@ ENGINE_PREDICATES = {'IsStreamInstallComplete': dict(
     method='wh::framework::IsStreamInstallComplete', declaring_type='wh::framework', output='IsCompleted')}
 
 
+def normalize_boolean_literals(expression):
+    """Use native Skald literals without modifying quoted names or identifiers."""
+    return re.sub(r"'(?:[^'\\]|\\.)*'|\b(?:true|false)\b",
+                  lambda m: {'true': '1', 'false': '0'}.get(m.group(), m.group()), expression)
+
+
 def expand_functions(expression, functions, stack=()):
     """Expand source database predicates; never replace identifiers in literals."""
     if len(stack) > 64:
@@ -118,7 +124,7 @@ class QuestConditions:
                     raise ValueError('Unconverted referenced sequence selection: ' + sid)
                 value = nested.sequence_condition(sid, stack=sequence_stack)
                 pending.update(nested.bindings)
-                return '(' + (value or 'true') + ')'
+                return '(' + (value or '1') + ')'
             if token in ENGINE_PREDICATES:
                 take('('); take(')')
                 name = 'condition_' + hashlib.sha256(('engine:' + token).encode()).hexdigest()[:20]
@@ -190,7 +196,9 @@ class QuestConditions:
                                          item=value.lower(), operator=operator, amount=int(number))
                     return "Port('" + name + "')"
                 return native + '(' + argument + ') ' + operator + ' ' + number
-            if token in ('0', '1'): return 'false' if token == '0' else 'true'
+            # Skald dialogue expressions use numeric boolean literals in native
+            # shipped sequences. Lua-style lowercase words are not this ABI.
+            if token in ('0', '1'): return token
             if token not in QUEST and token not in OBJECTIVE:
                 raise ValueError('Unconverted dialogue predicate: ' + token)
             take('('); quest = take()

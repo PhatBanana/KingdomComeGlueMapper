@@ -7,6 +7,21 @@ from campaign_scene import STATS
 
 
 def upgrade(script):
+    # Quest duels initialize the acting soul and derive a surrender threshold
+    # from the player's current health. Local names are arbitrary source names;
+    # this matches the operation sequence, not an actor or quest identity.
+    duel_health = re.fullmatch(
+        r"\s*local\s+(\w+)\s*=\s*XGenAIModule\.GetEntityByWUID\(data\.this\.id\)\s*;?\s*"
+        r"\1\.soul:SetState\('health',\s*(\d+(?:\.\d+)?)\)\s*;?\s*"
+        r"local\s+(\w+)\s*=\s*player\.soul:GetState\('health'\)\s*;?\s*"
+        r"data\.(\w+)\s*=\s*\3\s*/\s*(\d+(?:\.\d+)?)\s*;?\s*", script)
+    if duel_health:
+        health, divisor = Decimal(duel_health[2]), Decimal(duel_health[5])
+        if not 0 <= health <= 100 or divisor < 1:
+            raise UnsupportedOperation('Invalid source duel health/threshold range')
+        return ("local actor = XGenAIModule.GetEntityByWUID(data.this.id); "
+                "actor.soul:SetState('health', " + format(health, 'f') + "); "
+                "data." + duel_health[4] + " = player.soul:GetState('health') / " + format(divisor, 'f'))
     # Shipped KCD2 Scripts/CommandExecutor/snapshots.xml calls SetState on
     # player.soul for hunger and exhaust. The native sesivaniTonici fight
     # helper also uses soul:SetState('health', ...). Keep this synchronous
