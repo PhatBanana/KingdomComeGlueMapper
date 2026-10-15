@@ -195,7 +195,7 @@ Sources: [combined setup backend](tools/desktop_setup.py), [region builder](tool
 - [x] Convert source scene markers into native dialogue-entry placement; both participants remain inside the house through the tested two-choice conversation and return to gameplay.
 - [x] Resolve the quest-graph loading stall and reconnect original objective callbacks and stat-reward bindings.
 - [x] Register original opening quest text and bind the quest to its native destination region; journal text and region have in-game acceptance.
-- [x] Add the development menu entry **New Game Debug Sasua region** below **New Game**, routing to the installed converted opening; user-confirmed menu operation.
+- [x] Add the development menu entry **New Game Debug Sasau region** below **New Game**, routing to the installed converted opening; user-confirmed menu operation.
 - [ ] Verify all character-stat choice branches and prevention of repeated rewards.
 - [ ] Restore remaining original gestures, lip-sync and starting-player equipment; validate every choice branch.
 - [ ] Verify the complete movie → conversation → quest gameplay sequence, including movie skipping and save/load.
