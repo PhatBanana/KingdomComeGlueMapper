@@ -29,9 +29,108 @@ def render_material_ids(blob):
     return result
 
 
-def reatlas(blob, material_id, resolution=2048):
-    import xatlas
+def _overlaps(a, b, eps=1e-7):
+    """True when two 2D triangles overlap with positive area (shared edges/vertices only touch)."""
+    for t in (a, b):
+        e = np.roll(t, -1, 0)-t
+        for axis in np.stack([-e[:, 1], e[:, 0]], 1):
+            length = np.hypot(*axis)
+            if length < 1e-12:
+                continue
+            pa, pb = a @ axis/length, b @ axis/length
+            if min(pa.max(), pb.max())-max(pa.min(), pb.min()) <= eps:
+                return False
+    return True
 
+
+def secondary_charts(positions, faces, uv0, uv2):
+    """Assign faces to charts that are continuous in position, UV0 and UV2 and never overlap in UV2.
+
+    Render vertices are duplicated wherever any attribute is discontinuous, so
+    edges are matched by attribute values rather than indices. A face joins a
+    neighbour's chart only if its UV2 triangle overlaps none already there:
+    authored UV2 layouts reuse texture space, which the bake must separate.
+    """
+    def key(v):
+        return (tuple(np.round(positions[v], 4)), tuple(np.round(uv0[v], 5)), tuple(np.round(uv2[v], 5)))
+    corner = [[key(v) for v in face] for face in faces]
+    edges = {}
+    for f, keys in enumerate(corner):
+        for i in range(3):
+            edges.setdefault(frozenset((keys[i], keys[(i+1) % 3])), []).append(f)
+    neighbours = [[] for _ in faces]
+    for shared in edges.values():
+        for f in shared:
+            neighbours[f].extend(g for g in shared if g != f)
+    tri2 = uv2[faces].astype(np.float64)
+    chart = np.full(len(faces), -1, np.int64)
+    cell = max(float(np.median(np.ptp(tri2, axis=1).max(1))), 1e-4)
+    count = 0
+    for seed in range(len(faces)):
+        if chart[seed] >= 0:
+            continue
+        grid, queue = {}, [seed]
+        def cells(f):
+            lo, hi = np.floor(tri2[f].min(0)/cell).astype(int), np.floor(tri2[f].max(0)/cell).astype(int)
+            return [(x, y) for x in range(lo[0], hi[0]+1) for y in range(lo[1], hi[1]+1)]
+        while queue:
+            f = queue.pop()
+            if chart[f] >= 0:
+                continue
+            near = {g for c in cells(f) for g in grid.get(c, ())}
+            if f != seed and any(_overlaps(tri2[f], tri2[g]) for g in near):
+                continue
+            chart[f] = count
+            for c in cells(f):
+                grid.setdefault(c, []).append(f)
+            queue.extend(g for g in neighbours[f] if chart[g] < 0)
+        count += 1
+    return chart
+
+
+def _pack_charts(layout, owner, resolution, padding=8):
+    """Place rigid charts (UV2 shapes) on shelves, at the largest uniform scale fitting resolution.
+
+    Returns texel coordinates per vertex and the used atlas width/height.
+    Every chart keeps `padding` texels of clearance for bilinear sampling.
+    """
+    count = int(owner.max())+1
+    low = np.full((count, 2), np.inf); high = np.full_like(low, -np.inf)
+    np.minimum.at(low, owner, layout); np.maximum.at(high, owner, layout)
+    extent = high-low
+    order = np.argsort(-extent[:, 1], kind='stable')
+
+    def shelves(scale):
+        cells = np.ceil(extent*scale)+2*padding
+        if cells.max() > resolution:
+            return None
+        offset = np.zeros((count, 2)); x = y = row = used = 0.0
+        for c in order:
+            w, h = cells[c]
+            if x+w > resolution:
+                x, y, row = 0.0, y+row, 0.0
+            offset[c] = x, y
+            x += w; row = max(row, h); used = max(used, x)
+        return (offset, used, y+row) if y+row <= resolution else None
+
+    span = float(extent.max())
+    if span <= 0:
+        scale = 1.0
+    else:
+        lo, hi = 0.0, (resolution-2*padding)/span
+        for _ in range(40):
+            mid = (lo+hi)/2
+            lo, hi = (mid, hi) if shelves(mid) is not None else (lo, mid)
+        scale = lo
+    placed = shelves(scale)
+    if placed is None:
+        raise ValueError('Building blend charts do not fit the atlas resolution')
+    offset, width, height = placed
+    texels = (layout-low[owner])*scale+offset[owner]+padding
+    return texels, int(np.ceil(width)), int(np.ceil(height))
+
+
+def reatlas(blob, material_id, resolution=2048):
     chunks = read_chunks(blob)
     lookup = {c.id: c for c in chunks}
     replacements = {}
@@ -81,24 +180,36 @@ def reatlas(blob, material_id, resolution=2048):
     faces = indices[selected].reshape(-1, 3)
     if indices.max() >= nv:
         raise ValueError('Invalid building index')
-    atlas = xatlas.Atlas()
-    atlas.add_mesh(positions, faces, uvs=np.frombuffer(streams[2][0].data, '<f4', offset=24).reshape(-1, 2))
-    options = xatlas.PackOptions()
-    options.resolution = resolution
-    options.padding = 8
-    options.bilinear = True
-    options.bruteForce = False
-    atlas.generate(pack_options=options)
-    mapping, new_faces, uv = atlas[0]
-    if atlas.atlas_count != 1:
-        raise ValueError('Building atlas unexpectedly spans multiple textures')
-    # xatlas must keep face order and original triangle corner identity.
-    if not np.array_equal(mapping[new_faces], faces):
-        raise ValueError('Atlas changed building triangle correspondence')
-    size = tuple(1 << (int(v)-1).bit_length() for v in (atlas.width, atlas.height))
-    uv = uv * np.array([atlas.width/size[0], atlas.height/size[1]], np.float32)
     uv0 = np.frombuffer(streams[2][0].data, '<f4', offset=24).reshape(-1, 2)
     uv2 = np.frombuffer(streams[8][0].data, '<f4', offset=24).reshape(-1, 2)
+    # Charts must be seam-free and overlap-free in the source UV2, and must
+    # keep their exact shape so the bake samples the authored texels. xatlas
+    # merges faces across seams, drops slivers and reshapes or splits UV
+    # charts, so charts are built and packed here. Each chart gets its own
+    # copy of its vertices; faces keep their order and corner identity.
+    chart = secondary_charts(positions, faces, uv0, uv2)
+    # Zero-area UV2 faces (needles; some source panels were never unwrapped
+    # and span thousands of units) carry no bakeable texels but would set the
+    # packing scale. Give each its own chart collapsed to a point: it bakes
+    # nothing and renders without the secondary layer.
+    tri2 = uv2[faces].astype(np.float64)
+    e1, e2 = tri2[:, 1]-tri2[:, 0], tri2[:, 2]-tri2[:, 0]
+    area = np.abs(e1[:, 0]*e2[:, 1]-e1[:, 1]*e2[:, 0])/2
+    needle = area <= 1e-6*np.ptp(tri2, axis=1).max(1)**2
+    chart = chart.copy()
+    chart[needle] = chart.max()+1+np.arange(int(needle.sum()))
+    pairs = np.stack([np.repeat(chart, 3), faces.reshape(-1)], 1)
+    unique, inverse = np.unique(pairs, axis=0, return_inverse=True)
+    mapping = unique[:, 1].astype(np.uint32)
+    new_faces = inverse.reshape(-1, 3).astype(np.uint32)
+    layout = uv2[mapping].astype(np.float64)
+    collapsed = np.isin(unique[:, 0], chart[needle])
+    layout[collapsed] = 0
+    texels, width, height = _pack_charts(layout, unique[:, 0], resolution)
+    size = tuple(1 << (int(v)-1).bit_length() for v in (width, height))
+    uv = (texels/np.array(size)).astype(np.float32)
+    if not np.array_equal(mapping[new_faces], faces):
+        raise ValueError('Atlas changed building triangle correspondence')
     triangles = list(zip(uv0[faces], uv2[faces], uv[new_faces]))
     for kind, (chunk, width) in streams.items():
         if kind == 5:
