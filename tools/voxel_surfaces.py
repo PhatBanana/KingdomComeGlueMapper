@@ -45,6 +45,30 @@ def decode_rgba_bytes(raw):
     return rgba
 
 
+def _take(iterator, count):
+    """Return up to count items from an iterator as a list."""
+    window = []
+    for _ in range(count):
+        try:
+            window.append(next(iterator))
+        except StopIteration:
+            break
+    return window
+
+
+def _bounded_map(executor, func, jobs, workers):
+    """Ordered results with a bounded window of submitted jobs.
+
+    ``Executor.map(..., buffersize=)`` only exists in Python 3.14, and
+    ``itertools.batched`` only exists in 3.12 and newer. Consuming the job
+    iterator one small window at a time keeps the bounded look-ahead the octree
+    walk needs, and yields results in job order on every supported version.
+    """
+    jobs = iter(jobs)
+    while window := _take(jobs, max(1, workers)):
+        yield from executor.map(func, window)
+
+
 def diffuse_texture(name, assets):
     """Decode the declared top mip, including CryEngine's numbered DDS chunks."""
     blob = bytearray(assets.get(name))
@@ -379,10 +403,10 @@ def build_tile(triangles,uv,ids,materials,origin,extent=256,min_edge=8,samples=2
         elif workers==1:nodes=list(map(render_node,jobs))
         else:
             from concurrent.futures import ThreadPoolExecutor
-            # Python 3.14 bounds queued geometry instead of materializing the
-            # entire world octree. Ordered results preserve native file bytes.
+            # Bound queued geometry instead of materializing the entire world
+            # octree. Ordered results preserve native file bytes.
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                nodes=list(pool.map(render_node,jobs,buffersize=workers))
+                nodes=list(_bounded_map(pool,render_node,jobs,workers))
     finally:
         if backend in ('cuda','optix'):packed.close()
     if not nodes and allow_empty:nodes.append((tuple(int(v) for v in origin)+(extent,),None))
