@@ -14,6 +14,24 @@ sword, short gambeson, hose and shoes. Equipment uses native KCD2 item records;
 this does not claim conversion of KCD1 wearable meshes. Sword requirements are
 4 Strength / 6 Agility, and all supplied clothing has zero Strength requirement.
 
+The optional smithing supplies now include native recipe documents for a bearded
+axe, horseshoes, basic hunting sword and common longsword. Their native recipe
+tables determine ingredients for ten crafts of each: 30 scrap iron, 20 iron,
+60 scrap steel, 10 fastening materials, 10 coin pommels, 10 simple guards and
+10 pigskins. Read the documents to learn the recipes; native eligibility still
+applies. These additions do not expand the getting-started quest's required loot.
+
+For an already built package, `tools/build_smithery_followup.py --game <KCD2Mod>
+--mod <installed-mod> --output <fresh-directory>` stages the updated inventory
+preset while preserving every unrelated archive entry. Install only when closed.
+Existing saved chest inventories need a one-time addition; changing their preset
+does not reliably refill them. On 16 October these items were added to the live
+`gm_debug_supply_chest` and all eleven class counts were verified in the game log.
+Save normally to retain that live inventory. The updated package is staged in
+`outputs/SmithingSupplies01`, not installed over the running game's archive.
+The abandoned enclosed-furnace staging directory `outputs/RattaySmithery02`
+was never installed; keep the existing small open native forge.
+
 Placement is sampled from the installed converted terrain at X=3787, Y=1817,
 roughly 55 metres northwest of the return coachman. The search marker is a compiled
 24-sided trigger area of radius 35 metres centered at X=3780, Y=1825. Its center

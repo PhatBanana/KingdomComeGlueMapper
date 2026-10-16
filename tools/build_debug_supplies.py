@@ -19,6 +19,7 @@ from region_travel_dialogue import merge_localization
 from region_travel_tables import managed_patches
 from static_assets import asset_pack
 from upgrade_map import read, xml
+from smithing_supplies import supplies as smithing_items, extend_preset
 
 ITEM_NAMES = ('money', 'huntingSwordBasic', 'GambesonShort02_m01_E1',
               'HoseSeparate01_m01_E', 'Shoes01_m01_D')
@@ -51,7 +52,11 @@ def supplies(target):
         # Native money quantities are decigroschen (ten per displayed groschen).
         ET.SubElement(preset, 'PresetItem', Name=row['Name'], ItemClassId=row['Id'],
             Amount='200000' if row['Name']=='money' else '1', Health='1', Quality='1')
-    return items, xml(root)
+    # Keep the original five quest-required item types separate from optional
+    # crafting supplies so the getting-started objective does not require them.
+    with zipfile.ZipFile(target/'Data/Tables.pak') as archive:
+        preset = extend_preset(xml(root), smithing_items(archive))
+    return items, preset
 
 
 def chest_assets(source):

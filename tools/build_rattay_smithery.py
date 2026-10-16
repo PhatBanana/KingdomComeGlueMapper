@@ -16,6 +16,7 @@ from compiled_terrain import parse
 from region_travel import guid
 from seating_animations import HELPERS, ANIMATIONS
 from upgrade_map import read, xml
+from build_smithing_repair import ALIAS, MATERIAL, repair_coal
 
 SCHEDULER = 'tables/ai/scheduler.xml'
 FILES = ('objects_mission0.xml', 'waitinglinks.xml', HELPERS, ANIMATIONS, SCHEDULER,
@@ -138,7 +139,7 @@ def convert(files, source, native, prefabs, meshes):
         reports.append(dict(forge=forge,position=vector(align),contact_errors_metres=errors,
                             entities=len(mapped)+len(equipment),removed=removed,native_equipment=equipment))
     result = dict(files)
-    result.update({'objects_mission0.xml':xml(root),HELPERS:xml(helpers),ANIMATIONS:xml(animations),SCHEDULER:xml(scheduler),
+    result.update({'objects_mission0.xml':repair_coal(xml(root)),HELPERS:xml(helpers),ANIMATIONS:xml(animations),SCHEDULER:xml(scheduler),
                    'waitinglinks.xml':append_links(files['waitinglinks.xml'],network,allow_untagged=True)})
     result['terrain/hlods.dat'],result['terrain/hlods.xml'],removed = remove_old_brushes(files['terrain/hlods.dat'],files['terrain/hlods.xml'],meshes)
     return result,dict(stations=reports,removed_brushes=removed,runtime_verified=False)
@@ -157,6 +158,8 @@ def build(library, mod, output):
         updated,report = convert(files,source,native,prefabs,meshes)
     modid = ET.parse(mod/'mod.manifest').findtext('info/modid')
     changes = {level:updated,travel:{f'Mods/{modid}/Data/Levels/kcd1_travel/{n}':updated[n] for n in (ANIMATIONS,SCHEDULER)}}
+    with zipfile.ZipFile(library/'KingdomComeDeliverance2/Data/IPL_Characters-part0.pak') as characters:
+        changes[travel][ALIAS]=read(characters,MATERIAL)
     report.update(baseline={p:digest(mod/p) for p in changes},packages={},installed=False)
     for relative,replacements in changes.items():
         destination = output/'package'/relative
