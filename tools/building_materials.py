@@ -37,7 +37,11 @@ def convert(doc, blob, target, asset_read, index):
             continue
         features=element.get('StringGenMask','')
         if ('%DETAIL_MAPPING' in features or '%DETAIL_ATLAS' in features) and '%USE_FIRST_UV_DETMAP' not in features:
-            raise ValueError('Secondary-UV detail mapping requires its own atlas conversion')
+            # No atlas conversion for secondary-UV detail maps yet (e.g. uzice_roof).
+            # Leave the slot unbaked rather than aborting the whole world build.
+            print('Skipping secondary-UV detail blend bake: '+target+' '+str(element.get('Name')))
+            element.find('Textures').remove(mask)
+            continue
         def texture(ref):
             name = str(PurePosixPath(ref.replace('\\', '/').lower()).with_suffix('.dds'))
             if name.startswith('data/') and name not in index:
