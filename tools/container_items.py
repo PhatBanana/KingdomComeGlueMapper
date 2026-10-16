@@ -16,10 +16,10 @@ from world_item_documents import DocumentImageAdapter
 from upgrade_map import read
 
 
-def build(source, target, mod, output, identifiers, *, asset_namespace='containeritems', origin='container_loot'):
+def build(source, target, mod, output, identifiers, *, asset_namespace='containeritems', origin='container_loot', reuse_output=False):
     source, target, mod, output = map(Path, (source, target, mod, output))
-    if output.exists(): raise FileExistsError('Choose a fresh dependency output')
-    output.mkdir(parents=True)
+    if output.exists() and not reuse_output: raise FileExistsError('Choose a fresh dependency output')
+    output.mkdir(parents=True,exist_ok=reuse_output)
     patches = []
     for path in sorted((mod/'Data').glob('*.pak')):
         with zipfile.ZipFile(path) as archive:
@@ -34,7 +34,7 @@ def build(source, target, mod, output, identifiers, *, asset_namespace='containe
             classes = native_xml(read(archive, 'Libs/Tables/item/weapon_class.xml'))
             components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
         weapons = {n.get('id'): n.get('name') for n in classes[0]}
-        cache = output/'asset-cache'; cache.mkdir()
+        cache = output/'asset-cache'; cache.mkdir(exist_ok=reuse_output)
         assets = StaticAssetAdapter(stack, source.parent, asset_namespace, cache)
         from campaign_item_types import native_tool_types
         importer = DependencyImporter({

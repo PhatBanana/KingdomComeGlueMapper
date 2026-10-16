@@ -4,6 +4,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import zipfile
 import math
+import copy
 from upgrade_map import read
 
 VISUAL_CLASSES = {"GeomEntity", "Bed", "Chair", "Stash", "AnimObject", "AnimDoor",
@@ -117,7 +118,8 @@ def collect_visuals(source_pak, library, character_visuals=False):
         if cls in ("ItemSlot", "PickableItem"):
             model, material = items.get(props.get("guidItemClassId", "").lower(), ("", ""))
         model = model.replace("\\", "/").lower()
-        character = character_visuals and cls in ('AnimDoor', 'Grindstone') and model.endswith('.cdf')
+        character = model.endswith('.cdf') and (cls == 'AnimObject' or
+                    character_visuals and cls in ('AnimDoor', 'Grindstone'))
         if not character and not model.endswith((".cgf", ".cga")):
             excluded["unresolved_or_character_model"] += 1
             continue
@@ -132,7 +134,11 @@ def collect_visuals(source_pak, library, character_visuals=False):
             target.attrib.pop('Geometry')
             properties = target.find('Properties')
             properties.set('object_Model', model)
-            ET.SubElement(properties, 'Physics', bPhysicalize='0', bRigidBody='0', bPushableByPlayers='0')
+            physics = props.find('Physics')
+            if physics is not None:
+                properties.append(copy.deepcopy(physics))
+            else:
+                ET.SubElement(properties, 'Physics', bPhysicalize='1', bRigidBody='0', bPushableByPlayers='0')
         result.append({"entity": target, "model": model, "material": material,
                        "source_id": e.get("EntityId"), "source_class": cls, "source_name": e.get("Name"),
                        "source_layer": e.get("Layer")})

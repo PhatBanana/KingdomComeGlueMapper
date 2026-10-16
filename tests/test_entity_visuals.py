@@ -7,7 +7,7 @@ import tempfile
 import zipfile
 import xml.etree.ElementTree as ET
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from entity_visuals import world_transform, initial_layer, visual_model
+from entity_visuals import world_transform, initial_layer, visual_model, collect_visuals
 from static_assets import character_definition
 
 
@@ -26,6 +26,24 @@ class EntityVisualTests(unittest.TestCase):
                 self.assertEqual(doc.find('Model').get('Material'),'isolated/material')
                 self.assertEqual(emitted['isolated/door_part1.skin'],b'objects/door.skin')
                 self.assertEqual(doc.find("AttachmentList/Attachment[@Type='CA_PROX']").get('Position'),'0,0,1')
+
+    def test_cdf_animobject_retains_physics_in_initial_world(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            library=Path(tmp); data=library/'KingdomComeDeliverance/Data';data.mkdir(parents=True)
+            with zipfile.ZipFile(data/'Tables.pak','w') as z:
+                z.writestr('Libs/Tables/item/pickable_item.xml','<root/>')
+            with zipfile.ZipFile(data/'level.pak','w') as z:
+                z.writestr('objects_mission0.xml', '<Objects><Entity Name="arbitrary" EntityId="5" EntityClass="AnimObject">'
+                    '<Properties object_Model="objects/rigid.cdf"><Physics bPhysicalize="1" bRigidBody="0" '
+                    'bBulletCollisionEnabled="1"/></Properties></Entity></Objects>')
+            with zipfile.ZipFile(data/'level.pak') as z:
+                visuals,excluded=collect_visuals(z,library)
+            self.assertEqual(len(visuals),1)
+            entity=visuals[0]['entity']
+            self.assertEqual(entity.get('EntityClass'),'AnimChar')
+            self.assertEqual(entity.find('Properties/Physics').get('bPhysicalize'),'1')
+            self.assertEqual(entity.find('Properties/Physics').get('bBulletCollisionEnabled'),'1')
+            self.assertNotIn('unresolved_or_character_model',excluded)
 
     def test_class_model_properties_and_explicit_geometry_precedence(self):
         e=ET.Element('Entity')

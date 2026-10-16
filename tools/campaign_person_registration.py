@@ -88,25 +88,8 @@ class PersonRegistration:
         # Weapon presets are separate from outfit geometry. Do not register a
         # naked-handed actor while dropping an authored equipped weapon.
         weapons = [i for i in plan.source['loadouts'][-1]['items'] if i['kind'] == 'weapon']
-        equipped = [item for item in weapons if item['equipped']]
-        for item in weapons:
-            if item['equipped']:
-                continue
-            if self.item_name is None:
-                raise ValueError('Carried initial weapon requires its registered native item name')
-            native_id = registered['items'][item['item']]
-            ET.SubElement(preset, 'PresetItem', Name=self.item_name(native_id),
-                ItemClassId=native_id, Amount=str(item['amount']), Health='1', HealthVariation='0')
-        if equipped:
-            weapon_root = ET.Element('database', name='barbora')
-            weapon_preset = ET.SubElement(ET.SubElement(weapon_root, 'weapon_presets', version='1'),
-                'weapon_preset', weapon_preset_id=str(uuid.uuid5(uuid.NAMESPACE_URL, namespace+'/weapons')),
-                weapon_preset_name=namespace+'_weapons')
-            for item in equipped:
-                ET.SubElement(weapon_preset, 'weapon_preset_item',
-                    item_class_id=registered['items'][item['item']], amount=str(item['amount']))
-            ET.SubElement(preset, 'WeaponPresetRef', Name=namespace+'_weapons')
-            files['Libs/Tables/item/weapon_preset__'+namespace+'.xml'] = xml(weapon_root)
+        from character_weapon_inventory import append_weapons
+        files.update(append_weapons(preset, weapons, registered['items'], self.item_name, namespace))
         files[preset_path] = xml(root)
         character = dict(character, inventory=namespace+'_combined')
         updated = (self.resource_builder or actor_resources)(self.target, person, character, namespace,

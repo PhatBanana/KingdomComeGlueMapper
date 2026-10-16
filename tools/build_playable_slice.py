@@ -99,9 +99,22 @@ def build(a):
     for relative,changes in [('Data/gluemappertravel.pak',resources),('Data/Levels/kcd1_travel/level.pak',world)]:
         path=package/relative;temp=path.with_suffix('.assembling')
         rewrite(path,temp,changes);temp.replace(path)
+    from world_character_props import build as character_props_build
+    level_package=package/'Data/Levels/kcd1_travel/level.pak'
+    with zipfile.ZipFile(level_package) as z: mission=read(z,'objects_mission0.xml')
+    mission,character_props=character_props_build(mission,a.source,a.output/'character_props')
+    if character_props['converted']:
+        props_package=package/'Data/gm_character_props.pak'
+        if props_package.exists() or (a.mod/'Data/gm_character_props.pak').exists():
+            raise ValueError('Existing character prop package requires an additive merge')
+        with zipfile.ZipFile(props_package,'x',zipfile.ZIP_STORED,allowZip64=False) as z:
+            for p in (a.output/'character_props/converted').rglob('*'):
+                if p.is_file():z.write(p,p.relative_to(a.output/'character_props/converted').as_posix())
+        temporary=level_package.with_suffix('.assembling')
+        rewrite(level_package,temporary,{'objects_mission0.xml':mission});temporary.replace(level_package)
     validation=audit(package,a.mod,a.person)
     report=dict(package=str(package.resolve()),people=a.person,profiles=a.profile,
-        baseline=receipt['baseline'],validation=validation,work=jobs,crime=systems['crime'],
+        baseline=receipt['baseline'],validation=validation,character_props=character_props,work=jobs,crime=systems['crime'],
         ready_for_bounded_playtest=True,full_source_routines_complete=False,installed=False,
         scope='Source sweeping route phase and fixed guard post; existing opening quests/combat preserved',
         remaining=['Other housework phases','Guard rain/secondary-post selection',

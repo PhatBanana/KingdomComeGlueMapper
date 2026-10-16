@@ -13,7 +13,7 @@ import zipfile
 
 from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer
 from compiled_terrain import parse
-from static_assets import asset_pack, install_staged
+from static_assets import character_definition, asset_pack, install_staged
 from upgrade_map import read, xml
 from vegetation import verify_target_hlods
 from water_volumes import read_water
@@ -116,14 +116,23 @@ def main():
             try:
                 if variant not in entity_models:
                     target = prefix + "entity" + str(len(entity_models)) + Path(model).suffix
-                    emitted[target] = mesh_bytes(model, visual["material"] or None)
+                    if model.endswith('.cdf'):
+                        character_definition(index, emitted, material, mesh_bytes, model, target)
+                    else:
+                        emitted[target] = mesh_bytes(model, visual["material"] or None)
                     for lod in range(1, 7):
                         path = model[:-4] + f"_lod{lod}.cgf"
                         if path in index:
                             emitted[target[:-4] + f"_lod{lod}.cgf"] = mesh_bytes(path, visual["material"] or None)
                     entity_models[variant] = target
-                visual["entity"].set("Geometry", entity_models[variant])
-                visual["entity"].attrib.pop("Material", None)
+                if model.endswith('.cdf'):
+                    visual['entity'].find('Properties').set('object_Model', entity_models[variant])
+                    if visual['material']:
+                        visual['entity'].set('Material', material(visual['material']))
+                else:
+                    visual["entity"].set("Geometry", entity_models[variant])
+                if not model.endswith('.cdf') or not visual['material']:
+                    visual["entity"].attrib.pop("Material", None)
             except (KeyError, ValueError, FileNotFoundError) as error:
                 key = 'unresolved_entity_asset:' + str(error)
                 entity_exclusions[key] = entity_exclusions.get(key, 0) + 1

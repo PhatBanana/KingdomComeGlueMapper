@@ -108,6 +108,16 @@ def build(a):
             pending.append(dict(asset=aid, person=person['name'], reason=str(error)))
             print(json.dumps(pending[-1]), flush=True)
             continue
+        from character_weapon_inventory import stage as stage_weapons
+        weapon_result = stage_weapons(a.source, a.target, a.mod, person, character, namespace,
+                                      a.output / 'equipment' / namespace)
+        character['source_weapons'] = weapon_result['items']
+        for path, payload in weapon_result['files'].items():
+            if path.startswith('Localization/'):
+                item_tables.append(payload)
+            else:
+                dest = appearance / path; dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(payload)
         (appearance / 'appearance-result.json').write_text(json.dumps(character, indent=2))
         resources = actor_resources(a.target, person, character, namespace,
             role_name=namespace + '_role', native_soul_table='Libs/Tables/rpg/soul__ttac.xml',

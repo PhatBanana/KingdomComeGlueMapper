@@ -3,6 +3,7 @@
 /.deps/
 /reports/
 /outputs/
+/rc_dependency.txt
 *.pak
 *.dds
 *.dds.*
