@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 from campaign_entity_links import append_links
 from cooking_pots import rotate, vector
-from entity_visuals import initial_layer, world_transform, quaternion_product as qmul
+from entity_visuals import initial_entity, world_transform, quaternion_product as qmul
 from upgrade_map import read
 
 PREFIX = 'gm_chair_'
@@ -26,7 +26,7 @@ def inventory(source, kind='Chair'):
         for node in ET.fromstring(read(source, path)).iter('Entity'):
             key = node.get('EntityId')
             entities.setdefault(key, node)
-            if (main and not node.get('Layer')) or initial_layer(node.get('Layer', '')):
+            if (main and not node.get('Layer')) or initial_entity(node):
                 active.add(key)
     chairs = [e for e in entities.values() if e.get('EntityClass') == kind] if kind != 'Bench' else [
         e for e in entities.values() if e.get('EntityClass') == 'SmartObjectHolder' and e.find('Properties') is not None

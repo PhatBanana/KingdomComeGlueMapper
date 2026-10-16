@@ -82,6 +82,31 @@ def fixtures():
 
 
 class WorldBedTests(unittest.TestCase):
+    def test_selected_incremental_bed_preserves_existing_contracts(self):
+        fixture = fixtures()
+        src, files, native, old, new = fixture
+        with archive({'objects_mission0.xml': ET.tostring(src)}) as a, archive(native) as b:
+            first, _ = convert(files, a, b, old, new, guid, source_ids={'100'})
+            second, report = convert(first, a, b, old, new, guid, source_ids={'100', '101'})
+            self.assertEqual(report['converted'], 1)
+            self.assertEqual(report['preserved_existing'][0]['source_id'], '100')
+            before = ET.fromstring(first['objects_mission0.xml'])
+            after = ET.fromstring(second['objects_mission0.xml'])
+            for node in before:
+                self.assertEqual(ET.tostring(node), ET.tostring(next(e for e in after if e.get('Name') == node.get('Name'))))
+            with self.assertRaisesRegex(ValueError, 'not in the selected initial world'):
+                convert(first, a, b, old, new, guid, source_ids={'999'})
+
+    def test_talburg_exception_does_not_enable_other_quest_beds(self):
+        from entity_visuals import initial_entity
+        e = ET.Element('Entity', EntityId='123716', EntityClass='Bed',
+                       Layer='conquest_destroyed_closed_unload{B60D7842-CCE2-431A-A50B-97073F5692BB}')
+        self.assertTrue(initial_entity(e))
+        e.set('EntityId', '123717')
+        self.assertFalse(initial_entity(e))
+        e.set('EntityId', '123716'); e.set('EntityClass', 'Chair')
+        self.assertFalse(initial_entity(e))
+
     def run_conversion(self, fixture):
         src,files,native,old,new=fixture
         with archive({'objects_mission0.xml':ET.tostring(src)}) as a, archive(native) as b:

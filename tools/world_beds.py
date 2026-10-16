@@ -102,14 +102,18 @@ def donors(native):
     return result
 
 
-def convert(files, source, native, source_helpers, native_helpers, guid):
+def convert(files, source, native, source_helpers, native_helpers, guid, *, source_ids=None):
     sources, beds, deferred = inventory(source, 'Bed')
+    if source_ids is not None:
+        beds = [e for e in beds if e.get('EntityId') in source_ids]
+        if {e.get('EntityId') for e in beds} != set(source_ids):
+            raise ValueError('Requested bed is not in the selected initial world')
     templates = donors(native)
     frames = {f: frame(source_helpers, native_helpers, f)
               for f in {e.find('Properties').get('soclasses_SmartObjectHelpers') for e in beds}}
     root = ET.fromstring(files['objects_mission0.xml'])
     entities = {e.get('EntityId'): e for e in root.iter('Entity') if e.get('EntityId')}
-    if any(e.get('Name', '').startswith(PREFIX) for e in entities.values()):
+    if source_ids is None and any(e.get('Name', '').startswith(PREFIX) for e in entities.values()):
         raise ValueError('World beds already converted; use a pre-conversion baseline')
     names = {e.get('Name'): e for e in root.iter('Entity')}
     existing = [e for e in entities.values() if e.get('EntityClass') == 'StanceSmartObject'

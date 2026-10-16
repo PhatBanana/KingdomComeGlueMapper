@@ -7,6 +7,7 @@ import struct
 import xml.etree.ElementTree as ET
 import zipfile
 import hashlib
+import re
 from audit_maps import texture_families
 from upgrade_map import read, xml
 from build_water_probe import shader_features, translate_features
@@ -223,6 +224,10 @@ def asset_pack(stack, library, prefix, cache_dir=None):
     def mesh_bytes(name, material_override=None):
         from clothing_regions import read_chunks, write_chunks
         blob = bytearray(asset_read(name))
+        base_name = re.sub(r'_lod[1-6](?=\.cgf$)', '', name, flags=re.I)
+        if base_name != name and base_name in index:
+            from static_lod_transforms import align_external_lod
+            blob = bytearray(align_external_lod(asset_read(base_name), bytes(blob))[0])
         if blob[:4] != b"CrCh" or struct.unpack_from("<I",blob,4)[0] != 0x746:
             raise ValueError("Unsupported CGF container")
         count,table = struct.unpack_from("<II",blob,8)

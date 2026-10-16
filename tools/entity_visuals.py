@@ -23,6 +23,19 @@ def initial_layer(name):
     return name.endswith(("_state0", "_state0_prefabs"))
 
 
+# These furnishings belong to the intact castle rooms in the imported map.
+# The source quest controls their layer separately from the usual state0 layers.
+TALBURG_BEDS = frozenset(('123712', '123714', '123716', '123718'))
+
+
+def initial_entity(entity):
+    return initial_layer(entity.get('Layer', '')) or (
+        entity.get('EntityClass') == 'Bed'
+        and entity.get('EntityId') in TALBURG_BEDS
+        and entity.get('Layer', '').lower() ==
+        'conquest_destroyed_closed_unload{b60d7842-cce2-431a-a50b-97073f5692bb}')
+
+
 def quaternion_product(a, b):
     w,x,y,z=a;v,i,j,k=b
     return (w*v-x*i-y*j-z*k,w*i+x*v+y*k-z*j,w*j-x*k+y*v+z*i,w*k+x*j-y*i+z*v)
@@ -83,7 +96,7 @@ def collect_visuals(source_pak, library, character_visuals=False):
         for entity in ET.fromstring(read(source_pak, name)).iter("Entity"):
             if entity.get("EntityClass") not in VISUAL_CLASSES:
                 continue
-            if not (initial_layer(entity.get("Layer", "")) or (main and not entity.get("Layer"))):
+            if not (initial_entity(entity) or (main and not entity.get("Layer"))):
                 excluded["non_initial_layer"] += 1
                 continue
             if entity.get('EntityId') not in seen:
