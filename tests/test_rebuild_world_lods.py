@@ -7,6 +7,8 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from rebuild_world_lods import build
+from texture_streaming import split_generated, validate_family
+from test_texture_streaming import texture
 
 
 class WorldLods(unittest.TestCase):
@@ -16,13 +18,15 @@ class WorldLods(unittest.TestCase):
             source, installed = root/'source', root/'installed'
             (source/'gluebuild').mkdir(parents=True)
             installed.mkdir()
+            family = split_generated(texture(64, 64))
+            self.assertEqual(set(family), {'', '.1'})
             for name, blob in {
                 'house.cgf': b'old base',
                 'house_lod1.cgf': b'gluebuild/current.mtl',
                 'house_lod1.cgfm': b'stream',
                 'house_lod2.cgf': b'gluebuild/lod.mtl',
                 'lod.mtl': b'gluebuild/lod.dds',
-                'lod.dds': b'pixels', 'lod.dds.1': b'mip',
+                'lod.dds': family[''], 'lod.dds.1': family['.1'],
                 'current.mtl': b'gluebuild/deleted.dds',
                 'unplaced_lod1.cgf': b'unused'
             }.items():
@@ -41,6 +45,14 @@ class WorldLods(unittest.TestCase):
             self.assertNotIn('gluebuild/current.mtl', names)
             for archive in report['archives']:
                 (installed/archive).write_bytes((root/'output'/archive).read_bytes())
+            packaged = {}
+            for archive in report['archives']:
+                with zipfile.ZipFile(installed/archive) as z:
+                    packaged.update({n: z.read(n) for n in z.namelist()})
+            self.assertEqual(packaged['gluebuild/lod.dds'], family[''])
+            self.assertEqual(packaged['gluebuild/lod.dds.1'], family['.1'])
+            self.assertEqual(validate_family(packaged['gluebuild/lod.dds'],
+                {'.1': packaged['gluebuild/lod.dds.1']})['streamed_mips'], 1)
             again = build(source, installed, root/'second')
             self.assertEqual(again['assets'], [])
             self.assertEqual(again['restored_lods'], 0)

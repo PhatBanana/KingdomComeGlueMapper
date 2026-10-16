@@ -1,5 +1,6 @@
 name: Validate tooling
-on: [push, pull_request, workflow_dispatch]
+# Automatic CI is paused; run explicitly from Actions when needed.
+on: [workflow_dispatch]
 permissions:
   contents: read
 jobs:

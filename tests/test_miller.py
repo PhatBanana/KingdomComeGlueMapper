@@ -31,7 +31,7 @@ class MillerScheduleTests(unittest.TestCase):
         # FUBAR polygon by 0.00003 m and must not block the second resident.
         home=ET.fromstring('''<Entity Name="shared_home" EntityGuid="408632C8F1081C57" Pos="2457.8511,711.57263,24.599272"><Area Height="20"><Points><Point Pos="0,0,0"/><Point Pos="7.0915527,-3.4624023,0.1"/><Point Pos="9.2229004,1.4005737,0.1"/></Points></Area></Entity>''')
         geo=source_home_geometry(home)
-        mission=f'''<Objects><Entity Name="sa_land" EntityId="1" EntityGuid="{native_guid(1)}" Pos="0,0,0"/><Entity Name="miller" EntityId="2" EntityGuid="{native_guid(2)}" Pos="2457,706,28"/><Entity Name="shared_home" EntityClass="TriggerArea" EntityId="3" EntityGuid="{native_guid(geo.guid)}" Pos="2457,711,24"/></Objects>'''.encode()
+        mission=f'''<Objects><Entity Name="sa_land" EntityId="1" EntityGuid="{native_guid(1)}" Pos="0,0,0"/><Entity Name="miller" EntityId="2" EntityGuid="{native_guid(2)}" Pos="2457,706,28"/><Entity Name="shared_home" EntityClass="TriggerArea" EntityId="3" EntityGuid="{native_guid(geo.guid)}" Pos="{home.get('Pos')}"/></Objects>'''.encode()
         files={'objects_mission0.xml':mission,'tables/ai/scheduler.xml':b'<database><Schedulers><C_SmartHub EntityGuid="1"/><C_SmartHub EntityGuid="2"><Links><S_ActivityLink TargetGuid="1"/></Links></C_SmartHub></Schedulers></database>',
                'triggerareas.fubar':write_areas([geo],1)}
         person=dict(name='miller',source_level='rataje',ai=dict(schedule=[],links=[dict(label='Home,owner',source_xml=ET.tostring(home,encoding='unicode'))]))
@@ -40,6 +40,13 @@ class MillerScheduleTests(unittest.TestCase):
             with zipfile.ZipFile(pak,'w') as z:z.writestr('triggerareas.fubar',write_areas([],1))
             with patch('character_person_world.native_wait_activity',return_value=(ET.Element('S_ActivityLink'),ET.Element('C_SmartHub'))):
                 updated,_=register_person_world(files,[person],directory,directory)
+                # Only binary polygon rounding is tolerated, not a different
+                # entity transform. Keep the production identity check covered.
+                moved = dict(files)
+                moved['objects_mission0.xml'] = mission.replace(
+                    home.get('Pos').encode(), b'2457,711,24')
+                with self.assertRaisesRegex(ValueError, 'home transform differs'):
+                    register_person_world(moved,[person],directory,directory)
         self.assertEqual(updated['triggerareas.fubar'],files['triggerareas.fubar'])
         self.assertEqual(len(read_areas(updated['triggerareas.fubar'])['areas']),1)
 
