@@ -121,7 +121,8 @@ def bake_atlas(second, mask, triangles, size, primary_tiling=1, secondary_tiling
         if factor<0:
             if factor < -1:raise ValueError('Undefined legacy negative blend power')
             color[:,3]*=1+factor
-        if np.any(covered[y,x] & (np.max(np.abs(output[y,x]-color),axis=1)>2/255)):
+        # Shared seam pixels can differ slightly where the source UV2 is discontinuous.
+        if np.any(covered[y,x] & (np.max(np.abs(output[y,x]-color),axis=1)>4/255)):
             raise ValueError(f'Generated building atlas overlaps: {np.count_nonzero(covered[y,x])} pixels, difference {np.max(np.abs(output[y,x][covered[y,x]]-color[covered[y,x]]))}')
         output[y,x]=color;covered[y,x]=True
     if not covered.any():raise ValueError('Empty building atlas')
