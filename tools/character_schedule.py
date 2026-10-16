@@ -31,7 +31,10 @@ def plan(person, tables):
     behaviors = {r['sa_behaviour_tag_id']: r for r in tables.get('ai/sa_behaviour_tag')['rows']}
     resolved, pending = [], []
     for interval in day_intervals(person['ai']['schedule']):
-        links = [(l, tag) for l in person['ai']['links'] for tag in parse_link_labels(l['label'])
+        # Unlabelled graph edges are legitimate spatial/quest links. They do
+        # not select a daycycle activity and must not abort the whole actor.
+        links = [(l, tag) for l in person['ai']['links'] if (l['label'] or '').strip()
+                 for tag in parse_link_labels(l['label'])
                  if tag['tag'].casefold() == interval['activity'].casefold()]
         if not links:
             pending.append(dict(interval, reason='No source activity link')); continue

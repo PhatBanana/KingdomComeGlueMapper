@@ -55,6 +55,12 @@ class QuestImportTests(unittest.TestCase):
             'Libs/AI/final/shared.xml': b'''<BehaviorTrees><BehaviorTree name="helper"><Root>
 <IncludeTree File="quests/q_test.xml" Name="onUpdate"/>
 <IncludeTree File="final/shared.xml" Name="missing"/>
+<IncludeTree File="final/shared.xml" Name="second"/>
+</Root></BehaviorTree><BehaviorTree name="second"><Root>
+<IncludeTree File="final/shared.xml" Name="helper"/>
+</Root></BehaviorTree><BehaviorTree name="unrelated"><Root>
+<IncludeTree File="quests/unrelated_region.xml" Name="start"/>
+<EnableProfile profileEnable="unrelated_population"/>
 </Root></BehaviorTree></BehaviorTrees>''',
         }
         def resolve(game, requested):
@@ -77,10 +83,39 @@ class QuestImportTests(unittest.TestCase):
         self.assertEqual(model['lua_sites'][0]['code'], 'System.DoThing()')
         self.assertFalse(model['executable'])
         self.assertEqual(model['behavior_documents']['libs/ai/final/shared.xml']['provenance'][0]['sha256'], 'fixture')
+        self.assertEqual(set(model['behavior_documents']['libs/ai/final/shared.xml']['trees']), {'helper','second'})
+        self.assertEqual(model['unreferenced_library_trees']['libs/ai/final/shared.xml'], ['unrelated'])
 
     def test_ambiguous_behavior_names_are_rejected(self):
         with self.assertRaises(ValueError):
             parse_behavior(b'<BehaviorTrees><BehaviorTree name="x"><Root/></BehaviorTree><BehaviorTree name="x"><Root/></BehaviorTree></BehaviorTrees>', 'test')
+
+    def test_dynamic_tree_selection_keeps_every_candidate_in_known_file(self):
+        documents = {
+            'Libs/Tables/quest/quest.xml': b'<database><table name="quest"><rows><row quest_id="7" quest_name="q_test"/></rows></table></database>',
+            'Libs/quests/flowgraphs/q_test.xml': GRAPH,
+            'Libs/AI/quests/q_test.xml': b'''<BehaviorTrees><BehaviorTree name="onUpdate"><Root>
+              <IncludeTree File="final/shared.xml" Name="first"/>
+              <IncludeTree File="final/shared.xml" Name="$chosenAtRuntime"/>
+              </Root></BehaviorTree></BehaviorTrees>''',
+            'Libs/AI/final/shared.xml': b'''<BehaviorTrees>
+              <BehaviorTree name="first"><Root/></BehaviorTree>
+              <BehaviorTree name="second"><Root/></BehaviorTree></BehaviorTrees>''',
+            'Libs/Tables/quest/quest_objective.xml': b'<database><table name="quest_objective"><rows/></table></database>',
+        }
+        def resolve(game, requested):
+            return {label:dict(entry=entry,data=documents[entry],candidates=[])
+                    for label,(_,entry) in requested.items()}
+        with tempfile.TemporaryDirectory() as tmp:
+            game=Path(tmp);(game/'Data').mkdir()
+            with zipfile.ZipFile(game/'Data/Tables.pak','w') as archive:
+                for path,data in documents.items():
+                    if path.startswith('Libs/Tables/'):archive.writestr(path,data)
+            model,_=import_quest(game,'q_test',source_reader=resolve)
+        self.assertEqual(set(model['behavior_documents']['libs/ai/final/shared.xml']['trees']), {'first','second'})
+        self.assertEqual(len(model['unresolved_includes']),1)
+        self.assertTrue(model['unresolved_includes'][0]['dynamic'])
+        self.assertFalse(model['unreferenced_library_trees'])
 
     def test_database_dispatched_work_is_followed_and_missing_include_is_reported(self):
         documents = {
@@ -135,6 +170,43 @@ class QuestImportTests(unittest.TestCase):
         graph = parse_graph(data, 'q_test'); row['quest_asset_id'] = '9'
         resolve_null_tracking_edges(graph, {'quest_tracked_asset': {'rows': [row]}})
         self.assertEqual(len(graph['unresolved_edges']), 1)
+
+    def test_profile_transition_discovers_both_populations_and_their_work(self):
+        documents = {
+            'Libs/Tables/quest/quest.xml': b'<database><table name="quest"><rows><row quest_id="7" quest_name="q_test"/></rows></table></database>',
+            'Libs/Tables/quest/quest_objective.xml': b'<database><table name="quest_objective"><rows><row quest_id="7" objective_id="5" objective_name="speakWithFather"/></rows></table></database>',
+            'Libs/quests/flowgraphs/q_test.xml': GRAPH,
+            'Libs/AI/quests/q_test.xml': b'<BehaviorTrees><BehaviorTree name="onUpdate"><Root><EnableProfile profileEnable="late" profileDisable="early"/></Root></BehaviorTree></BehaviorTrees>',
+            'Libs/AI/custom/work.xml': b'<BehaviorTrees><BehaviorTree name="job"><Root/></BehaviorTree></BehaviorTrees>',
+        }
+        def resolve(game, requested):
+            result = {}
+            for label, (pak, entry) in requested.items():
+                if entry not in documents: raise MissingRetailSource(entry)
+                result[label] = dict(entry=entry,data=documents[entry],candidates=[dict(archive=pak,sha256='fixture')])
+            return result
+        def population(profiles, souls, documents, names, tables, world=None, native_person_brains=None):
+            self.assertIsNotNone(world)
+            return dict(profiles=names,actors=[],programs=[dict(file='Libs/AI/custom/work.xml',tree='job')])
+        with tempfile.TemporaryDirectory() as temp:
+            game=Path(temp)
+            level=game/'Data/Levels/anywhere';level.mkdir(parents=True)
+            with zipfile.ZipFile(game/'Data/Tables.pak','w') as archive:
+                for name,data in documents.items():
+                    if name.startswith('Libs/Tables/'): archive.writestr(name,data)
+            with zipfile.ZipFile(level/'level.pak','w') as archive:
+                archive.writestr('whdata_0','<Root/>')
+                archive.writestr('whdata_1','<Root/>')
+                archive.writestr('objects_mission0.xml','<Objects/>')
+            with patch('campaign_profile_work.discover',side_effect=population) as discovered:
+                model, _=import_quest(game,'q_test',source_reader=resolve,profile_level='anywhere')
+            self.assertEqual(discovered.call_count,2)
+            self.assertIs(discovered.call_args_list[0].kwargs['world'],
+                          discovered.call_args_list[1].kwargs['world'])
+        self.assertEqual([r['profiles'] for r in model['profile_work_dependencies']],[['late'],['early']])
+        self.assertIn('libs/ai/custom/work.xml',model['behavior_documents'])
+        self.assertEqual(model['profile_work_provenance']['level'],'anywhere')
+        self.assertEqual(len(model['profile_work_provenance']['documents']['whdata_0']),64)
 
 
 if __name__ == '__main__': unittest.main()

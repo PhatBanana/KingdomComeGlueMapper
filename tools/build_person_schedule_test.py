@@ -23,12 +23,20 @@ def build(a):
     with RetailSourceReader(a.source) as reader, zipfile.ZipFile(a.source / 'Data/Levels' / a.source_level / 'level.pak') as archive:
         tables = SourceTables(a.source, reader)
         for name in a.person:
-            schedule = plan(resolve_person(a.source, name, a.source_level), tables)
+            person = resolve_person(a.source, name, a.source_level)
+            schedule = plan(person, tables)
             if schedule['pending']: raise ValueError('Unresolved source schedule: ' + name)
-            schedules[name] = resolve_arrivals(schedule, archive)
+            schedules[name] = resolve_arrivals(schedule, archive, person)
     with zipfile.ZipFile(a.level_pak) as archive:
         files = {n:read(archive,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml',
                     seating_animations.HELPERS,seating_animations.ANIMATIONS)}
+        if getattr(a,'routes',False):files['ubernav.tmm']=read(archive,'ubernav.tmm')
+    resources=arrival_resources()
+    if getattr(a,'routes',False):
+        if not a.jobs:raise ValueError('--routes requires --jobs')
+        from character_sweeping_routes import resources as route_resources
+        route_files,route_contract=route_resources(a.source,a.target)
+        resources.update(route_files)
     if a.jobs_only:
         if not a.jobs:raise ValueError('--jobs-only requires --jobs')
         report=[]
@@ -39,13 +47,12 @@ def build(a):
             items=[read(pak,n) for n in pak.namelist() if n.lower().startswith('libs/tables/item/item__') and n.endswith('.xml')]
         registered=native_item_registry(native_items(a.target,items))
         with zipfile.ZipFile(a.source/'Data/Levels'/a.source_level/'level.pak') as archive:
-            files,jobs=bind_jobs(files,schedules,archive,a.target,registered)
+            files,jobs=bind_jobs(files,schedules,archive,a.target,registered,getattr(a,'routes',False))
         report=dict(arrivals=report,jobs=jobs)
         with zipfile.ZipFile(a.target/'Data/Levels/trosecko/level.pak') as native:
             files,animation_report=seating_animations.install(files,native)
         report['animations']=animation_report
     validate_scheduler_targets(ET.fromstring(files['tables/ai/scheduler.xml']))
-    resources = arrival_resources()
     resources[f'Mods/{a.mod_id}/Data/Levels/{a.level}/tables/ai/scheduler.xml'] = files['tables/ai/scheduler.xml']
     for name in (seating_animations.HELPERS,seating_animations.ANIMATIONS):
         resources[f'Mods/{a.mod_id}/Data/Levels/{a.level}/'+name]=files[name]
@@ -65,5 +72,6 @@ if __name__ == '__main__':
     parser.add_argument('--level', default='kcd1_travel')
     parser.add_argument('--mod-id', default='kingdomcomegluemapper')
     parser.add_argument('--jobs', action='store_true', help='Activate supported native work phases and their reserved tools')
+    parser.add_argument('--routes', action='store_true', help='Connect the source sweeping paths through native movement and item lifetimes')
     parser.add_argument('--jobs-only', action='store_true', help='Upgrade existing imported arrival schedules without resetting other routines')
     build(parser.parse_args())

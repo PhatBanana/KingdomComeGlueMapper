@@ -115,6 +115,8 @@ def assemble_registrations(project, quest_files, bindings, registered, imported_
              'world/registration/waitinglinks.xml': append_links(None, links, allow_untagged=True),
              'world/registration/whdata_0': xml(souls),
              'world/registration/triggerareas.fubar': write_areas(shapes.values(), export_version)}
+    from campaign_work_helpers import assemble as assemble_work_helpers
+    files.update(assemble_work_helpers(objects, imported_files))
     report = dict(schema=1, project=project, assets=resolved, pending=pending,
                   entities=len(entities), areas=len(shapes), native_links=len(links),
                   source_profiles=profiles, export_version=export_version,

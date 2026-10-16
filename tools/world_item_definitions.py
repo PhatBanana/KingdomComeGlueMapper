@@ -71,8 +71,9 @@ class WorldItemAdapter(ItemAdapter):
                     short_term_nutrition_benefit_ratio='ShortTermNutritionBenefitRatio',alcohol_content='AlcoholContent',
                     decay_time_hours='DecayTime',food_type_id='Type',food_subtype_id='SubType')}
 
-    def __init__(self,tables,namespace,native,weapon_classes,native_components=None):
-        super().__init__(tables,namespace);self.native=native;self.weapon_classes=weapon_classes
+    def __init__(self,tables,namespace,native,weapon_classes,native_components=None,native_tool_types=None):
+        super().__init__(tables,namespace,native_tool_types);self.native=native;self.weapon_classes=weapon_classes
+        self.native_item_rows = {k:v for k,v in native.items() if usable_native_item(v)}
         self.native_components=native_components
 
     def plan(self,identity):

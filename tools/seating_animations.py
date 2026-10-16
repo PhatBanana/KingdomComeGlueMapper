@@ -22,7 +22,13 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
              or (e.get('EntityClass') == 'SmartObjectHolder' and e.get('Name', '').startswith('gm_wash_'))
              or (e.get('EntityClass') == 'SmartObjectHolder' and e.get('Name', '').startswith('gm_schedule_')
                  and e.find('Properties') is not None and e.find('Properties').get('soclass_SmartObjectHelpers'))
+             or (e.get('EntityClass') == 'ItemSlot' and e.get('Name', '').startswith('gm_job_item_')
+                 and e.find('Properties') is not None and e.find('Properties').get('soclass_SmartObjectHelpers'))
              or (e.get('EntityClass') == 'AnimDoor' and e.get('Name', '').startswith('gm_door_'))]
+    # Native guard points are DetailMovementSmartObjects without helper sets;
+    # their unstance supplies the movement itself. Do not invent a helper row.
+    seats = [e for e in seats if e.find('Properties') is not None
+             and e.find('Properties').get('soclass_SmartObjectHelpers')]
     families = {e.find('Properties').get('soclass_SmartObjectHelpers') for e in seats}
     available = {e.get('HelperSetName'): e for e in native_helpers}
     available.update({e.get('HelperSetName'): e for e in helpers if e.get('HelperSetName','').startswith('gm_Door')})
@@ -42,7 +48,7 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
         # Trosky baked navigation/physics results and projected targets cannot
         # be reused at KCD1 coordinates. Request native runtime validation.
         collection_hash = '0'
-        if seat.get('Name','').startswith('gm_schedule_'):
+        if seat.get('Name','').startswith(('gm_schedule_','gm_job_item_')):
             family=seat.find('Properties').get('soclass_SmartObjectHelpers')
             collections=available[family].findall('SmartObjectHelperSetAnimationCollection')
             if len(collections)!=1 or not collections[0].get('HashValue'):

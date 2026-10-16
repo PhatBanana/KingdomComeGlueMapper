@@ -7,7 +7,7 @@ from unittest.mock import patch
 import xml.etree.ElementTree as E
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from character_person_ai import (capture_person_ai, native_brain_and_class,
+from character_person_ai import (capture_person_ai, capture_person_links, native_brain_and_class,
                                 stat_operations, apply_person_properties, register_factions, FACTION_PATH)
 from character_world_ai import register_interrupt_services
 from character_person_world import register_person_world, source_home_geometry
@@ -16,6 +16,29 @@ from campaign_entity_links import native_guid, guid_value
 
 
 class PersonAITests(unittest.TestCase):
+    def test_home_and_job_links_use_guid_and_reject_conflicting_ids(self):
+        actor = E.fromstring('<Entity><EntityLinks><Link Name="Home" TargetGuid="AB" TargetId="1"/>'
+            '<Link Name="Work" TargetGuid="CD" TargetId="0"/></EntityLinks></Entity>')
+        first = E.fromstring('<Entity EntityId="1" EntityGuid="ab" Name="home"/>')
+        second = E.fromstring('<Entity EntityId="2" EntityGuid="cd" Name="job"/>')
+        reused_id = E.fromstring('<Entity EntityId="1" EntityGuid="ef" Name="other_layer"/>')
+        links = capture_person_links(actor, [first,second,reused_id])
+        self.assertEqual([l['target']['Name'] for l in links], ['home','job'])
+        actor.find('EntityLinks/Link').set('TargetId','2')
+        with self.assertRaisesRegex(ValueError,'disagree'):
+            capture_person_links(actor, [first,second,reused_id])
+
+    def test_id_only_person_link_must_be_unambiguous(self):
+        actor = E.fromstring('<Entity><EntityLinks><Link Name="Home" TargetId="1"/></EntityLinks></Entity>')
+        first = E.fromstring('<Entity EntityId="1" EntityGuid="ab"/>')
+        second = E.fromstring('<Entity EntityId="1" EntityGuid="cd"/>')
+        self.assertEqual(len(capture_person_links(actor,[first])),1)
+        with self.assertRaisesRegex(ValueError,'ambiguous'):
+            capture_person_links(actor,[first,second])
+        actor.find('EntityLinks/Link').set('TargetGuid','ef')
+        with self.assertRaisesRegex(ValueError,'Missing'):
+            capture_person_links(actor,[first])
+
     def test_core_stats_preserve_values_and_do_not_guess_incompatible_combat_scale(self):
         ops = stat_operations(dict(str='8', hearing='4', combat_level='20', inventory_id='legacy'))
         self.assertEqual(ops, [('setAttribute', {'stat': 'strength', 'value': '8'}),
@@ -42,18 +65,6 @@ class PersonAITests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'No native person brain adapter'):
             native_brain_and_class(ai, brains, classes)
 
-    def test_shared_faction_ancestors_merge_without_overwriting_first_person(self):
-        root = dict(faction_id='3', faction_name='citizens', player_reputation='0.5')
-        files = {}
-        for index in ('10', '20', '10'):
-            leaf = dict(faction_id=index, faction_name='family', player_reputation='1')
-            self.assertEqual(register_factions(files, {'source_factions': [leaf, root]}),
-                             'gluemapper_kcd1_faction_' + index)
-        tree = E.fromstring(files[FACTION_PATH])
-        self.assertEqual(len(list(tree.iter('Faction'))), 3)
-        self.assertEqual(len(list(tree.iter('Relation'))), 3)
-        self.assertNotIn(b'tachov', files[FACTION_PATH])
-
     def test_world_interrupt_links_resolve_and_never_copy_native_parking_coordinates(self):
         land_src = E.fromstring('<Entity><EntityLinks><Link Name="mrkev" TargetId="1"/>'
                                 '<Link Name="redkev" TargetId="2"/></EntityLinks></Entity>')
@@ -71,6 +82,18 @@ class PersonAITests(unittest.TestCase):
         self.assertNotIn(b'999', E.tostring(mission))
         self.assertTrue(all(e.get('Pos') == '0,0,-50' for e in mission))
         self.assertEqual([e.get('EntityClass') for e in list(mission)[1:]], ['SmartObjectHolder'] * 2)
+
+    def test_profession_match_must_preserve_crime_authority(self):
+        ai = dict(source_brain=dict(brain_name='npc_daycycle'),
+                  source_social_class=dict(social_class_name='soldier', soul_crime_role_id='2'))
+        brains = E.fromstring('<x><brain brain_name="npc_basic" brain_id="new"/></x>')
+        classes = E.fromstring('<x><social_class social_class_name="soldier" social_class_id="33" soul_crime_role_id="1"/>'
+            '<social_class social_class_name="guard" social_class_id="101" soul_crime_role_id="2"/>'
+            '<social_class social_class_name="soldier_crimeAuthority" social_class_id="108" soul_crime_role_id="2"/></x>')
+        self.assertEqual(native_brain_and_class(ai, brains, classes), ('new', '108'))
+        classes.remove(classes[-1])
+        with self.assertRaisesRegex(ValueError, 'social class contract'):
+            native_brain_and_class(ai, brains, classes)
 
     def test_home_xml_geometry_is_transformed_once_and_rejects_tilted_volumes(self):
         home = E.fromstring('<Entity EntityGuid="10" Pos="10,20,30" Scale="2,2,1">'

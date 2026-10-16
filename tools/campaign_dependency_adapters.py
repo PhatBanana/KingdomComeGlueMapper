@@ -65,33 +65,31 @@ class InventoryAdapter:
     def convert(self, identity, plan, registered):
         source = plan.source
         definition = source['definition']
-        if definition.get('max_items') or definition.get('read_only') == 'True' or definition.get('restock_interval', '0') != '0':
-            raise ValueError('Inventory capacity/restock policy needs native conversion')
-        if source['preset_choices']:
-            raise ValueError('Weighted source inventory preset policy needs native conversion')
-        root = ET.Element('database', name='barbora')
-        target = self.namespace + '_inventory_' + identity.replace('-', '_')
-        preset = ET.SubElement(ET.SubElement(root, 'InventoryPresets', version='2'), 'InventoryPreset', Name=target, Mode='All')
-        for row in source['direct_items']:
-            if any(row.get(k) not in ('', '0', None) for k in ('amount_random_add', 'priority', 'health_offset')):
-                raise ValueError('Random source item selection/condition needs native conversion')
-            target_item = registered['items'][row['item_id'].lower()]
+        if definition.get('read_only', '').lower() == 'true' or float(definition.get('restock_interval') or 0) != 0:
+            raise ValueError('Inventory restock/read-only policy needs native conversion')
+        from container_loot import compile_inventory
+        item_names = {}
+        for item in source['item_dependencies']:
+            target_item = registered['items'][item.lower()]
             if self.item_name is None:
                 raise ValueError('Inventory preset requires registered native item names')
-            name = self.item_name(target_item)
-            if not isinstance(name, str) or not name.strip():
-                raise ValueError('Missing registered inventory item name: ' + target_item)
-            attrs = dict(Name=name, Amount=row['amount'])
-            if row.get('health'):
-                attrs['Health'] = row['health']
-            ET.SubElement(preset, 'PresetItem', attrs)
+            item_names[target_item] = self.item_name(target_item)
+        root, original, policy = compile_inventory(dict(source, source_id=identity, status='authored'),
+                                                   registered['items'], item_names)
+        target = self.namespace + '_inventory_' + identity.replace('-', '_')
+        for node in root.iter():
+            if node.tag in ('InventoryPreset', 'InventoryPresetRef'):
+                name = node.get('Name', '')
+                if name == original or name.startswith(original+'_'):
+                    node.set('Name', target+name[len(original):])
         path = 'Libs/Tables/item/InventoryPreset__' + target + '.xml'
-        return target, {path: xml(root)}, dict(source_id=identity, items=len(source['direct_items']), random_selection=False)
+        return target, {path: xml(root)}, dict(source_id=identity, items=len(source['direct_items']), selection_policy=policy)
 
 
 class SoulAdapter:
-    def __init__(self, tables, souls):
+    def __init__(self, tables, souls, person_registration=None):
         self.tables = tables
+        self.person_registration = person_registration
         self.instances = {}
         for soul in souls.findall('./SoulList/Souls/Soul'):
             shared = soul.findtext('SharedSoulGuid')
@@ -101,43 +99,46 @@ class SoulAdapter:
     def plan(self, identity):
         row = self.tables.row('rpg/soul', 'soul_id', identity)
         instances = self.instances.get(identity, [])
-        inventories = {s.findtext('./StaticData/InventoryId') for s in instances}
-        inventories.add(row.get('inventory_id'))
+        from character_instance import effective_soul
+        effective = [effective_soul(row, s) for s in instances] or [dict(row)]
+        inventories = {s.get('inventory_id') for s in effective}
         inventories -= {None, '', '00000000-0000-0000-0000-000000000000'}
         parts = set()
         for kind in ('body', 'head', 'hair', 'beard'):
-            values = {row.get('character_' + kind + '_id')}
-            values.update(s.findtext('./StaticData/CharacterBodyDescription/' + kind.title() + 'Id') for s in instances)
+            values = {s.get('character_' + kind + '_id') for s in effective}
             for value in values - {None, '', '00000000-0000-0000-0000-000000000000'}:
                 parts.add(kind + ':' + value)
-        dependencies = [('character_parts', p) for p in sorted(parts)]
+        dependencies = [] if self.person_registration is not None else [('character_parts', p) for p in sorted(parts)]
         dependencies += [('inventories', i) for i in sorted(inventories)]
         from campaign_initial_loadout import resolve as resolve_loadout
-        loadouts = [resolve_loadout(self.tables, identity)]
-        for instance in instances:
-            overrides = {}
-            for kind in ('Clothing', 'Weapon'):
-                value = instance.findtext('./StaticData/Initial' + kind + 'Description/PresetId')
-                if value and value != '00000000-0000-0000-0000-000000000000':
-                    overrides['initial_' + kind.lower() + '_preset_id'] = value
-            if overrides:
-                loadouts.append(resolve_loadout(self.tables, identity, overrides))
-        dependencies += [('items', item) for item in sorted({i for p in loadouts for i in p['dependencies']})]
+        loadouts = [resolve_loadout(self.tables, identity,
+            {field: person[field] for field in ('initial_clothing_preset_id', 'initial_weapon_preset_id')
+             if field in person}) for person in effective]
+        dependencies += [('items', item) for item in sorted({i['item'] for p in loadouts for i in p['items']
+            if self.person_registration is None or i['kind'] == 'weapon'})]
+        if self.person_registration is not None:
+            dependencies += [('person_names', name) for name in sorted({s.findtext('StaticData/NameStringId')
+                for s in instances} - {None, ''})]
         # Appearance and AI are source identities too, not a substitute default
         # body or a cinematic-only brain assigned because registration failed.
         return ImportPlan(dependencies, dict(row=row, instances=[ast(s) for s in instances], loadouts=loadouts,
                           provenance=self.tables.get('rpg/soul')['provenance']))
 
     def convert(self, identity, plan, registered):
+        if self.person_registration is not None:
+            return self.person_registration.convert(identity, plan, registered)
         raise ValueError('Soul appearance/brain conversion must be connected to the character upgrader before registration')
 
 
 class EntityAdapter:
     def __init__(self, world, souls, area_data, export_version, doors=None, controllers=None, smart_areas=None,
-                 navigation=None):
+                 navigation=None, smart_objects=None):
         self.doors = doors
         self.controllers = controllers or {}
         self.smart_areas = smart_areas or {}
+        self.smart_objects = smart_objects or {}
+        from campaign_work_items import WorkItems
+        self.work_items = WorkItems(world['entities'].values())
         self.entities = {}
         for record in world['entities'].values():
             text = record['attributes'].get('EntityGuid', '')
@@ -166,6 +167,27 @@ class EntityAdapter:
                 raise ValueError('Placed actor has no shared retail soul identity: ' + identity)
             dependencies.append(('souls', shared))
         source = copy.deepcopy(source)
+        if source['attributes'].get('EntityClass') == 'PickableItem':
+            alias = self.work_items.alias(source)
+            if alias:
+                source['tool_slot_alias'] = alias
+                return ImportPlan([('entities', alias)], source)
+        if source['attributes'].get('EntityClass') == 'ItemSlot':
+            source['work_item'] = self.work_items.prepare(source)
+            dependencies.append(('items',source['work_item']['item']))
+        if source['attributes'].get('EntityClass') in ('SmartObjectHolder','ItemSlot'):
+            bindings = self.smart_objects.get(identity, [])
+            props = [n for n in source['entity']['children'] if n['op'] == 'Properties']
+            if len(props) != 1:
+                raise ValueError('Work object requires one properties record')
+            p = props[0]['attributes']
+            if p.get('guidSmartObjectType') not in (None, '', '00000000-0000-0000-0000-000000000000'):
+                if len(bindings) != 1:
+                    raise ValueError('Work object requires an unambiguous campaign template binding')
+                source['work_object_identity'] = bindings[0]
+                dependencies.append(('smart_entities', bindings[0]))
+            if p.get('soclasses_SmartObjectHelpers'):
+                dependencies.append(('work_helpers', p['soclasses_SmartObjectHelpers']))
         if source['attributes'].get('EntityClass') == 'PredefinedNavigationPath':
             if self.navigation is None:
                 raise ValueError('Predefined route requires its source navigation graph')
@@ -195,10 +217,13 @@ class EntityAdapter:
         return ImportPlan(dependencies, source)
 
     def convert(self, identity, plan, registered):
+        if plan.source.get('tool_slot_alias'):
+            return registered['entities'][plan.source['tool_slot_alias']], {}, dict(
+                tool_slot_alias=plan.source['tool_slot_alias'], source_item=identity)
         source = plan.source['attributes']
         cls = source['EntityClass']
         if cls not in ('TriggerArea', 'TagPoint', 'NPC', 'NPC_Female', 'AnimDoor', 'QuestObject', 'SmartAreaShape',
-                       'PredefinedNavigationPath'):
+                       'PredefinedNavigationPath', 'SmartObjectHolder', 'ItemSlot'):
             raise ValueError('Native entity-class conversion is not implemented: ' + cls)
         attrs = {k: source[k] for k in ('Name', 'Pos', 'Rotate', 'Scale', 'EntityClass', 'CastShadowMinSpec') if k in source}
         attrs['EntityGuid'] = identity
@@ -208,9 +233,35 @@ class EntityAdapter:
         files = {}
         evidence = dict(source=plan.source['source'], source_class=cls, identity_preserved=True,
                         profile=source.get('Layer'), transform_preserved=True)
-        if source.get('ParentGuid') not in (None, '', '0'):
+        if cls != 'ItemSlot' and source.get('ParentGuid') not in (None, '', '0'):
             raise ValueError('Parented entity attachment conversion is required: ' + identity)
-        if cls == 'PredefinedNavigationPath':
+        if cls == 'ItemSlot':
+            self.work_items.apply(entity,plan.source,plan.source['work_item'],registered)
+            evidence['work_item'] = plan.source['work_item']
+            evidence['replaces_visual_entities'] = ['glue_item_'+source['EntityId']]
+            if plan.source['work_item']['pickup_id']:
+                evidence['replaces_visual_entities'].append('glue_item_'+plan.source['work_item']['pickup_id'])
+        elif cls == 'SmartObjectHolder':
+            from campaign_ai_registration import require_fields
+            props = next(n for n in plan.source['entity']['children'] if n['op'] == 'Properties')
+            p = props['attributes']
+            require_fields(p, ('object_editorModel', 'bNo_POI', 'bPOI_discoverable_by_location',
+                'bSaved_by_game', 'soclasses_SmartObjectHelpers', 'guidSmartObjectType',
+                'sWH_AI_EntityCategory'), 'work-object properties')
+            attrs = {k: v for k, v in p.items() if k not in
+                ('object_editorModel', 'soclasses_SmartObjectHelpers', 'guidSmartObjectType')}
+            if 'work_object_identity' in plan.source:
+                attrs['guidSmartObjectType'] = registered['smart_entities'][plan.source['work_object_identity'].lower()]
+            if p.get('soclasses_SmartObjectHelpers'):
+                attrs['soclass_SmartObjectHelpers'] = registered['work_helpers'][p['soclasses_SmartObjectHelpers'].lower()]
+            native_props = ET.SubElement(entity, 'Properties', attrs)
+            for child in props['children']:
+                if child['op'] != 'Script' or child['children']:
+                    raise ValueError('Work-object script requires semantic conversion')
+                from campaign_script_properties import misc_properties
+                ET.SubElement(native_props, 'Script', Misc=misc_properties(child['attributes']))
+            evidence['work_object'] = plan.source.get('work_object_identity')
+        elif cls == 'PredefinedNavigationPath':
             ET.SubElement(entity, 'Properties', bSaved_by_game='0')
             evidence['route'] = plan.source['route']
         elif cls == 'SmartAreaShape':
@@ -250,6 +301,12 @@ class EntityAdapter:
             ET.SubElement(entity, 'Properties', props)
             evidence['controller'] = plan.source['controller_identity']
         elif cls in ('NPC', 'NPC_Female'):
+            from character_person_ai import apply_person_properties
+            def source_element(node):
+                result = ET.Element(node['op'], node['attributes'])
+                result.extend(source_element(c) for c in node['children'])
+                return result
+            apply_person_properties(entity, source_element(plan.source['entity']))
             original = self.souls[guid_value(identity)]
             soul = ET.Element('Soul', version='8')
             shared = original.findtext('SharedSoulGuid').lower()
@@ -290,11 +347,11 @@ class StaticAssetAdapter:
 
 
 class ItemTextAdapter:
-    def __init__(self, source, namespace, locale):
+    def __init__(self, source, namespace, locale, table='text_ui_items.xml'):
         self.namespace, self.locale = identifier(namespace).lower(), locale
         self.rows = {}
         with zipfile.ZipFile(Path(source) / 'Localization' / (locale + '_xml.pak')) as archive:
-            data = read(archive, 'text_ui_items.xml')
+            data = read(archive, table)
         self.hash = hashlib.sha256(data).hexdigest()
         for row in ET.fromstring(data).findall('Row'):
             cells = row.findall('Cell')
@@ -331,11 +388,14 @@ class ItemAdapter:
         'divisible_item': {'is_divisible': 'IsDivisible'},
         'misc': {'misc_type_id': 'Type', 'misc_subtype_id': 'SubType'},
         'key': {'key_type_id': 'Type', 'key_subtype_id': 'SubType'},
-        'npc_tool': {'npc_tool_type_id': 'Type', 'npc_tool_subtype_id': 'SubType'},
+        'npc_tool': {'npc_tool_type_id': 'Type', 'npc_tool_subtype_id': 'SubType',
+                     'manipulation_type': 'ManipulationType'},
     }
 
-    def __init__(self, tables, namespace):
+    def __init__(self, tables, namespace, native_tool_types=None):
         self.tables, self.namespace = tables, identifier(namespace).lower()
+        self.native_tool_types = native_tool_types
+        self.native_item_rows = {}
 
     @staticmethod
     def asset(value, suffix):
@@ -382,6 +442,31 @@ class ItemAdapter:
                 value = rows[table].get(old)
                 if value not in (None, ''):
                     attrs[new] = value.lower() if value in ('True', 'False') else value
+        type_evidence = []
+        if category == 'npc_tool':
+            from campaign_item_types import resolve
+            for table, field in (('npc_tool_type', 'Type'), ('npc_tool_subtype', 'SubType')):
+                if field not in attrs:
+                    continue
+                if self.native_tool_types is None or self.tables is None:
+                    raise ValueError('Native tool type tables are required for conversion')
+                retained = []
+                for source_item in self.tables.get('item/npc_tool')['rows']:
+                    native_item = self.native_item_rows.get(source_item.get('item_id', '').lower())
+                    if (source_item.get(table + '_id') == attrs[field] and native_item is not None
+                            and native_item.tag == 'NPCTool' and native_item.get(field)):
+                        retained.append(dict(item_id=source_item['item_id'], target_id=native_item.get(field)))
+                attrs[field], evidence = resolve(self.tables.get('item/' + table)['rows'],
+                    self.native_tool_types.get(table, []), table, attrs[field], retained)
+                type_evidence.append(evidence)
+            if 'ManipulationType' in attrs:
+                from campaign_item_types import manipulation
+                if self.native_tool_types is None or self.tables is None:
+                    raise ValueError('Native manipulation type table is required for conversion')
+                attrs['ManipulationType'], evidence = manipulation(
+                    self.tables.get('item/item_manipulation_type')['rows'],
+                    self.native_tool_types.get('item_manipulation_type', []), attrs['ManipulationType'])
+                type_evidence.append(dict(table='item_manipulation_type', **evidence))
         for old, new in [('ui_name', 'UIName'), ('ui_info', 'UIInfo')]:
             value = rows['player_item'].get(old)
             if value:
@@ -398,4 +483,5 @@ class ItemAdapter:
         filename = 'Libs/Tables/item/item__' + self.namespace + '_' + identity.replace('-', '') + '.xml'
         return target, {filename: xml(root)}, dict(source=plan.source, category=self.CATEGORIES[category],
             source_id=identity, target_id=target, model_and_text_imported=True,
+            item_type_mappings=type_evidence,
             presentation_pending=['Source inventory icon atlas conversion'] if rows['player_item'].get('icon_id') else [])

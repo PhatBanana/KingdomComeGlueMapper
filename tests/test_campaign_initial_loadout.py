@@ -59,8 +59,33 @@ class InitialLoadoutTests(unittest.TestCase):
           <StaticData><InitialClothingDescription><PresetId>work_outfit</PresetId></InitialClothingDescription></StaticData>
           </Soul></Souls></SoulList></root>''')
         plan = SoulAdapter(tables, instances).plan('actor')
-        self.assertEqual({d for g,d in plan.dependencies if g == 'items'}, {'coat','arrows','apron'})
-        self.assertEqual(len(plan.source['loadouts']), 2)
+        self.assertEqual({d for g,d in plan.dependencies if g == 'items'}, {'arrows','apron'})
+        self.assertEqual(len(plan.source['loadouts']), 1)
+
+    def test_replaced_defaults_are_not_required_for_placed_actor(self):
+        tables = Tables()
+        tables.data['rpg/soul'][0].update(inventory_id='unused_bag', character_head_id='unused_head')
+        # The overridden shared outfit may be unavailable; it is not used.
+        tables.data['item/clothing_preset'] = [dict(clothing_preset_id='work_outfit')]
+        tables.data['item/armor2clothing_preset'] = [dict(clothing_preset_id='work_outfit', armor_id='apron')]
+        instances = E.fromstring('''<root><SoulList><Souls><Soul><SharedSoulGuid>actor</SharedSoulGuid>
+          <StaticData><InventoryId>work_bag</InventoryId><CharacterBodyDescription><HeadId>work_head</HeadId></CharacterBodyDescription>
+          <InitialClothingDescription><PresetId>work_outfit</PresetId></InitialClothingDescription></StaticData>
+          </Soul></Souls></SoulList></root>''')
+        plan = SoulAdapter(tables, instances).plan('actor')
+        self.assertIn(('inventories', 'work_bag'), plan.dependencies)
+        self.assertIn(('character_parts', 'head:work_head'), plan.dependencies)
+        self.assertNotIn(('inventories', 'unused_bag'), plan.dependencies)
+        self.assertNotIn(('character_parts', 'head:unused_head'), plan.dependencies)
+
+    def test_missing_and_zero_instance_references_inherit_defaults(self):
+        from character_instance import effective_soul
+        shared = dict(inventory_id='bag', initial_clothing_preset_id='coat', character_head_id='head')
+        instance = E.fromstring('''<Soul><StaticData><InventoryId>00000000-0000-0000-0000-000000000000</InventoryId>
+            <InitialClothingDescription/><CharacterBodyDescription/></StaticData></Soul>''')
+        self.assertEqual(effective_soul(shared, instance), shared)
+        self.assertEqual(effective_soul(shared, E.fromstring('<Soul/>')), shared)
+        self.assertEqual(effective_soul(shared, None), shared)
 
     def test_source_membership_amount_and_equipped_flag_are_preserved(self):
         plan = resolve(Tables(), 'actor')

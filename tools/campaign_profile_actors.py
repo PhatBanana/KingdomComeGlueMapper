@@ -35,7 +35,9 @@ def collect(profiles, souls, documents, names):
             path = 'layers/' + layer.text.lower() + '.xml'
             if path not in docs:
                 raise ValueError('Missing source profile layer: ' + path)
-            for entity in ET.fromstring(docs[path]).iter('Entity'):
+            document = docs[path]
+            root = document if isinstance(document, ET.Element) else ET.fromstring(document)
+            for entity in root.iter('Entity'):
                 if entity.get('EntityClass') not in ('NPC', 'NPC_Female'):
                     continue
                 guid = int(entity.get('EntityGuid', ''), 16)

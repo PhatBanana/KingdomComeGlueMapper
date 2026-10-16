@@ -218,6 +218,13 @@ def convert_world_links(world, importer, placed):
                     raise ValueError('Source AI link endpoint has not been placed: ' + identity)
                 endpoints.append(target)
             label = link['source_link']['Name']
+            if label == 'SlotLink' and endpoints[0] == endpoints[1]:
+                original = world['entities'][link['to']]['attributes']['EntityGuid']
+                job = importer.jobs.get(('entities',native_guid(int(original,16))), {})
+                if job.get('evidence',{}).get('tool_slot_alias') == endpoints[0]:
+                    resolved.append(dict(link=link, source=endpoints[0], target=endpoints[1],
+                                         consumed_by='native tool-slot item ownership'))
+                    continue
             # Untagged edges are significant for graph traversal and tools.
             definition = link_definition(label, importer, dict(kind='source_world_link', link=link)) if label else ''
             links.append((*endpoints, definition))

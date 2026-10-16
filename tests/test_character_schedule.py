@@ -28,6 +28,8 @@ class ScheduleTests(unittest.TestCase):
         result=plan(person,Tables())
         self.assertFalse(result['pending'])
         row=result['resolved'][0]
+        person['ai']['links'].append(dict(label='',source_xml='<Entity/>'))
+        self.assertEqual(len(plan(person,Tables())['resolved']),1)
         self.assertEqual(row['behavior']['tree_name'],'RunJob')
         self.assertEqual(row['target_links'],[dict(TargetId='999',Name='station')])
         for label in ("Work[SomeJob]", "Work['SomeJob']", 'Work["SomeJob"],OtherTag'):

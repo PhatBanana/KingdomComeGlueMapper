@@ -5,6 +5,43 @@ also checks each field against the installed game's runtime examples.
 """
 
 WORK_CONTRACTS = {
+    'HasGenderCheck': dict(Gender='human_gender', SoulWUID='reference',
+                          FailSubtMissing='value', saveVersion='value'),
+    # The native door behaviors retain the source helper-query ABI, including
+    # runtime fragment/tag selection and separate position/rotation outputs.
+    'GetAnimationHelperData': dict(smartObject='reference', helperID='reference',
+        fragment='string_expression', tags='string_expression', positionTargetVar='reference',
+        orientationTargetVar='reference', transformTargetVar='reference'),
+    # Native crime/watch and inventory searches retain these queries. Their
+    # state/parameter literals are checked against the installed runtime.
+    'HasPerceivableState': dict(PerceivableState='perceivable_state',
+        PerceivedWUID='reference', PerceptorWUID='reference',
+        FailSubtMissing='value', saveVersion='value'),
+    'ItemParamFilter': dict(Param='item_filter_parameter', owner='reference',
+        Source='value', prune='value', negprune='value', Parent='reference', Child='reference'),
+    # Shipped animal/basic/switch trees retain these entity query contracts.
+    # Output variables are references too; checks retain Then/Else semantics.
+    'CheckWuidValid': dict(wuid='reference', FailSubtMissing='value', saveVersion='value'),
+    'IsDeadCheck': dict(SoulWUID='reference', FailSubtMissing='value', saveVersion='value'),
+    'GetType': dict(WUID='reference', OutString='reference', ShowTrueIdentity='value', TreatPlayerAsNPC='value'),
+    'DistanceCondition': dict(Origin='reference', ReferencePt='reference', Low='expression', High='expression',
+                              Negation='value', ValueOnMiddle='value', failOnCondition='value'),
+    # Retail animal_determineTrespassReaction.xml and so_animalBehaviors.xml:
+    # the labelled query returns its matching area through Area, while the
+    # plain query consumes an existing area. Preserve both conditional arms.
+    'IsInsideAreaWithLabel': {'Position': 'reference', 'Label': 'string_expression',
+        'Area': 'reference', 'FailSubtMissing': 'value', 'saveVersion': 'value'},
+    'IsInsideArea': {'Origin': 'reference', 'Area': 'reference',
+        'FailSubtMissing': 'value', 'saveVersion': 'value'},
+    'IsInsideAreaWithLabelBarrier': {'Who': 'reference', 'Label': 'string_expression',
+        'Negation': 'value', 'RunLogic': 'value'},
+    'EntityClassFilter': dict(Class='entity_class', Source='value', prune='value',
+                             negprune='value', Parent='reference', Child='reference'),
+    # Native AI/_lukas/test_lukas_helper.xml and
+    # AI/npc/basic/switch/interrupt_mourn.xml retain these work-selection ABIs.
+    # Weather remains a runtime expression; it is not evaluated at import time.
+    'RangeSorter': {'point': 'reference', 'SortOrder': 'value', 'Source': 'value'},
+    'WeatherCondition': {'condition': 'expression', 'failOnCondition': 'value'},
     'LinkDataFilter': {'tag': 'link_type', 'condition': 'expression',
                        'prune': 'value', 'negprune': 'value',
                        'Parent': 'reference', 'Child': 'reference', 'Data': 'reference'},
@@ -89,6 +126,23 @@ _SEMAPHORE = dict(atomic='value', OutsideQueuePosVariable='reference',
     InsidePosVariable='reference', TimerType='value', OutsideTimerValue='string_expression',
     LockManagerType='value', SemaphoreName='string_expression', SemaphoreCount='expression')
 WORK_CONTRACTS['Semaphore'] = dict(_SEMAPHORE)
+# Retail AI/carts/carts.xml and crime routines use this non-waiting lock.
+# Preserve its child subtree: contention is a runtime result, not a reason to
+# flatten the job or execute it without reserving the shared resource.
+WORK_CONTRACTS['InstantSemaphore'] = dict(LockManagerType='value',
+    SemaphoreName='string_expression', SemaphoreCount='expression')
+WORK_CONTRACTS['GetItemProperty'] = dict(itemId='reference', property='item_property', result='reference')
+WORK_CONTRACTS['SetItemProperty'] = dict(itemId='reference', property='item_property',
+    sourceVar='reference', isRelative='value')
+WORK_CONTRACTS['RemoveItem'] = dict(Item='reference', ItemGUID='string_expression', Source='reference',
+    Amount='expression', FailOnDoesntExist='value', NotifyUI='value')
+WORK_CONTRACTS['LuaGate'] = dict(code='native_lua', saveVersion='value')
+WORK_CONTRACTS['LuaWrapper'] = dict(onEnter='native_lua', onExit='native_lua')
+# Native crime/home routines use labels to change access policy, and quest
+# controllers enable/disable registered jobs through SetBehaviorState.
+WORK_CONTRACTS['AddAreaLabel'] = dict(Area='reference', Label='area_label')
+WORK_CONTRACTS['RemoveAreaLabel'] = dict(Area='reference', Label='area_label')
+WORK_CONTRACTS['SetBehaviorState'] = dict(behaviors='string_expression', state='behavior_state')
 WORK_CONTRACTS['Synchronize'] = dict(_SEMAPHORE, InsideTimerValue='string_expression',
     InvalidateOnExpire='value', RunLogic='value')
 

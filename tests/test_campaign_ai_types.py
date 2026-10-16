@@ -27,6 +27,42 @@ def importer_at(path):
 
 
 class AITypeImportTests(unittest.TestCase):
+    def test_nested_engine_message_members_use_native_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = AITypeSource(E.fromstring('''<TypeDefinitions version="1"><Type name="work">
+              <Member name="sender" type="common:senderInfo"/>
+              <Member name="behavior" type="common:senderInfo:senderInfoBehavior"/>
+              </Type></TypeDefinitions>'''), [], 'AnyCampaign', Path(tmp))
+            importer = DependencyImporter(dict(ai_types=AIStructureAdapter(source,
+                ['senderInfo', 'senderInfo:senderInfoBehavior'])))
+            self.assertEqual(importer.ensure('ai_types', 'work'), 'anycampaign:work')
+            root = E.parse(next(iter(importer.files.values()))).getroot()
+            self.assertEqual({n.get('Name'): n.get('Type') for n in root.findall('.//Member')},
+                dict(sender='senderInfo', behavior='senderInfo:senderInfoBehavior'))
+            self.assertEqual([n.get('Name') for n in root.findall('.//Type')], ['anycampaign', 'work'])
+
+    def test_engine_alias_requires_installed_native_type_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source, _ = importer_at(Path(tmp))
+            importer = DependencyImporter(dict(ai_types=AIStructureAdapter(source, ['senderInfo'])))
+            self.assertEqual(importer.ensure('ai_types', 'common:senderInfo'), 'senderInfo')
+            self.assertIsNone(importer.ensure('ai_types', 'common:senderInfo:senderInfoBehavior'))
+            self.assertFalse(importer.files)
+
+    def test_work_structure_scalar_aliases_match_behavior_variable_scalars(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            source = AITypeSource(E.fromstring('''<TypeDefinitions version="1"><Type name="job">
+              <Member name="count" type="_int">2</Member>
+              <Member name="timestamp" type="_int64">4294967296</Member>
+              <Member name="duration" type="_float">0.5</Member>
+              <Member name="station" type="_wuid"/>
+              </Type></TypeDefinitions>'''), [], 'AnyCampaign', Path(tmp))
+            importer = DependencyImporter(dict(ai_types=AIStructureAdapter(source)))
+            self.assertEqual(importer.ensure('ai_types', 'job'), 'anycampaign:job')
+            root = E.parse(next(iter(importer.files.values()))).getroot()
+            self.assertEqual({n.get('Name'): n.get('Type') for n in root.findall('.//Member')},
+                             dict(count='int', timestamp='int64', duration='float', station='wuid'))
+
     def test_string_defaults_are_raw_text_and_not_enum_expressions(self):
         with tempfile.TemporaryDirectory() as tmp:
             source = AITypeSource(E.fromstring('''<TypeDefinitions version="1"><Type name="work">

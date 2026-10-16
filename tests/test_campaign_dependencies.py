@@ -106,7 +106,8 @@ class CampaignDependencyTests(unittest.TestCase):
         self.assertIsNotNone(importer.ensure('inventories', inv))
         data = next(v for k,v in importer.files.items() if 'InventoryPreset__' in k)
         item = E.fromstring(data).find('InventoryPresets/InventoryPreset/PresetItem')
-        self.assertEqual(item.attrib, dict(Name='actual_native_name', Amount='3', Health='0.7'))
+        self.assertEqual(item.attrib, dict(Name='actual_native_name', Amount='3', Health='0.7',
+                                         ItemClassId='converted-original-item', HealthVariation='0'))
 
     def test_inventory_item_name_requires_unambiguous_registered_definition(self):
         native = {'id-a': E.fromstring('<MiscItem Id="id-a" Name="native_food"/>')}
@@ -121,6 +122,24 @@ class CampaignDependencyTests(unittest.TestCase):
             b'<database><ItemClasses><Food Id="id-a" Name="different_name"/></ItemClasses></database>'}
         with self.assertRaisesRegex(ValueError, 'Conflicting'):
             registered_item_name('id-a', native, conflict)
+
+    def test_weighted_inventory_preserves_nested_selection_and_namespaces_references(self):
+        tables = Tables({
+            'inventory/inventory':[dict(inventory_id='bag',max_items='2',read_only='False',restock_interval='0')],
+            'inventory/inventory2inventory_preset':[dict(inventory_id='bag',inventory_preset_id='pool',priority='0.3')],
+            'inventory/inventory_preset':[dict(inventory_preset_id='pool',max_items='1')],
+            'inventory/inventory_preset2item':[dict(inventory_preset_id='pool',item_id='food',amount='0',
+                amount_random_add='1',health='0.7',health_offset='0.2',priority='0.4')]})
+        importer=DependencyImporter({'inventories':InventoryAdapter(tables,'town',lambda _: 'native_food')},
+                                    {'items':{'food':'native-food-id'}})
+        self.assertEqual(importer.ensure('inventories','bag'),'town_inventory_bag')
+        root=E.fromstring(next(iter(importer.files.values())))
+        presets={p.get('Name'):p for p in root.findall('InventoryPresets/InventoryPreset')}
+        self.assertEqual(presets['town_inventory_bag_choices'].get('ModeValue'),'2')
+        self.assertEqual(presets['town_inventory_bag_preset_0'].get('ModeValue'),'1')
+        for ref in root.iter('InventoryPresetRef'):
+            self.assertIn(ref.get('Name'),presets)
+        self.assertEqual(root.find('.//PresetItem').get('HealthVariation'),'0.2')
 
 
 if __name__ == '__main__': unittest.main()

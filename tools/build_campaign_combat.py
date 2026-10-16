@@ -228,6 +228,8 @@ def convert(files, level_files, bindings, model, tag, project_path, entry_path, 
         seq = ET.SubElement(nodes, 'TriggerSequence', Name=s.get('Name') + '_finished')
         edge(seq, waiter.get('Name') + '.OnFinished', 'Exec'); edge(s, seq.get('Name') + '.A', 'SetFalse')
         edge(fight, seq.get('Name') + '.B', 'dialogue_finished'); busy.append(s.get('Name') + '.State')
+        from campaign_dialogue_activity import bind_scene_release
+        bind_scene_release(nodes, s, n.get('Name'), activity_port)
     from campaign_quest_graph import any_of
     edge(fight, any_of(nodes, stem + '_talking', busy), 'dialogue_busy')
     def actions(actions, event, suffix):

@@ -38,10 +38,22 @@ def arrival_resources():
             'AI/gluemapper/schedule_arrival.xml':xml(trees)}
 
 
-def resolve_arrivals(schedule, archive):
+def resolve_arrivals(schedule, archive, person=None):
     result = []
     mission = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
     for entry in schedule['resolved']:
+        behavior = entry['behavior']
+        if (behavior['tree_file'].lower(), behavior['tree_name']) == ('final/sa_garrison.xml', 'Guard'):
+            forced = [l for l in (person or {}).get('ai', {}).get('links', [])
+                      if l['label'] == 'garrison_forcedWorkplace']
+            if len(forced) != 1:
+                raise ValueError('Guard work requires one authored forced workplace; dynamic garrison assignment is not converted')
+            point = ET.fromstring(forced[0]['source_xml'])
+            if point.get('EntityClass') != 'TagPoint':
+                raise ValueError('Unsupported forced guard workplace')
+            result.append(dict(entry, arrival=dict(point.attrib),
+                workplace_links=[dict(l.attrib) for l in point.findall('EntityLinks/Link')]))
+            continue
         area = ET.Element('Entity', entry['area'])
         links = ET.SubElement(area, 'EntityLinks')
         inside = [l for l in entry['target_links'] if l.get('Name') == 'inside']

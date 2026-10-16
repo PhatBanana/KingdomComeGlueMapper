@@ -8,6 +8,18 @@ from campaign_entity_links import append_links,native_guid
 
 
 class JobItemTests(unittest.TestCase):
+    def test_tool_pool_keeps_distinct_single_slot_reservations(self):
+        job,contract=self.fixture();mission=E.Element('Objects');mission.append(job)
+        for index in (8,9):
+            source=self.source();source.set('EntityId',str(index));source.set('EntityGuid',format(index,'x'))
+            slot,_=register_item(mission,source,{str(index):source},contract,{'tool-id':'tool-id'})
+            bind_reservation(mission,job,slot,contract)
+            bind_reservation(mission,job,slot,contract)
+        points=[e for e in mission if e.get('EntityClass')=='TagPoint']
+        self.assertEqual(len(points),2)
+        self.assertTrue(all(len(e.findall('EntityLinks/Link'))==1 for e in points))
+        self.assertEqual(len({e.find('EntityLinks/Link').get('TargetGuid') for e in points}),2)
+
     def fixture(self):
         job=E.fromstring('<Entity EntityId="1" EntityGuid="00000001-0000-0000" Pos="10,20,30"><EntityLinks>'
             '<Link Name="tool" TargetId="3"/><Link Name="schedulerReservedItem[\'use\',\'job_tool\']" TargetId="2"/></EntityLinks></Entity>')
@@ -52,6 +64,22 @@ class JobItemTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'Unregistered'):register_item(E.Element('Objects'),source,{},contract,{})
         source.find('Properties').set('guidItemClassId','another-tool')
         with self.assertRaisesRegex(ValueError,'does not match'):register_item(E.Element('Objects'),source,{},contract,{})
+
+    def test_native_manipulation_variant_survives_creation_and_reuse(self):
+        job, contract = self.fixture()
+        contract['properties'].set('sManipulationAnimTag', 'tavern_bowlLeft')
+        mission = E.Element('Objects'); mission.append(job)
+        source = self.source()
+        slot, report = register_item(mission, source, {'8': source}, contract, {'tool-id': 'native-tool'})
+        self.assertEqual(slot.find('Properties').get('sManipulationAnimTag'), 'tavern_bowlLeft')
+        self.assertEqual(report['manipulation_tag'], 'tavern_bowlLeft')
+        slot.find('Properties').set('sManipulationAnimTag', 'stale_variant')
+        register_item(mission, source, {'8': source}, contract, {'tool-id': 'native-tool'})
+        self.assertEqual(slot.find('Properties').get('sManipulationAnimTag'), 'tavern_bowlLeft')
+        # Default native manipulation must also replace a previous override.
+        contract['properties'].attrib.pop('sManipulationAnimTag')
+        register_item(mission, source, {'8': source}, contract, {'tool-id': 'native-tool'})
+        self.assertIsNone(slot.find('Properties').get('sManipulationAnimTag'))
 
     def test_slot_with_placed_tool_uses_placed_transform_and_avoids_duplicate(self):
         job,contract=self.fixture();mission=E.Element('Objects');mission.append(job);source=self.source()

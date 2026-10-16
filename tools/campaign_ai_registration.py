@@ -20,7 +20,18 @@ from upgrade_map import read
 TABLES = ('brain', 'brain2mailbox', 'brain2subbrain', 'brain_variable',
           'mailbox', 'mailbox_filter', 'subbrain', 'subbrain_behaviour_tree',
           'subbrain_smart_object', 'subbrain_smart_area', 'mailbox_action_type', 'subbrain_type',
-          'ai_variable_form', 'ai_variable_sync')
+          'ai_variable_form', 'ai_variable_sync', 'subbrain_switching', 'subbrain_dialog', 'subbrain_situation')
+
+# These serialized callback tables exist in both retail games. Combat is
+# discovery-only: KCD2 has no matching subbrain_combat table.
+SUBBRAIN_SCHEMAS = {
+    'SmartObject': ('subbrain_smart_object', ('on_update_tree', 'on_request_tree', 'on_release_tree')),
+    'SmartArea': ('subbrain_smart_area', ('on_update_tree', 'on_request_tree', 'on_release_tree', 'on_enter_tree', 'on_exit_tree')),
+    'BehaviorTree': ('subbrain_behaviour_tree', ('tree_name',)),
+    'Switching': ('subbrain_switching', ('tree_name',)),
+    'Dialog': ('subbrain_dialog', ('tree_name',)),
+    'Situation': ('subbrain_situation', ()),
+}
 
 
 def rows_for(tables, table, field, value):
@@ -187,14 +198,9 @@ class SubbrainAdapter:
         require_fields(row, ('always_active', 'subbrain_id', 'subbrain_name', 'subbrain_type', 'timeout'), 'subbrain')
         typ = self.native.enum(self.tables, 'subbrain_type', row['subbrain_type'])
         type_name = self.tables.row('ai/subbrain_type', 'subbrain_type_id', row['subbrain_type'])['subbrain_type_name']
-        if type_name == 'SmartObject':
-            table, tree_fields = 'subbrain_smart_object', ('on_update_tree', 'on_request_tree', 'on_release_tree')
-        elif type_name == 'SmartArea':
-            table, tree_fields = 'subbrain_smart_area', ('on_update_tree', 'on_request_tree', 'on_release_tree', 'on_enter_tree', 'on_exit_tree')
-        elif type_name == 'BehaviorTree':
-            table, tree_fields = 'subbrain_behaviour_tree', ('tree_name',)
-        else:
+        if type_name not in SUBBRAIN_SCHEMAS:
             raise ValueError('Subbrain runtime requires conversion: ' + type_name)
+        table, tree_fields = SUBBRAIN_SCHEMAS[type_name]
         behavior = dict(self.tables.row('ai/' + table, 'subbrain_id', guid))
         require_fields(behavior, ('subbrain_id', 'file_name', 'explicit_initialization', 'system_variables', *tree_fields), 'subbrain behavior')
         if behavior.get('system_variables') or behavior.get('explicit_initialization') not in (None, '', 'False', 'false', '0'):
@@ -228,7 +234,8 @@ class SubbrainAdapter:
             behavior[field] = name
             paths.add(path)
         if not paths:
-            behavior['file_name'] = source['behavior']['file_name']
+            if 'file_name' in source['behavior']:
+                behavior['file_name'] = source['behavior']['file_name']
         elif len(paths) != 1:
             raise ValueError('Subbrain entry trees were emitted into different documents')
         else:
@@ -290,26 +297,32 @@ class BrainAdapter:
             variables=len(variables), all_entry_trees_converted=True, runtime_validated=False)
 
 
+def brain_definition(tables, brain_id):
+    """Discover authored entry programs for any actor, area or controller."""
+    entries, unresolved = [], []
+    for link in rows_for(tables, 'brain2subbrain', 'brain_id', brain_id):
+        sub = tables.row('ai/subbrain', 'subbrain_id', link['subbrain_id'])
+        typ = tables.row('ai/subbrain_type', 'subbrain_type_id', sub['subbrain_type'])['subbrain_type_name']
+        schema = SUBBRAIN_SCHEMAS.get(typ)
+        if typ == 'Combat': schema = ('subbrain_combat', ('tree_name',))
+        if schema is None:
+            unresolved.append(dict(subbrain=sub, reason='Entry discovery needs ' + typ + ' adapter'))
+            continue
+        table, fields = schema
+        row = tables.row('ai/' + table, 'subbrain_id', sub['subbrain_id'])
+        for field in fields:
+            if row.get(field): entries.append(dict(file=row['file_name'], tree=row[field], kind=field, table=table))
+    return dict(brain_id=brain_id,entry_points=entries,unresolved=unresolved)
+
+
 def controller_definition(tables, quest_row):
     """Discover database callbacks as well as the main brain's entry points."""
     name = quest_row.get('smart_object')
     if not name:
         return None
     smart = dict(tables.row('ai/so_smart_object', 'so_smart_object_name', name))
-    entries, unresolved = [], []
-    for link in rows_for(tables, 'brain2subbrain', 'brain_id', smart['brain_id']):
-        sub = tables.row('ai/subbrain', 'subbrain_id', link['subbrain_id'])
-        typ = tables.row('ai/subbrain_type', 'subbrain_type_id', sub['subbrain_type'])['subbrain_type_name']
-        if typ == 'SmartObject':
-            table, fields = 'subbrain_smart_object', ('on_update_tree', 'on_request_tree', 'on_release_tree')
-        elif typ == 'BehaviorTree':
-            table, fields = 'subbrain_behaviour_tree', ('tree_name',)
-        else:
-            unresolved.append(dict(subbrain=sub, reason='Entry discovery needs ' + typ + ' adapter'))
-            continue
-        row = tables.row('ai/' + table, 'subbrain_id', sub['subbrain_id'])
-        for field in fields:
-            if row.get(field): entries.append(dict(file=row['file_name'], tree=row[field], kind=field, table=table))
+    brain = brain_definition(tables, smart['brain_id'])
+    entries, unresolved = brain['entry_points'], brain['unresolved']
     tags = []
     for link in rows_for(tables, 'so_smart_object2so_behaviour_tag', 'so_smart_object_id', smart['so_smart_object_id']):
         row = dict(tables.row('ai/so_behaviour_tag', 'so_behaviour_tag_id', link['so_behaviour_tag_id']))

@@ -12,6 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from campaign_sources import MissingRetailSource, key, retail_sources
+from upgrade_map import read
 
 
 def literal(value):
@@ -120,7 +121,8 @@ def resolve_null_tracking_edges(graph, tables):
     graph['unresolved_edges'] = unresolved
 
 
-def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior=True):
+def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior=True, profile_level=None,
+                 native_person_brains=None):
     if not re.fullmatch(r'[A-Za-z0-9_]+', quest): raise ValueError('Invalid quest name')
     resolve = source_reader or retail_sources
     requested = {'graph': ('GameData.pak', f'Libs/quests/flowgraphs/{quest}.xml')}
@@ -154,34 +156,82 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
     resolve_null_tracking_edges(graph, tables)
     documents = {}
     work_calls, work_tables, missing_documents, work_table_rows = [], {}, {}, {}
+    profile_work, visited_profiles = [], set()
+    profile_world = None
+    profile_index = None
+    profile_tables = None
+    profile_evidence = {}
     def work_rows(name):
         if name not in work_tables:
             record = resolve(game, {'work': ('Tables.pak', 'Libs/Tables/ai/' + name + '.xml')})['work']
             work_tables[name] = record
             work_table_rows[name] = [dict(r.attrib) for r in ET.fromstring(record['data']).findall('./table/rows/row')]
         return work_table_rows[name]
-    pending = [item for label, item in sources.items() if label != 'graph']
+    # Quest/brain entry files are roots. Shared libraries contribute the trees
+    # actually requested by includes or registry dispatch, not every unrelated
+    # quest helper that happens to share their file. A dynamic name with a known
+    # file conservatively requests the whole file and remains unresolved below.
+    loaded = {key(item['entry']): item for label,item in sources.items() if label != 'graph'}
+    parsed = {}
+    pending = [(item, None) for item in loaded.values()]
     while pending:
-        source = pending.pop(0); entry = key(source['entry'])
-        if entry in documents: continue
-        trees = parse_behavior(source['data'], entry)
-        documents[entry] = {'source': source, 'trees': trees}
+        source, requested_trees = pending.pop(0); entry = key(source['entry'])
+        if entry not in parsed:
+            parsed[entry] = parse_behavior(source['data'], entry)
+        document = documents.setdefault(entry, {'source': source, 'trees': {}})
+        trees = {name:tree for name,tree in parsed[entry].items()
+                 if name not in document['trees'] and (requested_trees is None or name in requested_trees)}
+        if not trees: continue
+        document['trees'].update(trees)
         includes = set()
         for tree in trees.values():
             for node in walk(tree['root']):
                 if node['op'] == 'IncludeTree':
                     value = literal(node['attributes']['File'])
-                    if not value.startswith('$'): includes.add(behavior_path(value))
+                    name = literal(node['attributes']['Name'])
+                    if not value.startswith('$'):
+                        includes.add((behavior_path(value), None if name.startswith('$') else name))
+                if node['op'] == 'EnableProfile' and profile_level is not None:
+                    # Both populations belong to the transition dependency closure.
+                    # Discovery never enables the outgoing profile.
+                    for field in ('profileEnable', 'profileDisable'):
+                        name=literal(node['attributes'].get(field,''))
+                        if not name or name.startswith('$') or name.lower() in visited_profiles:
+                            continue
+                        visited_profiles.add(name.lower())
+                        if profile_world is None:
+                            with zipfile.ZipFile(Path(game)/'Data/Levels'/profile_level/'level.pak') as archive:
+                                blobs={n:read(archive,n) for n in archive.namelist() if key(n) in
+                                       ('whdata_0','whdata_1','objects_mission0.xml') or
+                                       key(n).startswith('layers/') and key(n).endswith('.xml')}
+                                normalized={key(n):data for n,data in blobs.items()}
+                                profile_world=(ET.fromstring(normalized['whdata_1']),
+                                    ET.fromstring(normalized['whdata_0']),
+                                    {n:data for n,data in blobs.items() if key(n) not in ('whdata_0','whdata_1')})
+                                profile_evidence={n:hashlib.sha256(data).hexdigest() for n,data in blobs.items()}
+                        from campaign_dependency_adapters import SourceTables
+                        from campaign_profile_work import discover as discover_profile_work, ProfileWorld
+                        if profile_index is None: profile_index=ProfileWorld(*profile_world)
+                        if profile_tables is None: profile_tables=SourceTables(game,resolve)
+                        closure=discover_profile_work(*profile_world,[name],profile_tables,world=profile_index,
+                                                      native_person_brains=native_person_brains)
+                        profile_work.append(closure)
+                        includes.update((p['file'],p['tree']) for p in closure['programs'])
         from campaign_work_sources import discover
         for call in discover(trees, work_rows, include_area_context=True):
             work_calls.append(dict(document=entry, **call))
-            includes.update(candidate['file'] for candidate in call['candidates'])
-        for include in sorted(includes):
-            if key(include) not in documents and key(include) not in missing_documents and not any(key(s['entry']) == key(include) for s in pending):
+            includes.update((candidate['file'],candidate['tree']) for candidate in call['candidates'])
+        for include, name in sorted(includes, key=lambda pair:(pair[0],pair[1] or '')):
+            include_key = key(include)
+            if include_key in missing_documents: continue
+            if include_key not in loaded:
                 try:
-                    pending.append(resolve(game, {'include': ('Scripts.pak', include)})['include'])
+                    loaded[include_key] = resolve(game, {'include': ('Scripts.pak', include)})['include']
                 except MissingRetailSource as error:
-                    missing_documents[key(include)] = str(error)
+                    missing_documents[include_key] = str(error)
+                    continue
+            if name is None or name not in documents.get(include_key, {}).get('trees', {}):
+                pending.append((loaded[include_key], None if name is None else {name}))
     operations = Counter(); references = []; unresolved = []; lua = []; variables = []
     for entry, doc in documents.items():
         for name, tree in doc['trees'].items():
@@ -212,7 +262,12 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
              'executable': False, 'graph': graph,
              'behavior_documents': {entry: {'trees': doc['trees'], 'provenance': doc['source']['candidates']}
                                     for entry, doc in documents.items()},
+             'unreferenced_library_trees': {entry: sorted(set(trees)-set(documents[entry]['trees']))
+                 for entry,trees in parsed.items() if set(trees)-set(documents[entry]['trees'])},
              'work_program_calls': work_calls,
+             'profile_work_dependencies': profile_work,
+             'profile_work_provenance': dict(level=profile_level, documents=profile_evidence,
+                 tables={k:v['provenance'] for k,v in profile_tables.cache.items()} if profile_tables else {}),
              'work_program_tables': {name: record['candidates'] for name, record in work_tables.items()},
              'missing_behavior_documents': missing_documents,
              'persistent_variables': variables, 'includes': references, 'lua_sites': lua,

@@ -18,6 +18,65 @@ def native_catalog():
 
 
 class WorkAnimationTests(unittest.TestCase):
+    def gender_catalog(self):
+        native = native_catalog()
+        native['nodes']['HasGenderCheck'] = dict(attributes=['Gender','SoulWUID','FailSubtMissing','saveVersion'], children=['Then','Else'])
+        native['work_animations']['controller_variants'] = {
+            'male': {'MaleWork':[[]]}, 'female': {'FemaleWork':[[]]}}
+        return native
+
+    def test_gender_branches_validate_against_the_executing_controller(self):
+        model = source('''<Root><HasGenderCheck Gender="&quot;Male&quot;" SoulWUID="&quot;this.id&quot;">
+          <Then><Sequence><PlayAnimation animation="&quot;MaleWork&quot;"/></Sequence></Then>
+          <Else><PlayAnimation animation="&quot;FemaleWork&quot;"/></Else>
+          </HasGenderCheck></Root>''')
+        files, _, report = convert_behaviors([model], 'Imported', self.gender_catalog())
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        root = E.fromstring(next(iter(files.values())))
+        self.assertEqual(root.find('.//Then//AnimationAction').get('fragment'), "'MaleWork'")
+        self.assertEqual(root.find('.//Else//AnimationAction').get('fragment'), "'FemaleWork'")
+
+    def test_another_actor_gender_does_not_prove_animation_controller(self):
+        for target in ('__player','workTarget'):
+            model = source('<Root><HasGenderCheck Gender="&quot;Male&quot;" SoulWUID="&quot;'+target+
+                '&quot;"><Then><PlayAnimation animation="&quot;MaleWork&quot;"/></Then></HasGenderCheck></Root>')
+            self.assertFalse(convert_behaviors([model], 'Imported', self.gender_catalog())[0])
+
+    def test_controller_proof_does_not_escape_conditional_branch(self):
+        model = source('''<Root><Sequence><HasGenderCheck Gender="&quot;Male&quot;" SoulWUID="&quot;this.id&quot;">
+          <Then><PlayAnimation animation="&quot;MaleWork&quot;"/></Then></HasGenderCheck>
+          <PlayAnimation animation="&quot;MaleWork&quot;"/></Sequence></Root>''')
+        self.assertFalse(convert_behaviors([model], 'Imported', self.gender_catalog())[0])
+
+    def test_wrong_gender_branch_is_still_rejected(self):
+        model = source('''<Root><HasGenderCheck Gender="&quot;Male&quot;" SoulWUID="&quot;this.id&quot;">
+          <Else><PlayAnimation animation="&quot;MaleWork&quot;"/></Else></HasGenderCheck></Root>''')
+        self.assertFalse(convert_behaviors([model], 'Imported', self.gender_catalog())[0])
+
+    def test_object_and_helper_alignment_are_preserved_together(self):
+        native = native_catalog()
+        native['nodes']['AnimationAction']['attributes'].append('alignHelper')
+        model = source('''<Root><PlayAnimation animation="&quot;CommonWork&quot;"
+            SmartObject="&quot;station&quot;" HelperID="&quot;entryHelper&quot;"/></Root>''')
+        files, _, report = convert_behaviors([model], 'Imported', native)
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        node = E.fromstring(next(iter(files.values()))).find('.//AnimationAction')
+        self.assertEqual(node.get('alignObject'), '$station')
+        self.assertEqual(node.get('alignHelper'), '$entryHelper')
+        native['nodes']['AnimationAction']['attributes'].remove('alignHelper')
+        self.assertFalse(convert_behaviors([model], 'Imported', native)[0])
+
+    def test_explicit_fragment_tag_combination_is_preserved(self):
+        native = native_catalog()
+        native['work_animations']['common_human_variants'] = {'CommonWork': [['left', 'tool']]}
+        model = source('<Root><PlayAnimation animation="&quot;CommonWork&quot;" tags="&quot;tool+left&quot;"/></Root>')
+        files, _, _ = convert_behaviors([model], 'Imported', native)
+        node = E.fromstring(next(iter(files.values()))).find('.//AnimationAction')
+        self.assertEqual(node.get('tags'), "'left,tool'")
+        for tags in ('tool', 'tool+right', '$tags'):
+            model = source(f'<Root><PlayAnimation animation="&quot;CommonWork&quot;" tags="&quot;{tags}&quot;"/></Root>')
+            self.assertFalse(convert_behaviors([model], 'Imported', native)[0])
+
     def test_reuses_fragment_at_original_sequence_position(self):
         model = source('''<Root><Sequence><PlayAnimation animation="&quot;CommonWork&quot;"
           tags="&quot;&quot;" context="&quot;&quot;" keepContext="&quot;false&quot;"
@@ -55,9 +114,13 @@ class WorkAnimationTests(unittest.TestCase):
                     z.writestr(name, '<AnimDB><FragmentList>' + common + extra +
                         '<OnlyProcedural><Fragment><ProcLayer/></Fragment></OnlyProcedural>'
                         '<TaggedOnly><Fragment Tags="Special"><AnimLayer><Animation name="special"/></AnimLayer></Fragment></TaggedOnly>'
+                        '<FragmentTagged><Fragment FragTags="tool"><AnimLayer><Animation name="special"/></AnimLayer></Fragment></FragmentTagged>'
                         '</FragmentList></AnimDB>')
             result = fragment_catalog(directory)
             self.assertEqual(result['common_human_fragments'], ['CommonWork'])
+            self.assertEqual(result['common_human_variants']['FragmentTagged'], [['tool']])
+            self.assertIn('OnlyOne', result['controller_variants']['male'])
+            self.assertNotIn('OnlyOne', result['controller_variants']['female'])
             self.assertEqual(len(result['provenance']), 2)
 
 

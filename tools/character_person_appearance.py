@@ -113,14 +113,8 @@ def _build_appearance(source, target, person, namespace, output):
     with ExitStack() as stack:
         reader = stack.enter_context(RetailSourceReader(source))
         tables = SourceTables(source, reader)
-        source_soul = dict(person['soul'])
-        instance = person['instance'].find('StaticData')
-        body = instance.find('CharacterBodyDescription')
-        for kind in ('body', 'head', 'hair', 'beard'):
-            value = body.findtext(kind.title() + 'Id')
-            if value and value != str(uuid.UUID(int=0)):
-                source_soul['character_' + kind + '_id'] = value
-        source_soul['initial_clothing_preset_id'] = instance.findtext('InitialClothingDescription/PresetId')
+        from character_instance import effective_soul
+        source_soul = effective_soul(person['soul'], person['instance'])
         parts = resolve_parts(source_soul, lambda table: tables.get(table)['rows'])
         if not any(p['kind'] == 'body' for p in parts):
             parts.insert(0, source_default_body(person['actor'], Assets(Path(source), stack)))

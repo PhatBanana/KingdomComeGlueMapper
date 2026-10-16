@@ -102,6 +102,13 @@ CONTRACTS = {
 }
 TYPE_ADAPTERS = {name: name for name in ('_bool', '_int', '_int64', '_float', '_string', '_wuid')}
 TYPE_ADAPTERS['common:wuid'] = '_wuid'
+# Message readers write engine-owned sender records. KCD1's serialized
+# common:senderInfo has id/name and nested senderInfoBehavior.behavior;
+# KCD2 exposes those records without the common namespace (retail
+# AI/battle/battleLadderController.xml and
+# AI/quests/lukostreleckaSoutez/shootingRange.xml). Never emit a script
+# structure in their place: the native message reader must own the value.
+from campaign_ai_types import ENGINE_TYPE_ADAPTERS
 CONTRACTS.update(WORK_CONTRACTS)
 
 # Native AI/_lukas/test_lukas_helper.xml supplies both movement ABIs. Destination
@@ -120,8 +127,26 @@ CONTRACTS['ExistPath'] = {k: v for k, v in CONTRACTS['GraphSearch'].items() if k
 def native_catalog(game):
     """Read evidence from runtime Roots only, excluding editor duplicates."""
     nodes, types, enum_types = {}, set(), set()
+    entity_classes = set()
+    item_properties = {'GetItemProperty': set(), 'SetItemProperty': set()}
+    lua_contracts = {}
+    policy_values = {'area_labels': set(), 'behavior_states': set(),
+                     'perceivable_states': set(), 'item_filter_parameters': set()}
     speech_consumer = False
+    path_parameter_fields = set()
+    script_property_reader = False
+    misc_property_reader = False
     with zipfile.ZipFile(Path(game) / 'Data/Scripts.pak') as archive:
+        try:
+            utility = read(archive, 'Scripts/Utils/EntityUtils.lua').decode('utf-8')
+            script_property_reader = all(part in utility for part in (
+                'function EntityUtils.GetScriptProperty(entity, propertyName)',
+                'properties[propertyName] or misc[propertyName]', 'tonumber(result) or result'))
+            misc_property_reader = all(part in utility for part in (
+                'function EntityUtils.GetMiscProperty(entityId, propertyName)',
+                'EntityModule.GetEntityScriptMisc(entityId)', 'tonumber(property) or property'))
+        except KeyError:
+            pass
         for entry in archive.namelist():
             if not key(entry).startswith('ai/') or not key(entry).endswith('.xml'):
                 continue
@@ -135,11 +160,30 @@ def native_catalog(game):
             if key(entry) == 'ai/speech/sb_dialog.xml':
                 speech_consumer = native_consumer(document)
             for tree in document.findall('BehaviorTree'):
+                from campaign_path_parameters import native_fields
+                path_parameter_fields.update(native_fields(tree))
                 types.update(v.get('type') for v in tree.findall('./Variables/Variable'))
                 root = tree.find('Root')
                 if root is None:
                     continue
                 for node in root.iter():
+                    if node.tag == 'HasPerceivableState' and node.get('PerceivableState'):
+                        policy_values['perceivable_states'].add(node.get('PerceivableState'))
+                    if node.tag == 'ItemParamFilter' and node.get('Param'):
+                        policy_values['item_filter_parameters'].add(node.get('Param'))
+                    if node.tag in ('AddAreaLabel', 'RemoveAreaLabel') and node.get('Label'):
+                        policy_values['area_labels'].add(node.get('Label'))
+                    if node.tag == 'SetBehaviorState' and node.get('state'):
+                        policy_values['behavior_states'].add(node.get('state'))
+                    for field in {'ExecuteLua': ('code',), 'LuaGate': ('code',),
+                                  'LuaWrapper': ('onEnter', 'onExit')}.get(node.tag, ()):
+                        if field in node.attrib:
+                            lua_contracts.setdefault(node.tag, {}).setdefault(field, set()).add(
+                                node.get(field).replace('\r\n', '\n').strip())
+                    if node.tag in item_properties and node.get('property'):
+                        item_properties[node.tag].add(node.get('property'))
+                    if node.tag == 'EntityClassFilter' and node.get('Class'):
+                        entity_classes.add(node.get('Class'))
                     record = nodes.setdefault(node.tag, dict(attributes=set(), children=set(),
                         example=entry, sha256=hashlib.sha256(data).hexdigest()))
                     record['attributes'].update(node.attrib)
@@ -153,7 +197,15 @@ def native_catalog(game):
     from campaign_work_animations import fragment_catalog
     return dict(nodes={n: dict(r, attributes=sorted(r['attributes']), children=sorted(r['children']))
                        for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types),
-                native_monologue_consumer=speech_consumer, work_animations=fragment_catalog(game))
+                native_monologue_consumer=speech_consumer, work_animations=fragment_catalog(game),
+                entity_classes=sorted(entity_classes),
+                lua_contracts={op:{field:sorted(values) for field,values in fields.items()}
+                               for op,fields in lua_contracts.items()},
+                item_properties={k:sorted(v) for k,v in item_properties.items()},
+                policy_values={k:sorted(v) for k,v in policy_values.items()},
+                native_script_property_reader=script_property_reader,
+                native_misc_property_reader=misc_property_reader,
+                path_parameter_fields=sorted(path_parameter_fields))
 
 
 def quote(value):
@@ -168,7 +220,10 @@ def reference(value):
     value = literal(value)
     if not value or value.startswith('$'):
         return value
-    if not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\['[^']+'\])*(?:\[\d+\])?", value):
+    # Runtime-selected array/map elements occur in both engines, including
+    # participant maps keyed by a message sender's id. Retain the lookup;
+    # it cannot be resolved to a fixed actor during import.
+    if not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\['[^']+'\]|\[\d+\]|\[\$[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\])*", value):
         raise UnsupportedOperation('Unsupported source variable reference: ' + value)
     return '$' + value
 
@@ -207,6 +262,8 @@ class BehaviorCompiler:
     def __init__(self, models, namespace, catalog, registered=None, importer=None, profile_streaming=None):
         self.namespace = identifier(namespace)
         self.catalog = catalog
+        from campaign_lua_contracts import NativeLuaContracts
+        self.lua_contracts = NativeLuaContracts(catalog)
         self.registered = registered or {}
         self.importer = importer
         self.bridge = QuestBridge(models, namespace)
@@ -259,6 +316,11 @@ class BehaviorCompiler:
             # type and fields. A namespaced script copy is not the native ABI.
             if part == 'predefinedPathParams' and part in self.catalog['variable_types']:
                 typ = part
+            if part == 'pathFindingParams' and part in self.catalog['variable_types']:
+                typ = part
+            native_type = ENGINE_TYPE_ADAPTERS.get(part)
+            if native_type in self.catalog['variable_types']:
+                typ = native_type
             if typ is None and self.importer is not None:
                 typ = self.importer.ensure('ai_types', part, dict(kind='behavior_variable', variable=source))
                 if typ in ('bool','int','int64','float','string','wuid'):
@@ -274,6 +336,14 @@ class BehaviorCompiler:
             # Preserve the authored KCD1 defaults explicitly, independent of
             # the target engine's default constructor.
             target['values'] = 'reversePath(false),approachFirstNode(true)'
+        if 'pathFindingParams' in parts:
+            if parts != ['pathFindingParams'] or form != 'single':
+                raise UnsupportedOperation('Route-policy collections require per-element initialization')
+            from campaign_path_parameters import convert
+            try:
+                target['values'] = convert(source.get('values', ''), self.catalog.get('path_parameter_fields', []))
+            except ValueError as error:
+                raise UnsupportedOperation(str(error)) from error
         if source.get('values') and any(part.startswith('enum:') for part in parts):
             target['values'] = self.typed_expression(source['values'])
         # Variable values have their own typed serialization in both games.
@@ -301,9 +371,24 @@ class BehaviorCompiler:
         pieces = re.split(r'''('(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*")''', value)
         return expression(''.join(part if index % 2 else segment(part) for index,part in enumerate(pieces)), self.catalog)
 
-    def lower_node(self, source, owner, document, tree, path, record):
+    def lower_node(self, source, owner, document, tree, path, record, animation_controllers=None):
         op, attrs = source['op'], source['attributes']
         site = dict(owner=owner, document=document, tree=tree, path=path, operation=op, arguments=attrs)
+        # Legacy serialized node identities are unquoted decimal numbers;
+        # operation arguments (including GraphSearch's output `id`) are quoted
+        # source values. Native trees acquire their own serialization identity.
+        # Keeping a source save-node number as an operation parameter prevents
+        # otherwise ordinary Sequence/ReadMessage trees from being emitted.
+        # Preserve it for diagnostics, never mutate the lossless source IR.
+        if re.fullmatch(r'[0-9]+', attrs.get('id', '')):
+            record.setdefault('source_serialization_ids', []).append(
+                dict(path=path, operation=op, id=attrs['id']))
+            attrs = {k:v for k,v in attrs.items() if k != 'id'}
+            source = dict(source, attributes=attrs)
+        if op == 'GetItemProperty' and 'targetVar' in attrs and 'result' not in attrs:
+            attrs = dict(attrs)
+            attrs['result'] = attrs.pop('targetVar')
+            source = dict(source, attributes=attrs)
         try:
             if op == 'ExecuteLua':
                 if set(attrs) != {'code'} or op not in self.catalog['nodes']:
@@ -312,10 +397,16 @@ class BehaviorCompiler:
                 if 'forwardTime' in script or 'Utils.SetWorldTimePaused' in script:
                     node = self.time_bridge.lower(script, site)
                 else:
-                    node = ET.Element('ExecuteLua', code=upgrade_rpg_script(script))
+                    if self.lua_contracts.accepts(op, 'code', script):
+                        node = ET.Element('ExecuteLua', code=script)
+                    else:
+                        from campaign_script_properties import upgrade_reads
+                        upgraded = upgrade_reads(script, self.catalog.get('native_script_property_reader', False),
+                                                  self.catalog.get('native_misc_property_reader', False))
+                        node = ET.Element('ExecuteLua', code=upgraded if upgraded is not None else upgrade_rpg_script(script))
             elif op == 'PlayAnimation':
                 from campaign_work_animations import lower as lower_work_animation
-                node = lower_work_animation(source, self.catalog)
+                node = lower_work_animation(source, self.catalog, animation_controllers)
             elif op == 'EnableProfile':
                 if self.profile_streaming is None:
                     raise UnsupportedOperation('Installed native profile streaming helper is required')
@@ -325,11 +416,11 @@ class BehaviorCompiler:
                 node = lower_work_request(source, self.catalog)
             elif op in OPERATIONS:
                 scoped = source
-                if (owner, document, tree) in self.object_scopes:
+                if (owner, record.get('source_document', document), tree) in self.object_scopes:
                     scoped = copy.deepcopy(source)
                     for field in ('quest', 'questName'):
                         if literal(scoped['attributes'].get(field, '')) in ('$__object.name', '__object.name'):
-                            scoped['attributes'][field] = self.object_scopes[(owner, document, tree)]
+                            scoped['attributes'][field] = self.object_scopes[(owner, record.get('source_document', document), tree)]
                 converted = self.bridge.lower(scoped, owner)
                 if converted['op'] == 'GameContextBarrier' and converted['op'] not in self.catalog['nodes']:
                     raise UnsupportedOperation('Native continuous quest-state barrier is unavailable')
@@ -345,7 +436,38 @@ class BehaviorCompiler:
                 values = {}
                 for name, raw in attrs.items():
                     kind, value = contract[name], literal(raw)
-                    if kind == 'reference':
+                    if kind == 'human_gender':
+                        if value not in ('Male', 'Female'):
+                            raise UnsupportedOperation('Unverified native human gender: ' + value)
+                        values[name] = value
+                        continue
+                    if kind in ('area_label', 'behavior_state', 'perceivable_state', 'item_filter_parameter'):
+                        output = quote(value) if kind in ('area_label', 'perceivable_state') else value
+                        group = {'area_label': 'area_labels', 'behavior_state': 'behavior_states',
+                                 'perceivable_state': 'perceivable_states',
+                                 'item_filter_parameter': 'item_filter_parameters'}[kind]
+                        if output not in self.catalog.get('policy_values', {}).get(group, []):
+                            raise UnsupportedOperation('Unverified native ' + kind + ': ' + value)
+                        values[name] = output
+                        continue
+                    if kind == 'native_lua':
+                        if value.strip() and not self.lua_contracts.accepts(op, name, value):
+                            raise UnsupportedOperation('Source Lua requires a semantic adapter')
+                        values[name] = value
+                        continue
+                    if kind == 'item_property':
+                        if value not in self.catalog.get('item_properties', {}).get(op, []):
+                            raise UnsupportedOperation('Unverified native item property: ' + value)
+                        values[name] = value
+                        continue
+                    if kind == 'entity_class':
+                        # These are AI graph classes, not CryEntity class
+                        # names. Native Slot/SmartObject filters still use
+                        # those names although placements use ItemSlot and
+                        # SmartObjectHolder. Never rename by string similarity.
+                        if value not in self.catalog.get('entity_classes', []):
+                            raise UnsupportedOperation('Unverified native graph entity class: ' + value)
+                    elif kind == 'reference':
                         value = reference(associative_indexes(literal(raw), self.variables))
                     elif kind == 'expression':
                         value = self.typed_expression(raw)
@@ -454,7 +576,7 @@ class BehaviorCompiler:
                         raise UnsupportedOperation('Dynamic behavior name needs runtime dispatch')
                     target_doc = key(behavior_path(attrs['File']))
                     record['includes'].append((self.include_owner(owner, target_doc), target_doc, target_tree))
-                if op == 'CreateItem':
+                if op == 'CreateItem' or (op == 'RemoveItem' and literal(attrs.get('ItemGUID', ''))):
                     item = literal(attrs.get('ItemGUID', ''))
                     record['item_dependencies'].append(dict(item=item, site=site))
                     if item.startswith('$'):
@@ -485,7 +607,9 @@ class BehaviorCompiler:
         # Traverse every child even when its parent is unsupported. Report all
         # missing adapters, but never emit those children without that parent.
         for index, child in enumerate(source['children']):
-            lowered = self.lower_node(child, owner, document, tree, path + '/' + str(index), record)
+            from campaign_work_animations import child_controllers
+            controllers = child_controllers(source, child, animation_controllers) if node is not None else None
+            lowered = self.lower_node(child, owner, document, tree, path + '/' + str(index), record, controllers)
             if node is not None and lowered is not None:
                 node.append(lowered)
         return node
@@ -504,6 +628,9 @@ class BehaviorCompiler:
                     record = dict(owner=owner, document=document, tree=name, includes=[],
                                   item_dependencies=[], buff_dependencies=[], unresolved=[], native_emitted=False,
                                   provenance=payload.get('provenance', []))
+                    if source.get('animation_controllers'):
+                        record['animation_controllers'] = source['animation_controllers']
+                        record['source_document'] = source['source_document']
                     # Message-dispatched behaviors are executable dependencies
                     # too. Previously only IncludeTree participated in closure,
                     # allowing a request to target a withheld/missing tree.
@@ -534,7 +661,8 @@ class BehaviorCompiler:
                             variables.append(self.variable(variable))
                         except UnsupportedOperation as error:
                             record['unresolved'].append(dict(variable=variable, reason=str(error)))
-                    root = self.lower_node(source['root'], owner, document, name, 'Root', record)
+                    root = self.lower_node(source['root'], owner, document, name, 'Root', record,
+                                           tuple(source['animation_controllers']) if source.get('animation_controllers') else None)
                     if root is not None:
                         tree.append(root)
                     trees[identity] = tree
@@ -579,4 +707,10 @@ class BehaviorCompiler:
 
 
 def convert_behaviors(models, namespace, catalog, registered=None, importer=None, profile_streaming=None):
-    return BehaviorCompiler(models, namespace, catalog, registered, importer, profile_streaming).compile()
+    from campaign_animation_specialization import specialize
+    models, specializations = specialize(models)
+    files, bridge, report = BehaviorCompiler(models, namespace, catalog, registered, importer, profile_streaming).compile()
+    report['animation_specializations'] = specializations
+    report['source_trees_emitted'] = sum(r['native_emitted'] for r in report['trees'] if 'source_document' not in r)
+    report['specialized_trees_emitted'] = sum(r['native_emitted'] for r in report['trees'] if 'source_document' in r)
+    return files, bridge, report

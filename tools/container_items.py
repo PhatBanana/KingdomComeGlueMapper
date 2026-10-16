@@ -36,8 +36,10 @@ def build(source, target, mod, output, identifiers, *, asset_namespace='containe
         weapons = {n.get('id'): n.get('name') for n in classes[0]}
         cache = output/'asset-cache'; cache.mkdir()
         assets = StaticAssetAdapter(stack, source.parent, asset_namespace, cache)
+        from campaign_item_types import native_tool_types
         importer = DependencyImporter({
-            'items': WorldItemAdapter(tables, 'containeritems', native, weapons, components),
+            'items': WorldItemAdapter(tables, 'containeritems', native, weapons, components,
+                                      native_tool_types=native_tool_types(target)),
             'clothing': ClothingAdapter(tables, assets, target, stack),
             'document_images': DocumentImageAdapter(source, reader, 'containeritems'),
             'assets': assets, 'strings': ItemTextAdapter(source, 'containeritems', 'English')},

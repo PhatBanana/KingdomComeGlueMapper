@@ -30,7 +30,9 @@ def build(files, resources, source, target, output):
         weapon_classes={n.get('id'):n.get('name') for n in classes[0]}
         reader=stack.enter_context(RetailSourceReader(source));tables=SourceTables(source,reader)
         assets=StaticAssetAdapter(stack,source.parent,'worlditems',output/'asset-cache')
-        importer=DependencyImporter({'items':WorldItemAdapter(tables,'worlditems',native,weapon_classes),
+        from campaign_item_types import native_tool_types
+        importer=DependencyImporter({'items':WorldItemAdapter(tables,'worlditems',native,weapon_classes,
+            native_tool_types=native_tool_types(target)),
             'clothing':ClothingAdapter(tables,assets,target,stack),
             'document_images':DocumentImageAdapter(source,reader,'worlditems'),
             'assets':assets,'strings':ItemTextAdapter(source,'worlditems','English')},

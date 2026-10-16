@@ -15,8 +15,17 @@ from campaign_quest_graph import identifier, xml
 
 
 SCALARS = {'bool':'bool', '_bool':'bool', 'int':'int', 'int64':'int64', 'float':'float',
+           '_int':'int', '_int64':'int64', '_float':'float', '_wuid':'wuid',
            'string':'string', '_string':'string', 'common:wuid':'wuid', 'common:vec3':'vec3'}
 ENUM_REF = re.compile(r'\$enum:([A-Za-z_]\w*)\.([A-Za-z_]\w*)')
+
+# Native message readers own these records. The retail source save schema
+# declares id/name and the nested behavior sender; native battle and shooting
+# range controllers use the corresponding types without the common namespace.
+ENGINE_TYPE_ADAPTERS = {
+    'common:senderInfo': 'senderInfo',
+    'common:senderInfo:senderInfoBehavior': 'senderInfo:senderInfoBehavior',
+}
 
 
 def attributes(node):
@@ -195,11 +204,16 @@ class AIEnumAdapter:
 
 
 class AIStructureAdapter:
-    def __init__(self, source): self.source=source
+    def __init__(self, source, native_types=()):
+        self.source=source
+        self.engine_types = {name.lower(): target for name, target in ENGINE_TYPE_ADAPTERS.items()
+                             if target in native_types}
 
     def plan(self, identity):
         if identity in SCALARS:
             return ImportPlan(source=dict(scalar=SCALARS[identity],source_name=identity))
+        if identity in self.engine_types:
+            return ImportPlan(source=dict(engine_type=self.engine_types[identity],source_name=identity))
         if identity.startswith('enum:'):
             return ImportPlan([('ai_enums',identity[5:])],dict(enum=identity[5:]))
         if identity not in self.source.types:
@@ -226,6 +240,8 @@ class AIStructureAdapter:
     def convert(self, identity, plan, registered):
         source=plan.source
         if 'scalar' in source:return source['scalar'],{},dict(native_scalar=True)
+        if 'engine_type' in source:
+            return source['engine_type'],{},dict(native_engine_type=True,source_name=source['source_name'])
         if 'enum' in source:return 'enum:'+registered['ai_enums'][source['enum'].lower()],{},dict(enum=source['enum'])
         node=ET.Element('Type',Name=source['name'].split(':')[-1])
         for member in source['members']:

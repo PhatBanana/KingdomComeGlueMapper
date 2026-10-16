@@ -79,7 +79,9 @@ All item definitions must resolve through the importer's item registry first.
             bOnlyNPC=source.find('Properties').get('bOnlyNPC','0'),
             bHasItemPhysics='0', bOwnedByHome='0', nRestockPeriodDays='0', nDestockPeriodDays='0')
     target_props = slot.find('Properties')
-    for field in ('soclass_SmartObjectHelpers','guidSmartObjectType'):
+    # The native manipulation tag selects the pickup/place variant (including
+    # left-handed variants). Helpers and the template alone do not preserve it.
+    for field in ('soclass_SmartObjectHelpers','guidSmartObjectType','sManipulationAnimTag'):
         value = contract['properties'].get(field)
         if value: target_props.set(field, value)
         else: target_props.attrib.pop(field, None)
@@ -89,12 +91,16 @@ All item definitions must resolve through the importer's item registry first.
             removed.append(e.get('Name')); mission.remove(e)
     return slot, dict(source_slot=source_slot.get('EntityGuid'), item_id=item_id,
         registered_item=registered_items[item_id], slot=slot.get('EntityGuid'),
-        helper=target_props.get('soclass_SmartObjectHelpers'), removed_visuals=removed)
+        helper=target_props.get('soclass_SmartObjectHelpers'),
+        manipulation_tag=target_props.get('sManipulationAnimTag',''), removed_visuals=removed)
 
 
 def bind_reservation(mission, job, slot, contract):
     """Instantiate the generic job -> reservation point -> tool graph."""
     identity='job-reservation/'+job.get('EntityGuid')+'/'+contract['decision']
+    # One reservation candidate points at exactly one slot. Distinct source
+    # tools must not collapse into a point with ambiguous unlabelled targets.
+    identity += '/' + slot.get('EntityGuid')
     guid=native_guid(int.from_bytes(hashlib.sha256(identity.encode()).digest()[:8],'little'))
     point=next((e for e in mission if e.get('EntityGuid')==guid),None)
     if point is None:

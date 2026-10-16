@@ -44,7 +44,7 @@ def place_area(entity, source, template):
         ET.SubElement(props,'Script',child['attributes'])
 
 
-def area_bindings(plans, world):
+def area_bindings(plans, world, populations=()):
     """Carry quest ownership into placed templates, never infer it from a name."""
     from campaign_entity_links import native_guid
     entities={native_guid(int(r['attributes']['EntityGuid'],16)):r for r in world['entities'].values()
@@ -61,6 +61,16 @@ def area_bindings(plans, world):
                 continue
             identity=owner+'|'+props[0]['attributes']['guidSmartAreaTemplate'].lower()
             if identity not in result.setdefault(guid,[]):result[guid].append(identity)
+    # Ordinary residents may be the only users of an area; no quest asset
+    # binding is required for their authored work station to need conversion.
+    for model in populations:
+        for population in model.get('profile_work_dependencies',[]):
+            for actor in population['actors']:
+                for entry in (actor.get('schedule') or {}).get('resolved',[]):
+                    if entry['target_kind'] != 'smart_area': continue
+                    guid=native_guid(int(entry['area']['EntityGuid'],16))
+                    identity=model['quest']+'|'+entry['area_template']['sa_smart_area_id'].lower()
+                    if identity not in result.setdefault(guid,[]): result[guid].append(identity)
     return result
 
 

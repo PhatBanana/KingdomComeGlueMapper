@@ -89,6 +89,37 @@ class CombatWorkTests(unittest.TestCase):
                          [ACTIVITY_PORT, 'quest_effect'])
         self.assertEqual(len(host.findall('Ports/Port')), 1)
 
+    def test_borrowed_menu_releases_without_its_own_afterplay(self):
+        from campaign_dialogue_activity import bind_scene_release
+        from campaign_quest_graph import edge, constant
+        root, host = definition('Module', 'fixture')
+        nodes = E.SubElement(host, 'Nodes')
+        state = E.SubElement(nodes, 'State', Name='busy_menu', TypeT='bool')
+        constant(state, 'DefaultValue', 'false')
+        edge(state, 'menu.gm_sequence_active', 'SetTrue')
+        edge(state, 'busy_menu_finished.A', 'SetFalse')
+        waiter = E.SubElement(nodes, 'SceneFinishedWaiter', Name='busy_menu_released')
+        edge(waiter, 'menu.AfterPlay', 'Enqueue')
+        order = E.SubElement(nodes, 'TriggerSequence', Name='busy_menu_finished')
+        edge(order, 'busy_menu_released.OnFinished', 'Exec')
+        bind_scene_release(nodes, state, 'menu')
+        once = xml(root)
+        bind_scene_release(nodes, state, 'menu')
+        self.assertEqual(once, xml(root))
+        graph = Graph(xml(root))
+        # Opening scene borrows several optional menu topics; no menu.AfterPlay.
+        for _ in range(4): graph.fire('menu.gm_sequence_active')
+        self.assertTrue(graph.states['busy_menu'])
+        self.assertEqual(graph.events.count('busy_menu_enqueue_release.B'), 1)
+        self.assertEqual(waiter.find("Edge[@To='Enqueue']").get('From'), 'busy_menu_enqueue_release.B')
+        graph.fire('busy_menu_released.OnFinished')
+        self.assertFalse(graph.states['busy_menu'])
+        self.assertFalse(graph.states['busy_menu_release_queued'])
+        # A later conversation acquires a fresh release callback.
+        graph.fire('menu.gm_sequence_active')
+        graph.fire('menu.AfterPlay')
+        self.assertEqual(graph.events.count('busy_menu_enqueue_release.B'), 2)
+
     def test_work_and_bark_are_parallel_with_authored_delay_and_hysteresis(self):
         files = emit('arbitrary', fixture())
         r = E.fromstring(files['AI/arbitrary_work.xml'])

@@ -7,7 +7,7 @@ import xml.etree.ElementTree as E
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from campaign_ai_registration import (NativeAIRegistry, MailboxAdapter, BrainAdapter,
     SubbrainAdapter, ConvertedTreeAdapter, SmartEntityAdapter, controller_definition,
-    tree_identity, quest_controller_brains)
+    tree_identity, quest_controller_brains, brain_definition)
 from campaign_dependency_adapters import EntityAdapter
 from campaign_entity_links import native_guid
 from campaign_trigger_areas import write_areas
@@ -80,6 +80,34 @@ def emitted(importer, table):
 
 
 class AIRegistrationTests(unittest.TestCase):
+    def test_switch_and_dialog_callbacks_use_converted_trees_and_native_type_ids(self):
+        for typ,table in [('Switching','subbrain_switching'),('Dialog','subbrain_dialog')]:
+            with self.subTest(typ=typ), tempfile.TemporaryDirectory() as tmp:
+                tables,native,importer,model=setup(tmp)
+                tables.rows['subbrain_type'][0]['subbrain_type_name']=typ
+                native.tables['subbrain_type']['rows'][0]['subbrain_type_name']=typ
+                row=dict(subbrain_id='source-sub',file_name='quests/q_other.xml',tree_name='onUpdate')
+                tables.rows[table]=[row]
+                native.tables[table]=dict(container=table+'s',attributes={'version':'1'},row_tag=table,rows=[row])
+                definition=brain_definition(tables,'source-brain')
+                self.assertEqual(definition['entry_points'][0]['tree'],'onUpdate')
+                self.assertIsNotNone(importer.ensure('subbrains','q_other|source-sub'))
+                result=emitted(importer,table)[0]
+                self.assertEqual(result.get('file_name'),'testbehaviors/q_other/quests/q_other.xml')
+                self.assertEqual(emitted(importer,'subbrain')[0].get('subbrain_type'),'24')
+
+    def test_engine_owned_situation_does_not_invent_a_behavior_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tables,native,importer,model=setup(tmp)
+            tables.rows['subbrain_type'][0]['subbrain_type_name']='Situation'
+            native.tables['subbrain_type']['rows'][0]['subbrain_type_name']='Situation'
+            tables.rows['subbrain_situation']=[dict(subbrain_id='source-sub')]
+            native.tables['subbrain_situation']=dict(container='subbrain_situations',attributes={'version':'1'},
+                row_tag='subbrain_situation',rows=[dict(subbrain_id='native-sub')])
+            self.assertEqual(brain_definition(tables,'source-brain')['entry_points'],[])
+            self.assertIsNotNone(importer.ensure('subbrains','q_other|source-sub'))
+            self.assertEqual(set(emitted(importer,'subbrain_situation')[0].attrib),{'subbrain_id'})
+
     def test_controller_imports_authored_brain_trees_mailboxes_and_persistent_types(self):
         with tempfile.TemporaryDirectory() as tmp:
             tables, native, importer, model = setup(tmp)

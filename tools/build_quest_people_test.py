@@ -26,7 +26,12 @@ def build(a):
     a.output.mkdir(parents=True)
     package = a.output / 'package'
     (package / 'Data').mkdir(parents=True)
-    model = json.loads(a.model.read_text(encoding='utf-8'))
+    selected = getattr(a, 'person', [])
+    if selected and (a.model or getattr(a, 'source_profile', []) or getattr(a, 'dialogue_model', [])):
+        raise ValueError('Explicit actor staging must not implicitly expand quest/profile dependencies')
+    if not selected and not a.model:
+        raise ValueError('Provide a quest model or explicit source actors')
+    model = json.loads(a.model.read_text(encoding='utf-8')) if a.model else None
     with RetailSourceReader(a.source) as reader:
         tables = SourceTables(a.source, reader)
         source_souls = {r['soul_id']: r['soul_name'] for r in tables.get('rpg/soul')['rows']}
@@ -47,7 +52,8 @@ def build(a):
     locale = a.mod / 'Localization/English_xml.pak'
     with zipfile.ZipFile(travel) as z:
         resources = {n: read(z, n) for n in z.namelist() if n.startswith('Libs/')}
-        project_blob, quest_blob = read(z, a.project_path), read(z, a.quest_path)
+        if model is not None:
+            project_blob, quest_blob = read(z, a.project_path), read(z, a.quest_path)
     with zipfile.ZipFile(level) as z:
         files = {n: read(z, n) for n in ('objects_mission0.xml', 'whdata_0',
                  'tables/ai/scheduler.xml', 'triggerareas.fubar', 'waitinglinks.xml')}
@@ -66,7 +72,12 @@ def build(a):
         return e
     people, converted, existing, pending, names, item_tables = [], [], [], [], ET.Element('Table'), []
     seen = set()
-    requested = dict(dependencies(model))
+    requested = dict(dependencies(model)) if model is not None else {}
+    for name in selected:
+        matches = [sid for sid, source_name in source_souls.items() if source_name == name]
+        if len(matches) != 1:
+            raise ValueError('Missing or ambiguous source actor: ' + name)
+        requested['selected_actor_' + name] = dict(soul_id=matches[0])
     requested.update({"dialogue_role_" + role: dict(soul_id=sid) for role,sid in dialogue_souls.items()})
     profile_actors = []
     if getattr(a, 'source_profile', None):
@@ -120,7 +131,9 @@ def build(a):
                               source_level=person['source_level'], namespace=namespace))
     files['objects_mission0.xml'], files['whdata_0'] = xml(mission), xml(wh)
     files, world = register_person_world(files, people, a.source, a.target)
-    resources[a.project_path], resources[a.quest_path], markers = bind_markers(project_blob, quest_blob, model, registered)
+    markers = dict(converted=[])
+    if model is not None:
+        resources[a.project_path], resources[a.quest_path], markers = bind_markers(project_blob, quest_blob, model, registered)
     modid = ET.parse(a.mod / 'mod.manifest').findtext('info/modid')
     for path, blob in files.items():
         if path.startswith('tables/'): resources[f'Mods/{modid}/Data/Levels/{a.level}/{path}'] = blob
@@ -145,10 +158,12 @@ def build(a):
 
 if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
-    for name in ('source', 'target', 'mod', 'model', 'output'): p.add_argument('--' + name, type=Path, required=True)
+    for name in ('source', 'target', 'mod', 'output'): p.add_argument('--' + name, type=Path, required=True)
+    p.add_argument('--model', type=Path)
+    p.add_argument('--person', action='append', default=[], help='Stage only these source actors, preserving every existing quest')
     p.add_argument('--source-level', default='rataje'); p.add_argument('--level', default='kcd1_travel')
     p.add_argument('--project-path', default='Quests/GlueTravel/GlueTravel_kcd1.xml')
-    p.add_argument('--quest-path', required=True)
+    p.add_argument('--quest-path')
     p.add_argument('--source-profile', action='append', default=[],
         help='Also stage actors placed in this authored source profile; does not activate a profile')
     p.add_argument('--dialogue-profile', action='append', default=[],

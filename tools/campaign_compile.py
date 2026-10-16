@@ -36,6 +36,7 @@ from entity_visuals import initial_layer
 from campaign_quest_bridge import convert_state_operations
 from campaign_quest_graph import emit_project, identifier, validate_model, xml
 from campaign_registration import assemble_registrations
+from campaign_work_helpers import WorkHelperAdapter
 from campaign_profiles import WorldProfileAdapter, WorldLayerAdapter, ProfileLifecycleAdapter, STREAMING_SOURCE
 from campaign_navigation import NavigationSource, BaseNavigationAdapter, ProfileNavigationAdapter
 from campaign_sources import RetailSourceReader
@@ -108,9 +109,11 @@ def wire_bridge(files, project, bridge_files, report, instance_name='source_ques
 
 
 def compile_campaign(source, target, level, output, project, entry_action='Libs/UI/UIActions/MM_NewGame.xml', registered=None,
-                     engine_enum_evidence=None):
+                     engine_enum_evidence=None, baseline_objects=None, baseline_level=None):
     identifier(project)
     source, target, output = Path(source), Path(target), Path(output)
+    if baseline_objects is not None and baseline_level is not None:
+        raise ValueError('Choose either an object baseline or a complete level baseline')
     if output.exists():
         raise FileExistsError('Choose a new campaign conversion directory')
     if not (target / 'Data/Scripts.pak').is_file():
@@ -126,6 +129,14 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         table = resolver(source, {'quest': ('Tables.pak', 'Libs/Tables/quest/quest.xml')})['quest']
         known = {r.get('quest_name') for r in ET.fromstring(table['data']).findall('./table/rows/row')}
         tables = SourceTables(source, resolver)
+        native_ai = NativeAIRegistry.load(target, project)
+        from character_person_ai import BRAIN_ADAPTERS
+        native_person_brains = {}
+        for source_name, target_name in BRAIN_ADAPTERS.items():
+            matches = [r for r in native_ai.tables['brain']['rows'] if r['brain_name'] == target_name]
+            if len(matches) != 1:
+                raise ValueError('Missing or ambiguous native person brain: ' + target_name)
+            native_person_brains[source_name] = dict(matches[0])
         pending = deque(seeds)
         models, attempted, dependencies, failures = {}, set(), [], []
         while pending:
@@ -137,7 +148,9 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             try:
                 definition = controller_definition(tables, tables.row('quest/quest', 'quest_name', name))
                 bootstrap = sorted({p['file'] for p in definition['entry_points']}) if definition else []
-                model, _ = import_quest(source, name, bootstrap=bootstrap, source_reader=resolver, require_behavior=False)
+                model, _ = import_quest(source, name, bootstrap=bootstrap, source_reader=resolver,
+                                       require_behavior=False, profile_level=level,
+                                       native_person_brains=native_person_brains)
                 model['controller_registration'] = definition
             except (ValueError, KeyError) as error:
                 failures.append(dict(kind='quest_import', quest=name, reason=str(error)))
@@ -182,14 +195,36 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         cache = Path(temporary) / 'asset-cache'
         cache.mkdir()
         ai_types = AITypeSource.load(source, resolver, project, Path(temporary) / 'type-cache')
-        native_ai = NativeAIRegistry.load(target, project)
         link_types = LinkTypeAdapter.load(source, target, resolver, project, Path(temporary) / 'link-cache')
         export_version = int.from_bytes(hashlib.sha256(area_data + project.encode()).digest()[:4], 'little') or 1
+        if baseline_level is not None:
+            from campaign_trigger_areas import read_areas
+            with zipfile.ZipFile(baseline_level) as baseline_archive:
+                native_areas = read_areas(read(baseline_archive, 'triggerareas.fubar'))
+            if native_areas['version'] != 3:
+                raise ValueError('Baseline level must use native trigger geometry')
+            export_version = native_areas['export_version']
         assets = LazyAdapter(lambda: StaticAssetAdapter(stack, GameLibrary(paths), project, cache))
         native_doors = NativeDoorCatalog(target, stack)
         animated_doors = AnimatedDoorAssetAdapter(assets, native_doors, project)
         door_entities = DoorEntityConversion(tables, animated_doors, native_doors)
         all_entities, _ = entity_index(documents)
+        from campaign_person_registration import PersonRegistration
+        person_registration = PersonRegistration(source, target, tables,
+            [e for blob in documents.values() for e in ET.fromstring(blob).iter('Entity')],
+            stage / 'person-assets', project,
+            item_name=lambda identity: registered_item_name(identity, native_item_definitions, importer.files))
+        from campaign_work_dependencies import for_models, templates, merge_world, import_all as import_work_graphs
+        work_closures = for_models(models.values(), dict(entities=all_entities, links=[]))
+        links['world'] = merge_world(links['world'], all_entities, work_closures)
+        area_ids = area_bindings(bindings, dict(entities=all_entities), models.values())
+        for guid, identities in templates(work_closures, 'SmartAreaShape', 'guidSmartAreaTemplate').items():
+            for identity in identities:
+                if identity not in area_ids.setdefault(guid, []):
+                    area_ids[guid].append(identity)
+        work_object_ids = templates(work_closures, 'SmartObjectHolder', 'guidSmartObjectType')
+        for guid, identities in templates(work_closures, 'ItemSlot', 'guidSmartObjectType').items():
+            work_object_ids.setdefault(guid, []).extend(identities)
         navigation_source = NavigationSource(
             stack.enter_context(zipfile.ZipFile(source / 'Data/Levels' / level / 'recast.pak')),
             stack.enter_context(zipfile.ZipFile(target / 'Data/Levels/trosecko/recast.pak')),
@@ -209,6 +244,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             existing_items = {i:i for i in existing_items}
         registrations['items'] = dict(native_item_registry(native_item_definitions), **existing_items)
         def item_adapter():
+            from campaign_item_types import native_tool_types
             # Use the same wearable/weapon/document conversion as world loot.
             # The former basic adapter rejected clothing requested by quests
             # and initial outfits even though its upgrader already existed.
@@ -216,18 +252,22 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 weapons = native_xml(read(archive, 'Libs/Tables/item/weapon_class.xml'))
                 components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
             return WorldItemAdapter(tables, project, native_item_definitions,
-                                    {r.get('id'):r.get('name') for r in weapons[0]}, components)
+                                    {r.get('id'):r.get('name') for r in weapons[0]}, components,
+                                    native_tool_types=native_tool_types(target))
+        catalog = native_catalog(target)
         importer = DependencyImporter(dict(
             entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids,
-                area_bindings(bindings, dict(entities=all_entities)), navigation=navigation_source),
+                area_ids, navigation=navigation_source,
+                smart_objects=work_object_ids),
             items=LazyAdapter(item_adapter), inventories=InventoryAdapter(tables, project,
                 lambda identity: registered_item_name(identity, native_item_definitions, importer.files)),
             clothing=LazyAdapter(lambda: ClothingAdapter(tables, assets.materialize(), target, stack)),
             document_images=LazyAdapter(lambda: DocumentImageAdapter(source, resolver, project)),
             buffs=LazyAdapter(lambda: BuffAdapter(tables, native_buff_contract(target), project)),
-            souls=SoulAdapter(tables, souls),
+            souls=SoulAdapter(tables, souls, person_registration),
+            work_helpers=LazyAdapter(lambda: WorkHelperAdapter.load(source, target)),
             character_parts=CharacterPartAdapter(tables, target, stack, assets, project),
-            ai_types=AIStructureAdapter(ai_types), ai_enums=AIEnumAdapter(ai_types), link_types=link_types,
+            ai_types=AIStructureAdapter(ai_types, catalog['variable_types']), ai_enums=AIEnumAdapter(ai_types), link_types=link_types,
             world_profiles=WorldProfileAdapter(source_profiles, project,
                 [dict(archive='Data/Levels/' + level + '/level.pak', entry='whdata_1',
                       sha256=hashlib.sha256(profiles_data).hexdigest())]),
@@ -236,6 +276,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             mailboxes=MailboxAdapter(tables, native_ai),
             animated_props=animated_doors,
             strings=LazyAdapter(lambda: ItemTextAdapter(source, project, 'English')),
+            person_names=LazyAdapter(lambda: ItemTextAdapter(source, project, 'English', 'text_ui_soul.xml')),
             assets=assets), registrations)
         importer.adapters['world_layers'] = WorldLayerAdapter(documents, project, importer.files)
         if engine_enum_evidence is not None:
@@ -261,7 +302,6 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         # discarding the valid declarations for every other referenced quest.
         # It still blocks campaign readiness and calls into it stay unresolved.
         bridge_files, bridge = convert_state_operations(eligible, project)
-        catalog = native_catalog(target)
         with zipfile.ZipFile(target / 'Data/Scripts.pak') as native_scripts:
             profile_streaming = read(native_scripts, STREAMING_SOURCE)
         behavior_files, behavior_bridge_files, behavior = convert_behaviors(
@@ -271,6 +311,9 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             smart_entities=SmartEntityAdapter(tables, native_ai),
             smart_areas=SmartAreaAdapter(tables, native_ai))
         controllers = quest_controller_brains(eligible, tables, importer)
+        from campaign_profile_work import import_dependencies as import_population_dependencies
+        population_imports = import_population_dependencies(eligible, importer)
+        work_graph_imports = import_work_graphs(work_closures, importer)
         progress('Importing quest dependencies', 0, len(bindings), 'Actors, inventory, items, models and trigger areas')
         import_binding_dependencies(bindings, importer)
         dialogue_tables = {n: tables.get('text/' + n)['rows'] for n in (*DIALOGUE_TABLES, 'dialogue_functions')}
@@ -301,6 +344,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             missing[name] = registration_errors(plan, importer.registered)
         native_files, quest_report, registration_files, registration_report = {}, None, {}, None
         combat_report = None
+        population_schedule_report = None
         combat_files = {}
         if eligible:
             try:
@@ -311,6 +355,13 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                     project, native_files, {m['quest']: bindings[m['quest']] for m in eligible if m['quest'] in bindings},
                     importer.registered, importer.files, export_version,
                     source_world=links['world'], importer=importer)
+                from campaign_population_schedule import assemble as assemble_population_schedule
+                from character_person_world import native_wait_activity
+                activity_contract, _ = native_wait_activity(target)
+                registration_files, population_schedule_report = assemble_population_schedule(
+                    eligible, registration_files, importer.registered, importer.files, activity_contract)
+                failures.extend(dict(kind='population_schedule', **issue)
+                                for issue in population_schedule_report['unresolved'])
                 # The same converter used for package refreshes participates in
                 # normal campaign assembly. Missing world/dialogue dependencies
                 # are reported here instead of silently omitting the fight.
@@ -328,6 +379,41 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 quest_report['files'] = {n: hashlib.sha256(b).hexdigest() for n, b in native_files.items()}
             except ValueError as error:
                 failures.append(dict(kind='native_quest_emission', reason=str(error)))
+        for name, data in person_registration.finalize().items():
+            if name in importer.files and importer.files[name] != data:
+                raise ValueError('Conflicting shared person resource: ' + name)
+            importer.files[name] = data
+        world_object_merge = None
+        world_resource_merge = None
+        if baseline_level is not None and 'world/registration/objects_mission0.xml' in registration_files:
+            from campaign_world_assembly import assemble as assemble_world
+            try:
+                with zipfile.ZipFile(baseline_level) as baseline_archive:
+                    baseline = {}
+                    for path in registration_files:
+                        if not path.startswith('world/registration/'):
+                            continue
+                        name = path.removeprefix('world/registration/')
+                        try:
+                            baseline[name] = read(baseline_archive, name)
+                        except KeyError:
+                            pass
+                merged, world_resource_merge = assemble_world(baseline, registration_files, importer.jobs.values())
+                registration_files.update({'world/assembled/' + name: data for name, data in merged.items()})
+            except (ValueError, KeyError) as error:
+                failures.append(dict(kind='world_resource_merge', reason=str(error)))
+        if baseline_objects is not None and 'world/registration/objects_mission0.xml' in registration_files:
+            from campaign_world_objects import merge as merge_world_objects
+            try:
+                merged, world_object_merge = merge_world_objects(
+                    Path(baseline_objects).read_bytes(),
+                    registration_files['world/registration/objects_mission0.xml'],
+                    importer.jobs.values())
+                # Keep the original fragment for other world resources and
+                # explicitly label this as an object-only assembly.
+                registration_files['world/assembled/objects_mission0.xml'] = merged
+            except ValueError as error:
+                failures.append(dict(kind='world_object_merge', reason=str(error)))
         # Conversion fragments are deliberately not an installable Data tree.
         # They cannot be mistaken for the complete source behavior program.
         for name, payload in {**{'Quests/' + n: b for n, b in native_files.items()}, **bridge_files,
@@ -351,6 +437,10 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                       registration_errors=missing, quest_state_conversion=quest_report,
                       dependency_import_counts=importer.report()['counts'],
                       controller_brains=controllers,
+                      population_actor_requests=len(population_imports),
+                      population_schedules=population_schedule_report,
+                      world_object_merge=world_object_merge,
+                      world_resource_merge=world_resource_merge,
                       combat_conversion=combat_report,
                       dialogue_dependency_counts={name: len(r['branches']) for name, r in dialogues.items()},
                       behavior_operation_counts=dict(sorted(counts.items())),
@@ -363,6 +453,9 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                             ('dependency-imports.json', importer.report()), ('native-behavior-catalog.json', catalog),
                             ('native-registrations.json', registration_report),
                             ('dialogue-dependencies.json', dialogues),
+                            ('population-dependencies.json', population_imports),
+                            ('work-graph-dependencies.json', dict(closures=work_closures, imports=work_graph_imports)),
+                            ('population-schedules.json', population_schedule_report),
                             ('combat-conversion.json', combat_report),
                             ('campaign-conversion.json', report)]:
             (stage / name).write_text(json.dumps(value, indent=2), encoding='utf-8')
@@ -389,9 +482,14 @@ def main():
     p.add_argument('--output', type=Path, required=True)
     p.add_argument('--registered', type=Path, help='Destination entities/souls/items from conversion manifests')
     p.add_argument('--engine-enums', type=Path, help='Explicit source-engine enum evidence; revalidated read-only against WHGame.dll')
+    p.add_argument('--baseline-objects', type=Path, help='Converted objects_mission0.xml to assemble gameplay placements into')
+    p.add_argument('--baseline-level', type=Path, help='Converted level.pak to assemble native world registration resources into')
     a = p.parse_args()
+    import setup_progress
+    setup_progress.sink = lambda label, current, total, detail='': print(
+        f'{label} [{current}/{total}] {detail}', flush=True)
     registered = json.loads(a.registered.read_text(encoding='utf-8')) if a.registered else None
-    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered, a.engine_enums), indent=2))
+    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered, a.engine_enums, a.baseline_objects, a.baseline_level), indent=2))
 
 
 if __name__ == '__main__':

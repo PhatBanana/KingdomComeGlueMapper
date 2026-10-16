@@ -38,7 +38,10 @@ class WorldItemsTests(unittest.TestCase):
                         Model='preproduction/traffic_cone/traffic_cone')
         native = {identity:bad}
         self.assertNotIn(identity, native_item_registry(native))
-        adapter = WorldItemAdapter(None, 'worlditems', native, {})
+        from test_campaign_dependencies import Tables
+        types = {'npc_tool_type': [dict(npc_tool_type_id='1', npc_tool_type_name='axe')]}
+        adapter = WorldItemAdapter(Tables({'item/npc_tool_type': types['npc_tool_type']}),
+                                   'worlditems', native, {}, native_tool_types=types)
         rows = {name:{} for name in adapter.FIELDS}
         rows.update(item={}, pickable_item={'model':'props/food/sausage.cgf'},
                     npc_tool={'npc_tool_type_id':'1'})
