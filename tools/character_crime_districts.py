@@ -5,7 +5,7 @@ authority entry/exit; the converter does not permanently attach guards to areas.
 """
 import copy
 import xml.etree.ElementTree as ET
-from campaign_entity_links import append_links, native_guid, guid_value
+from campaign_entity_links import append_links, native_guid
 from campaign_trigger_areas import read_areas, write_areas
 from character_person_world import source_home_geometry
 from upgrade_map import xml

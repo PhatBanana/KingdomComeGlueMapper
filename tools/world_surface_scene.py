@@ -17,7 +17,7 @@ import zipfile
 import numpy as np
 
 from compiled_terrain import parse
-from geometry_opacity import Assets, cgf_triangles, transform_triangles
+from geometry_opacity import Assets, cgf_triangles
 from upgrade_map import read
 from vegetation import verify_target_hlods
 from water_volumes import read_water

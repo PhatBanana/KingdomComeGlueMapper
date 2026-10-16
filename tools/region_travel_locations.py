@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from campaign_dependency_adapters import SourceTables
-from campaign_entity_links import guid_value, native_guid
+from campaign_entity_links import native_guid
 from campaign_sources import RetailSourceReader
 from campaign_trigger_areas import TriggerArea, read_areas, write_areas
 from region_travel_services import native_xml

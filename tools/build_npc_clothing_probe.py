@@ -4,7 +4,6 @@ Writes local development XML overlays, preserving every native definition.
 Mesh partitioning, morph conversion and hiding masks remain separate gates.
 """
 import argparse
-import copy
 import json
 from pathlib import Path
 import re

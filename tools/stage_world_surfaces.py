@@ -1,6 +1,5 @@
 """Stage a complete experimental surface bake; never overwrite installed files."""
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import zipfile

@@ -15,7 +15,7 @@ import zipfile
 
 from control_system_sources import SourceObjects, authored_links
 from world_gameplay_basis import NativeGraphs, NATIVE
-from upgrade_map import read, xml
+from upgrade_map import xml
 
 LEVEL = 'fritz_systems_control'
 LEVEL_ID = 1002
