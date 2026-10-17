@@ -134,6 +134,28 @@ must load the existing long-playtime Trosky save, travel through the coach,
 exercise inventory/map and horse riding, and return. A successful New Game
 load cannot substitute for that save-based test.
 
+For the installed Mod Tools build (save version 10505), the first-playthrough
+Trosky save `crucialdecision861.whs` (retail version 10506, 71.9 hours) loaded
+successfully on 18 October. `kcd.log` recorded `Switching to level 2='trosecko'`,
+`LoadGame ... done`, and `EntityModuleOnPostLoadGame`. Its original SHA-256
+remained `e20f5407264033f229474fe1a8d0bdc6e66803b6dfc0de4fd09e2a3b6373e596`.
+Coach travel, inventory/map and riding after arrival still require acceptance.
+
+Repeat this bounded test in PowerShell 7 with Steam running:
+
+```powershell
+./tools/launch_modtools_save.ps1 -GameRoot 'D:\SteamLibrary\steamapps\common\KCD2Mod' -Playline 0 -SaveName crucialdecision861.whs -CompatibilityVersion 10505
+```
+
+The launcher uses the engine's `wh_sys_FakeLoadedGameVersion` test setting and
+disables save writes with `wh_sys_FreezePlayline`. It does not edit the save.
+`SteamAppId`/`SteamGameId` are set only for the child process to retail KCD2's
+1771300, so Steam checks the signed-in account's actual DLC ownership. Launching
+under the Modding Tools app instead reported every paid DLC inactive and blocked
+this save. No DLC license overrides are used. These settings are diagnostic and
+are not included in the retail setup launcher. Save loading is not evidence that
+all newer save data is compatible with the older development executable.
+
 ### Native destination entry (v11)
 
 The installed native regions have world initialization that the static imported
