@@ -8,7 +8,6 @@ import copy
 import json
 from pathlib import Path, PurePosixPath
 import shutil
-import tempfile
 import uuid
 import xml.etree.ElementTree as ET
 import zipfile
@@ -159,57 +158,6 @@ def prepare_retail_level(editor_level, destination):
         (destination / 'levelinfo.xml').write_bytes(read(pak, 'levelinfo.xml'))
     rewrite_pak(destination / 'level.pak', {'whdata_0': xml(wh)})
     return validate_export(destination)
-
-
-def refresh_export(package, editor_level):
-    """Refresh only generated control files after another official export."""
-    package, editor_level = Path(package), Path(editor_level)
-    receipt = verify_package(package)
-    if receipt.get('systems_control', {}).get('level') != LEVEL:
-        raise ValueError('Package has no matching control')
-    relative = Path('Data/Levels') / LEVEL
-    with tempfile.TemporaryDirectory(prefix='.control-export-', dir=package.parent) as temp:
-        stage = Path(temp)
-        mounted = prepare_retail_level(editor_level, stage / relative)
-        control = Path('Data/gluemapper_control.pak')
-        shutil.copyfile(package / control, stage / control)
-        rewrite_pak(stage / control, mounted)
-        for path in (stage / relative).iterdir():
-            shutil.copyfile(path, package / relative / path.name)
-        shutil.copyfile(stage / control, package / control)
-        for path in stage.rglob('*'):
-            if path.is_file(): receipt['files'][path.relative_to(stage).as_posix()] = digest(path)
-    receipt['systems_control'].update(source_export_sha256=digest(editor_level / 'level.pak'),
-        packaged_level_sha256=digest(package / relative / 'level.pak'), runtime_verified=False)
-    (package / RECEIPT).write_text(json.dumps(receipt, indent=2), encoding='utf-8')
-    verify_package(package)
-    return receipt['systems_control']
-
-
-def install_export_refresh(package, target, backup):
-    """Replace an already installed control export with rollback on D:."""
-    from desktop_setup import game_running
-    package, target, backup = Path(package).resolve(), Path(target).resolve(), Path(backup).resolve()
-    installed = target / 'Mods' / MOD_ID
-    if backup.exists() or backup.is_relative_to(installed) or backup.is_relative_to(package):
-        raise ValueError('Choose a new backup outside the package and installed mod')
-    if game_running(): raise ValueError('Close KCD2 before updating its control export')
-    before, after = verify_package(installed), verify_package(package)
-    if set(before['files']) != set(after['files']): raise ValueError('File set changed; use full installer')
-    changed = [n for n in after['files'] if before['files'][n] != after['files'][n]]
-    allowed = {'Data/gluemapper_control.pak'} | {f'Data/Levels/{LEVEL}/{n}' for n in ('level.pak', 'terrain.pak', 'recast.pak', 'levelinfo.xml')}
-    if not set(changed) <= allowed: raise ValueError('Changes exceed the control export')
-    if game_running(): raise ValueError('KCD2 started during verification')
-    for name in [*changed, RECEIPT]:
-        (backup / name).parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(installed / name, backup / name)
-    try:
-        for name in [*changed, RECEIPT]: shutil.copyfile(package / name, installed / name)
-        verify_package(installed)
-    except Exception:
-        for name in [*changed, RECEIPT]: shutil.copyfile(backup / name, installed / name)
-        raise
-    return dict(installed=str(installed), backup=str(backup), files=changed)
 
 
 def build(base, editor_level, resources, character, target, output):

@@ -38,32 +38,6 @@ def bind_scene_release(nodes, state, instance, activity_port=ACTIVITY_PORT):
     edge(queued, name + '_finished.A', 'SetFalse')
 
 
-def refresh_scene_releases(files):
-    """Upgrade already generated handoffs without rebuilding unrelated quests."""
-    from campaign_quest_graph import xml
-    changes = {}
-    for path, data in files.items():
-        root = E.fromstring(data)
-        changed = False
-        for nodes in root.findall('./Skald/*/Nodes'):
-            for state in list(nodes.findall('State')):
-                sources = [e.get('From') for e in state.findall("Edge[@To='SetTrue']")
-                           if e.get('From', '').endswith('.' + ACTIVITY_PORT)]
-                if not sources:
-                    continue
-                name = state.get('Name')
-                if nodes.find("SceneFinishedWaiter[@Name='" + name + "_released']") is None:
-                    continue
-                if len(set(sources)) != 1:
-                    raise ValueError('Ambiguous dialogue occupancy source: ' + name)
-                before = E.tostring(nodes)
-                bind_scene_release(nodes, state, sources[0].rsplit('.', 1)[0])
-                changed |= E.tostring(nodes) != before
-        if changed:
-            changes[path] = xml(root)
-    return changes
-
-
 def expose(host):
     if host.tag not in ('FaderDialog', 'ForcedDialog'):
         return None

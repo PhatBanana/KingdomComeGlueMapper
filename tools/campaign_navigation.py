@@ -8,7 +8,6 @@ group conversion rather than a misleading stand-alone profile mesh.
 """
 import hashlib
 import struct
-import xml.etree.ElementTree as ET
 
 from campaign_dependencies import ImportPlan
 from campaign_quest_graph import identifier

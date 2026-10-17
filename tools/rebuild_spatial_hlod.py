@@ -6,7 +6,6 @@ are reported; never enable a proxy by guessing a resource index.
 import argparse
 from collections import defaultdict, Counter
 from contextlib import ExitStack
-import hashlib
 import json
 import math
 from pathlib import Path
