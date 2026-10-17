@@ -1,4 +1,3 @@
 -r requirements-npc-effects.txt
 -r requirements-lighting.txt
 lupa==2.8
-xatlas==0.0.11
