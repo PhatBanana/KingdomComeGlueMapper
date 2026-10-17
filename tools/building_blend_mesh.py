@@ -173,7 +173,28 @@ def _pack_charts(layout, owner, resolution, chart_scale=None, padding=8):
         raise ValueError('Building blend charts do not fit the atlas resolution')
     offset, width, height = placed
     texels = (layout-low[owner])*scale+offset[owner]+padding
-    return texels, int(np.ceil(width)), int(np.ceil(height))
+    return texels, int(np.ceil(width)), int(np.ceil(height)), scale, extent*scale
+
+
+def _split_long_charts(chart, long, tri2):
+    """Cut each listed chart in two across its longest UV2 direction (at the median face).
+
+    Halves of an overlap-free, seam-free chart stay overlap-free and seam-free;
+    the cut edge's sides sit in separate padded charts after packing.
+    """
+    chart = chart.copy()
+    centre = tri2.mean(1)
+    for c in long:
+        members = np.flatnonzero(chart == c)
+        if len(members) < 2:
+            continue
+        points = centre[members]-centre[members].mean(0)
+        axis = np.linalg.svd(points, full_matrices=False)[2][0]
+        projection = points @ axis
+        half = members[projection > np.median(projection)]
+        if 0 < len(half) < len(members):
+            chart[half] = chart.max()+1
+    return chart
 
 
 def reatlas(blob, material_id, resolution=2048):
@@ -248,28 +269,46 @@ def reatlas(blob, material_id, resolution=2048):
     limit = max(np.sqrt(area3[kept].sum())/2, 1e-6) if len(kept) else np.inf
     chart[kept] = secondary_charts(positions, faces[kept], uv0, uv2, limit) if len(kept) else []
     chart[needle] = (chart[kept].max()+1 if len(kept) else 0)+np.arange(int(needle.sum()))
-    pairs = np.stack([np.repeat(chart, 3), faces.reshape(-1)], 1)
-    unique, inverse = np.unique(pairs, axis=0, return_inverse=True)
+    best = None
+    shrink = {}
+    for _ in range(8):
+        pairs = np.stack([np.repeat(chart, 3), faces.reshape(-1)], 1)
+        unique, inverse = np.unique(pairs, axis=0, return_inverse=True)
+        layout = uv2[unique[:, 1]].astype(np.float64)
+        layout[np.isin(unique[:, 0], chart[needle])] = 0
+        # Scale charts to uniform world-space texel density. Authored UV2 scale
+        # varies wildly (faces tiling a texture hundreds of times), and keeping
+        # it would let a few such charts shrink every other chart to nothing.
+        sum3 = np.bincount(chart, np.where(needle, 0, area3), chart.max()+1)
+        sum2 = np.bincount(chart, np.where(needle, 0, area), chart.max()+1)
+        chart_scale = np.where((sum2 > 0) & (sum3 > 0), np.sqrt(sum3/np.maximum(sum2, 1e-300)), 1.0)
+        # Near-degenerate UV2 charts (tiny UV2 area, real 3D area) would be
+        # enlarged without bound and dictate the packing scale. Cap enlargement
+        # at 4x the area-weighted median chart scale; shrinking stays unbounded.
+        if (sum3 > 0).any():
+            ordered = np.argsort(chart_scale)
+            weight = np.cumsum(sum3[ordered])
+            typical = chart_scale[ordered][np.searchsorted(weight, weight[-1]/2)]
+            chart_scale = np.minimum(chart_scale, 4*typical)
+        for c, factor in shrink.items():
+            chart_scale[c] *= factor
+        texels, width, height, scale, spans = _pack_charts(layout, unique[:, 0], resolution, chart_scale)
+        if best is None or scale > best[0]:
+            best = (scale, unique, inverse, texels, width, height)
+        # One long chart can fix the scale while most of the atlas stays empty
+        # (a 2048x512 result). Cut such charts and repack; keep the densest.
+        long = np.flatnonzero(spans.max(1) > resolution/4)
+        if width*height >= resolution*resolution/2 or not len(long):
+            break
+        # Multi-face charts are cut; a single long face (a beam or strip) is
+        # instead given lower density, so it no longer sets the whole atlas.
+        faces_per_chart = np.bincount(chart, minlength=len(spans))
+        for c in long[faces_per_chart[long] < 2]:
+            shrink[c] = shrink.get(c, 1.0)*(resolution/4)/spans[c].max()
+        chart = _split_long_charts(chart, long[faces_per_chart[long] >= 2], tri2)
+    _, unique, inverse, texels, width, height = best
     mapping = unique[:, 1].astype(np.uint32)
     new_faces = inverse.reshape(-1, 3).astype(np.uint32)
-    layout = uv2[mapping].astype(np.float64)
-    collapsed = np.isin(unique[:, 0], chart[needle])
-    layout[collapsed] = 0
-    # Scale charts to uniform world-space texel density. Authored UV2 scale
-    # varies wildly (faces tiling a texture hundreds of times), and keeping
-    # it would let a few such charts shrink every other chart to nothing.
-    sum3 = np.bincount(chart, np.where(needle, 0, area3), chart.max()+1)
-    sum2 = np.bincount(chart, np.where(needle, 0, area), chart.max()+1)
-    chart_scale = np.where((sum2 > 0) & (sum3 > 0), np.sqrt(sum3/np.maximum(sum2, 1e-300)), 1.0)
-    # Near-degenerate UV2 charts (tiny UV2 area, real 3D area) would be
-    # enlarged without bound and dictate the packing scale. Cap enlargement
-    # at 4x the area-weighted median chart scale; shrinking stays unbounded.
-    if (sum3 > 0).any():
-        ordered = np.argsort(chart_scale)
-        weight = np.cumsum(sum3[ordered])
-        typical = chart_scale[ordered][np.searchsorted(weight, weight[-1]/2)]
-        chart_scale = np.minimum(chart_scale, 4*typical)
-    texels, width, height = _pack_charts(layout, unique[:, 0], resolution, chart_scale)
     size = tuple(1 << (int(v)-1).bit_length() for v in (width, height))
     uv = (texels/np.array(size)).astype(np.float32)
     if not np.array_equal(mapping[new_faces], faces):
