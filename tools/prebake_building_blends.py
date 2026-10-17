@@ -68,13 +68,20 @@ def _work(name):
         _state['emitted'].clear()
 
 
-def main():
+def run(argv, log):
+    """Process entry point for setup: bake alongside the first stages, logging to a file."""
+    with open(log, 'w', encoding='utf-8', buffering=1) as stream:
+        sys.stdout = sys.stderr = stream
+        main(argv)
+
+
+def main(argv=None):
     sys.path.insert(0, str(Path(__file__).parent))
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--library', required=True, help='game-paths.json used by the conversion stages')
     parser.add_argument('--cache', required=True, type=Path)
     parser.add_argument('--workers', type=int, default=max(1, (os.cpu_count() or 2)-2))
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     args.cache.mkdir(parents=True, exist_ok=True)
     _init(args.library, args.cache)
     index = _state['index']

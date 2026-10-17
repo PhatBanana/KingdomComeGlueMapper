@@ -326,12 +326,32 @@ def worker(config_path):
                 plan = conversion_plan(paths, build)
                 os.environ['GLUEMAPPER_BLEND_CACHE'] = str(blend_cache(build))
                 total = len(plan) + 3 + (config['action'] == 'build_install')
+                prebake = None
                 for index, (label, module, args) in enumerate(plan):
                     if cancel(): raise Cancelled('Cancelled after the previous conversion stage')
+                    if module == 'prebake_building_blends':
+                        # Bakes feed only the buildings stage onwards, so they run
+                        # in their own process pool alongside terrain, trees and water.
+                        import multiprocessing
+                        from prebake_building_blends import run as prebake_run
+                        prebake = multiprocessing.Process(target=prebake_run, args=(args, str(job / 'prebake.log')))
+                        prebake.start()
+                        events.emit('log', message='Started ' + label + ' alongside the first conversion stages')
+                        continue
+                    if prebake is not None and module == 'build_buildings_probe':
+                        events.emit('stage', index=0, total=total, label=label + ' (waiting for building blend atlases)')
+                        prebake.join()
+                        for line in (job / 'prebake.log').read_text(encoding='utf-8').splitlines()[-3:]:
+                            events.emit('log', message=line)
+                        if prebake.exitcode:
+                            raise RuntimeError('Building blend pre-bake failed; see prebake.log')
+                        prebake = None
                     events.emit('stage', index=index, total=total, label=label)
                     sys.argv = [module, *args]
                     importlib.import_module(module).main()
                     output.flush()
+                if prebake is not None:
+                    prebake.join()
                 if cancel(): raise Cancelled('Cancelled before packaging')
                 events.emit('stage', index=len(plan), total=total, label='Package converted world')
                 base = job / 'world-package'
