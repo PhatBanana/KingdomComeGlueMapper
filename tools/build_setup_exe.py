@@ -22,12 +22,21 @@ def main():
                '--name', name, '--distpath', str(output), '--workpath', str(repo / 'outputs/pyinstaller-build'),
                '--specpath', str(repo / 'outputs'), '--paths', str(repo / 'tools'),
                '--add-data', f'{repo / "runtime"}:runtime', '--add-data', f'{repo / "LICENSE"}:.',
+               '--add-data', f'{repo / "setup-ui"}:setup-ui',
+               '--add-data', f'{repo / "assets/fishing/gm_fishing_rod_icon.dds"}:assets/fishing',
                '--add-data', f'{repo / "tools/region_travel_horse_recovery.lua"}:.',
                '--add-binary', f'{texconv}:.',
                '--add-data', f'{repo / "third_party/DirectXTex-LICENSE.txt"}:third_party',
                '--add-data', f'{repo / "third_party/xatlas-LICENSE.txt"}:third_party',
                '--collect-all', 'xatlas',
-               '--exclude-module', 'lupa']
+               '--exclude-module', 'lupa','--exclude-module','playwright']
+    for resource in ('fishing_game.lua','fishing_runtime.lua','fishing_visuals.lua','fishing_interaction.lua'):
+        command.extend(['--add-data',f'{repo / "tools" / resource}:tools'])
+    # Raster signatures read their own sources, including the optional GPU
+    # sources. The setup uses the portable compiled CPU backend.
+    for resource in ('world_surface_scene.py','world_surface_landscape.py','stage_world_surfaces.py','world_surface_tiles.py','voxel_surfaces.py','voxel_raster_fast.py','voxel_raster_cuda.py','voxel_raster_cuda.cu','voxel_optix_shared.h','voxel_optix_device.cu','voxel_optix_host.h','geometry_opacity.py','world_surface_coverage.py'):
+        command.extend(['--add-data',f'{repo / "tools" / resource}:.'])
+    command.extend(['--hidden-import','voxel_raster_fast','--collect-all','numba','--collect-all','llvmlite'])
     for module in CONVERTERS: command.extend(['--hidden-import', module])
     command.append(str(repo / 'tools/setup_app.py'))
     subprocess.run(command, cwd=repo, check=True)

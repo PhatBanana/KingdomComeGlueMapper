@@ -6,7 +6,6 @@
 
 An experimental world and gameplay converter built around the assets in your installed games.
 
-[![Validate tooling](https://github.com/SamG-Coder/KingdomComeGlueMapper/actions/workflows/validate.yml/badge.svg)](https://github.com/SamG-Coder/KingdomComeGlueMapper/actions/workflows/validate.yml)
 [![Platform](https://img.shields.io/badge/platform-Windows-blue)](#getting-started)
 [![Status](https://img.shields.io/badge/status-experimental-orange)](#project-status)
 [![License: MIT](https://img.shields.io/badge/code-MIT-green)](LICENSE)
@@ -34,7 +33,7 @@ The goal is to preserve KCD1's authored world while using compatible KCD2 runtim
 
 **The main Rataje world is imported geographically. Complete KCD1 gameplay, campaign progression and every interactive object are still being converted.** Separate source maps and every DLC or alternate quest state are not covered by a whole-game completion claim.
 
-This page describes the **current source and inspected development build as of 13 October 2026**, checked against the build pipeline and converter code. Downloaded releases may predate features listed here; check their release notes. A current source implementation is not evidence that an older setup executable contains it.
+This page describes the **current source and inspected development build as of 17 October 2026**, checked against the build pipeline and converter code. Downloaded releases may predate features listed here; check their release notes. A current source implementation is not evidence that an older setup executable contains it.
 
 The normal setup route is **Continue a Trosky save → coachman → Travel to the Rattay region**. The separate campaign-start experiments are developer work, not the normal installation route. KCD1 saves are not converted.
 
@@ -42,16 +41,18 @@ The normal setup route is **Continue a Trosky save → coachman → Travel to th
 
 ### Windows setup
 
-1. Install both games. The setup currently accepts **KCD2 1.5.6**; this is enforced by its version check.
-2. Download the Windows x64 setup executable from [Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases).
-3. Select both installations and a build folder outside the game directories.
-4. Allow at least **90 GiB for building** and **35 GiB on the KCD2 drive for installation staging**. The setup combines the estimates when they share a drive; these are preflight requirements, not final mod sizes.
-5. Close the games and choose **Build and install**.
-6. Launch KCD2, continue a Trosky save and use the coachman's **Travel to the Rattay region** option.
+1. Download **Setup 0.3.2** from [Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). Python is bundled; Microsoft Edge WebView2 is required.
+2. Select **KCD1 Map**, **KCD2 Fishing**, or both. KCD1 Map needs both games; fishing only needs KCD2. The supported KCD2 version is **1.5.6**.
+3. Choose game locations and a build folder outside the games. A fresh map build reserves **200 GiB**, plus **64 GiB** for installation staging; these combine on the same drive.
+4. Choose **No Baking**, **Buildings** (+30 GiB working space), or **All (Forest)** (+60 GiB). The optional opening movie needs an external RAD encoder, FFmpeg/FFprobe and another 10 GiB; it currently replaces the shared New Game intro, including KCD2's.
+5. Close the games, review settings and start. Activity lists pending steps, progress and logs.
+6. For KCD1 Map, continue a Trosky save and use the coachman's **Travel to the Rattay region** option. The retail **New Game Sasau region (In Progress)** menu entry is experimental. For fishing, buy a rod from a general merchant after stock refresh, carry it, face nearby water and choose **Fish**.
 
-The packaged executable includes its Python runtime. **Python and the Modding Tools are not required to use the setup EXE.** Installation targets `Mods/kingdomcomegluemapper`, verifies the generated package and backs up an existing recognized installation.
+**Failed setup?** Choose **Activity → Resume failed setup…** and select the original job folder containing `job.json`. Verified completed packages are reused. A failed optional bake does not require rebuilding the map; compatible finished tiles are checked and reused. If map conversion never produced a complete package, that phase restarts. Logs and partial outputs are retained.
 
-See the [Windows setup guide](docs/windows-setup.md) for package-only builds, logs, cancellation, installation checks and rollback.
+A local baseline completed map conversion in **43 minutes 10 seconds**, before optional baking. That is one machine's result, not a universal ETA. Full-world bake duration is not yet established.
+
+See the [Windows setup guide](docs/windows-setup.md) for requirements, instructions, recovery and rollback, and the [launcher details](docs/setup-launcher.md) for each mode and current limitations.
 
 ### Run the current source
 
@@ -65,11 +66,10 @@ py -3.13 -m venv .venv
 .venv/Scripts/python.exe tools/setup_app.py
 ```
 
-Python 3.14 is not usable for this step: the pinned `xatlas==0.0.11` publishes no
-cp314 wheel, so `pip` falls back to compiling it from source and needs the Visual
-Studio C++ Build Tools. Without them the install aborts and nothing else from the
-requirements file is installed. See [contributing](CONTRIBUTING.md) for the full
-setup, the test suite and the issue-report format.
+Python 3.14 also works with the Visual Studio C++ build tools installed:
+the pinned `xatlas==0.0.11` has no cp314 wheel and must build from source.
+Python 3.13 avoids that compilation through its Windows wheel. See
+[contributing](CONTRIBUTING.md) for setup, local tests and issue reports.
 
 To build a distributable setup executable:
 
@@ -283,8 +283,8 @@ on manual dispatch (Actions → *Validate tooling* → *Run workflow*), not on p
 so it does not gate a pull request; run the suite locally before opening one. It
 does not have the games installed and cannot verify appearance or gameplay. Local
 binary checks, frozen-executable checks, development-client tests and retail
-gameplay are separate validation steps. Note that the 3.14 leg cannot install
-`requirements-test.txt` for the reason described under
+gameplay are separate validation steps. The Python 3.14 environment needs a
+C++ toolchain for xatlas, as described under
 [Run the current source](#run-the-current-source).
 
 ## Documentation and issue reports

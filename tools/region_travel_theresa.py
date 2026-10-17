@@ -13,7 +13,7 @@ import zipfile
 from campaign_entity_links import guid_value
 from campaign_sources import RetailSourceReader
 from character_person import resolve_person, register_person, actor_resources, unique
-from region_travel_visit import attach, ensure, edge
+from region_travel_visit import attach, ensure
 from upgrade_map import read, xml
 
 NAMESPACE = 'gluemapper_theresa'

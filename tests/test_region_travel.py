@@ -140,13 +140,16 @@ class RegionTravelTests(unittest.TestCase):
         with self.assertRaises(ValueError):patch(files[DIALOGUE],files[HOST])
 
     def test_routes_preserve_native_rows_and_do_not_use_new_game(self):
-        source=b'<database><LevelSwitches version="1"><LevelSwitchData Name="trosecko" TargetLevelId="2"/></LevelSwitches></database>'
+        source=b'<database><LevelSwitches version="1"><LevelSwitchData Name="trosecko" TargetLevelId="2" LoadingScreen="2"/></LevelSwitches></database>'
         rows=ET.fromstring(switch_table(source)).find('LevelSwitches')
         self.assertEqual([r.get('TargetLevelId') for r in rows],['1001','2'])
         self.assertEqual(len(rows),2)
         for r in rows:
             self.assertTrue(r.get('TargetLocationEntity').startswith('gmtravel_arrival_'))
             self.assertIsNone(r.get('Video'))
+            self.assertEqual(r.get('LoadingScreen'), '2')
+        with self.assertRaises(ValueError):
+            switch_table(source.replace(b' LoadingScreen="2"', b''))
         graph=ET.fromstring(travel_graph('Travel','to_kcd1'))
         switch=graph.find("./Skald/Project/Nodes/Function[@Name='travel']")
         self.assertEqual(switch.get('MethodName'),'wh::game::SwitchLevel')

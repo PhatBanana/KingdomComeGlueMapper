@@ -21,12 +21,14 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.2.0-alpha.4'
+APP_VERSION = '0.3.2'
 GIB = 1024 ** 3
+BUILD_WORKSPACE_GIB = 200
+INSTALL_STAGING_GIB = 64
 CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'build_buildings_probe', 'build_water_surface_probe', 'complete_instances',
               'build_entity_probe', 'build_landscape_surface_probe', 'repair_tree_materials',
-              'region_travel', 'prepare_spatial_hlod')
+              'region_travel', 'prepare_spatial_hlod', 'build_recipe')
 
 
 class Cancelled(Exception):
@@ -88,8 +90,8 @@ def preflight(config):
             receipt = json.loads((installed / RECEIPT).read_text(encoding='utf-8')) if (installed / RECEIPT).is_file() else {}
             if receipt.get('owner') != MOD_ID:
                 raise ValueError('Existing mod folder is not an owned setup installation; preserve it manually.')
-    build_bytes = 90 * GIB if action != 'install' else 100 * 1024 ** 2
-    install_bytes = 35 * GIB
+    build_bytes = BUILD_WORKSPACE_GIB * GIB if action != 'install' else 100 * 1024 ** 2
+    install_bytes = INSTALL_STAGING_GIB * GIB
     if action == 'install':
         package = Path(config.get('package', '')).resolve()
         receipt_path = package / RECEIPT
@@ -135,6 +137,9 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
     package, target = Path(package).resolve(), Path(target).resolve()
     # Package bytes are hashed while staging below, so the package is read only once.
     receipt = verify_package(package, hashes=False)
+    recipe = receipt.get('build_recipe')
+    if recipe and recipe.get('status') != 'complete':
+        raise ValueError('This build did not finish its gameplay recipe. Start a fresh build.')
     if receipt.get('kind') != 'retail-campaign-package':
         raise ValueError('Select a full campaign package, not a loader-only probe')
     from setup_campaign import game_version
@@ -226,7 +231,7 @@ class EventLog:
 
     def emit(self, kind, **values):
         if kind in ('stage', 'done', 'error', 'cancelled'):
-            self.finish_stage()
+            self.finish_stage('failed' if kind == 'error' else 'cancelled' if kind == 'cancelled' else 'complete')
         if kind in ('done', 'error', 'cancelled') and self.times:
             self.summarize_times()
         self.stream.write(json.dumps(dict(kind=kind, time=time.time(), **values)) + '\n')
@@ -238,7 +243,7 @@ class EventLog:
             self.stage = (values['label'], time.perf_counter(), profiler)
             if profiler: profiler.enable()
 
-    def finish_stage(self):
+    def finish_stage(self, status='complete'):
         if self.stage is None: return
         label, started, profiler = self.stage
         self.stage = None
@@ -253,8 +258,9 @@ class EventLog:
             stats.sort_stats('cumulative').print_stats(40)
             (self.directory / 'profiles' / (name + '.txt')).write_text(report.getvalue(), encoding='utf-8')
             stats.dump_stats(self.directory / 'profiles' / (name + '.prof'))
-        self.times.append(dict(label=label, seconds=seconds))
-        self.emit('log', message=f'Finished {label} in {seconds:.1f} s', label=label, seconds=seconds)
+        self.times.append(dict(label=label, seconds=seconds, status=status))
+        verb={'complete':'Finished','failed':'Failed','cancelled':'Cancelled'}[status]
+        self.emit('log', message=f'{verb} {label} '+('in' if status=='complete' else 'after')+f' {seconds:.1f} s', label=label, seconds=seconds, status=status)
 
     def summarize_times(self):
         (self.directory / 'stage-times.json').write_text(json.dumps(self.times, indent=2), encoding='utf-8')
@@ -338,6 +344,8 @@ def worker(config_path):
                 if cancel(): raise Cancelled('Travel package retained; cancelled before combining')
                 events.emit('stage', index=len(plan)+2, total=total, label='Combine and verify one complete mod')
                 package = combine(base, destination/MOD_ID, config['kcd2'], job/'package')
+                from build_recipe import run as run_recipe
+                run_recipe(config['kcd1'], config['kcd2'], package, job/'gameplay-recipe', events.progress, cancel)
             else:
                 package = Path(config['package']).resolve()
                 total = 1
@@ -348,7 +356,7 @@ def worker(config_path):
                 result.update(install_transaction(package, config['kcd2'], events.progress, cancel))
             events.emit('done', message=('Complete world and travel package built.' if config['action']=='build_only' else 'World and travel installed.') + ' Continue your Trosky save and talk to the coachman: Travel to the Rattay region.', **result)
         return 0
-    except Cancelled as error:
+    except (Cancelled, InterruptedError) as error:
         events.emit('cancelled', message=str(error)); return 2
     except BaseException as error:
         events.emit('error', message=str(error), traceback=traceback.format_exc()); return 1

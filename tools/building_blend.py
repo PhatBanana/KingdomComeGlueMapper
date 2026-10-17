@@ -12,12 +12,25 @@ from PIL import Image
 
 def decode_texture(base, chunks):
     """Read the mip chain described by the selected header, not stale HD tails."""
-    if base[:4] != b'DDS ' or base[84:88] != b'DX10':
-        raise ValueError('Expected DX10 building texture')
+    if base[:4] != b'DDS ':
+        raise ValueError('Expected DDS building texture')
+    if base[84:88] != b'DX10':
+        formats = {b'DXT1':71, b'DXT3':74, b'DXT5':77, b'ATI1':80, b'ATI2':83}
+        fmt = formats.get(base[84:88])
+        if fmt is None:
+            # Engine defaults such as grey.dds are ordinary uncompressed DDS.
+            flags = struct.unpack_from('<I',base,80)[0]
+            if not flags & 0x40:raise ValueError('Unsupported legacy building DDS compression')
+            h,w = struct.unpack_from('<II',base,12)
+            bits = struct.unpack_from('<I',base,88)[0]
+            if len(base)-128 < w*h*bits//8:raise ValueError('Incomplete legacy DDS top mip')
+            return np.array(Image.open(io.BytesIO(base)).convert('RGBA'))
+        header = bytearray(base[:128]);header[84:88] = b'DX10'
+        base = bytes(header) + struct.pack('<5I',fmt,3,0,1,0) + base[128:]
     h, w = struct.unpack_from('<II', base, 12)
     mips = struct.unpack_from('<I', base, 28)[0]
     fmt = struct.unpack_from('<I', base, 128)[0]
-    if fmt not in (71, 72, 77, 78, 80):
+    if fmt not in (71, 72, 74, 77, 78, 80, 83, 98, 99):
         raise ValueError(f'Unsupported building mask compression: DXGI {fmt}')
     block = 8 if fmt in (71, 72, 80) else 16
     sizes = [max(1, (w >> i)+3 >> 2)*max(1, (h >> i)+3 >> 2)*block for i in range(mips)]
@@ -36,7 +49,7 @@ def decode_texture(base, chunks):
     header[116:128] = bytes(12)
     # Pillow supports the UNORM variants; decoding returns the same stored
     # channel values. Colour-space conversion belongs to the shader sampler.
-    struct.pack_into('<I', header, 128, {72:71,78:77}.get(fmt,fmt))
+    struct.pack_into('<I', header, 128, {72:71,78:77,99:98}.get(fmt,fmt))
     return np.array(Image.open(io.BytesIO(bytes(header)+payload)).convert('RGBA'))
 
 

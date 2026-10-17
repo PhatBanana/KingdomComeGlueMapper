@@ -11,7 +11,7 @@ import zipfile
 from build_horse_trader_test import rewrite, digest
 from campaign_entity_links import append_links, guid_value
 from campaign_trigger_areas import TriggerArea, read_areas, write_areas
-from debug_supply_quest import attach, ENTRY
+from debug_supply_quest import attach
 from getting_started_dialogue import attach as attach_introduction
 from region_travel import guid
 from region_travel_ground import Heightfield

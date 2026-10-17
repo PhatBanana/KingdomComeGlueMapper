@@ -5,7 +5,6 @@ dependency requests. Individual souls keep independently owned output paths.
 """
 from pathlib import Path
 import xml.etree.ElementTree as ET
-import uuid
 
 from campaign_quest_graph import xml
 

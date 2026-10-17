@@ -1,4 +1,5 @@
 """Synthetic source/target blend equivalence and binary preservation checks."""
+import importlib.util
 import io
 from pathlib import Path
 import struct
@@ -40,6 +41,23 @@ def triangle_mesh():
 
 
 class BuildingBlendTests(unittest.TestCase):
+    def test_legacy_uncompressed_default_texture(self):
+        stream = io.BytesIO()
+        Image.new('RGB', (4, 4), (128, 128, 128)).save(stream, format='DDS')
+        decoded = decode_texture(stream.getvalue(), {})
+        self.assertEqual(decoded.shape, (4, 4, 4))
+        self.assertTrue(np.all(decoded == [128, 128, 128, 255]))
+        with self.assertRaisesRegex(ValueError, 'Incomplete'):
+            decode_texture(stream.getvalue()[:129], {})
+
+    def test_legacy_dxt1_top_mip(self):
+        header = bytearray(128); header[:4] = b'DDS '
+        struct.pack_into('<7I', header, 4, 124, 0x81007, 4, 4, 8, 0, 1)
+        struct.pack_into('<II4s', header, 76, 32, 4, b'DXT1')
+        struct.pack_into('<I', header, 108, 0x1000)
+        decoded = decode_texture(bytes(header)+struct.pack('<HHI', 0xf800, 0, 0), {})
+        self.assertTrue(np.all(decoded == [255, 0, 0, 255]))
+
     def test_unused_shared_material_slot_needs_no_atlas(self):
         blob = triangle_mesh()
         self.assertEqual(render_material_ids(blob), {0})
@@ -139,6 +157,8 @@ class BuildingBlendTests(unittest.TestCase):
             decode_texture(bytes(header)+block,{'1':block})
 
     def test_chart_repack_preserves_geometry_and_physics(self):
+        if importlib.util.find_spec('xatlas') is None:
+            self.skipTest('optional xatlas backend not installed')
         original=triangle_mesh()
         converted,triangles,size=reatlas(original,0,resolution=64)
         old={c.id:c.data for c in read_chunks(original)};new={c.id:c.data for c in read_chunks(converted)}

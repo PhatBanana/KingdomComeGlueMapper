@@ -44,5 +44,12 @@ class SmitheryTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'Expected six'):
             remove_old_brushes(data,hierarchy,meshes)
 
+    def test_resolved_mesh_names_survive_rebuild_numbering_changes(self):
+        data,hierarchy,meshes,_=self.fixture()
+        renamed=['new/anvil.cgf','new/tub.cgf','new/barrel.cgf','unrelated.cgf']
+        result,_,removed=remove_old_brushes(data,hierarchy,renamed,set(renamed[:3]))
+        self.assertEqual(len(removed),6)
+        self.assertEqual(verify_target_hlods(result),{1:2})
+
 
 if __name__=='__main__':unittest.main()

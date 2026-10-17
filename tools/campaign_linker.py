@@ -13,7 +13,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from campaign_sources import retail_sources
-from quest_import import ast, literal, parse_behavior
+from quest_import import ast, parse_behavior
 from upgrade_map import read
 
 

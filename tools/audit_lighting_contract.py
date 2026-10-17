@@ -1,10 +1,8 @@
 """Compare packaged source, converted and native lighting dependencies, read-only."""
 import argparse
 import copy
-import hashlib
 import json
 from pathlib import Path
-import struct
 import xml.etree.ElementTree as ET
 import zipfile
 

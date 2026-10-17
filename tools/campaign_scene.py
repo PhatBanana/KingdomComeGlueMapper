@@ -117,31 +117,6 @@ def bind_scene_cameras(project_blob, mission_blob, waiting_blob, dialogue_blob):
     return xml(project_root), xml(mission), append_links(waiting_blob, waiting), report
 
 
-def dialogue_quest_slice(model, actions):
-    """Select the objective contract exercised by one dialogue test.
-
-    Keep the original IDs and selected-to-selected transitions. Report every
-    excluded transition; this test slice cannot claim full quest continuation.
-    """
-    result = copy.deepcopy(model)
-    selected = {v['source']['objective_id'] for v in actions.values()
-                if v['quest'] == model['quest']}
-    rows = model['tables']['quest_objective']['rows']
-    if not selected or selected - {r['objective_id'] for r in rows}:
-        raise ValueError('Unresolved dialogue objective slice')
-    result['tables']['quest_objective']['rows'] = [r for r in rows if r['objective_id'] in selected]
-    boundaries = {k for k,v in model['graph']['nodes'].items()
-                  if v['attributes']['Class'] in ('Quest:Begin','Quest:End')}
-    retained = selected | boundaries
-    result['graph']['nodes'] = {k:v for k,v in model['graph']['nodes'].items() if k in retained}
-    result['graph']['edges'] = [e for e in model['graph']['edges'] if e['nodeIn'] in retained and e['nodeOut'] in retained]
-    transitions = model['tables']['quest_transition']['rows']
-    keep = lambda t: t['from_objective_id'] in retained and t['to_objective_id'] in retained
-    result['tables']['quest_transition']['rows'] = [t for t in transitions if keep(t)]
-    return result, dict(selected_objectives=sorted(selected),
-                        excluded_transitions=[t for t in transitions if not keep(t)], full_quest=False)
-
-
 def stat_effects(behavior, objectives):
     """Recognize the original completed-objective Get/Advance stat idiom."""
     known = {r['objective_name']: r for r in objectives}

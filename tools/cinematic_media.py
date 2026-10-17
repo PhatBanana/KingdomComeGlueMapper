@@ -6,6 +6,7 @@ the production campaign: it replaces an explicitly selected native movie entry.
 import argparse
 import hashlib
 import json
+import os
 from fractions import Fraction
 from pathlib import Path
 import struct
@@ -69,7 +70,8 @@ def demux(blob, output, audio_channel):
 def probe(path, count_frames=False):
     result = subprocess.run(['ffprobe', '-v', 'error', *(['-count_frames'] if count_frames else []),
                              '-show_streams', '-of', 'json', str(path)],
-                            check=True, capture_output=True, text=True)
+                            check=True, capture_output=True, text=True,
+                            creationflags=subprocess.CREATE_NO_WINDOW if os.name=='nt' else 0)
     return json.loads(result.stdout)['streams']
 
 

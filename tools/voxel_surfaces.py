@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import sys
 import xml.etree.ElementTree as ET
 import zlib
 
@@ -43,6 +44,34 @@ def decode_rgba_bytes(raw):
     rgba[...,:3]=_LINEAR_BYTES[raw[...,:3]]
     rgba[...,3]=_ALPHA_BYTES[raw[...,3]]
     return rgba
+
+
+def _take(iterator, count):
+    """Return up to count items from an iterator as a list."""
+    window = []
+    for _ in range(count):
+        try:
+            window.append(next(iterator))
+        except StopIteration:
+            break
+    return window
+
+
+def _bounded_map(executor, func, jobs, workers):
+    """Ordered results with a bounded window of submitted jobs.
+
+    ``Executor.map(..., buffersize=)`` only exists in Python 3.14, and
+    ``itertools.batched`` only exists in 3.12 and newer. Consuming the job
+    iterator one small window at a time keeps the bounded look-ahead the octree
+    walk needs, and yields results in job order on every supported version.
+    """
+    # Preserve the existing streaming scheduler on Python 3.14+.
+    if sys.version_info >= (3, 14):
+        yield from executor.map(func, jobs, buffersize=max(1, workers))
+        return
+    jobs = iter(jobs)
+    while window := _take(jobs, max(1, workers)):
+        yield from executor.map(func, window)
 
 
 def diffuse_texture(name, assets):
@@ -379,10 +408,10 @@ def build_tile(triangles,uv,ids,materials,origin,extent=256,min_edge=8,samples=2
         elif workers==1:nodes=list(map(render_node,jobs))
         else:
             from concurrent.futures import ThreadPoolExecutor
-            # Python 3.14 bounds queued geometry instead of materializing the
-            # entire world octree. Ordered results preserve native file bytes.
+            # Bound queued geometry instead of materializing the entire world
+            # octree. Ordered results preserve native file bytes.
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                nodes=list(pool.map(render_node,jobs,buffersize=workers))
+                nodes=list(_bounded_map(pool,render_node,jobs,workers))
     finally:
         if backend in ('cuda','optix'):packed.close()
     if not nodes and allow_empty:nodes.append((tuple(int(v) for v in origin)+(extent,),None))

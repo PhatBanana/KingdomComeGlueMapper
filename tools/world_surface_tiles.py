@@ -58,11 +58,13 @@ def tile_signature(version,asset_digest,plan,job,samples,experimental_base_mater
     return hashlib.sha256(json.dumps([version,asset_digest,plan['source_packages'],plan.get('vegetation'),job,samples,experimental_base_materials,backend,gpu_config]).encode()).hexdigest()
 
 
-def build(scene, *, only_origin=None, samples=2, experimental_base_materials=False, backend='compiled', output=None,workers=1,start_index=1):
+def build(scene, *, only_origin=None, samples=2, experimental_base_materials=False, backend='compiled', output=None,workers=1,start_index=1,progress=None,cancelled=lambda:False):
     if os.environ.get('GLUEMAPPER_OPTIX_TRIANGLES')=='1' and output is None:
         raise ValueError('Experimental hardware triangles require an isolated --output directory; boundary parity is not established')
     scene=Path(scene); plan=json.loads((scene/'plan.json').read_text())
-    if plan['errors']:raise ValueError('Resolve scene geometry errors before baking')
+    if plan['errors']:
+        details='; '.join(f'{name}: {reason}' for name,reason in list(plan['errors'].items())[:3])
+        raise ValueError(f"Resolve scene geometry errors before baking: {details}. See {scene/'plan.json'}")
     for name,digest in plan['source_packages'].items():
         if hashlib.sha256(Path(name).read_bytes()).hexdigest()!=digest:raise ValueError('Scene packages changed; regenerate plan')
     records=json.loads((scene/'placements.json').read_text())
@@ -82,6 +84,8 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
     if plan.get('asset_catalog_digest')!=asset_digest:
         raise ValueError('Asset catalog changed or was not fingerprinted; regenerate scene and landscape plan')
     for number,job in enumerate(jobs):
+        if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
+        if progress:progress('Bake lighting tiles',number,len(jobs),'Preparing tile '+str(number+1))
         origin=job['origin'];stem='_'.join(f'{v:04d}' for v in [*(x+128 for x in origin),256])
         report_path=destination/(stem+'.json'); start=time.time()
         # Include the scene bytes, placement IDs and conversion policy in each
@@ -89,12 +93,15 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         gpu_config=gpu_configuration()
         digest=tile_signature(version,asset_digest,plan,job,samples,experimental_base_materials,backend,gpu_config)
         if report_path.exists():
-            old=json.loads(report_path.read_text())
-            if old.get('signature')==digest and old.get('status')=='built':
-                idx=(destination/(stem+'.idx')).read_bytes(); vox=(destination/(stem+'.vox')).read_bytes()
-                validate_pair(idx,vox)
-                if hashlib.sha256(idx+vox).hexdigest()==old['sha256']:
-                    results.append(old);print(f'Tile {number+1}/{len(jobs)} {stem}: verified existing',flush=True);continue
+            try:
+                old=json.loads(report_path.read_text())
+                if old.get('signature')==digest and old.get('status')=='built':
+                    idx=(destination/(stem+'.idx')).read_bytes();vox=(destination/(stem+'.vox')).read_bytes()
+                    validate_pair(idx,vox)
+                    if hashlib.sha256(idx+vox).hexdigest()==old['sha256']:
+                        results.append(old);print(f'Tile {number+1}/{len(jobs)} {stem}: verified existing',flush=True);continue
+            except (OSError,ValueError,KeyError):
+                print(f'Tile {number+1}/{len(jobs)} {stem}: incomplete checkpoint; rebuilding',flush=True)
         audit={'tile':stem,'origin':origin,'signature':digest,'status':'failed','placements':len(job['placements']),'requested_backend':backend,'workers':workers}
         audit['gpu_config']=gpu_config
         try:
@@ -179,6 +186,7 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
              'total_scene_tiles':len(plan['tiles']),'processed_tiles':len(results),'built':sum(r['status']=='built' for r in results),
              'failed':[{'tile':r['tile'],'error':r.get('error','Unknown failure')} for r in results if r['status']!='built']}
     ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary,indent=2)+'\n')
+    if progress:progress('Bake lighting tiles',len(jobs),len(jobs),'All tile results recorded')
     return results
 
 

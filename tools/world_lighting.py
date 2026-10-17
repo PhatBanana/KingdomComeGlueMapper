@@ -2,11 +2,9 @@
 import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import itertools
-import json
 import math
 from pathlib import Path
 import re
-import struct
 import xml.etree.ElementTree as ET
 import zipfile
 

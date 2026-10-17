@@ -12,6 +12,51 @@ import zipfile
 from retail_menu import menu_assets
 from upgrade_map import read
 
+MENU_LABEL = 'New Game Sasau region (In Progress)'
+
+
+def resources(game, level_id):
+    """Build from retail UI assets; no developer runtime or debug flag needed."""
+    from setup_campaign import runtime_directory
+    with zipfile.ZipFile(Path(game) / 'Data/IPL_GameData.pak') as z:
+        assets, source = menu_assets(z, read)
+    lua = ('KingdomComeGlueMapper = KingdomComeGlueMapper or {}\n'
+           'KingdomComeGlueMapper.startProbe = true\n'
+           f'KingdomComeGlueMapper.campaignLevelId = {int(level_id)}\n'
+           f'KingdomComeGlueMapper.campaignMenuLabel = {json.dumps(MENU_LABEL)}\n'
+           'KingdomComeGlueMapper.campaignDescription = "Start a new game on the KCD1 map. Campaign conversion is in progress."\n'
+           + (runtime_directory() / 'campaign_menu.lua').read_text(encoding='utf-8'))
+    assets['Scripts/Mods/kingdomcomegluemapper.lua'] = lua.encode()
+    return assets, source
+
+
+def add_to_package(game, package, level='kcd1_travel'):
+    """Add the retail menu to a private build and refresh its install receipt."""
+    from setup_campaign import RECEIPT, digest, verify_package
+    package = Path(package)
+    receipt = verify_package(package, hashes=False)
+    with zipfile.ZipFile(package / 'Data/kingdomcomegluemapper.pak') as z:
+        level_id = resolve_level(read(z, 'Libs/Tables/level__kingdomcomegluemapper.xml'), level)
+    if not (package / 'Data/Levels' / level / 'level.pak').is_file():
+        raise ValueError('New Game destination is missing')
+    assets, source = resources(game, level_id)
+    name = 'Data/gluemapper_campaign_menu.pak'
+    path = package / name
+    pending = path.with_suffix('.pending')
+    with zipfile.ZipFile(pending, 'x', zipfile.ZIP_STORED) as z:
+        for entry, blob in sorted(assets.items()):
+            z.writestr(entry, blob)
+    pending.replace(path)  # Detach any hard-linked previous build.
+    receipt['files'][name] = digest(path)
+    receipt['menu'] = True
+    receipt['new_game_menu'] = dict(label=MENU_LABEL, level=level, level_id=level_id,
+                                    source=source, runtime_verified=False)
+    receipt_path = package / RECEIPT
+    pending_receipt = receipt_path.with_suffix('.pending')
+    pending_receipt.write_text(json.dumps(receipt, indent=2), encoding='utf-8')
+    pending_receipt.replace(receipt_path)
+    return receipt['new_game_menu']
+
 
 def resolve_level(blob, level):
     rows = [r for r in ET.fromstring(blob).iter('LevelData') if r.get('LevelName') == level]
@@ -31,17 +76,7 @@ def stage(game, package, output, level):
         level_id = resolve_level(read(z, 'Libs/Tables/level__kingdomcomegluemapper.xml'), level)
     if not (package / 'Data/Levels' / level / 'level.pak').is_file():
         raise ValueError('Destination world is not installed')
-    with zipfile.ZipFile(game / 'Data/IPL_GameData.pak') as z:
-        assets, source = menu_assets(z, read)
-    runtime = Path(__file__).resolve().parents[1] / 'runtime/campaign_menu.lua'
-    lua = ('KingdomComeGlueMapper = KingdomComeGlueMapper or {}\n'
-           'KingdomComeGlueMapper.startProbe = true\n'
-           f'KingdomComeGlueMapper.campaignLevelId = {level_id}\n'
-           'KingdomComeGlueMapper.campaignMenuLabel = "New Game Debug Sasau region"\n'
-           'KingdomComeGlueMapper.campaignDescription = "Start the converted KCD1 opening. Campaign conversion is in progress."\n'
-           + runtime.read_text(encoding='utf-8'))
-    # The native loader selects the manifest's modid, not arbitrary Lua files.
-    assets['Scripts/Mods/kingdomcomegluemapper.lua'] = lua.encode()
+    assets, source = resources(game, level_id)
     output.mkdir(parents=True)
     pak = output / 'gluemapper_campaign_menu.pak'
     with zipfile.ZipFile(pak, 'x', zipfile.ZIP_STORED) as z:

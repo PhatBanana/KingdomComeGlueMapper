@@ -43,7 +43,8 @@ def convert(doc, blob, target, asset_read, index):
             if name.startswith('data/') and name not in index:
                 name = name[5:]
             parts = {str(i): asset_read(name+'.'+str(i)) for i in range(1, 16) if name+'.'+str(i) in index}
-            return decode_texture(asset_read(name), parts)
+            try:return decode_texture(asset_read(name), parts)
+            except ValueError as error:raise ValueError(f'{name}: {error}') from error
         params = element.find('PublicParams')
         def value(key, default):
             return float(params.get(key, str(default))) if params is not None else default

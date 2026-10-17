@@ -6,24 +6,22 @@ generated packages are accepted in a pull request.**
 
 ## Set up a development environment
 
-The converter is a plain set of Python modules in [tools](tools) with no
-package metadata and no build step. Python 3.13 and 3.14 were verified on
-Windows x64; the pinned native dependency decides which of them can install:
+The converter is a set of Python modules in [tools](tools). Python 3.13 and
+3.14 are tested on Windows x64. Python 3.13 is the easiest starting point for
+the pinned native dependencies:
 
-| Python | `pip install -r requirements-setup.txt` | Test suite |
+| Python | Dependency setup | Local test result |
 |---|---|---|
-| 3.13 | installs every pinned dependency | green |
-| 3.14 | **fails**, leaving the environment empty | green, but only if you supply the dependencies yourself |
+| 3.13 | xatlas 0.0.11 provides a Windows wheel | full suite passed |
+| 3.14 | xatlas 0.0.11 must build from source using Visual Studio C++ build tools | full suite passed with dependencies installed |
 
-On **Python 3.14** `xatlas==0.0.11` publishes no cp314 wheel, so pip builds it
-from source and needs a C++ toolchain. Without the Visual Studio C++ Build Tools
-the command aborts with `Failed building wheel for xatlas`. The failure is
-atomic: nothing else from the requirements file is installed, not even NumPy or
-Pillow. `requirements-test.txt` pins xatlas too, so it fails the same way.
-`xatlas` is required to build the release EXE, so 3.13 is the straightforward
-choice for a development environment.
+The missing cp314 wheel is a packaging limitation, not a Python 3.14
+incompatibility. The parallel CPU baker supports both versions. Other native
+dependencies still need compatible wheels or build tools. A failed pip install
+can leave a partially prepared environment; fix the reported dependency and
+rerun the requirements command before testing.
 
-Use 3.13 if you want the documented commands to work without a compiler:
+Use Python 3.13 to avoid compiling xatlas:
 
 ```powershell
 git clone https://github.com/SamG-Coder/KingdomComeGlueMapper.git
@@ -41,13 +39,14 @@ For the test suite:
 ```
 
 `requirements-test.txt` adds Lupa (executable Lua checks) and xatlas on top of
-`requirements-npc-effects.txt` and `requirements-lighting.txt`. You do not need
-the games, the Modding Tools, or any asset to run the suite.
+`requirements-npc-effects.txt` and `requirements-lighting.txt`. The synthetic tests run without the games or Modding Tools. Tests requiring
+optional GPU binaries or local game-derived fixtures report skips when those
+resources are absent; a green synthetic suite does not verify gameplay.
 
 ## Before opening a pull request
 
-Run the checks the CI workflow in
-[validate.yml](.github/workflows/validate.yml) runs. The workflow also
+Run these checks locally. Automatic Actions runs are disabled; the manually dispatched workflow in
+[validate.yml](.github/workflows/validate.yml) runs the same core checks. It also
 invokes `--help` on a fixed list of command-line entry points; the last command
 here stands in for that sweep:
 
@@ -64,7 +63,7 @@ room-rental fixtures.
 A focused run is much faster while iterating:
 
 ```powershell
-.venv/Scripts/python.exe -m unittest tests.test_brush_registration -v
+.venv/Scripts/python.exe -m unittest discover -s tests -p test_brush_registration.py -v
 ```
 
 When an optional native backend is genuinely absent, skip the test instead of
@@ -81,7 +80,8 @@ except ImportError:
 
 Every conversion rule that can be checked without the games belongs in
 [tests](tests). The suite builds synthetic archives and meshes in memory, so
-a test must never require a game installation, and it must not write into
+new synthetic tests must not require a game installation. Keep optional
+game-dependent checks explicitly skippable. Use temporary directories instead of
 `outputs/` or `research/`. Follow the existing style: one `unittest` module per
 converter, imports taken from `tools/`.
 
@@ -106,3 +106,7 @@ plainly rather than implying a runtime fix; the maintainer validates appearance
 and gameplay in retail. Mention the exact commands you ran and their result.
 
 Documentation-only and test-only pull requests are welcome.
+
+See the [Windows setup guide](docs/windows-setup.md#build-from-source) for
+packaging and frozen-runtime checks; source tests alone do not validate the
+distributed executable.

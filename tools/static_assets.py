@@ -157,7 +157,7 @@ def asset_pack(stack, library, prefix, cache_dir=None):
     converted_geometry = {}
     native_vine = None
 
-    def material(name, geometry=None):
+    def material(name, geometry=None, source_mesh=None):
         nonlocal native_vine
         name = name.replace("\\", "/").lower().removesuffix(".mtl")
         if name+'.mtl' not in index and 'objects/'+name+'.mtl' in index:
@@ -179,7 +179,15 @@ def asset_pack(stack, library, prefix, cache_dir=None):
             native_vine_deformation(doc, native_vine)
         convert_puddle_proxies(doc)
         convert_waterfall_speeds(doc)
-        needs_geometry = bool(list(blend_inputs(doc)))
+        from build_recipe import reviewed_blend_mesh
+        blend_slots = list(blend_inputs(doc))
+        needs_geometry = bool(blend_slots) and reviewed_blend_mesh(source_mesh)
+        if blend_slots and not needs_geometry:
+            # Match the accepted base conversion outside the reviewed repair.
+            # KCD2 has one Opacity slot: retain its secondary diffuse binding.
+            # Do not broaden the two-model atlas experiment to the entire map.
+            for _, element, _, mask in blend_slots:
+                element.find('Textures').remove(mask)
         key = (name, hashlib.sha256(geometry).hexdigest() if geometry is not None else None) if needs_geometry else name
         if key in material_names:
             return material_names[key]
@@ -250,7 +258,7 @@ def asset_pack(stack, library, prefix, cache_dir=None):
                     if relative+".mtl" in index:
                         resolved = relative
                 if resolved+".mtl" in index:
-                    new = material(material_override or resolved, geometry=bytes(blob)).encode()
+                    new = material(material_override or resolved, geometry=bytes(blob), source_mesh=name).encode()
                     if len(new)>=128:
                         raise ValueError("Material path exceeds fixed CGF field")
                     renames[chunk_id] = new

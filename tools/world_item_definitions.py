@@ -73,7 +73,10 @@ class WorldItemAdapter(ItemAdapter):
 
     def __init__(self,tables,namespace,native,weapon_classes,native_components=None,native_tool_types=None):
         super().__init__(tables,namespace,native_tool_types);self.native=native;self.weapon_classes=weapon_classes
-        self.native_item_rows = {k:v for k,v in native.items() if usable_native_item(v)}
+        # A placeholder model disqualifies reuse of the asset, not the shipped
+        # item's enum metadata. Retained GUID/type pairs disambiguate source
+        # enum names such as the two distinct meal_tray types.
+        self.native_item_rows = dict(native)
         self.native_components=native_components
 
     def plan(self,identity):
