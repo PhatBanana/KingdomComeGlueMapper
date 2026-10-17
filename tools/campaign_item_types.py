@@ -29,8 +29,13 @@ def resolve(source_rows, target_rows, table, identity, retained_items=()):
         matches = [r for r in target_rows if r.get(id_field) in retained_targets]
     else:
         if sum(r.get(name_field) == name for r in source_rows) != 1:
-            raise ValueError('Ambiguous source item type name requires retained item evidence: ' + name)
-        matches = [r for r in target_rows if r.get(name_field) == name]
+            # KCD1 repeats some names (npc_tool_type meal_tray is 10 and 25).
+            # A native row with the same identity and name is unambiguous.
+            matches = [r for r in target_rows if r.get(id_field) == identity and r.get(name_field) == name]
+            if len(matches) != 1:
+                raise ValueError('Ambiguous source item type name requires retained item evidence: ' + name)
+        else:
+            matches = [r for r in target_rows if r.get(name_field) == name]
     if len(matches) != 1 or not matches[0].get(id_field):
         raise ValueError('Missing or ambiguous native item type: ' + table + '/' + name)
     target = matches[0][id_field]

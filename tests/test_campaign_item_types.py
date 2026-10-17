@@ -38,6 +38,15 @@ class ItemTypeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Conflicting'):
             resolve(source, target, 'npc_tool_type', '10', [dict(item_id='a', target_id='10'), dict(item_id='b', target_id='25')])
 
+    def test_duplicate_source_name_resolves_when_native_identity_and_name_agree(self):
+        # Rataje's meal_tray_large uses source type 25, which is meal_tray in both games.
+        source = [dict(npc_tool_type_id=n, npc_tool_type_name='meal_tray') for n in ('10', '25')]
+        target = [dict(npc_tool_type_id='10', npc_tool_type_name='chicken_tray'),
+                  dict(npc_tool_type_id='25', npc_tool_type_name='meal_tray')]
+        mapped, evidence = resolve(source, target, 'npc_tool_type', '25')
+        self.assertEqual(mapped, '25')
+        self.assertEqual(evidence['target_name'], 'meal_tray')
+
     def test_numeric_collision_is_resolved_by_source_identity(self):
         source = [dict(npc_tool_type_id='10', npc_tool_type_name='meal_tray')]
         target = [dict(npc_tool_type_id='10', npc_tool_type_name='chicken_tray'),
