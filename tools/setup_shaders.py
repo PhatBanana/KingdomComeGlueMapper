@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 import shutil
 import subprocess
+import time
 import zipfile
 
 from fix_illum_shader import REPAIRS as ILLUM_REPAIRS
@@ -136,21 +137,68 @@ def prepare(target, output):
     return root, signature
 
 
-def run_command(command, root, log, cancelled, notify):
+class _LiveLog:
+    """Read only appended bytes; partial lines stay buffered until complete."""
+    def __init__(self, path):
+        self.path, self.offset, self.pending = path, 0, b''
+
+    def drain(self, final=False):
+        changed = False
+        try:
+            with self.path.open('rb') as source:
+                if source.seek(0, 2) < self.offset:
+                    self.offset, self.pending = 0, b''
+                source.seek(self.offset)
+                while True:
+                    data = source.read(256 * 1024)
+                    self.offset += len(data)
+                    changed |= bool(data)
+                    self.pending += data
+                    lines = self.pending.split(b'\n')
+                    self.pending = lines.pop()
+                    for line in lines:
+                        print(line.decode('utf-8', errors='replace').rstrip('\r'), flush=True)
+                    if not final or not data:
+                        break
+        except FileNotFoundError:
+            pass  # ShaderCacheGen creates its log after initialization.
+        if final and self.pending:
+            print(self.pending.decode('utf-8', errors='replace').rstrip('\r'), flush=True)
+            self.pending = b''
+        return changed
+
+
+def run_command(command, root, log, cancelled, notify, *, compiler_log=None):
     env = dict(os.environ, TEMP=str(root/'Temp'), TMP=str(root/'Temp'))
     (root/'Temp').mkdir(exist_ok=True)
+    if compiler_log is not None:
+        compiler_log.unlink(missing_ok=True)  # Never replay an earlier compilation.
+    live = _LiveLog(compiler_log or log)
+    label = 'Compile native shaders' if compiler_log else 'Package native shaders'
+    started = last_activity = time.monotonic()
+    print(f'{label}: starting; live output from {live.path}', flush=True)
     with log.open('wb') as stream:
         process = subprocess.Popen(command, cwd=root, stdout=stream, stderr=subprocess.STDOUT,
             env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
-        while True:
-            try:
-                code = process.wait(timeout=1)
-                break
-            except subprocess.TimeoutExpired:
-                if cancelled():
-                    process.terminate(); process.wait()
-                    raise InterruptedError('Shader build cancelled')
-                notify('Compile native shaders', 0, 1, str(root/'shadercachegen.log'))
+        try:
+            while True:
+                try:
+                    code = process.wait(timeout=1)
+                    break
+                except subprocess.TimeoutExpired:
+                    if live.drain():
+                        last_activity = time.monotonic()
+                    if cancelled():
+                        raise InterruptedError('Shader build cancelled')
+                    now = time.monotonic()
+                    if now - last_activity >= 15:
+                        print(f'{label}: still running ({int(now - started)} s elapsed); waiting for compiler output.', flush=True)
+                        last_activity = now
+                    notify(label, 0, 0, f'{int(now - started)} s elapsed · {live.path.name}')
+        finally:
+            if process.poll() is None:
+                process.terminate(); process.wait()
+            live.drain(final=True)
     if code: raise ValueError(f'Native shader tool failed ({code}); see {log}')
 
 
@@ -158,7 +206,7 @@ def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
     output = Path(output)
     root, signature = prepare(target, output)
     run_command([str(root/'Tools/ShaderCacheGen/ShaderCacheGen.exe'), '/PrecacheShaderList'],
-                root, output/'compile.log', cancelled, notify)
+                root, output/'compile.log', cancelled, notify, compiler_log=root/'shadercachegen.log')
     log = (root/'shadercachegen.log').read_text(errors='replace')
     compilation = compilation_result(log)
     run_command([str(root/'Tools/rc/rc.exe'), '/jobtarget=ShadersAll',
