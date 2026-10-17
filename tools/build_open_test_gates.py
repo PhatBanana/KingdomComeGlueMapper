@@ -116,6 +116,10 @@ def build(mod, output, source=None):
             originals=source_geometry(source,('objects/buildings/castles/castle_talmberk/castle_talmberk_grate.cgf','objects/buildings/wall_wooden/talmberk_palisade_gate.cga'))
             models=resolve_models(original,meshes,lambda n:read(*assets[n.lower()]),originals.__getitem__)
     updated,report=open_gates(original,meshes,*models)
+    from skalitz_outer_gates import normalize
+    updated, correction = normalize(updated)
+    report['skalitz_outer_gates'] = correction
+    report['skalitz_portcullises'] = []
     target=output/'Data/Levels/kcd1_travel/level.pak'
     rewrite(level,target,updated)
     with zipfile.ZipFile(level) as a,zipfile.ZipFile(target) as b:

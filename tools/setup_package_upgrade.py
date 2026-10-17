@@ -14,7 +14,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     report.setdefault('content_validation', {})['start_policy'] = POLICY
@@ -61,7 +61,9 @@ def finalize(package):
                     or n.lower().startswith('layers/') and n.lower().endswith('.xml')]
         geometry, removed = normalize(read(z, 'triggerareas.fubar'), missions)
         normalize(geometry, missions, validate_only=True)
-    rewrite(package, level, {'whdata_0': metadata, 'triggerareas.fubar': geometry})
+        from skalitz_outer_gates import normalize as correct_gates
+        gates, gate_report = correct_gates({n:read(z,n) for n in ('terrain/hlods.dat','terrain/hlods.xml')})
+    rewrite(package, level, {'whdata_0': metadata, 'triggerareas.fubar': geometry, **gates})
     runtime = f'Data/{MOD_ID}.pak'
     table = f'Libs/Tables/level__{MOD_ID}.xml'
     with zipfile.ZipFile(package/runtime) as z:
@@ -85,7 +87,7 @@ def finalize(package):
     receipt['build_recipe']['content_validation'] = validate(package)
     receipt['build_recipe']['version'] = VERSION
     receipt['package_upgrade'] = dict(version=2, registered_smart_areas=added,
-        removed_duplicate_smart_geometry=removed, runtime_verified=False)
+        removed_duplicate_smart_geometry=removed, skalitz_outer_gates=gate_report, runtime_verified=False)
     if 'baking' in receipt:
         receipt['baking']['levels'] = [r for r in receipt['baking'].get('levels', []) if r.get('level') == 'kcd1_travel']
     receipt['files'] = {n:h for n,h in receipt['files'].items() if not n.startswith('Data/Levels/kcd1_rataje/')}

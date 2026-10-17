@@ -36,6 +36,8 @@ class UpgradeTests(unittest.TestCase):
             from campaign_trigger_areas import write_areas
             with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak','a') as z:
                 z.writestr('triggerareas.fubar',write_areas([],1))
+                from test_skalitz_outer_gates import fixture
+                for name,data in fixture().items():z.writestr(name,data)
             table=f'Libs/Tables/level__{MOD_ID}.xml'
             archive(f'Data/{MOD_ID}.pak',{table:b'<Root><Levels><LevelData LevelId="2" LevelName="trosecko"/><LevelData LevelId="1000" LevelName="kcd1_rataje"/><LevelData LevelId="1001" LevelName="kcd1_travel"/></Levels></Root>'})
             (p/'mod.manifest').write_text(f'<Mod><info><modid>{MOD_ID}</modid></info></Mod>')
@@ -49,6 +51,7 @@ class UpgradeTests(unittest.TestCase):
             with patch('setup_gameplay.validate',return_value={'start_policy':POLICY}):result=finalize(p)
             verify_package(p)
             self.assertTrue(result['single_playable_world']);self.assertFalse(base.exists())
+            self.assertEqual(result['package_upgrade']['skalitz_outer_gates']['opened_leaves'],6)
             self.assertEqual(shared.read_bytes(),b'shared')
             with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
                 validate_start_policy(z.read(PROJECT),OPENING)
