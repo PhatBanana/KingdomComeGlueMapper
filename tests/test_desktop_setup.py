@@ -105,7 +105,7 @@ class DesktopSetupTests(unittest.TestCase):
     @patch('desktop_setup.free_space', return_value=1024 ** 3)
     def test_low_space_is_reported_before_build(self, *_):
         config = dict(kcd1=str(self.root / 'a'), kcd2=str(self.root / 'b'), workspace=str(self.root / 'work'), action='build_only')
-        with self.assertRaisesRegex(ValueError, '90.0 GiB'): preflight(config)
+        with self.assertRaisesRegex(ValueError, '200.0 GiB'): preflight(config)
 
     @patch('desktop_setup.game_running', return_value=False)
     @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
@@ -158,15 +158,34 @@ class DesktopSetupTests(unittest.TestCase):
                  patch('desktop_setup.build_campaign') as campaign, \
                  patch('region_travel.build') as bridge, \
                  patch('travel_bridge_package.combine', return_value=job/'package') as combine, \
+                 patch('build_recipe.run') as recipe, \
                  patch('desktop_setup.install_transaction', return_value={'installed': 'target'}) as install:
                 self.assertEqual(worker(config), 0)
                 campaign.assert_called_once_with('source', 'target', job/'conversion/Data', 'setup_world', job/'world-package', start_probe=False)
                 bridge.assert_called_once_with('source', 'target', job/'world-package/Data/Levels/kcd1_rataje', job/'region-travel', modid=MOD_ID)
                 combine.assert_called_once_with(job/'world-package', job/'region-travel'/MOD_ID, 'target', job/'package')
+                recipe.assert_called_once()
+                self.assertEqual(recipe.call_args.args[:4], ('source', 'target', job/'package', job/'gameplay-recipe'))
                 self.assertEqual(install.call_count, int(action=='build_install'))
             events = [json.loads(line) for line in (job/'events.jsonl').read_text().splitlines()]
             self.assertEqual(events[-1]['kind'], 'done')
             self.assertIn('Trosky', events[-1]['message'])
+
+    @patch('desktop_setup.preflight', return_value='ready')
+    def test_recipe_failure_blocks_installation(self, *_):
+        job = self.root/'failed-recipe';job.mkdir()
+        config = job/'job.json'
+        config.write_text(json.dumps(dict(kcd1='source', kcd2='target', workspace=str(job), action='build_install')))
+        with patch('desktop_setup.conversion_plan', return_value=[]), patch('desktop_setup.build_campaign'), \
+             patch('region_travel.build'), patch('travel_bridge_package.combine', return_value=job/'package'), \
+             patch('build_recipe.run', side_effect=ValueError('Recipe failed')), patch('desktop_setup.install_transaction') as install:
+            self.assertEqual(worker(config), 1)
+            install.assert_not_called()
+
+    def test_incomplete_recipe_cannot_be_installed(self):
+        with patch('desktop_setup.verify_package', return_value={'build_recipe': {'status': 'building'}}):
+            with self.assertRaisesRegex(ValueError, 'did not finish'):
+                install_transaction(self.root/'package', self.root/'target')
 
     @patch('desktop_setup.validate_games', return_value='1.5.6')
     @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
@@ -196,6 +215,16 @@ class DesktopSetupTests(unittest.TestCase):
         self.assertEqual(events[-1]['kind'], 'done')
         self.assertIn('Region travel installed', events[-1]['message'])
 
+
+    def test_failed_stage_is_not_reported_as_finished(self):
+        log=EventLog(self.root/'events.jsonl')
+        log.emit('stage',label='Forest bake',index=0,total=1)
+        log.emit('error',message='Geometry error')
+        log.stream.close();log.text.close()
+        text=(self.root/'setup.log').read_text()
+        self.assertIn('Failed Forest bake after',text)
+        self.assertNotIn('Finished Forest bake',text)
+        self.assertEqual(json.loads((self.root/'stage-times.json').read_text())[0]['status'],'failed')
 
     def run_stages(self, profile):
         log = EventLog(self.root / 'events.jsonl', profile=profile)

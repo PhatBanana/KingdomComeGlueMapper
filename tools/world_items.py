@@ -44,7 +44,9 @@ def build(files, resources, source, target, output):
         report['missing_items']=[r for r in report['jobs'] if r['group']=='items' and r['status']!='imported']
         report_path=output/'world-items-report.json'
         report_path.write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
-        if report['missing_items']:raise ValueError(str(len(report['missing_items']))+' pickup item definitions failed conversion')
+        if report['missing_items']:
+            details = '; '.join(j['identity']+': '+j.get('error',j['status']) for j in report['missing_items'][:3])
+            raise ValueError(f"{len(report['missing_items'])} pickup item definitions failed conversion: {details}. See {report_path}")
         updated,world=convert(files,placements,importer.registered['items'])
         result=dict(resources);strings={};asset_files={}
         for name,data in importer.files.items():

@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 import struct
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
@@ -17,6 +18,24 @@ def quad(x0, x1, y0, y1, z):
 
 
 class GeometryOpacityTests(unittest.TestCase):
+    def test_unassigned_material_preserves_geometry_and_records_default(self):
+        chunks=[c for c in read_chunks(self.mesh_fixture()) if c.kind != 0x1014]
+        for i,c in enumerate(chunks):
+            if c.kind == 0x100b:
+                data=bytearray(c.data);struct.pack_into('<i',data,76,0);chunks[i]=replace(c,data=bytes(data))
+            if c.kind == 0x1017:
+                data=bytearray(c.data);struct.pack_into('<I',data,32,18);chunks[i]=replace(c,data=bytes(data))
+        triangles,info=cgf_triangles(write_chunks(chunks,{}))
+        self.assertEqual(triangles.shape,(1,3,3))
+        self.assertEqual(info['default_material_nodes'],['wall'])
+        self.assertEqual(info['bindings'][0]['material'],'materials/material_default')
+        self.assertEqual(info['bindings'][0]['subsets'],[0])
+        for i,c in enumerate(chunks):
+            if c.kind == 0x100b:
+                data=bytearray(c.data);struct.pack_into('<i',data,76,1234);chunks[i]=replace(c,data=bytes(data))
+        with self.assertRaisesRegex(ValueError,'Unsupported material binding'):
+            cgf_triangles(write_chunks(chunks,{}))
+
     def mesh_fixture(self, transform=None, bad_index=False):
         positions = np.array([[0,0,0], [1,0,0], [0,1,0]], dtype='<f4')
         pos = Chunk(0x1016, 0x800, 1, struct.pack('<6I',0,0,3,12,0,0)+positions.tobytes())

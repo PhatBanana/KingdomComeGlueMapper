@@ -77,7 +77,7 @@ def plan(level,pak_root,output,overrides=()):
         try:
             blob=assets.get(name)
             digest=hashlib.sha256(blob).hexdigest()
-            key=hashlib.sha256((digest+'|'+override+'|node-matrix-v1').encode()).hexdigest()
+            key=hashlib.sha256((digest+'|'+override+'|node-matrix-v2-default-material').encode()).hexdigest()
             meta_path=cache/(key+'.json'); npz_path=cache/(key+'.npz')
             if not meta_path.exists() or not npz_path.exists():
                 tris,info=cgf_triangles(blob,with_surface=True,material_override=override,allow_empty=True)
@@ -90,7 +90,8 @@ def plan(level,pak_root,output,overrides=()):
                     uv.append(group['uv'])
                 meta={'key':key,'source':name,'override':override,'sha256':digest,'triangles':len(tris),
                     'bindings':bindings,'bounds':[tris.min((0,1)).tolist(),tris.max((0,1)).tolist()] if len(tris) else None,
-                    'excluded_nodes':info['excluded_nodes']}
+                    'excluded_nodes':info['excluded_nodes'],
+                    'default_material_nodes':info['default_material_nodes']}
                 np.savez(npz_path,triangles=tris,uv=np.concatenate(uv) if uv else np.empty((0,3,2)),
                          ids=np.concatenate(ids) if ids else np.empty(0,dtype=np.int32))
                 meta_path.write_text(json.dumps(meta)+'\n')

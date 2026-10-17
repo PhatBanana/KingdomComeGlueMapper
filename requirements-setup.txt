@@ -1,5 +1,7 @@
-# Build dependency only. The release EXE includes its Python/Tk runtime.
+# Build dependencies. Windows GUI uses the installed Microsoft Edge WebView2 runtime.
+pywebview==6.2.1
 pyinstaller==6.22.3
 numpy>=2.3
 Pillow>=11.3
 xatlas==0.0.11
+numba==0.68.0

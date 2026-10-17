@@ -18,6 +18,13 @@ def self_test(destination):
     from PIL import Image
     import numpy as np
     import xatlas
+    import webview
+    from setup_fishing import asset_root
+    for resource in ('setup-ui/index.html','setup-ui/style.css','setup-ui/app.js',
+                     'setup-ui/assets/map-logo.svg','setup-ui/assets/fishing-logo.svg',
+                     'setup-ui/assets/map-cover.png','setup-ui/assets/fishing-cover.png',
+                     'assets/fishing/gm_fishing_rod_icon.dds','tools/fishing_runtime.lua'):
+        if not (asset_root()/resource).is_file():raise RuntimeError('Missing setup resource: '+resource)
     # Exercise the native chart extension included by the frozen converter.
     atlas = xatlas.Atlas()
     atlas.add_mesh(np.array([[0,0,0],[1,0,0],[0,1,0]], dtype=np.float32),
@@ -34,8 +41,20 @@ def self_test(destination):
     for name in ('campaign_menu.lua', 'retail_diagnostics.lua'):
         if not (runtime / name).is_file(): raise RuntimeError('Missing bundled runtime: ' + name)
     import region_travel_companions
+    from world_surface_tiles import code_digest
+    if len(code_digest())!=64:raise RuntimeError('Bake source signatures unavailable')
+    import setup_resume
+    import setup_baking
+    for resource in ('world_surface_scene.py','world_surface_landscape.py','stage_world_surfaces.py'):
+        if not Path(setup_baking.__file__).with_name(resource).is_file():raise RuntimeError('Missing resume signature source: '+resource)
+    # Compile a real small raster job to check frozen Numba and LLVM support.
+    from voxel_surfaces import build_tile,Surface
+    triangle=np.array([[[1,1,1],[2,1,1],[1,2,1]]],dtype=np.float32)
+    surface=Surface(np.ones((1,1,4),dtype=np.float32),[1,1,1])
+    _,_,raster=build_tile(triangle,np.zeros((1,3,2)),np.zeros(1,dtype=int),[surface],(0,0,0),8,8,backend='compiled')
+    if raster['blocks']!=1:raise RuntimeError('Bundled CPU bake failed')
     hook = Path(region_travel_companions.__file__).with_name('region_travel_horse_recovery.lua')
-    if b'GlueTravelHorseRecovery' not in hook.read_bytes(): raise RuntimeError('Missing bundled horse arrival hook')
+    if b'GlueTravelHorseRecovery' not in hook.read_bytes(): raise RuntimeError('Missing legacy horse migration signature')
     # Exercise the bundled image codec and array extension, not just imports.
     import io
     stream = io.BytesIO()
@@ -45,7 +64,7 @@ def self_test(destination):
         raise RuntimeError('Bundled image codec failed')
     result = {'version': APP_VERSION, 'frozen': bool(getattr(sys, 'frozen', False)),
               'tk': tkinter.Tcl().eval('info patchlevel'), 'converter_modules': len(CONVERTERS),
-              'runtime_files': 3, 'status': 'passed'}
+              'runtime_files': 3, 'web_ui': True, 'status': 'passed'}
     Path(destination).write_text(json.dumps(result, indent=2), encoding='utf-8')
 
 
@@ -239,10 +258,19 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', type=Path)
     parser.add_argument('--self-test', type=Path)
+    parser.add_argument('--mods-worker',type=Path)
+    parser.add_argument('--legacy-ui',action='store_true')
     args = parser.parse_args()
     if args.worker: return worker(args.worker)
+    if args.mods_worker:
+        from setup_mods import worker as mods_worker
+        return mods_worker(args.mods_worker)
     if args.self_test: self_test(args.self_test); return 0
-    launch_gui(); return 0
+    if args.legacy_ui:launch_gui()
+    else:
+        from setup_web import launch
+        launch()
+    return 0
 
 
 if __name__ == '__main__':

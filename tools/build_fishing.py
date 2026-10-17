@@ -145,6 +145,15 @@ def water_lua(blob):
     return text.encode(),len(waters)
 
 
+def ripple_library():
+    library=ET.Element('ParticleLibrary',Name='gm_fishing',ParticleVersion='28')
+    effect=ET.SubElement(library,'Particles',Name='ripple')
+    # Native ripple atlas/material, explicitly horizontal in world space.
+    # Increase visibility range for casts rather than the native 4m footstep range.
+    ET.SubElement(effect,'Params',Count='1',Continuous='false',ParticleLifeTime='1.0',Facing='Horizontal',TextureTiling='TilesX=4,TilesY=2,FirstTile=1,AnimFramesCount=7,AnimBlend=true',Material='Materials/particles/water_ripple',Alpha='0.18,ParticleAge=(v=0;t=0.15,v=1;t=0.5,v=0.6;t=1,v=0)',Size='0.3',InitAngles='x=0,y=0,z=0',MoveRelativeEmitter='false',OrientToVelocity='false',CameraMaxDistance='60',SortOffset='0.5',Speed='0',GravityScale='0')
+    return xml(library)
+
+
 def build(game,mod,output,baseline=None):
     if output.exists():raise FileExistsError(output)
     source=baseline or mod
@@ -185,12 +194,7 @@ end
         resources.update(fishing_mesh_resources(z))
     with zipfile.ZipFile(game/'Data/IPL_Objects-part3.pak') as z:
         resources.update(rod_resources(z))
-    library=ET.Element('ParticleLibrary',Name='gm_fishing',ParticleVersion='28')
-    effect=ET.SubElement(library,'Particles',Name='ripple')
-    # Native ripple atlas/material, explicitly horizontal in world space.
-    # Increase visibility range for casts rather than the native 4m footstep range.
-    ET.SubElement(effect,'Params',Count='1',Continuous='false',ParticleLifeTime='1.0',Facing='Horizontal',TextureTiling='TilesX=4,TilesY=2,FirstTile=1,AnimFramesCount=7,AnimBlend=true',Material='Materials/particles/water_ripple',Alpha='0.18,ParticleAge=(v=0;t=0.15,v=1;t=0.5,v=0.6;t=1,v=0)',Size='0.3',InitAngles='x=0,y=0,z=0',MoveRelativeEmitter='false',OrientToVelocity='false',CameraMaxDistance='60',SortOffset='0.5',Speed='0',GravityScale='0')
-    resources['Libs/Particles/gm_fishing.xml']=xml(library)
+    resources['Libs/Particles/gm_fishing.xml']=ripple_library()
     strings=ET.Element('Table')
     for key,value in TEXT.items():
         row=ET.SubElement(strings,'Row')

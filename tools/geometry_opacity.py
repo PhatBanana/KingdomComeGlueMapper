@@ -59,6 +59,7 @@ def cgf_triangles(blob, with_surface=False, material_override=None, allow_empty=
         matrices[identity] = local
         return local
     result, bindings, excluded, surfaces = [], [], [], []
+    default_material_nodes = []
     for node in (c for c in chunks if c.kind == 0x100b):
         if node.version != 0x824 or len(node.data) < 204:
             raise ValueError('Unsupported CGF node')
@@ -133,6 +134,15 @@ def cgf_triangles(blob, with_surface=False, material_override=None, allow_empty=
         material = lookup.get(material_id)
         if material_override:
             material_name = material_override
+        elif material_id <= 0 and not any(c.kind == 0x1014 for c in chunks):
+            # Unassigned source geometry (for example fabric_burned.cgf).
+            # Retain its surfaces with the game's default material, and record
+            # this explicitly. Never use this for a broken positive chunk ID.
+            material_name = 'materials/material_default'
+            face_materials[:] = 0
+            used_materials = {0}
+            material_counts = {0: ni//3}
+            default_material_nodes.append(name)
         else:
             if material is None or material.kind != 0x1014 or material.version != 0x802:
                 raise ValueError('Unsupported material binding')
@@ -154,7 +164,8 @@ def cgf_triangles(blob, with_surface=False, material_override=None, allow_empty=
                          'subset_triangles': material_counts, 'triangles': ni//3})
     if not result and not allow_empty:
         raise ValueError('No supported render triangles')
-    info = {'bindings': bindings, 'excluded_nodes': excluded}
+    info = {'bindings': bindings, 'excluded_nodes': excluded,
+            'default_material_nodes': default_material_nodes}
     if with_surface:
         info['surfaces'] = surfaces
     return np.concatenate(result) if result else np.empty((0,3,3)), info
@@ -230,6 +241,13 @@ class Assets:
                         self.entries[key] = None
                     else:
                         self.entries[key] = (path, name)
+        # Built-in textures (including the default material's grey texture)
+        # live outside Data. Use Engine assets only where Data has no entry.
+        engine = Path(folder).parent/'Engine/Engine.pak'
+        if engine.is_file():
+            with zipfile.ZipFile(engine) as archive:
+                for name in archive.namelist():
+                    self.entries.setdefault(name.replace('\\','/').lower(), (engine,name))
         # Explicit runtime override packages, in precedence order. Never infer
         # precedence from alphabetical package names when content conflicts.
         for override in overrides:

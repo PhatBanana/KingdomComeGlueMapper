@@ -23,7 +23,7 @@ from region_travel_ground import Heightfield, wheel_bottom, fit_cart
 from region_travel_road import road_spawn_points
 import region_travel_driver as driver
 from region_travel_ui import import_showroom
-from region_travel_companions import import_horse_scheduler, import_horse_scheduler_table, horse_recovery_resources
+from region_travel_companions import import_horse_scheduler, import_horse_scheduler_table, travel_player_resources
 from region_travel_navigation import package_navigation
 from character_person_world import register_person_world
 from region_travel_entry import register_entry
@@ -85,6 +85,13 @@ def switch_table(native):
     rows = root.find('LevelSwitches')
     if rows is None or rows.get('version') != '1':
         raise ValueError('Unsupported native LevelSwitch schema')
+    # Use a registered native regional loading screen. LoadingScreen selects
+    # presentation; SwitchLevel's LevelChanger readiness observer owns the wait.
+    # Never call New Game or substitute a timer for that native completion gate.
+    native_route = one((r for r in rows if r.get('Name') == 'trosecko'), 'native Trosky route')
+    screen = native_route.get('LoadingScreen')
+    if not screen or not screen.isdecimal():
+        raise ValueError('Native Trosky route has no valid loading screen')
     output = ET.Element(root.tag, root.attrib)
     result = ET.SubElement(output, rows.tag, rows.attrib)
     for route, target, marker in [('to_kcd1', LEVEL_ID, 'gmtravel_arrival_kcd1'),
@@ -93,7 +100,7 @@ def switch_table(native):
         if any(r.get('Name') == name for r in rows):
             raise ValueError('LevelSwitch name collision')
         ET.SubElement(result, 'LevelSwitchData', Name=name, TargetLevelId=str(target),
-                      TargetLocationEntity=marker)
+                      TargetLocationEntity=marker, LoadingScreen=screen)
     return xml(output)
 
 
@@ -517,7 +524,7 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
             for f in base.iterdir():
                 if (f.is_file() and f.suffix.lower()=='.pak' and f.name.lower() not in ('level.pak','recast.pak')
                         and not f.name.lower().startswith(('svo', 'ipl_svo'))):shutil.copy2(f,dest/f.name)
-    dialogue_files.update(horse_recovery_resources(native_player,{LEVEL:stations['kcd1']['horse_road']}))
+    dialogue_files.update(travel_player_resources(native_player))
     common_files = {
         'Libs/Tables/LevelSwitch__'+MOD+'.xml': table,
         'Libs/Tables/level__'+MOD+'.xml': travel_level,

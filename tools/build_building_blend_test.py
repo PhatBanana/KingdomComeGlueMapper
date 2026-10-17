@@ -22,8 +22,7 @@ from static_assets import asset_pack, convert_blended_detail
 from upgrade_map import read, xml
 from vegetation import verify_target_hlods
 
-MODELS = ('objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
-          'objects/buildings/houses/modular/6x15/6x15_basefloor_p_2_flipped.cgf')
+from build_recipe import REVIEWED_BLEND_MODELS as MODELS
 
 
 def rewrite(source, destination, changes):
