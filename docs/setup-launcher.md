@@ -1,6 +1,6 @@
-# Setup 0.3.2
+# Setup 0.3.3
 
-Run `KingdomComeGlueMapper-Setup-0.3.2-win64.exe`. The HTML/CSS/JavaScript interface runs locally in WebView2; a Python worker performs conversion and verified installation. Python is bundled in the EXE. Microsoft Edge WebView2 must be installed.
+Run `KingdomComeGlueMapper-Setup-0.3.3-win64.exe`. The HTML/CSS/JavaScript interface runs locally in WebView2; a Python worker performs conversion and verified installation. Python is bundled in the EXE. Microsoft Edge WebView2 must be installed.
 
 ## Mod library
 
@@ -32,7 +32,7 @@ or a completed KCD1 campaign. Coach travel remains available for existing saves.
 | Buildings | Include structures, static props, ground and roads. Explicitly exclude forest instances from this surface pass. | 30 GiB |
 | All (Forest) | Buildings coverage plus eligible trees and foliage with their original transforms. | 60 GiB |
 
-Every choice installs visible buildings and vegetation. Baking prepares opacity, surface colour and normals for indirect illumination; it does not bake shader caches or prevent runtime shader compilation. Lighting remains dynamic. The optional surface bake uses a portable CPU backend, one worker, and validates all tiles before packaging. These are experimental presets: terrain blends and foliage translucency do not have proven native parity. Full-world setup duration has not been benchmarked. The allowances are conservative planning thresholds, not measured final package sizes.
+Every choice installs visible buildings and vegetation. Baking prepares opacity, surface colour and normals for indirect illumination; it does not bake shader caches or prevent runtime shader compilation. Lighting remains dynamic. The optional surface bake uses automatic CPU/OptiX selection: two compiled CPU workers for smaller tiles, persistent OptiX for dense tiles, 64-brick batches and overlapping CPU preparation/encoding. GPU errors are logged and fall back to CPU. All tiles are validated before packaging. The current bundled GPU binary targets sm_120; other hardware uses CPU when unsupported. These are experimental presets: terrain blends and foliage translucency do not have proven native parity. Full-world setup duration has not been benchmarked. The allowances are conservative planning thresholds, not measured final package sizes.
 
 Existing unrecognized/modified installations are refused. Fishing is not installed alongside the old embedded fishing experiment in a map package; migrate to a clean map package first. Each mod has a separate verified installation transaction and recoverable backup. If the second mod fails, the first successful installation remains.
 
@@ -68,7 +68,7 @@ Optional lighting baking and opening-movie conversion follow this shared recipe.
 Fishing remains a separately selected package. This recipe does not include
 unreleased campaign-scene or clothing assembly experiments.
 
-Install `requirements-setup.txt`, then run `python tools/setup_app.py` or build using `python tools/build_setup_exe.py`. The old interface remains available with `--legacy-ui`. Use `--mods-worker job.json` for the same background build pipeline. Receipts include hashes and bake settings. Do not distribute game-derived packages.
+Install `requirements-setup.txt`, then run `python tools/setup_app.py` or build the GPU backend using `./tools/build_voxel_cuda.ps1 -Optix`, then build setup using `python tools/build_setup_exe.py`. The old interface remains available with `--legacy-ui`. Use `--mods-worker job.json` for the same background build pipeline. Receipts include hashes and bake settings. Do not distribute game-derived packages.
 
 The library uses fresh user-supplied in-game screenshots in `setup-ui/assets`, with simple HTML title labels. Earlier generated crest artwork is retained as an unused design draft; its prompts are recorded in `setup-ui/assets/artwork-prompts.txt`.
 

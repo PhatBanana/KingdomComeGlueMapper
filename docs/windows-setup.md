@@ -1,6 +1,6 @@
 # Windows setup — 0.3.2
 
-Download `KingdomComeGlueMapper-Setup-0.3.2-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). This is an experimental prerelease. Python and the game modding tools are not required to run the executable. Microsoft Edge WebView2 is required for its local interface.
+Download `KingdomComeGlueMapper-Setup-0.3.3-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). This is an experimental prerelease. Python and the game modding tools are not required to run the executable. Microsoft Edge WebView2 is required for its local interface.
 
 ## Choose a mod
 
@@ -30,7 +30,9 @@ The setup version and mod package versions are separate. KCD1 Map does not conve
 | Buildings | Structures, static props, ground and roads; forest instances excluded from this pass. | 30 GiB |
 | All (Forest) | Buildings coverage plus eligible trees and foliage. | 60 GiB |
 
-All modes include visible buildings and vegetation. Baking prepares surface data for indirect illumination. It does not build or clear the game's shader cache. The bake uses the CPU and remains experimental, including approximations for layered materials and foliage.
+All modes include visible buildings and vegetation. Baking prepares surface data for indirect illumination. It does not build or clear the game's shader cache. The bake uses the established hybrid pipeline: two compiled CPU workers for tiles below one million triangles, persistent OptiX for dense tiles, and 64-brick GPU batches with CPU preparation/encoding overlap. GPU failures fall back to CPU with the reason recorded. Baking remains experimental, including approximations for layered materials and foliage.
+
+The bundled GPU binary currently targets `sm_120` (the tested development GPU). Other architectures or unsupported drivers use the CPU fallback; broader GPU compatibility has not been validated. The executable includes the GPU DLL, PTX, integrity metadata and OptiX license. Users do not need the CUDA toolkit to run setup.
 
 A fresh map build reserves **200 GiB** in the build location and **64 GiB** for installation staging. Add the chosen bake allowance and another **10 GiB** for the optional movie. Requirements combine when build and game folders share a drive. Fishing alone needs approximately 1 GiB for build and staging. Existing builds and backups already consume space and are retained.
 
@@ -67,7 +69,7 @@ Choose **Install existing packages** and select the job's parent `package` folde
 
 Use **Open log** and **Open folder** in Activity. The main `setup.log` and `events.jsonl` record selected-mod operations. `map-job/setup.log` records world conversion and gameplay packaging. `stage-times.json` records measured stage durations. Resume attempts have separate logs; include both the original error and the new attempt when reporting a problem.
 
-Bake errors identify the affected mesh and scene plan. Setup 0.3.2 fixes the reported unbound burned-fabric mesh by recording its default-material binding while retaining its geometry. Failed stages are reported as failed, rather than misleadingly logged as finished.
+Bake errors identify the affected mesh and scene plan. Setup 0.3.3 fixes the reported unbound burned-fabric mesh by recording its default-material binding while retaining its geometry. Failed stages are reported as failed, rather than misleadingly logged as finished.
 
 When filing an issue, include setup version, selected mods and bake mode, game version, error text and relevant logs. Do not upload game archives or your complete converted package.
 
@@ -81,18 +83,19 @@ Build folders, unsuccessful attempts and backups are not automatically deleted. 
 
 ## Build from source
 
-On Windows x64, Python 3.13 avoids compiling the pinned xatlas dependency:
+On Windows x64, Python 3.13 avoids compiling the pinned xatlas dependency. Building the GPU payload also requires Visual Studio C++ build tools and the CUDA toolkit; users of the finished setup do not need these build tools:
 
 ```powershell
 py -3.13 -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements-setup.txt
 .venv/Scripts/python.exe -m pip install -r requirements-test.txt
 .venv/Scripts/python.exe -m unittest discover -s tests
+./tools/build_voxel_cuda.ps1 -Optix
 .venv/Scripts/python.exe tools/build_setup_exe.py
 ```
 
 Python 3.14 also works when the Visual Studio C++ build tools are available to build `xatlas==0.0.11` from source. That version of xatlas has a Windows cp313 wheel but no cp314 wheel; a missing wheel is not a Python 3.14 incompatibility. The parallel CPU baker supports both Python versions.
 
-Outputs include the EXE, SHA-256 checksum and frozen-runtime self-test report. GitHub Actions is manual-only; a push or release tag does not automatically run tests. Frozen checks validate included resources, native extensions and a small CPU raster job; they do not substitute for a complete bake or in-game playtest.
+Outputs include the EXE, SHA-256 checksum and frozen-runtime self-test report. GitHub Actions is manual-only; a push or release tag does not automatically run tests. Frozen checks validate included resources, native extensions, GPU payload hashes and a small CPU raster job. They also run a small OptiX bake against the CPU reference and report GPU availability explicitly; they do not substitute for a complete bake or in-game playtest.
 
 See [launcher implementation details](setup-launcher.md) and [region travel](region-travel.md) for further scope and limitations. The release distributes setup code and interface assets, not converted game archives.

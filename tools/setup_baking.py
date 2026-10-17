@@ -55,8 +55,16 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
             if not scene_plan['errors']:
                 pending=ready.with_suffix('.tmp');pending.write_text(json.dumps(dict(attempt=root.name)))
                 pending.replace(ready)
-        results=build(root/'scene',experimental_base_materials=True,backend='compiled',workers=1,
-                      progress=progress,cancelled=cancelled)
+        from setup_gpu import hybrid_environment
+        print('Hybrid bake: compiled CPU below 1,000,000 triangles (2 workers); '
+              'OptiX for dense tiles, 64-brick batches with CPU overlap. '
+              'GPU failures are logged and fall back to CPU.',flush=True)
+        with hybrid_environment():
+            results=build(root/'scene',experimental_base_materials=True,backend='auto',workers=2,
+                          progress=progress,cancelled=cancelled)
+        counts={name:sum(r.get('backend')==name for r in results) for name in ('compiled','optix')}
+        print(f'Hybrid bake results: {counts["compiled"]} CPU tiles, {counts["optix"]} OptiX tiles, '
+              f'{sum(bool(r.get("gpu_fallback_reason")) for r in results)} GPU fallbacks.',flush=True)
         if any(r['status']!='built' for r in results):raise ValueError('Lighting tile failed; see bake reports. Nothing installed.')
         if cancelled():raise InterruptedError('Cancelled before staging bake')
         output=root/('staged-'+uuid.uuid4().hex[:12])

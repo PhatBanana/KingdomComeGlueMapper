@@ -41,7 +41,7 @@ The normal setup route is **Continue a Trosky save → coachman → Travel to th
 
 ### Windows setup
 
-1. Download **Setup 0.3.2** from [Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). Python is bundled; Microsoft Edge WebView2 is required.
+1. Download **Setup 0.3.3** from [Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). Python is bundled; Microsoft Edge WebView2 is required.
 2. Select **KCD1 Map**, **KCD2 Fishing**, or both. KCD1 Map needs both games; fishing only needs KCD2. The supported KCD2 version is **1.5.6**.
 3. Choose game locations and a build folder outside the games. A fresh map build reserves **200 GiB**, plus **64 GiB** for installation staging; these combine on the same drive.
 4. Choose **No Baking**, **Buildings** (+30 GiB working space), or **All (Forest)** (+60 GiB). The optional opening movie needs an external RAD encoder, FFmpeg/FFprobe and another 10 GiB; it currently replaces the shared New Game intro, including KCD2's.

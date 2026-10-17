@@ -53,6 +53,9 @@ def self_test(destination):
     surface=Surface(np.ones((1,1,4),dtype=np.float32),[1,1,1])
     _,_,raster=build_tile(triangle,np.zeros((1,3,2)),np.zeros(1,dtype=int),[surface],(0,0,0),8,8,backend='compiled')
     if raster['blocks']!=1:raise RuntimeError('Bundled CPU bake failed')
+    from setup_gpu import gpu_directory, validate_bundle, probe
+    validate_bundle(gpu_directory())
+    gpu_test = probe()
     hook = Path(region_travel_companions.__file__).with_name('region_travel_horse_recovery.lua')
     if b'GlueTravelHorseRecovery' not in hook.read_bytes(): raise RuntimeError('Missing legacy horse migration signature')
     # Exercise the bundled image codec and array extension, not just imports.
@@ -64,7 +67,7 @@ def self_test(destination):
         raise RuntimeError('Bundled image codec failed')
     result = {'version': APP_VERSION, 'frozen': bool(getattr(sys, 'frozen', False)),
               'tk': tkinter.Tcl().eval('info patchlevel'), 'converter_modules': len(CONVERTERS),
-              'runtime_files': 3, 'web_ui': True, 'status': 'passed'}
+              'runtime_files': 3, 'web_ui': True, 'hybrid_bake': gpu_test, 'status': 'passed'}
     Path(destination).write_text(json.dumps(result, indent=2), encoding='utf-8')
 
 

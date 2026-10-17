@@ -62,6 +62,8 @@ class BakeSetupTests(unittest.TestCase):
             for error in (InterruptedError,ValueError):
                 with self.assertRaises(error):bake_package(package,root/'game',root/'baking','all',lambda *a:None,lambda:False)
             self.assertEqual(plan.call_count,1)
+            self.assertEqual(build.call_args.kwargs['backend'],'auto')
+            self.assertEqual(build.call_args.kwargs['workers'],2)
             self.assertEqual(build.call_args_list[0].args[0],build.call_args_list[1].args[0])
             stage.assert_not_called()
             self.assertEqual((level/'terrain.pak').read_bytes(),b'original terrain')

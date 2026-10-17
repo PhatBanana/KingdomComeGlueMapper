@@ -18,6 +18,11 @@ def main():
     output = args.output.resolve(); output.mkdir(parents=True, exist_ok=True)
     name = f'KingdomComeGlueMapper-Setup-{APP_VERSION}-win64'
     texconv = compiler(repo/'outputs/build-dependencies')
+    from setup_gpu import GPU_FILES, validate_bundle
+    gpu = repo / 'outputs/cuda'
+    validate_bundle(gpu, repo / 'tools')
+    optix_license = repo / 'outputs/optix-dev/LICENSE.txt'
+    if not optix_license.is_file():raise RuntimeError('Missing OptiX license; build the GPU backend first')
     command = [sys.executable, '-m', 'PyInstaller', '--noconfirm', '--clean', '--onefile', '--windowed',
                '--name', name, '--distpath', str(output), '--workpath', str(repo / 'outputs/pyinstaller-build'),
                '--specpath', str(repo / 'outputs'), '--paths', str(repo / 'tools'),
@@ -32,8 +37,11 @@ def main():
                '--exclude-module', 'lupa','--exclude-module','playwright']
     for resource in ('fishing_game.lua','fishing_runtime.lua','fishing_visuals.lua','fishing_interaction.lua'):
         command.extend(['--add-data',f'{repo / "tools" / resource}:tools'])
-    # Raster signatures read their own sources, including the optional GPU
-    # sources. The setup uses the portable compiled CPU backend.
+    command.extend(['--add-data', f'{optix_license}:third_party/OptiX'])
+    for resource in GPU_FILES:
+        command.extend(['--add-binary' if resource.endswith('.dll') else '--add-data',
+                        f'{gpu / resource}:bake-gpu'])
+    # Raster signatures read their own sources, including GPU sources.
     for resource in ('world_surface_scene.py','world_surface_landscape.py','stage_world_surfaces.py','world_surface_tiles.py','voxel_surfaces.py','voxel_raster_fast.py','voxel_raster_cuda.py','voxel_raster_cuda.cu','voxel_optix_shared.h','voxel_optix_device.cu','voxel_optix_host.h','geometry_opacity.py','world_surface_coverage.py'):
         command.extend(['--add-data',f'{repo / "tools" / resource}:.'])
     command.extend(['--hidden-import','voxel_raster_fast','--collect-all','numba','--collect-all','llvmlite'])
