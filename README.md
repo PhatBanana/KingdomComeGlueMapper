@@ -56,15 +56,20 @@ See the [Windows setup guide](docs/windows-setup.md) for requirements, instructi
 
 ### Run the current source
 
-Use Windows and Python 3.14 for the setup development environment:
+Use Windows and Python 3.13 for the setup development environment:
 
 ```powershell
 git clone https://github.com/SamG-Coder/KingdomComeGlueMapper.git
 cd KingdomComeGlueMapper
-python -m venv .venv
+py -3.13 -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements-setup.txt
 .venv/Scripts/python.exe tools/setup_app.py
 ```
+
+Python 3.14 also works with the Visual Studio C++ build tools installed:
+the pinned `xatlas==0.0.11` has no cp314 wheel and must build from source.
+Python 3.13 avoids that compilation through its Windows wheel. See
+[contributing](CONTRIBUTING.md) for setup, local tests and issue reports.
 
 To build a distributable setup executable:
 
@@ -273,7 +278,14 @@ Run the test suite from the source environment:
 .venv/Scripts/python.exe -m unittest discover -s tests -v
 ```
 
-CI currently checks Python 3.11 and 3.14 on Windows. It does not have the games installed and cannot verify appearance or gameplay. Local binary checks, frozen-executable checks, development-client tests and retail gameplay are separate validation steps.
+The **Validate tooling** workflow checks Python 3.11 and 3.14 on Windows. It runs
+on manual dispatch (Actions → *Validate tooling* → *Run workflow*), not on push,
+so it does not gate a pull request; run the suite locally before opening one. It
+does not have the games installed and cannot verify appearance or gameplay. Local
+binary checks, frozen-executable checks, development-client tests and retail
+gameplay are separate validation steps. The Python 3.14 environment needs a
+C++ toolchain for xatlas, as described under
+[Run the current source](#run-the-current-source).
 
 ## Documentation and issue reports
 
