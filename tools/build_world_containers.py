@@ -1,14 +1,13 @@
 """Stage the full initial-world Stash family with native inventories and keys."""
 import argparse
-from concurrent.futures import ProcessPoolExecutor
 from contextlib import ExitStack
 import hashlib
 import json
-import os
 from pathlib import Path
 import xml.etree.ElementTree as ET
 import zipfile
 
+from bounded_pool import ordered_map, worker_count
 from build_horse_trader_test import digest, rewrite
 from campaign_dependency_adapters import StaticAssetAdapter
 from container_audit import audit
@@ -37,6 +36,10 @@ def package(output, paths):
     finally:
         if current is not None:current.close()
     return [dict(path=str(p.relative_to(output)),sha256=digest(p)) for p in archives]
+
+
+# Each worker opens the source asset packs for one model; leave room for that.
+MODEL_WORKER_BYTES = 512 * 1024**2
 
 
 def _model_assets(job):
@@ -95,11 +98,11 @@ def build(source,target,baseline_level,item_output,output):
     # Each model opens its own asset pack (2 s); they are independent, so convert
     # them in worker processes and emit in the same sorted order as before.
     ordered=sorted(required)
-    with ProcessPoolExecutor(max_workers=max(1,min(16,len(ordered),os.cpu_count() or 1))) as pool:
-        for i,(model,(prefix,assets)) in enumerate(zip(ordered,pool.map(_model_assets,[(source,m) for m in ordered]))):
-            for name,data in assets.items():emit(name,data)
-            models[model]=prefix+Path(model).name
-            if i%20==0:print('Container models',i,'/',len(required),flush=True)
+    workers=worker_count(len(ordered),MODEL_WORKER_BYTES,'GLUEMAPPER_CONTAINER_WORKERS')
+    for i,(model,(prefix,assets)) in enumerate(zip(ordered,ordered_map(_model_assets,((source,m) for m in ordered),workers))):
+        for name,data in assets.items():emit(name,data)
+        models[model]=prefix+Path(model).name
+        if i%20==0:print('Container models',i,'/',len(required),flush=True)
     contracts={}
     for record in records:
         identifier=record['inventory_id']

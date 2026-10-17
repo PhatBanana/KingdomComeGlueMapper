@@ -1,17 +1,20 @@
 """Package native opacity GI using the same initial-state layers as the world."""
-from concurrent.futures import ProcessPoolExecutor
-import os
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 import zipfile
 
+from bounded_pool import ordered_map, worker_count
 from entity_visuals import initial_layer
 from upgrade_map import read
 from voxel_lighting import convert_tile, validate_pair
 
+# Measured peak for the largest source tile is about 110 MB of conversion
+# memory; allow for each worker process's own interpreter and numpy as well.
+TILE_WORKER_BYTES = 256 * 1024**2
 
-def build(source, destination, tile=None):
+
+def build(source, destination, tile=None, workers=None):
     source = Path(source)
     dest = Path(destination)
     dest.mkdir(parents=True, exist_ok=True)
@@ -26,18 +29,22 @@ def build(source, destination, tile=None):
         names = [n for n in src.namelist() if n.endswith('.dat') and (tile is None or Path(n).stem == tile)]
         if not names:
             raise ValueError('No source voxel tiles selected')
-        jobs = []
+        grid = []
         for name in names:
             match = re.fullmatch(r'(\d+)_(\d+)_(\d+)_(\d+)\.dat', Path(name).name)
             if not match:
                 raise ValueError('Unexpected source voxel name')
             *center, extent = map(int, match.groups())
-            jobs.append((read(src, name), center, extent, active_layers))
+            grid.append((center, extent))
+        # Read each tile only when a worker slot frees up, so at most a few
+        # decompressed tiles exist at once rather than the whole source set.
+        jobs = ((read(src, name), center, extent, active_layers) for name, (center, extent) in zip(names, grid))
+        if workers is None:
+            workers = worker_count(len(names), TILE_WORKER_BYTES, 'GLUEMAPPER_VOXEL_WORKERS')
         shard = None
-        # Tiles are independent; map() keeps source order, so shards are identical.
-        pool = ProcessPoolExecutor(max_workers=max(1, min(len(jobs), os.cpu_count() or 1)))
+        # Tiles are independent; results arrive in source order, so shards are identical.
         try:
-            for number, (name, (idx, vox)) in enumerate(zip(names, pool.map(_tile, jobs))):
+            for number, (name, (idx, vox)) in enumerate(zip(names, ordered_map(_tile, jobs, workers))):
                 if shard is None or shard.fp.tell()+len(idx)+len(vox) > 800*1024**2:
                     if shard is not None:
                         shard.close()
@@ -48,7 +55,6 @@ def build(source, destination, tile=None):
                 report['tiles'].append(dict(name=name, **validate_pair(idx, vox)))
                 print(f'Voxel tile {number+1}/{len(names)}: {name}', flush=True)
         finally:
-            pool.shutdown(cancel_futures=True)
             if shard is not None:
                 shard.close()
     return report

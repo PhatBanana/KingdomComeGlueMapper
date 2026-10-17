@@ -2,12 +2,12 @@
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 import copy
-import os
 import xml.etree.ElementTree as ET
 import zipfile
 import tempfile
 from pathlib import Path
 from audit_character_bodies import Assets
+from bounded_pool import worker_count
 from build_npc_probe import asset_path, bind_material
 from campaign_dependencies import ImportPlan
 from character_person import native_xml
@@ -66,7 +66,8 @@ class ClothingAdapter:
         def bake(path, image, material, specular=None):
             name = path.relative_to(folder).as_posix(); names.append(name)
             if self.pool is None:
-                self.workers = max(1, min(16, os.cpu_count() or 1))
+                # A 2048px bake holds several float32 RGBA copies and its mips.
+                self.workers = worker_count(16, 768 * 1024**2, 'GLUEMAPPER_BAKE_WORKERS')
                 self.pool = self.stack.enter_context(ProcessPoolExecutor(max_workers=self.workers))
             # Bound queued texture copies; arguments are pickled after submit().
             while len(self.pending) >= 2*self.workers: self.wait(*self.pending.popleft())
