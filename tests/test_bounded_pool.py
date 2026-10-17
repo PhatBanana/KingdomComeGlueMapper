@@ -40,6 +40,37 @@ class BoundedPoolTests(unittest.TestCase):
         from setup_app import pool_self_test
         self.assertEqual(pool_self_test()['status'], 'passed')
 
+    def test_world_voxels_build_serial_and_parallel_match_without_game(self):
+        """Synthetic KCD1 tiles (same fixture as test_voxel_lighting) through the real build()."""
+        import struct
+        import tempfile
+        import zlib
+        from world_voxels import build
+        raw = bytes([1, 1, 1, 1, 0, 0, 0, 1]) + bytes(8) + bytes([0xf0, 0x8f])
+        packed = struct.pack('<I', len(raw)) + zlib.compress(raw)
+        node = struct.pack('<I', len(packed)) + packed
+        node += bytes((-len(node)) % 4)
+        tile = struct.pack('<I', 0) + struct.pack('<II', 68, len(node)) + bytes(56) + node
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            level = root / 'Data/Levels/rataje'; level.mkdir(parents=True)
+            with zipfile.ZipFile(level / 'level.pak', 'w') as z:
+                z.writestr('leveldata.xml', '<LevelData><Layers><Layer Name="village_state0" Id="1"/></Layers></LevelData>')
+            with zipfile.ZipFile(level / 'svo.pak', 'w') as z:
+                for i in range(7):
+                    z.writestr(f'terrain/svo/{128 + 256 * i}_{128 + 256 * (i % 3)}_0128_0256.dat', tile)
+            def members(destination):
+                result = []
+                for pak in sorted(destination.glob('svo-part*.pak')):
+                    with zipfile.ZipFile(pak) as z:
+                        result += [(pak.name, n, z.read(n)) for n in z.namelist()]
+                return result
+            serial = build(root, root / 'serial', workers=1)
+            parallel = build(root, root / 'parallel', workers=3)
+            self.assertEqual(serial, parallel)
+            self.assertEqual(len(serial['tiles']), 7)
+            self.assertEqual(members(root / 'serial'), members(root / 'parallel'))
+
     @unittest.skipUnless((KCD1 / 'Data/Levels/rataje/svo.pak').is_file(), 'KCD1 voxel source not installed')
     def test_voxel_tiles_serial_and_parallel_bytes_match(self):
         import re
