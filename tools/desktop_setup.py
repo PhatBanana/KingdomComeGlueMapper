@@ -110,10 +110,16 @@ def travel_world(config):
     return Path(config['kcd2']).resolve() / 'Mods' / MOD_ID / 'Data/Levels/kcd1_rataje'
 
 
+def blend_cache(build):
+    """Bake cache shared by runs in one workspace (job/conversion -> workspace/blend-cache)."""
+    return Path(build).resolve().parents[1] / 'blend-cache'
+
+
 def conversion_plan(library, build):
     data = Path(build) / 'Data'
     common = ['--library', str(library)]
     return [
+        ('Building blend atlases (parallel)', 'prebake_building_blends', ['--library', str(library), '--cache', str(blend_cache(build))]),
         ('Terrain and original materials', 'upgrade_map', common + ['--output', str(data / 'Levels/setup_terrain'), '--original-materials']),
         ('Trees, grass and merged vegetation', 'build_vegetation_probe', common + ['--base-level', 'setup_terrain', '--level', 'setup_vegetation', '--all', '--merged']),
         ('Water volumes and environment', 'build_water_probe', common + ['--base-level', 'setup_vegetation', '--level', 'setup_water', '--native-water-materials']),
@@ -318,6 +324,7 @@ def worker(config_path):
                 paths = job / 'game-paths.json'
                 paths.write_text(json.dumps(dict(schema=1, kcd1=config['kcd1'], kcd2=config['kcd2'], build=str(build))), encoding='utf-8')
                 plan = conversion_plan(paths, build)
+                os.environ['GLUEMAPPER_BLEND_CACHE'] = str(blend_cache(build))
                 total = len(plan) + 3 + (config['action'] == 'build_install')
                 for index, (label, module, args) in enumerate(plan):
                     if cancel(): raise Cancelled('Cancelled after the previous conversion stage')

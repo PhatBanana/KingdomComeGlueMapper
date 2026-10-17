@@ -229,6 +229,8 @@ def launch_gui():
 
 
 def main():
+    import multiprocessing
+    multiprocessing.freeze_support()  # The blend pre-bake starts worker processes, also from the frozen EXE.
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--worker', type=Path)
     parser.add_argument('--self-test', type=Path)

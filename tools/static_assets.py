@@ -190,7 +190,8 @@ def asset_pack(stack, library, prefix, cache_dir=None):
         if needs_geometry:
             original = copy.deepcopy(doc)
             try:
-                converted, baked = convert_blend(doc, geometry, target, asset_read, index)
+                from blend_cache import cached_convert
+                converted, baked = cached_convert(convert_blend, name, doc, geometry, target, asset_read, index)
             except ValueError as error:
                 # An input the bake does not support yet keeps the pre-bake
                 # conversion (secondary diffuse without the tiled mask)

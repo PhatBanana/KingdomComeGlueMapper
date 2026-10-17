@@ -42,8 +42,9 @@ class DesktopSetupTests(unittest.TestCase):
 
     def test_conversion_plan_has_no_external_editor_or_npc_dependency(self):
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')
-        self.assertEqual(len(plan), 13)
-        self.assertIn('--merged', plan[1][2]); self.assertIn('--character-visuals', plan[-3][2])
+        self.assertEqual(len(plan), 14)
+        self.assertEqual(plan[0][1], 'prebake_building_blends')
+        self.assertIn('--merged', plan[2][2]); self.assertIn('--character-visuals', plan[-3][2])
         self.assertEqual(plan[-2][1], 'repair_tree_materials')
         self.assertEqual(plan[-1][1], 'prepare_spatial_hlod')
         self.assertTrue(all('--library' not in args or str(self.root / 'paths.json') in args for _, _, args in plan))
