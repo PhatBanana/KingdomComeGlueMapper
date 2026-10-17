@@ -1,4 +1,6 @@
 """Package native opacity GI using the same initial-state layers as the world."""
+from concurrent.futures import ProcessPoolExecutor
+import os
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -24,14 +26,18 @@ def build(source, destination, tile=None):
         names = [n for n in src.namelist() if n.endswith('.dat') and (tile is None or Path(n).stem == tile)]
         if not names:
             raise ValueError('No source voxel tiles selected')
+        jobs = []
+        for name in names:
+            match = re.fullmatch(r'(\d+)_(\d+)_(\d+)_(\d+)\.dat', Path(name).name)
+            if not match:
+                raise ValueError('Unexpected source voxel name')
+            *center, extent = map(int, match.groups())
+            jobs.append((read(src, name), center, extent, active_layers))
         shard = None
+        # Tiles are independent; map() keeps source order, so shards are identical.
+        pool = ProcessPoolExecutor(max_workers=max(1, min(len(jobs), os.cpu_count() or 1)))
         try:
-            for number, name in enumerate(names):
-                match = re.fullmatch(r'(\d+)_(\d+)_(\d+)_(\d+)\.dat', Path(name).name)
-                if not match:
-                    raise ValueError('Unexpected source voxel name')
-                *center, extent = map(int, match.groups())
-                idx, vox = convert_tile(read(src, name), center, extent, active_layers)
+            for number, (name, (idx, vox)) in enumerate(zip(names, pool.map(_tile, jobs))):
                 if shard is None or shard.fp.tell()+len(idx)+len(vox) > 800*1024**2:
                     if shard is not None:
                         shard.close()
@@ -42,9 +48,14 @@ def build(source, destination, tile=None):
                 report['tiles'].append(dict(name=name, **validate_pair(idx, vox)))
                 print(f'Voxel tile {number+1}/{len(names)}: {name}', flush=True)
         finally:
+            pool.shutdown(cancel_futures=True)
             if shard is not None:
                 shard.close()
     return report
+
+
+def _tile(job):
+    return convert_tile(*job)
 
 
 def configure_environment(blob, *, surface_channels=False):
