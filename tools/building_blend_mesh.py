@@ -43,14 +43,17 @@ def _overlaps(a, b, eps=1e-7):
     return True
 
 
-def secondary_charts(positions, faces, uv0, uv2):
+def secondary_charts(positions, faces, uv0, uv2, limit=np.inf):
     """Assign faces to charts that are continuous in position, UV0 and UV2 and never overlap in UV2.
 
     Render vertices are duplicated wherever any attribute is discontinuous, so
     edges are matched by attribute values rather than indices. A face joins a
     neighbour's chart only if its UV2 triangle overlaps none already there:
     authored UV2 layouts reuse texture space, which the bake must separate.
+    Charts grow breadth-first and stop at a 3D bounding diagonal of `limit`,
+    so long strips cannot dictate the packing scale.
     """
+    from collections import deque
     def key(v):
         return (tuple(np.round(positions[v], 4)), tuple(np.round(uv0[v], 5)), tuple(np.round(uv2[v], 5)))
     corner = [[key(v) for v in face] for face in faces]
@@ -63,6 +66,7 @@ def secondary_charts(positions, faces, uv0, uv2):
         for f in shared:
             neighbours[f].extend(g for g in shared if g != f)
     tri2 = uv2[faces].astype(np.float64)
+    tri3 = positions[faces].astype(np.float64)
     chart = np.full(len(faces), -1, np.int64)
     # Typical-triangle grid cells, but never more than 1024 across the layout,
     # so one very large face cannot occupy an unbounded number of cells.
@@ -71,17 +75,22 @@ def secondary_charts(positions, faces, uv0, uv2):
     for seed in range(len(faces)):
         if chart[seed] >= 0:
             continue
-        grid, queue = {}, [seed]
+        grid, queue = {}, deque([seed])
+        box_lo, box_hi = tri3[seed].min(0), tri3[seed].max(0)
         def cells(f):
             lo, hi = np.floor(tri2[f].min(0)/cell).astype(int), np.floor(tri2[f].max(0)/cell).astype(int)
             return [(x, y) for x in range(lo[0], hi[0]+1) for y in range(lo[1], hi[1]+1)]
         while queue:
-            f = queue.pop()
+            f = queue.popleft()
             if chart[f] >= 0:
+                continue
+            lo, hi = np.minimum(box_lo, tri3[f].min(0)), np.maximum(box_hi, tri3[f].max(0))
+            if f != seed and np.linalg.norm(hi-lo) > limit:
                 continue
             near = {g for c in cells(f) for g in grid.get(c, ())}
             if f != seed and any(_overlaps(tri2[f], tri2[g]) for g in near):
                 continue
+            box_lo, box_hi = lo, hi
             chart[f] = count
             for c in cells(f):
                 grid.setdefault(c, []).append(f)
@@ -90,13 +99,48 @@ def secondary_charts(positions, faces, uv0, uv2):
     return chart
 
 
-def _pack_charts(layout, owner, resolution, padding=8):
-    """Place rigid charts (UV2 shapes) on shelves, at the largest uniform scale fitting resolution.
+def _orientation(points):
+    """Rotation giving a chart its minimum-area bounding rectangle, turned landscape."""
+    pts = np.unique(np.round(points, 9), axis=0)
+    if len(pts) < 3:
+        return np.eye(2)
+    pts = pts[np.lexsort((pts[:, 1], pts[:, 0]))]
+    def half(seq):
+        hull = []
+        for p in seq:
+            while len(hull) >= 2 and ((hull[-1][0]-hull[-2][0])*(p[1]-hull[-2][1])
+                                      - (hull[-1][1]-hull[-2][1])*(p[0]-hull[-2][0])) <= 0:
+                hull.pop()
+            hull.append(p)
+        return hull[:-1]
+    hull = np.array(half(pts)+half(pts[::-1]))
+    best, rotation = np.inf, np.eye(2)
+    for edge in np.roll(hull, -1, 0)-hull:
+        angle = np.arctan2(edge[1], edge[0])
+        c, s = np.cos(angle), np.sin(angle)
+        r = np.array([[c, s], [-s, c]])
+        extent = np.ptp(hull @ r.T, axis=0)
+        if extent[0]*extent[1] < best:
+            best, rotation = extent[0]*extent[1], r if extent[0] >= extent[1] else np.array([[0, 1], [-1, 0]]) @ r
+    return rotation
 
+
+def _pack_charts(layout, owner, resolution, chart_scale=None, padding=8):
+    """Place rigid charts on shelves, at the largest uniform scale fitting resolution.
+
+    Each chart may first be scaled (chart_scale, for uniform world-space
+    texel density) and is rotated to its minimum bounding rectangle; the bake
+    maps every triangle independently, so neither changes what it samples.
     Returns texel coordinates per vertex and the used atlas width/height.
     Every chart keeps `padding` texels of clearance for bilinear sampling.
     """
     count = int(owner.max())+1
+    layout = layout.copy()
+    for c in range(count):
+        members = owner == c
+        points = layout[members]
+        points = (points-points.mean(0))*(chart_scale[c] if chart_scale is not None else 1)
+        layout[members] = points @ _orientation(points).T
     low = np.full((count, 2), np.inf); high = np.full_like(low, -np.inf)
     np.minimum.at(low, owner, layout); np.maximum.at(high, owner, layout)
     extent = high-low
@@ -199,7 +243,10 @@ def reatlas(blob, material_id, resolution=2048):
     needle = area <= 1e-6*np.ptp(tri2, axis=1).max(1)**2
     chart = np.empty(len(faces), np.int64)
     kept = np.flatnonzero(~needle)
-    chart[kept] = secondary_charts(positions, faces[kept], uv0, uv2) if len(kept) else []
+    tri3 = positions[faces].astype(np.float64)
+    area3 = np.linalg.norm(np.cross(tri3[:, 1]-tri3[:, 0], tri3[:, 2]-tri3[:, 0]), axis=1)/2
+    limit = max(np.sqrt(area3[kept].sum())/2, 1e-6) if len(kept) else np.inf
+    chart[kept] = secondary_charts(positions, faces[kept], uv0, uv2, limit) if len(kept) else []
     chart[needle] = (chart[kept].max()+1 if len(kept) else 0)+np.arange(int(needle.sum()))
     pairs = np.stack([np.repeat(chart, 3), faces.reshape(-1)], 1)
     unique, inverse = np.unique(pairs, axis=0, return_inverse=True)
@@ -208,7 +255,21 @@ def reatlas(blob, material_id, resolution=2048):
     layout = uv2[mapping].astype(np.float64)
     collapsed = np.isin(unique[:, 0], chart[needle])
     layout[collapsed] = 0
-    texels, width, height = _pack_charts(layout, unique[:, 0], resolution)
+    # Scale charts to uniform world-space texel density. Authored UV2 scale
+    # varies wildly (faces tiling a texture hundreds of times), and keeping
+    # it would let a few such charts shrink every other chart to nothing.
+    sum3 = np.bincount(chart, np.where(needle, 0, area3), chart.max()+1)
+    sum2 = np.bincount(chart, np.where(needle, 0, area), chart.max()+1)
+    chart_scale = np.where((sum2 > 0) & (sum3 > 0), np.sqrt(sum3/np.maximum(sum2, 1e-300)), 1.0)
+    # Near-degenerate UV2 charts (tiny UV2 area, real 3D area) would be
+    # enlarged without bound and dictate the packing scale. Cap enlargement
+    # at 4x the area-weighted median chart scale; shrinking stays unbounded.
+    if (sum3 > 0).any():
+        ordered = np.argsort(chart_scale)
+        weight = np.cumsum(sum3[ordered])
+        typical = chart_scale[ordered][np.searchsorted(weight, weight[-1]/2)]
+        chart_scale = np.minimum(chart_scale, 4*typical)
+    texels, width, height = _pack_charts(layout, unique[:, 0], resolution, chart_scale)
     size = tuple(1 << (int(v)-1).bit_length() for v in (width, height))
     uv = (texels/np.array(size)).astype(np.float32)
     if not np.array_equal(mapping[new_faces], faces):
