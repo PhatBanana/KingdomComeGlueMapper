@@ -157,7 +157,7 @@ def asset_pack(stack, library, prefix, cache_dir=None):
     converted_geometry = {}
     native_vine = None
 
-    def material(name, geometry=None):
+    def material(name, geometry=None, bake=True):
         nonlocal native_vine
         name = name.replace("\\", "/").lower().removesuffix(".mtl")
         if name+'.mtl' not in index and 'objects/'+name+'.mtl' in index:
@@ -179,16 +179,32 @@ def asset_pack(stack, library, prefix, cache_dir=None):
             native_vine_deformation(doc, native_vine)
         convert_puddle_proxies(doc)
         convert_waterfall_speeds(doc)
-        needs_geometry = bool(list(blend_inputs(doc)))
-        key = (name, hashlib.sha256(geometry).hexdigest() if geometry is not None else None) if needs_geometry else name
+        blended = bool(list(blend_inputs(doc)))
+        needs_geometry = blended and bake
+        key = ((name, hashlib.sha256(geometry).hexdigest() if geometry is not None else None) if needs_geometry
+               else (name, 'unbaked') if blended else name)
         if key in material_names:
             return material_names[key]
         target = prefix + "m" + str(len(material_names))
         baked = {}
         if needs_geometry:
-            converted, baked = convert_blend(doc, geometry, target, asset_read, index)
-            converted_geometry[target] = converted
-            for path, payload in baked.items():emitted[path] = payload
+            original = copy.deepcopy(doc)
+            try:
+                converted, baked = convert_blend(doc, geometry, target, asset_read, index)
+            except ValueError as error:
+                # An input the bake does not support yet keeps the pre-bake
+                # conversion (secondary diffuse without the tiled mask)
+                # instead of stopping the whole world build.
+                print(f'Keeping unbaked blend material {name}: {error}', flush=True)
+                doc, baked, key = original, {}, (name, 'unbaked')
+                if key in material_names:
+                    return material_names[key]
+            else:
+                converted_geometry[target] = converted
+                for path, payload in baked.items():emitted[path] = payload
+        if key == (name, 'unbaked'):
+            for _, element, _, mask in list(blend_inputs(doc)):
+                element.find('Textures').remove(mask)
         for element in doc.iter("Material"):
             shader = element.get("Shader", "").lower()
             if shader in shader_maps[0] and shader in shader_maps[1]:
@@ -233,31 +249,38 @@ def asset_pack(stack, library, prefix, cache_dir=None):
         count,table = struct.unpack_from("<II",blob,8)
         if table+count*16 > len(blob):
             raise ValueError("Invalid CGF chunk table")
-        renames = {}
-        for i in range(count):
-            kind,version,chunk_id,size,offset = struct.unpack_from("<HHIII",blob,table+i*16)
-            if offset+size > len(blob):
-                raise ValueError("CGF chunk exceeds file")
-            if kind == 0x1014:
-                if version != 0x802 or size < 128:
-                    raise ValueError("Unsupported material-name chunk")
-                old = bytes(blob[offset:offset+128]).split(b"\0",1)[0].decode()
-                # Only the root material names have a file path; retain
-                # descriptive submaterial names in the same CGF.
-                resolved = old.replace("\\", "/").lower().removesuffix(".mtl")
-                if "/" not in resolved:
-                    relative = str(PurePosixPath(name).parent / resolved)
-                    if relative+".mtl" in index:
-                        resolved = relative
-                if resolved+".mtl" in index:
-                    new = material(material_override or resolved, geometry=bytes(blob)).encode()
-                    if len(new)>=128:
-                        raise ValueError("Material path exceeds fixed CGF field")
-                    renames[chunk_id] = new
+        def material_names_for(bake):
+            renames = {}
+            for i in range(count):
+                kind,version,chunk_id,size,offset = struct.unpack_from("<HHIII",blob,table+i*16)
+                if offset+size > len(blob):
+                    raise ValueError("CGF chunk exceeds file")
+                if kind == 0x1014:
+                    if version != 0x802 or size < 128:
+                        raise ValueError("Unsupported material-name chunk")
+                    old = bytes(blob[offset:offset+128]).split(b"\0",1)[0].decode()
+                    # Only the root material names have a file path; retain
+                    # descriptive submaterial names in the same CGF.
+                    resolved = old.replace("\\", "/").lower().removesuffix(".mtl")
+                    if "/" not in resolved:
+                        relative = str(PurePosixPath(name).parent / resolved)
+                        if relative+".mtl" in index:
+                            resolved = relative
+                    if resolved+".mtl" in index:
+                        new = material(material_override or resolved, geometry=bytes(blob), bake=bake).encode()
+                        if len(new)>=128:
+                            raise ValueError("Material path exceeds fixed CGF field")
+                        renames[chunk_id] = new
+            return renames
+        renames = material_names_for(True)
         # Repacking the vertex streams changes chunk offsets. Apply names by
         # chunk identity afterwards, never at offsets from the original file.
         changed = [converted_geometry[n.decode()] for n in set(renames.values()) if n.decode() in converted_geometry]
-        if len(changed)>1:raise ValueError('Multiple blended root materials need separate mesh conversion')
+        if len(changed)>1:
+            # Each bake re-atlases the same mesh separately; combining them is
+            # not supported yet, so keep every root material unbaked.
+            print(f'Keeping unbaked blend materials in {name}: multiple blended root materials', flush=True)
+            renames, changed = material_names_for(False), []
         result = changed[0] if changed else bytes(blob)
         chunks = read_chunks(result)
         return write_chunks(chunks,{c.id:renames[c.id].ljust(128,b'\0')+c.data[128:] for c in chunks if c.id in renames})
