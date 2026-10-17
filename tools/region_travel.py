@@ -511,6 +511,13 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 with zipfile.ZipFile(data/'gluemapper_music.pak','w',zipfile.ZIP_DEFLATED,compresslevel=1) as music_pak:
                     for name,blob in sorted(music_files.items()): music_pak.writestr(name,blob)
                 entry_report['music'] = music_report
+                from area_geometry_contract import normalize
+                area_missions = [replacements['objects_mission0.xml']]
+                layer_names = {n.lower() for n in z.namelist() if n.lower().startswith('layers/') and n.lower().endswith('.xml')}
+                layer_names.update(n for n in replacements if n.startswith('layers/') and n.endswith('.xml'))
+                area_missions.extend(replacements[n] if n in replacements else read(z,names[n]) for n in sorted(layer_names))
+                replacements['triggerareas.fubar'], removed = normalize(replacements['triggerareas.fubar'], area_missions)
+                entry_report['removed_duplicate_smart_geometry'] = removed
             with zipfile.ZipFile(dest/'level.pak','x',zipfile.ZIP_STORED,allowZip64=False) as dst:
                 for info in z.infolist():
                     b=replacements.pop(info.filename.lower(),None)

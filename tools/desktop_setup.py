@@ -21,14 +21,15 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.4'
+APP_VERSION = '0.3.6'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
 CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'build_buildings_probe', 'build_water_surface_probe', 'complete_instances',
               'build_entity_probe', 'build_landscape_surface_probe', 'repair_tree_materials',
-              'region_travel', 'prepare_spatial_hlod', 'build_recipe')
+              'region_travel', 'prepare_spatial_hlod', 'build_recipe', 'campaign_start_policy',
+              'setup_package_upgrade', 'smart_area_registration', 'area_geometry_contract')
 
 
 class Cancelled(Exception):

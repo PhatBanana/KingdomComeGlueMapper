@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 3
+VERSION = 6
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -27,6 +27,11 @@ def require_current(receipt):
         raise ValueError('This package uses an incomplete or older gameplay recipe. Rebuild with the current setup.')
     if not all(report.get(key) for key in ('content_validation', 'streaming_validation', 'shader_validation')):
         raise ValueError('This package has no current campaign/streaming/shader validation. Rebuild with the current setup.')
+    from campaign_start_policy import POLICY
+    if report['content_validation'].get('start_policy') != POLICY:
+        raise ValueError('This package has no existing-player campaign protection. Rebuild with the current setup.')
+    if receipt.get('travel_bridge') and not receipt.get('single_playable_world'):
+        raise ValueError('This package requires the single-world resume migration before installation.')
     if report['shader_validation'].get('installation') != 'mod_private_root':
         raise ValueError('This package has no mod-contained shader launcher. Rebuild with the current setup.')
     from setup_gameplay import STAGE_IDS
@@ -192,6 +197,9 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
     pending.write_text(json.dumps(receipt, indent=2))
     pending.replace(package/RECEIPT)
     (work/'report.json').write_text(json.dumps(report, indent=2))
+    if receipt.get('travel_bridge'):
+        from setup_package_upgrade import finalize
+        finalize(package)
     notify('Gameplay recipe complete', total, total, '')
     return report
 

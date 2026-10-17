@@ -47,10 +47,12 @@ class BakeSetupTests(unittest.TestCase):
 
     def test_failed_bake_retains_plan_and_original_package_for_retry(self):
         with tempfile.TemporaryDirectory() as t,ExitStack() as stack:
-            root=Path(t);package=root/'map';level=package/'Data/Levels/test';level.mkdir(parents=True)
+            root=Path(t);package=root/'map';level=package/'Data/Levels/kcd1_travel';level.mkdir(parents=True)
+            base=package/'Data/Levels/kcd1_rataje';base.mkdir()
+            (base/'terrain.pak').write_bytes(b'intermediate terrain')
             (level/'terrain.pak').write_bytes(b'original terrain')
             (level/'level.pak').write_bytes(b'original level')
-            receipt={'files':{'Data/Levels/test/terrain.pak':'x'}}
+            receipt={'files':{'Data/Levels/kcd1_travel/terrain.pak':'x'},'travel_bridge':{'destination':'kcd1_travel'}}
             stack.enter_context(patch('setup_baking.verify_package',return_value=receipt))
             plan=stack.enter_context(patch('world_surface_scene.plan'))
             stack.enter_context(patch('world_surface_landscape.augment'))
@@ -62,6 +64,8 @@ class BakeSetupTests(unittest.TestCase):
             for error in (InterruptedError,ValueError):
                 with self.assertRaises(error):bake_package(package,root/'game',root/'baking','all',lambda *a:None,lambda:False)
             self.assertEqual(plan.call_count,1)
+            self.assertEqual(plan.call_args.args[0],level)
+            self.assertEqual(build.call_count,2)
             self.assertEqual(build.call_args.kwargs['backend'],'auto')
             self.assertEqual(build.call_args.kwargs['workers'],2)
             self.assertEqual(build.call_args_list[0].args[0],build.call_args_list[1].args[0])

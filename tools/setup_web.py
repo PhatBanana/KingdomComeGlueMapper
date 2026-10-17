@@ -207,6 +207,7 @@ class SetupAPI:
                     if c.get('baking','none')!='none':
                         from setup_baking import PRESETS
                         remaining.append('KCD1 Map · '+PRESETS[c['baking']]+' lighting bake')
+                    remaining.append('Upgrade saved gameplay and keep one playable world')
                     if c['action']!='build_only':remaining.append('Install and verify KCD1 Map')
                     if 'fishing' in c['mods']:remaining.append('KCD2 Fishing')
                     labels=remaining

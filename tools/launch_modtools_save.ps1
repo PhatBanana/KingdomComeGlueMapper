@@ -15,7 +15,9 @@ $exe = Join-Path $GameRoot 'Bin\Win64ReleaseSteamLTO_DLL\KingdomCome.exe'
 $save = Join-Path "$env:USERPROFILE\Saved Games\kingdomcome2\saves" "playline$Playline\$SaveName"
 if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Mod Tools executable missing: $exe" }
 if (-not (Test-Path -LiteralPath $save -PathType Leaf)) { throw "Save missing: $save" }
-$arguments = @('-devmode', '+wh_sys_FreezePlayline', '1', '+wh_sys_NoPlaylineDeleting', '1')
+# Native coach travel must write a LevelSwitchSave before changing regions.
+# Freezing the playline allows the initial load but aborts that transition.
+$arguments = @('-devmode', '+wh_sys_FreezePlayline', '0', '+wh_sys_NoPlaylineDeleting', '1')
 if ($CompatibilityVersion -ne -1) {
     $arguments += @('+wh_sys_FakeLoadedGameVersion', "$CompatibilityVersion")
 }
@@ -30,7 +32,7 @@ $start.Environment['SteamAppId'] = '1771300'
 $start.Environment['SteamGameId'] = '1771300'
 $hash = (Get-FileHash -LiteralPath $save -Algorithm SHA256).Hash
 $game = [Diagnostics.Process]::Start($start)
-Write-Output "Mod Tools save test started (PID $($game.Id)). Save writes are disabled for this session."
+Write-Output "Mod Tools save test started (PID $($game.Id)). Saving is enabled for native region travel; New Game playline deletion is disabled."
 Write-Output "Save: $save"
 Write-Output "Save SHA256: $hash"
 Write-Output "Log: $(Join-Path $GameRoot 'kcd.log')"

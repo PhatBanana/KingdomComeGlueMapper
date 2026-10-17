@@ -91,6 +91,25 @@ Existing build folders, unsuccessful attempts, and backups from earlier versions
 
 ## Build from source
 
+Setup 0.3.6 can resume completed recipe 3 through 5 packages and upgrade them without
+repeating world conversion. It finishes or reuses the existing `kcd1_travel`
+bake checkpoints first, then updates the campaign start guard, removes the old
+horse-recovery hook, reconciles smart-area registrations, and removes compiled
+smart-area geometry duplicates while preserving their inline shapes. These
+area changes passed the user's Mod Tools return-travel test; retail and broader
+save/companion coverage remain separate acceptance checks.
+
+Only `kcd1_travel` is baked and retained in the final package. `kcd1_rataje` is
+an intermediate conversion input; its packaged directory and level registration
+are removed while the playable level ID remains unchanged. Successful bake and
+upgrade swaps remove their temporary rollback directories. Existing historical
+builds and checkpoints are not deleted automatically.
+
+Use **Resume failed setup** in the new executable and select the original job
+folder containing `job.json`. A safely cancelled or completed job can also be
+selected. Stop the previous setup worker first. The upgrade runs before install;
+choosing **Install packages** directly does not migrate an older recipe.
+
 On Windows x64, Python 3.13 avoids compiling the pinned xatlas dependency. Building the GPU payload also requires Visual Studio C++ build tools and the CUDA toolkit; users of the finished setup do not need these build tools:
 
 ```powershell

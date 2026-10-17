@@ -170,7 +170,7 @@ def _worker(path):
             cp=mapjob/'job.json';cp.write_text(json.dumps(mc))
             events.emit('stage',index=0,total=len(c['mods']),label='KCD1 Map')
             if saved:
-                events.emit('log',message='Reusing verified KCD1 Map; world conversion and gameplay packaging are complete.')
+                events.emit('log',message='Reusing verified KCD1 Map. Saved bake checkpoints are reused before checking gameplay upgrades.')
             else:
                 code=legacy.worker(cp)
                 setup_progress.sink=events.progress
@@ -198,6 +198,13 @@ def _worker(path):
                     with redirect_stdout(output),redirect_stderr(output):
                         bake_package(package/'map',c['kcd2'],root/'baking',c['baking'],events.progress,cancel)
                         output.flush()
+                if saved and saved.get('travel_bridge'):
+                    from setup_resume import update_private_package
+                    from setup_package_upgrade import finalize
+                    from build_recipe import VERSION
+                    if not saved.get('single_playable_world') or saved.get('build_recipe',{}).get('version') != VERSION:
+                        events.emit('stage',index=0,total=len(c['mods']),label='Upgrade saved gameplay and keep one playable world')
+                        update_private_package(package/'map',finalize,cancel)
                 if c['action']=='build_install':
                     events.emit('stage',index=0,total=len(c['mods']),label='Install and verify KCD1 Map')
                     legacy.install_transaction(package/'map',c['kcd2'],events.progress,cancel)

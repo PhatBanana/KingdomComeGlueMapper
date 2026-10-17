@@ -70,6 +70,9 @@ def update_private_package(package,operation,cancelled):
     except BaseException:
         previous.rename(package)
         raise
+    if previous.resolve().parent != package.resolve().parent or previous.is_symlink():
+        raise ValueError('Unsafe completed update staging directory')
+    shutil.rmtree(previous)
 
 
 def map_receipt(root, hashes=True):
@@ -81,7 +84,11 @@ def map_receipt(root, hashes=True):
     if not receipt.get('travel_bridge') or receipt.get('build_recipe',{}).get('status')!='complete':
         raise ValueError('Saved map package is incomplete. Its build recipe must finish before it can be reused.')
     from build_recipe import require_current
-    require_current(receipt)
+    try:
+        require_current(receipt)
+    except ValueError:
+        from setup_package_upgrade import eligible
+        eligible(receipt)
     return receipt
 
 

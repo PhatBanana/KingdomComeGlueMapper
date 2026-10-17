@@ -311,6 +311,8 @@ def validate(package):
     with zipfile.ZipFile(package/'Data/Levels'/LEVEL/'level.pak') as z:
         mission = ET.fromstring(read(z, 'objects_mission0.xml'))
         souls = ET.fromstring(read(z, 'whdata_0'))
+        from smart_area_registration import reconcile
+        reconcile(read(z, 'whdata_0'), read(z, 'objects_mission0.xml'), validate_only=True)
         from character_person_activity import validate_scheduler_targets
         validate_scheduler_targets(ET.fromstring(read(z, 'tables/ai/scheduler.xml')))
     for name in PEOPLE:
@@ -324,9 +326,11 @@ def validate(package):
         required = (OPENING, OPENING+'_started', 'gm_source_baseline_stat_agility')
         names = {n.get('Name') for n in project.findall('./Skald/Project/Nodes/*')}
         if set(required)-names: raise ValueError('Setup opening initialization is incomplete')
+        from campaign_start_policy import validate_start_policy
+        start_policy = validate_start_policy(read(z, PROJECT), OPENING)
         read(z, QUEST_PATH)
         read(z, 'Quests/GlueTravel/entry/gm_combat_q_skalitz_kunes_battle_fight.xml')
     for name in ('Data/gluemapper_initial_loadout.pak', 'Localization/English.pak',
                  'Data/gluemapper_dialogue_facials.pak', 'Data/gluemapper_world_items.pak'):
         if not (package/name).is_file(): raise ValueError('Setup dependency missing: ' + name)
-    return dict(actors=len(PEOPLE), opening=True, combat=True, runtime_verified=False)
+    return dict(actors=len(PEOPLE), opening=True, combat=True, start_policy=start_policy, runtime_verified=False)

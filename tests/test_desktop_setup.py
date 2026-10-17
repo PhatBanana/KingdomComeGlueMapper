@@ -11,6 +11,7 @@ from game_paths import GameLibrary
 from steam_installations import discover, read_vdf
 from desktop_setup import Cancelled, EventLog, conversion_plan, install_transaction, preflight, worker
 from setup_campaign import MOD_ID, RECEIPT, verify_package
+from campaign_start_policy import POLICY
 from build_recipe import VERSION as RECIPE_VERSION
 from setup_gameplay import STAGE_IDS
 
@@ -50,18 +51,19 @@ class DesktopSetupTests(unittest.TestCase):
         self.assertEqual(plan[-1][1], 'prepare_spatial_hlod')
         self.assertTrue(all('--library' not in args or str(self.root / 'paths.json') in args for _, _, args in plan))
 
-    def package(self, path, marker):
+    def package(self, path, marker, playable=False):
         files = {'mod.manifest': f'<kcd_mod><info><modid>{MOD_ID}</modid></info></kcd_mod>'.encode(),
                  'campaign-audit.json': b'{}', 'campaign.json': b'{"world":{"asset_archives":[]}}',
                  f'Data/{MOD_ID}.pak': marker, f'Data/{MOD_ID}_sources.pak': b'sources',
                  'Data/Levels/kcd1_rataje/level.pak': b'level', 'Data/Levels/kcd1_rataje/terrain.pak': b'terrain',
                  'Data/Levels/kcd1_rataje/levelinfo.xml': b'<LevelInfo/>'}
+        if playable:files={n.replace('kcd1_rataje','kcd1_travel'):d for n,d in files.items()}
         for name, data in files.items():
             dest = path / name; dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(data)
         (path / RECEIPT).write_text(json.dumps(dict(schema=1, owner=MOD_ID, kind='retail-campaign-package', target_version='1.5.6',
                                                 build_recipe=dict(version=RECIPE_VERSION, status='complete',
                                                     steps=[{'id': identity} for identity in STAGE_IDS],
-                                                    content_validation={'actors': 11}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'}),
+                                                    content_validation={'actors': 11, 'start_policy': POLICY}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'}),
                                                 files={n: hashlib.sha256(d).hexdigest() for n, d in files.items()})))
         return path
 
@@ -124,9 +126,10 @@ class DesktopSetupTests(unittest.TestCase):
     def test_combined_install_migrates_legacy_and_preserves_other_mod_order(self, *_):
         target = self.target()
         self.package(target/'Mods'/MOD_ID, b'old')
-        source = self.package(self.root/'package', b'new')
+        source = self.package(self.root/'package', b'new', playable=True)
         receipt = json.loads((source/RECEIPT).read_text())
-        receipt['travel_bridge'] = {'files': []}
+        receipt['travel_bridge'] = {'files': [], 'destination':'kcd1_travel'}
+        receipt['single_playable_world'] = True
         (source/RECEIPT).write_text(json.dumps(receipt))
         legacy = target/'Mods/gluemappertravel'; legacy.mkdir()
         (legacy/'mod.manifest').write_text('<kcd_mod><info><modid>gluemappertravel</modid></info></kcd_mod>')
@@ -144,8 +147,9 @@ class DesktopSetupTests(unittest.TestCase):
     @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
     def test_failed_combined_swap_restores_both_mods_and_order(self, *_):
         target = self.target(); dest = self.package(target/'Mods'/MOD_ID, b'old')
-        source = self.package(self.root/'package', b'new')
-        receipt = json.loads((source/RECEIPT).read_text()); receipt['travel_bridge'] = {'files': []}
+        source = self.package(self.root/'package', b'new', playable=True)
+        receipt = json.loads((source/RECEIPT).read_text()); receipt['travel_bridge'] = {'files': [], 'destination':'kcd1_travel'}
+        receipt['single_playable_world'] = True
         (source/RECEIPT).write_text(json.dumps(receipt))
         legacy = target/'Mods/gluemappertravel'; legacy.mkdir()
         (legacy/'mod.manifest').write_text('<kcd_mod><info><modid>gluemappertravel</modid></info></kcd_mod>')

@@ -90,6 +90,9 @@ def map_gestures(blob, source, target, genders, allow_missing=False):
 
 def build(a):
     if a.output.exists(): raise FileExistsError('Choose a fresh output directory')
+    from campaign_start_policy import validate_native
+    with zipfile.ZipFile(a.target/'Data/IPL_GameData.pak') as archive:
+        validate_native(read(archive, 'Libs/concept/definitions.xml'))
     model = json.loads((a.dialogue / 'dialogue-ir.json').read_text())
     quest_model = json.loads(a.quest_model.read_text())
     conversion = json.loads((a.dialogue / 'conversion.json').read_text())

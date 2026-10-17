@@ -60,7 +60,7 @@ def build(a):
     with zipfile.ZipFile(travel) as z:
         resources={n:read(z,n) for n in z.namelist() if n.startswith('Libs/Tables/rpg/') and n.endswith('.xml')}
     with zipfile.ZipFile(level) as z:
-        files={n:read(z,n) for n in ('objects_mission0.xml','triggerareas.fubar','waitinglinks.xml')}
+        files={n:read(z,n) for n in ('objects_mission0.xml','triggerareas.fubar','waitinglinks.xml','whdata_0')}
     original_resources = resources.copy()
     original_files = files.copy()
     with zipfile.ZipFile(a.target/'Data/Tables.pak') as z:

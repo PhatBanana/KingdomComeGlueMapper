@@ -112,9 +112,11 @@ def convert(files, entities, root, districts, native_template):
             pending_links=[dict(l.attrib) for l in source.findall('EntityLinks/Link') if l.get('Name')!='inside']))
     result=dict(files)
     result['objects_mission0.xml']=xml(mission)
+    from smart_area_registration import reconcile
+    result['whdata_0'], registered = reconcile(files['whdata_0'], result['objects_mission0.xml'])
     result['triggerareas.fubar']=write_areas(list(areas.values()),geometries['export_version'])
     result['waitinglinks.xml']=append_links(files['waitinglinks.xml'],links)
     return result,dict(main=main.get('EntityGuid'),districts=report,
-        native_authority_entry_exit=True,runtime_verified=False,
+        native_authority_entry_exit=True,runtime_verified=False,registered_smart_areas=registered,
         pending_root_links=[dict(l.attrib) for l in root.findall('EntityLinks/Link')],
         pending=['confiscated item storage and jail sentence handling are separate source contracts'])

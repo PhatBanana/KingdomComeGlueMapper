@@ -188,10 +188,13 @@ def verify_package(package, hashes=True):
         raise ValueError('Not an owned GlueMapper package')
     required = {'mod.manifest', 'campaign-audit.json', 'Data/' + MOD_ID + '.pak'}
     if receipt.get('kind') == 'retail-campaign-package':
+        world_level = receipt.get('travel_bridge', {}).get('destination') if receipt.get('single_playable_world') else LEVEL
+        if not world_level or Path(world_level).name != world_level:
+            raise ValueError('Invalid packaged world identity')
         required |= {'campaign.json',
                      'Data/kingdomcomegluemapper_sources.pak',
-                     f'Data/Levels/{LEVEL}/level.pak', f'Data/Levels/{LEVEL}/terrain.pak',
-                     f'Data/Levels/{LEVEL}/levelinfo.xml'}
+                     f'Data/Levels/{world_level}/level.pak', f'Data/Levels/{world_level}/terrain.pak',
+                     f'Data/Levels/{world_level}/levelinfo.xml'}
         campaign = json.loads((package / 'campaign.json').read_text(encoding='utf-8'))
         required.update('Data/' + name for name in campaign['world'].get('asset_archives', ['kingdomcomegluemapper_world.pak']))
     if not required.issubset(receipt.get('files', {})):

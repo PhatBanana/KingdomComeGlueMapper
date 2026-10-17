@@ -195,8 +195,8 @@ def attach_scene(project_blob, quest_project_blob, dialogue_name, quest_name,
                  arrival, completion_port, participant_asset):
     """Merge a source quest and dialogue into a destination native project.
 
-    The first level arrival starts the quest and enqueues its ForcedDialog.
-    Native scene completion returns control; a saved state prevents replay.
+    Only a native New Game arrival starts the quest and its ForcedDialog.
+    Existing-player arrivals close the saved latch without initialization.
     """
     identifier(dialogue_name); identifier(quest_name)
     root, incoming = ET.fromstring(project_blob), ET.fromstring(quest_project_blob)
@@ -237,4 +237,5 @@ def attach_scene(project_blob, quest_project_blob, dialogue_name, quest_name,
     trace = ET.SubElement(nodes, 'Trace', Name=dialogue_name + '_gameplay', TypeT='string')
     constant(trace, 'Value', 'Imported character dialogue finished; gameplay released')
     edge(trace, dialogue_name + '_finished.OnFinished', 'Exec')
-    return xml(root)
+    from campaign_start_policy import gate_start
+    return gate_start(xml(root), dialogue_name)

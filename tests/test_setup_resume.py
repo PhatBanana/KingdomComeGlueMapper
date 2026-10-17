@@ -54,6 +54,23 @@ class ResumeTests(unittest.TestCase):
                 self.assertEqual(setup_mods.worker(attempt/'job.json'),0)
                 convert.assert_not_called();bake.assert_not_called();install.assert_called_once()
 
+    def test_legacy_upgrade_runs_after_checkpoint_bake_before_install(self):
+        for baked in (False,True):
+            with self.subTest(baked=baked),tempfile.TemporaryDirectory() as t:
+                root=Path(t);(root/'job.json').write_text(json.dumps(self.config(root)))
+                attempt=root/'resume-1';attempt.mkdir()
+                (attempt/'job.json').write_text(json.dumps(resume.load_job(root)))
+                saved={'travel_bridge':{'destination':'kcd1_travel'},'build_recipe':{'version':3}}
+                if baked:saved['baking']={'preset':'all'}
+                calls=[]
+                with patch('setup_resume.preflight'),patch('setup_resume.map_receipt',return_value=saved),patch('setup_mods.legacy.worker') as convert,patch('setup_mods.bake_package',side_effect=lambda *a:calls.append('bake')),patch('setup_resume.update_private_package',side_effect=lambda *a:calls.append('upgrade')) as upgrade,patch('setup_mods.legacy.install_transaction',side_effect=lambda *a:calls.append('install')):
+                    self.assertEqual(setup_mods.worker(attempt/'job.json'),0)
+                    self.assertEqual(calls,(['bake'] if not baked else [])+['upgrade','install'])
+                    convert.assert_not_called()
+                    self.assertEqual(upgrade.call_args.args[0],root/'package/map')
+                    from setup_package_upgrade import finalize
+                    self.assertIs(upgrade.call_args.args[1],finalize)
+
     def test_atomic_swap_recovery_and_job_lock(self):
         with tempfile.TemporaryDirectory() as t:
             root=Path(t);previous=root/'map-before-bake';previous.mkdir();(previous/'receipt').write_text('good')

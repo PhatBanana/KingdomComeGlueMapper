@@ -35,7 +35,15 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
     workspace.mkdir(parents=True,exist_ok=True)
     overrides=[str(p.resolve()) for p in sorted((package/'Data').glob('*.pak'))]
     reports=[];staged=[]
-    for level in sorted((package/'Data/Levels').iterdir()):
+    levels = sorted((package/'Data/Levels').iterdir())
+    destination = receipt.get('travel_bridge', {}).get('destination')
+    if destination:
+        if Path(destination).name != destination:
+            raise ValueError('Invalid playable bake destination')
+        levels = [package/'Data/Levels'/destination]
+        if not (levels[0]/'terrain.pak').is_file():
+            raise ValueError('Playable world terrain is missing')
+    for level in levels:
         if not (level/'terrain.pak').exists():continue
         if cancelled():raise InterruptedError('Cancelled before baking '+level.name)
         levelwork=workspace/level.name;levelwork.mkdir(exist_ok=True)
@@ -99,3 +107,6 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
     except BaseException:
         previous.rename(package)
         raise
+    if previous.resolve().parent != package.resolve().parent or previous.is_symlink():
+        raise ValueError('Unsafe completed bake staging directory')
+    shutil.rmtree(previous)

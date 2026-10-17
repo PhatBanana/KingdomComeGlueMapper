@@ -42,6 +42,113 @@ ground clearance and walking access require inspection in game.
 
 ## Acceptance test still required
 
+### Native area teardown comparison (18 October 2026)
+
+The 08:26 crash (`II4JTH68Q4`) still has the same execute-at-zero stack after
+correcting the two missing smart-area manager entries. The Mod Tools installation
+contains XGenAIModule.dll but no AreaNotifier source or PDB. Disassembly shows
+UnRegisterArea at RVA 0x1ca4110 fetching the area's diagnostic name through its
+virtual slot 0x10 at 0x1ca45a7, before the logging call and actual removal logic.
+The name implementation calls through an associated object's virtual slot 0x40
+at 0x1c115cc. That call targets zero. The implicated heap objects are absent from
+the minidump, so their entity names and exact lifetime failure remain unknown.
+
+Comparison against native exports found a concrete geometry ownership mismatch:
+Trosky's 3,111, Kuttenberg's 6,375 and Klaster's 292 FUBAR records all belong to
+TriggerArea entities. SmartAreaShape uses inline Area geometry and separate AI
+manager registration. The installed destination instead had 321 TriggerArea and
+51 SmartAreaShape records in FUBAR; all 51 smart areas also had inline geometry.
+GUID resolution, saved flags and manager-registration uniqueness passed.
+
+`area_geometry_contract.normalize` removes the extra compiled smart-area records
+only when inline geometry exists, preserving ordinary trigger records, export
+version, entities and AI registrations. Unknown/missing entities or missing
+inline geometry fail validation. The travel builder and setup package upgrader
+both apply this contract. Recipe 6 migrates recipes 3 through 5 after any resumed
+bake, preserving existing checkpoints. Setup 0.3.6 contains the correction.
+
+The Mod Tools test package was patched and verified: only triggerareas.fubar
+changed inside level.pak, leaving 321 compiled triggers. No binary was patched.
+The user subsequently confirmed that the corrected Mod Tools run successfully
+completed the return journey to Trosky. This is runtime acceptance of the tested
+round trip after removing the duplicate compiled smart-area records. It does
+not establish retail acceptance, dog transfer, every quest state, or all saves.
+
+### Combined campaign setup: existing-player protection (18 October 2026)
+
+The Mod Tools test reached the imported region and the user reported that the
+horse worked, but first arrival ran the combined campaign's opening chain. That
+chain resets starting stats/equipment and starts the imported main quest. The
+old once-only latch prevented a second initialization but did not distinguish a
+visitor from a new campaign.
+
+The shared scene builder now places the native `IsNewGameModeDebug` predicate
+before the complete initialization sequence. Its false branch closes the saved
+initialization latch without executing that sequence. Setup validates this graph
+after its gameplay stages; recipe version 4 and its start-policy receipt are
+required for installation. The helper is included in the frozen setup imports
+and self-test. Old generated packages must be rebuilt, not merely relabeled.
+
+The predicate's ports were checked against installed Mod Tools definitions, and
+the installed project was migrated and validated in memory. Existing-save and
+New Game runtime behavior still require testing; this is not a claim that the
+running installation or published setup executable has been updated. Reload the
+pre-travel save for that test: guarding future initialization does not restore
+stats or quests already changed in a save.
+
+### Round trip
+
+18 October Mod Tools return-trip failure: the updated opening guard was installed
+and the user reached the imported region, then reported a crash returning to
+Trosky. `BugSplatAttachments/2026-10-18_07_29_59_114kcd.log` shows the return
+`LevelSwitchSave` completing, `map trosecko` beginning, and the crash occurring
+during `kcd1_travel` unload. There is no completed Trosky load in this run.
+
+The corresponding `Kingdom Come: Deliverance II2TR52BR0.dmp` is stored as an NTFS
+alternate stream on the temporary `Kingdom Come` file. Its exception is
+`0xc0000005`, execute address zero. The exception stack's immediate return address
+is `XGenAIModule.dll+0x1c115cf`, immediately after a virtual call through slot
+`0x40`. A caller return address at `+0x1ca45aa` is in native area-unregistration
+code; the adjacent diagnostic identifies `C_AreaNotifier::UnRegisterArea` in
+`TransformNotification/AreaNotifier_impl.inl`, line 162. This narrows the failure
+to AI teardown but does not identify the offending imported object. The small
+dump does not contain the referenced object's heap memory. No speculative fix
+has been applied for this crash.
+
+This installed backup still executes `GLUE_HORSE_ARRIVAL` legacy recovery, despite
+its removal from current converter output. Its timed observation finished before
+return travel. That discrepancy must be accounted for in further tests; the log
+alone does not establish it as the crash cause. Existing-save stat preservation
+and a successful round trip remain separate acceptance checks.
+
+The next run, after removing the legacy horse hook, failed at the same teardown
+point. `2026-10-18_07_43_05_295kcd.log` has no `GLUE_HORSE_ARRIVAL` messages and
+again completes the return save before unloading. Dump `IIMVMD77E4` has the same
+execute-at-zero exception and matching immediate/caller offsets
+(`XGenAIModule+0x1c115cf`, `+0x1ca45aa`, `+0x1bc37a0`, `+0x1bc8f90`). Disassembly
+at `+0x1bc3720` shows the unload path iterating remaining registered areas and
+calling the unregistration routine. Removing the horse hook is therefore not a
+fix for this failure. Identifying the retained area/owner requires additional
+runtime object evidence; neither small dump includes the referenced heap object.
+
+Native-flow comparison found no explicit area-unregistration node in the native
+Kuttenberg-to-Trosky coach graph. It calls PassLongTime before its departure scene
+and SwitchLevel after SceneFinishedWaiter; the engine owns area teardown.
+The installed destination has 51 SmartAreaShape entities but only 49 manager
+registrations. SA_CrimeDistrictRoot and ska_crimeDistrict are absent. Native
+Trosky crime-district shapes, including its root, are registered. All 372
+installed trigger geometries resolve to entities and the 49 existing manager
+records have no duplicate GUIDs.
+
+The crime-district converter emitted shapes, geometry and links without updating
+whdata_0. The profile-systems builder did not read that file either. Both paths
+now use shared smart-area registration reconciliation; final setup validation
+rejects emitted mission smart areas missing manager entries. Existing records
+are preserved, including registrations for streamed entities outside the mission
+file. This is a confirmed packaging omission, not yet proof of the crash cause.
+The installed package still requires this correction and a fresh return-trip
+test before the failure can be considered resolved.
+
 1. Back up an existing Trosky save and record Henry's equipment, inventory,
    money, horse, horse inventory and quest progress. Tap **X** to confirm the
    horse responds in Trosky; holding X calls the dog with the user's bindings.
@@ -147,8 +254,16 @@ Repeat this bounded test in PowerShell 7 with Steam running:
 ./tools/launch_modtools_save.ps1 -GameRoot 'D:\SteamLibrary\steamapps\common\KCD2Mod' -Playline 0 -SaveName crucialdecision861.whs -CompatibilityVersion 10505
 ```
 
-The launcher uses the engine's `wh_sys_FakeLoadedGameVersion` test setting and
-disables save writes with `wh_sys_FreezePlayline`. It does not edit the save.
+The launcher uses the engine's `wh_sys_FakeLoadedGameVersion` test setting.
+It does not edit save bytes itself, but normal game saving is enabled:
+`wh_sys_FreezePlayline=0`. Native coach travel requests a `LevelSwitchSave`
+before changing regions. The initial test incorrectly froze the playline;
+three coach attempts immediately failed after `InitiateSaveGame() type:
+LevelSwitchSave` and returned to Trosky, without opening the destination.
+Use `wh_sys_FreezePlayline 0` in the console to correct that existing session.
+`wh_sys_NoPlaylineDeleting=1` remains enabled to protect against New Game
+deleting the playline; it does not prevent ordinary saves. Use a backed-up
+save for this older-executable compatibility test.
 `SteamAppId`/`SteamGameId` are set only for the child process to retail KCD2's
 1771300, so Steam checks the signed-in account's actual DLC ownership. Launching
 under the Modding Tools app instead reported every paid DLC inactive and blocked

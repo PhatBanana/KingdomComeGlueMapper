@@ -25,11 +25,13 @@ class DistrictTests(unittest.TestCase):
         E.SubElement(E.SubElement(district,'EntityLinks'),'Link',Name='inside',TargetId='12')
         anchor=E.Element('Entity',EntityId='12',EntityGuid='C',EntityClass='TagPoint',Name='origin',Pos='15,25,30')
         files={'objects_mission0.xml':b'<Objects/>','triggerareas.fubar':write_areas([],123),
+               'whdata_0':b'<Root><AI><SmartAreaManager version="2"><SmartAreas/></SmartAreaManager></AI></Root>',
                'waitinglinks.xml':b'<StaticLinksInfo version="1"><WaitingLinks/></StaticLinksInfo>'}
         native=E.Element('SmartEntityTemplate',Name='sa_crime_district',BrainId='brain',DatabaseId='type')
         result,report=convert(files,[root,district,anchor],root,[district],native)
         second,_=convert(result,[root,district,anchor],root,[district],native)
         self.assertEqual(result,second)
+        self.assertEqual({int(e.text) for e in E.fromstring(result['whdata_0']).findall('AI/SmartAreaManager/SmartAreas/SmartArea/Guid')}, {10,11})
         self.assertEqual(read_areas(result['triggerareas.fubar'])['export_version'],123)
         self.assertEqual({a.guid for a in read_areas(result['triggerareas.fubar'])['areas']},{10,11})
         mission=E.fromstring(result['objects_mission0.xml'])

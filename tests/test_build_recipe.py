@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
+from campaign_start_policy import POLICY
 from build_recipe import VERSION, apply_overlay, reviewed_blend_mesh, run, require_current
 from setup_campaign import RECEIPT
 from setup_gameplay import STAGE_IDS
@@ -16,11 +17,11 @@ from setup_gameplay import STAGE_IDS
 class RecipeTests(unittest.TestCase):
     def test_old_or_incomplete_recipe_cannot_be_installed(self):
         report = dict(version=VERSION, status='complete',
-                      content_validation={'actors': 11}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'},
+                      content_validation={'actors': 11, 'start_policy': POLICY}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'},
                       steps=[{'id': identity} for identity in STAGE_IDS])
         self.assertEqual(require_current({'build_recipe': report}), report)
         for field, value in (('version', VERSION-1), ('status', 'building'),
-                             ('content_validation', {}), ('streaming_validation', {}), ('shader_validation', {}),
+                             ('content_validation', {}), ('content_validation', {'actors': 11}), ('streaming_validation', {}), ('shader_validation', {}),
                              ('shader_validation', {'compiled': True, 'installation': 'build_only'}),
                              ('steps', report['steps'][:-1]), ('steps', report['steps'][::-1])):
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
@@ -64,7 +65,7 @@ class RecipeTests(unittest.TestCase):
                 return [(identity, identity, failed if fail and identity=='actors' else
                          lambda output, identity=identity: stage(identity,output)) for identity in STAGE_IDS]
             stack.enter_context(patch('setup_gameplay.steps', side_effect=gameplay))
-            content = stack.enter_context(patch('setup_gameplay.validate', return_value={'actors':11}))
+            content = stack.enter_context(patch('setup_gameplay.validate', return_value={'actors':11, 'start_policy': POLICY}))
             streaming = stack.enter_context(patch('setup_streaming.validate', return_value={'proxies':1}))
             stack.enter_context(patch('setup_shaders.tool_root'))
             def shaders(target, output, *args):
