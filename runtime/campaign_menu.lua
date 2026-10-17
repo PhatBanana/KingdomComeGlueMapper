@@ -10,11 +10,27 @@ function mod:OnCampaignMenuEvent(element, instance, event, args)
             System.LogAlways("[GlueMapper] Native initial-level hook is unavailable; start aborted")
             return
         end
+        -- Native New Game deletes every save of the active playline (retail logs
+        -- "Deleting all N savegames of playline 0"). Never start without the
+        -- engine's own protection switch reading back enabled.
+        local keepSaves = System.GetCVar("wh_sys_NoPlaylineDeleting")
+        if keepSaves == nil then
+            System.LogAlways("[GlueMapper] Native save protection is unavailable; start aborted")
+            return
+        end
+        System.SetCVar("wh_sys_NoPlaylineDeleting", 1)
+        if tonumber(System.GetCVar("wh_sys_NoPlaylineDeleting")) ~= 1 then
+            System.SetCVar("wh_sys_NoPlaylineDeleting", keepSaves)
+            System.LogAlways("[GlueMapper] Native save protection rejected; start aborted")
+            return
+        end
+        self.previousKeepSaves = keepSaves
         self.previousBaseLevel = previous
         local level = tonumber(self.campaignLevelId) or 1000
         System.SetCVar("wh_sys_BaseLevelId", level)
         if tonumber(System.GetCVar("wh_sys_BaseLevelId")) ~= level then
             System.SetCVar("wh_sys_BaseLevelId", previous)
+            System.SetCVar("wh_sys_NoPlaylineDeleting", keepSaves)
             System.LogAlways("[GlueMapper] Native initial-level hook rejected the campaign; start aborted")
             return
         end
@@ -25,6 +41,7 @@ function mod:OnCampaignMenuEvent(element, instance, event, args)
     end
     if event == "GlueMapperRootMenu" and self.pendingNewGame then
         System.SetCVar("wh_sys_BaseLevelId", self.previousBaseLevel)
+        System.SetCVar("wh_sys_NoPlaylineDeleting", self.previousKeepSaves)
         self.pendingNewGame = false
         System.LogAlways("[GlueMapper] Restored native initial level on return to root menu")
     end
