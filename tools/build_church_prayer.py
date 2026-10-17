@@ -129,9 +129,9 @@ def dialogue(open_world,scripts,recordings):
             'Quests/GlueTravel/church_prayer/prayer.xml':blob},paths
 
 
-def build(library,mod,output):
+def build(library,mod,output,game=None):
     if output.exists():raise FileExistsError(output)
-    game=library/'KCD2Mod';level='Data/Levels/kcd1_travel/level.pak';travel='Data/gluemappertravel.pak'
+    game=game or library/'KCD2Mod';level='Data/Levels/kcd1_travel/level.pak';travel='Data/gluemappertravel.pak'
     recordings=set()
     for p in (game/'Localization').glob('*.pak'):
         if 'english' in p.name.lower():

@@ -1,241 +1,98 @@
-# Windows setup application
+# Windows setup — 0.3.2
 
-Download the Windows x64 **KingdomComeGlueMapper Setup** executable from
-[GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases).
-Python and the modding tools are not required on the user's machine.
+Download `KingdomComeGlueMapper-Setup-0.3.2-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). This is an experimental prerelease. Python and the game modding tools are not required to run the executable. Microsoft Edge WebView2 is required for its local interface.
 
-**v0.2.0-alpha.4** builds the converted world, coach travel, map registration
-and Rattay services in one run, and installs one `kingdomcomegluemapper` mod.
-It targets retail KCD2 **1.5.6** and requires installed copies of both games.
-Original quests, the KCD1 intro, complete gameplay and full companion persistence
-remain unfinished. Existing KCD1 saves are not converted.
+## Choose a mod
 
-Continue an existing Trosky save, talk to its coachman and choose **Travel to the
-Rattay region**. The original Kuttenberg choice and labels are preserved. The
-combined package removes the old **Play KDC1** startup menu. There is no separate
-travel build button or manual overlay-copy step.
+| Mod | Package version | Required games | What it installs |
+| --- | --- | --- | --- |
+| KCD1 Map | 0.2.0-alpha.4 | KCD1 and KCD2 1.5.6 | Converted Rattay region, coach travel, supported interactions and services, Rattay smithing, church prayer, containers and test supplies. |
+| KCD2 Fishing | 0.3.0 | KCD2 1.5.6 | Standalone fishing in Trosky and Kuttenberg; also includes converted-map water when built with KCD1 Map. |
 
-## Install
+The setup version and mod package versions are separate. KCD1 Map does not convert a complete playable campaign or KCD1 saves. Standalone fishing's native-region runtime validation remains pending.
 
-1. Install both legal copies of the games through Steam.
-2. Run the setup executable. It reads Steam's library and app manifests to find
-   both installations, including libraries on different drives. Use **Browse**
-   if a game was not found or to select a different installation.
-3. Choose a **Build folder** outside both game directories. Allow at least
-   **90 GiB free** for the build. Installation also needs about **35 GiB free**
-   on the KCD2 drive for staging. On the same drive these estimates are combined.
-   These are conservative preflight estimates, not the final package size.
-4. Close either running Kingdom Come game, choose **Build and install**, then
-   select **Check locations** and **Build and install**.
-5. Watch the stage progress, current operation and live log. Stages differ in
-   duration: the overall bar counts stages, not an estimated time percentage.
-   File packaging/copy/verification report measured progress; other stages show
-   activity. A full conversion can take a while and creates many files.
-6. When setup completes, launch KCD2 normally, **Continue your Trosky save**,
-   and talk to the coachman. Select **Travel to the Rattay region**.
+## Install step by step
 
-The executable is unsigned. Setup requests no administrator elevation; the
-selected folders must be writable by the current Windows user.
+1. Install the required games. Run the setup executable as your normal Windows user in writable folders.
+2. In **Library**, select one or both mods, then **Configure installation**.
+3. **Locations:** confirm detected Steam paths or browse to each game's main folder. Choose a build folder outside the games, such as `D:\KCDModBuilds`. Select **Build & install**. Use **Build packages only** to create packages without installing them.
+4. **Baking:** choose a mode from the table below. Baking follows the complete map conversion and gameplay packaging. It does not run during the early tree/vegetation conversion step.
+5. **Cutscenes:** leave the optional opening movie off, or locate your installed RAD Video Tools encoder and enable it. FFmpeg and FFprobe must be on PATH. Setup does not download RAD. The optional movie currently replaces the shared New Game intro, including ordinary KCD2 New Game. Later campaign scenes are not included.
+6. **Review:** check paths, selected mods and options. Close the games before installation, then start.
+7. **Activity:** all planned steps appear up front. The current task reports progress when measurable. Overall stage counts are not time percentages. An ETA only appears where throughput can be measured.
+8. Wait for **Selected mods installed**. Launch KCD2 normally.
 
-## Other operations
+### Lighting choices and space
 
-- **Build package only** converts and verifies everything without changing the
-  installed mod. It can run while the game is open. The resulting `package`
-  folder can later be selected with **Install existing package**.
-- **Install existing package** verifies a previously generated complete world-and-travel bundle
-  and installs it without repeating conversion. Both game locations are still
-  checked. Older world-only packages are rejected; rebuild them with this setup.
-- **Cancel after current stage** waits for a conversion stage to finish. During
-  file copying, cancellation stops before replacement of the installed mod.
-  The saved build output and log remain available for diagnosis.
-- **Open log** opens `setup.log`; `events.jsonl` retains structured progress and
-  errors. **Open output folder** opens the current run's directory.
-- **Stage times (current source)** are logged as each stage finishes, summarized
-  at the end, and saved as `stage-times.json` in the run folder. Older downloaded
-  releases may not include this feature. To see where a slow stage spends
-  its time, set `GLUEMAPPER_PROFILE=1` before starting setup (PowerShell:
-  `$env:GLUEMAPPER_PROFILE = '1'`, then run the executable or `python tools/setup_app.py`
-  from that window). Each stage then writes a cProfile text summary and a `.prof`
-  file under `profiles/`. Profiling slows the build, so don't compare its times
-  with an ordinary run.
+| Mode | Scope | Extra build-space allowance |
+| --- | --- | --- |
+| No Baking | Keeps the normal conversion lighting configuration; skips the additional surface bake. | None |
+| Buildings | Structures, static props, ground and roads; forest instances excluded from this pass. | 30 GiB |
+| All (Forest) | Buildings coverage plus eligible trees and foliage. | 60 GiB |
 
-Build output is retained rather than automatically deleting large directories.
-Each run uses a unique folder. On NTFS, the run's `package` folder hard-links the
-unchanged files of its `world-package` folder, so the pair occupies roughly one
-package's worth of disk although Explorer reports both sizes. Either folder can
-be deleted safely without affecting the other. The current release starts a fresh build when
-retrying a failed conversion; it does not claim checkpoint resume support.
+All modes include visible buildings and vegetation. Baking prepares surface data for indirect illumination. It does not build or clear the game's shader cache. The bake uses the CPU and remains experimental, including approximations for layered materials and foliage.
 
-## Comparing builds (source tooling)
+A fresh map build reserves **200 GiB** in the build location and **64 GiB** for installation staging. Add the chosen bake allowance and another **10 GiB** for the optional movie. Requirements combine when build and game folders share a drive. Fishing alone needs approximately 1 GiB for build and staging. Existing builds and backups already consume space and are retained.
 
-The source tool compares generated packages without treating archive write times
-or the manifest creation date as content changes. From the repository root:
+The measured local map conversion took **43 minutes 10 seconds**, excluding optional baking. The previously reported 190.5-second bake ended with an error and was not a completed bake. Full-world bake time is not yet established; CPU, storage, available memory and selected coverage affect duration.
 
-```powershell
-.venv/Scripts/python.exe tools/compare_packages.py `
-  --left "D:\Builds\before\package" `
-  --right "D:\Builds\after\package" `
-  --deep
-```
+## Continue a failed setup
 
-Replace the example paths with your build directories. The default mode compares
-archive entry names, order, compression, sizes and stored CRC-32 values. Use
-`--deep` for verification: it reads and hashes every entry with SHA-256 and
-checks stored CRCs. This takes longer than reading archive metadata alone.
+1. Keep the original job folder and its output.
+2. Stop any older setup run for that job. Open this updated setup.
+3. Go to **Activity → Resume failed setup…**.
+4. Select the timestamped folder containing `job.json`, `package`, and `map-job`. Do not select `map-job`, `baking`, or the installed Mods folder.
+5. Setup reads the saved options, verifies completed packages and resumes remaining operations. Watch the new attempt's log.
 
-The tool ignores ZIP timestamps, `created_on` in `mod.manifest`, and corresponding
-receipt digests. Other files and receipt fields are compared. It prints JSON and
-exits with status 1 when differences are found. `--ignore "*report.json"` excludes
-matching relative file paths and their entries in installation receipts; use
-exclusions deliberately because those files are then outside the comparison.
+For a failure in optional baking, the completed map package is reused: the 43-minute conversion need not repeat. A completed movie or selected bake is skipped when its package receipt confirms completion. Compatible completed bake tiles are verified and reused. Missing or damaged tiles are rebuilt. Interrupted scene planning restarts that planning phase.
 
-Equivalent contents do not establish valid installation receipts or runtime
-compatibility. The installer's package verification remains necessary. This is
-a developer command, not an extra step required by normal Windows setup, and
-its presence in source does not imply an older downloaded EXE contains it.
+If map conversion failed before a complete package existed, the map phase restarts. Resume does not checkpoint every individual world-converter stage. Partial outputs remain for diagnosis. Modified or incomplete packages are rejected rather than treated as successful.
 
-## Installation and rollback
+Each attempt gets separate `resume-<timestamp>-<id>` logs under the original job. Old cancellation requests do not apply to a new attempt. Remaining disk-space checks exclude already completed world conversion. If the final installation failed, resume retries the verified installation transaction; a previously installed first mod may be staged again when recovering a two-mod run.
 
-The destination is `<KCD2>/Mods/kingdomcomegluemapper`. Setup stages and verifies
-the new files before replacing that one owned mod. An existing installation
-must match its receipt; unknown or locally modified files block replacement.
-The previous installation is moved into `<KCD2>/GlueMapper Backups/<run-id>`.
-If the final rename fails, setup restores the old installation automatically.
+Use **Cancel safely** rather than terminating the process. Cancellation waits for the current safe work boundary; some operations take time to finish. The next attempt can reuse completed packages and compatible bake tiles. Optional movie and bake work is prepared separately so failure leaves the verified map package available.
 
-A recognized legacy `gluemappertravel` folder is also moved into GlueMapper
-Backups. Other mods, game archives and saves are preserved. If `Mods/mod_order.txt`
-exists, setup backs it up, retains other entries and comments, enables
-`kingdomcomegluemapper`, and removes the obsolete separate travel entry. A failed
-installation restores the previous mod folders. Unrecognized or redirected
-legacy folders are rejected before replacement.
+## Enter the map or fish
 
-For manual rollback, close the game, move the current owned mod somewhere safe,
-then move the chosen backup back to `Mods/kingdomcomegluemapper`.
+- **KCD1 Map:** continue a Trosky save, speak to the coachman and choose **Travel to the Rattay region**. The retail menu also offers **New Game Sasau region (In Progress)** as an experimental start.
+- **KCD2 Fishing:** buy a rod from a general merchant after its stock refreshes. Having the rod in your inventory is enough. Face nearby water and use the contextual **Fish** action. Follow the casting and bite prompts; cancelling or moving ends fishing.
 
-## Conversion stages
+If the old map contains an embedded fishing test, standalone fishing installation is blocked. Build the clean map package before adding the separate fishing mod.
 
-The app orchestrates the existing converters with separate source, target and
-workspace paths. It does not need symlinks, an installed editor or an editor SQL
-database. The stages cover terrain/materials, trees and merged grass, water,
-buildings, streams, props, remaining instances, roads/decals, selected landscape
-geometry, door/object visuals and tree material compatibility. The latest road
-buffer and terrain height corrections are in the shared converters.
+## Install existing packages
 
-It then packages the imported dependencies into retail-sized archives, imports
-the source spawn, registers the map, supplies the corrected database table mount
-paths, and generates the menu patch from the user's own KCD2 UI. Original quest
-files are retained as conversion inputs; they are not executable KCD2 quests.
+Choose **Install existing packages** and select the job's parent `package` folder, which contains `map` and/or `fishing`. The selected packages must match their receipts. This does not run conversion or change their bake settings.
 
-All generated game content stays on the user's machine. The release executable
-contains the converter, interface and Python/Tk runtime, not game assets.
+## Logs and reporting problems
 
-## Build the executable from source
+Use **Open log** and **Open folder** in Activity. The main `setup.log` and `events.jsonl` record selected-mod operations. `map-job/setup.log` records world conversion and gameplay packaging. `stage-times.json` records measured stage durations. Resume attempts have separate logs; include both the original error and the new attempt when reporting a problem.
 
-On Windows x64 with Python 3.13:
+Bake errors identify the affected mesh and scene plan. Setup 0.3.2 fixes the reported unbound burned-fabric mesh by recording its default-material binding while retaining its geometry. Failed stages are reported as failed, rather than misleadingly logged as finished.
+
+When filing an issue, include setup version, selected mods and bake mode, game version, error text and relevant logs. Do not upload game archives or your complete converted package.
+
+## Installation, backups and removal
+
+The destinations are `<KCD2>/Mods/kingdomcomegluemapper` and `<KCD2>/Mods/kcd2fishing`. Setup stages and verifies files before replacing recognized installations. Previous installations and mod-order backups are retained under `<KCD2>/GlueMapper Backups`. Modified or unknown installations block replacement. The game archives and saves are not overwritten.
+
+To roll back, close the game, move the current mod to a safe location, restore its chosen backup to the original Mods path, and restore the corresponding `mod_order.txt` backup if necessary. To disable a mod, move its folder outside Mods and remove its line from `mod_order.txt` if that file exists. Keep unrelated entries. Retain backups until the new build works for you.
+
+Build folders, unsuccessful attempts and backups are not automatically deleted. Remove them only after you no longer need recovery or comparison. Shader caches are not cleared by setup.
+
+## Build from source
+
+On Windows x64, Python 3.13 avoids compiling the pinned xatlas dependency:
 
 ```powershell
 py -3.13 -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements-setup.txt
 .venv/Scripts/python.exe -m pip install -r requirements-test.txt
-.venv/Scripts/python.exe -m unittest discover -s tests -v
+.venv/Scripts/python.exe -m unittest discover -s tests
 .venv/Scripts/python.exe tools/build_setup_exe.py
 ```
 
-Python 3.14 cannot install `xatlas==0.0.11`: that release publishes no cp314
-wheel, so `pip` builds it from source and needs the Visual Studio C++ Build
-Tools. The install then aborts as a whole, so NumPy, Pillow and PyInstaller are
-not installed either. `xatlas` is part of the bundled runtime and is exercised by
-the frozen self-test, so use 3.13 rather than dropping it.
+Python 3.14 also works when the Visual Studio C++ build tools are available to build `xatlas==0.0.11` from source. That version of xatlas has a Windows cp313 wheel but no cp314 wheel; a missing wheel is not a Python 3.14 incompatibility. The parallel CPU baker supports both Python versions.
 
-The build writes the EXE, `SHA256SUMS.txt` and frozen-runtime `self-test.json` to
-`outputs/release`. The self-test checks bundled converter imports, Tcl startup
-and the Lua resources. It does not run the games. The tag/dispatch GitHub Actions
-workflow also builds and uploads these artifacts without access to game files.
+Outputs include the EXE, SHA-256 checksum and frozen-runtime self-test report. GitHub Actions is manual-only; a push or release tag does not automatically run tests. Frozen checks validate included resources, native extensions and a small CPU raster job; they do not substitute for a complete bake or in-game playtest.
 
-See [contributing](../CONTRIBUTING.md) for the test suite and the checks to run
-before opening a pull request.
-
-The setup uses [PyInstaller](https://pyinstaller.org/en/stable/) to bundle the
-runtime. Conversion remains subject to the limitations in the
-[world import checklist](world-import-checklist.md).
-
-## Release validation: 0.2.0-alpha.1
-
-- The Windows executable's self-test passed: nine converter modules, Tcl/Tk,
-  and both bundled Lua resources loaded from the frozen application.
-- The visible application detected both local Steam games and correctly blocked
-  installation when the destination drive lacked staging space.
-- The frozen worker installed a synthetic package successfully. Automated tests
-  cover replacement backups, rollback after a failed rename, cancellation,
-  package tampering, separate Steam libraries and disk-space preflight.
-- A fresh source-backend conversion from the installed games completed all 12
-  conversion stages and package verification in approximately 19 minutes on the
-  development machine. It produced 79,301 imported assets and a 15.7 GiB package,
-  with 11,333 final visual/spawn entities and the original Skalitz spawn point.
-- This newly generated package was not installed or replayed in retail because
-  the game drive lacked staging space. Package verification is not an in-game
-  acceptance test. Earlier retail world/menu validation is recorded separately.
-
-The full test suite uses `requirements-test.txt`, including Lupa for executable
-Lua lifecycle checks. Lupa is excluded from the setup executable. From alpha.4,
-Pillow and NumPy are included for character textures, road geometry and cart
-grounding. The frozen self-test exercises an image encode/decode as well as imports.
-
-## Release validation: 0.2.0-alpha.2
-
-The travel implementation and its runtime limitations are recorded in the
-[region travel guide](region-travel.md). The EXE now bundles the travel builder
-and horse arrival Lua resource. Its self-test imports all ten converter modules,
-starts Tcl and checks all three Lua resources. This is packaging validation,
-not proof of a completed gameplay round trip. The alpha.1 conversion results
-above describe that historical build and are not claimed as a new full-world
-conversion test of alpha.2.
-
-## Release scope: 0.2.0-alpha.3
-
-This release includes the registered KCD1 region map, location icons and detail
-layers, plus the test quest **A visit to Rattay**. The quest directs the player
-to the inn outside Rattay's upper gate and completes when talking to its imported
-innkeeper. The dialogue remains open and its Trade option opens the native shop
-with stock imported from KCD1.
-
-The user confirmed the map and multiple detail levels, conversation-based quest
-completion, and successful buying in retail. The latest recording shows a beer
-purchase. Haggling is not implemented; selling, restocking and save/load coverage
-are not established by these checks. The complete KCD1 campaign remains unfinished.
-
-Use **Build region travel** to rebuild the overlay with these changes, then follow
-the [manual overlay installation steps](region-travel.md#building-from-the-windows-setup-release).
-The setup still requires both installed games and an installed converted base world.
-Generated game assets are not included in the release.
-
-Release checks: all 273 automated tests passed. The frozen EXE self-test passed
-for ten converter modules, Tcl startup and three Lua resources. Its actual
-**Build region travel** worker built the updated overlay from both installed
-games and the existing converted world in 34 seconds. All nine output file
-hashes and PAK CRC checks passed. This release check did not install or replay
-the newly generated overlay; the retail confirmations above are separate user
-tests of the working implementation.
-
-
-## Release scope: 0.2.0-alpha.4
-
-The default build now performs all world conversion stages, builds travel from
-that freshly converted world, and combines both under one manifest. Package-only
-builds produce the same complete mod. The installer can migrate the previous
-separate travel mod and update an existing mod order while retaining backups.
-The UI no longer exposes a separate travel-build operation.
-
-The user confirmed the combined Trosky travel installation works in retail.
-All 297 automated tests pass, including fresh-build orchestration, repeat bridge
-builds without duplicate level rows, preservation of world files, legacy-mod
-migration and failed-install rollback. The frozen alpha.4 EXE self-test passes
-with Pillow, NumPy, the converters, Tcl and bundled Lua resources. An initial
-packaging check caught the old Pillow exclusion; the release build includes it.
-
-The frozen alpha.4 worker also completed a clean, end-to-end package-only build
-from both installed games: all 15 stages passed in 920.5 seconds, with 79,301
-imported world assets and a 31-file combined package (19,289,827,365 bytes).
-All 15 generated database tables passed the official GeneratedDatabase reader.
-This run did not modify the installed game or replay the fresh package in retail.
-The installer downloaded back from the draft release matched its SHA-256.
+See [launcher implementation details](setup-launcher.md) and [region travel](region-travel.md) for further scope and limitations. The release distributes setup code and interface assets, not converted game archives.

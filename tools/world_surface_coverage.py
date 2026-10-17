@@ -114,7 +114,7 @@ def cache_mesh(scene,assets,group):
     return json.loads(path.read_text())
 
 
-def augment(source,output):
+def augment(source,output,include_vegetation=True):
     source,output=Path(source),Path(output)
     if output.exists():raise FileExistsError('Use a fresh coverage scene')
     plan=json.loads((source/'plan.json').read_text())
@@ -147,12 +147,13 @@ def augment(source,output):
                 counts['total']+=1
                 if not groups[group]['source_gi_enabled']:counts['legacy_gi_disabled_upgraded']+=1
                 if not eligible_instance(flags):counts['hidden_or_proxy']+=1
-                else:
+                elif include_vegetation:
                     selected.setdefault(group,[]).append(cursor);counts['selected']+=1
+                else:counts['excluded_by_preset']+=1
             cursor+=104 if kind==1 else 64
     assets=Assets(plan['pak_root'],plan['overrides'])
     if assets.catalog_digest()!=plan['asset_catalog_digest']:raise ValueError('Asset catalog changed')
-    height=HeightField(terrain);jobs={tuple(j['origin']):dict(j) for j in plan['tiles']}
+    height=HeightField(terrain) if include_vegetation else None;jobs={tuple(j['origin']):dict(j) for j in plan['tiles']}
     all_transforms=[];all_groups=[];metadata={};count=0;errors={}
     for group,offsets in sorted(selected.items()):
         definition=groups[group]
@@ -175,7 +176,8 @@ def augment(source,output):
     if errors:
         (output/'coverage-errors.json').write_text(json.dumps(errors,indent=2));raise ValueError('Vegetation mesh failures: '+str(errors))
     np.savez(output/'vegetation.npz',transforms=np.concatenate(all_transforms) if all_transforms else np.empty((0,3,4)),groups=np.concatenate(all_groups) if all_groups else np.empty(0,np.uint16))
-    plan['vegetation']={'policy':POLICY,'groups':metadata,'counts':dict(counts),'serialized_node_modes':dict(node_modes),'sha256':hashlib.sha256((output/'vegetation.npz').read_bytes()).hexdigest()}
+    policy=POLICY if include_vegetation else 'excluded by Buildings preset; no forest surface contribution'
+    plan['vegetation']={'policy':policy,'groups':metadata,'counts':dict(counts),'serialized_node_modes':dict(node_modes),'sha256':hashlib.sha256((output/'vegetation.npz').read_bytes()).hexdigest()}
     excluded=Counter()
     def inspect(d,o,s,k):
         if k in (7,9,23):
@@ -189,7 +191,7 @@ def augment(source,output):
         del plan['pending_categories'][name]
     if plan['pending_categories'].get('hlod_vegetation')!=counts['total']:raise ValueError('Vegetation count mismatch')
     del plan['pending_categories']['hlod_vegetation']
-    coverage['hlod_vegetation']={'count':counts['total'],'policy':POLICY+'; all groups eligible; hidden/proxy exclusion; full placement transforms','included':count,'counts':dict(counts)}
+    coverage['hlod_vegetation']={'count':counts['total'],'policy':policy,'included':count,'counts':dict(counts)}
     plan['category_policy']=coverage;plan['tiles']=[jobs[k] for k in sorted(jobs)]
     plan['status']='category coverage resolved; experimental bake and runtime validation required'
     plan['coverage_reference']='https://github.com/ValtoGameEngines/CryEngine/blob/release/Code/CryEngine/Cry3DEngine/SVO/VoxelSegment.cpp'

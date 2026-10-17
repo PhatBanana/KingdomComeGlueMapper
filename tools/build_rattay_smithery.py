@@ -29,7 +29,7 @@ BRUSHES = {'gluebuild/setup_props/mesh1126.cgf', 'gluebuild/setup_props/mesh1119
 PREFIX = 'gm_rattay_smith_'
 
 
-def remove_old_brushes(data, hierarchy, meshes):
+def remove_old_brushes(data, hierarchy, meshes, brushes=BRUSHES):
     root = ET.fromstring(hierarchy)
     if struct.unpack_from('<I', data)[0] != 2:
         raise ValueError('Unknown HLOD version')
@@ -47,7 +47,7 @@ def remove_old_brushes(data, hierarchy, meshes):
             if kind == 1:
                 mesh = meshes[struct.unpack_from('<H', data, cursor+40)[0]]
                 p = tuple(struct.unpack_from('<f', data, cursor+i)[0] for i in (56,72,88))
-                remove = mesh in BRUSHES and any(math.dist(p,s[4]) < 4 for s in STATIONS)
+                remove = mesh in brushes and any(math.dist(p,s[4]) < 4 for s in STATIONS)
                 if remove: removed.append(dict(mesh=mesh, position=p))
             if not remove: records.append(data[cursor:cursor+length])
             cursor += length
@@ -59,7 +59,7 @@ def remove_old_brushes(data, hierarchy, meshes):
     return bytes(output), xml(root), removed
 
 
-def convert(files, source, native, prefabs, meshes):
+def convert(files, source, native, prefabs, meshes, brushes=BRUSHES):
     root = ET.fromstring(files['objects_mission0.xml'])
     if any(e.get('Name','').startswith(PREFIX) for e in root):
         raise ValueError('Rattay smithery already installed')
@@ -141,7 +141,7 @@ def convert(files, source, native, prefabs, meshes):
     result = dict(files)
     result.update({'objects_mission0.xml':repair_coal(xml(root)),HELPERS:xml(helpers),ANIMATIONS:xml(animations),SCHEDULER:xml(scheduler),
                    'waitinglinks.xml':append_links(files['waitinglinks.xml'],network,allow_untagged=True)})
-    result['terrain/hlods.dat'],result['terrain/hlods.xml'],removed = remove_old_brushes(files['terrain/hlods.dat'],files['terrain/hlods.xml'],meshes)
+    result['terrain/hlods.dat'],result['terrain/hlods.xml'],removed = remove_old_brushes(files['terrain/hlods.dat'],files['terrain/hlods.xml'],meshes,brushes)
     return result,dict(stations=reports,removed_brushes=removed,runtime_verified=False)
 
 
@@ -155,7 +155,8 @@ def build(library, mod, output):
          zipfile.ZipFile(library/'KingdomComeDeliverance2/Data/IPL_GameData.pak') as prefabs:
         files = {n:read(installed,n) for n in FILES}
         meshes = parse(read(terrain,'terrain/terrain.dat')).tables['meshes']['paths']
-        updated,report = convert(files,source,native,prefabs,meshes)
+        brushes = resolve_brushes(files, meshes, mod, library/'KingdomComeDeliverance')
+        updated,report = convert(files,source,native,prefabs,meshes,brushes)
     modid = ET.parse(mod/'mod.manifest').findtext('info/modid')
     changes = {level:updated,travel:{f'Mods/{modid}/Data/Levels/kcd1_travel/{n}':updated[n] for n in (ANIMATIONS,SCHEDULER)}}
     with zipfile.ZipFile(library/'KingdomComeDeliverance2/Data/IPL_Characters-part0.pak') as characters:
@@ -171,6 +172,37 @@ def build(library, mod, output):
         report['packages'][relative]=digest(destination)
     (output/'smithery.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report))
+
+
+def resolve_brushes(files, meshes, mod, source):
+    """Find the three original equipment meshes regardless of build numbering."""
+    from build_open_test_gates import source_geometry
+    import hashlib
+    from clothing_regions import read_chunks
+    from spatial_hlod import records
+    def signature(blob):
+        return hashlib.sha256(b''.join(struct.pack('<HHI',c.kind,c.version,c.id)+c.data
+            for c in read_chunks(blob) if c.kind!=0x1014)).digest()
+    models=('objects/props/blacksmith_tools/anvil_01.cgf',
+            'objects/props/blacksmith_tools/water_container.cgf',
+            'objects/props/wooden_bins/barrels/barrel_02/barrel_02_metal_pieces.cgf')
+    nearby=set();data=files['terrain/hlods.dat']
+    for group in ET.fromstring(files['terrain/hlods.xml']).iter('HLod'):
+        start=int(group.get('DataOffset'));end=start+int(group.get('DataSize'))
+        for row in records(data[start+4:end]):
+            if len(row)!=104:continue
+            point=tuple(struct.unpack_from('<f',row,i)[0] for i in (56,72,88))
+            if any(math.dist(point,s[4])<4 for s in STATIONS):nearby.add(meshes[struct.unpack_from('<H',row,40)[0]].lower())
+    expected={signature(blob) for blob in source_geometry(source,models).values()}
+    found={};matched=set()
+    for path in sorted((mod/'Data').glob('*.pak')):
+        with zipfile.ZipFile(path) as archive:
+            for name in archive.namelist():
+                if name.lower() not in nearby:continue
+                value=signature(read(archive,name))
+                if value in expected:found[name.lower()]=value;matched.add(value)
+    if matched!=expected:raise ValueError('Missing original Rattay equipment geometry')
+    return set(found)
 
 
 if __name__=='__main__':

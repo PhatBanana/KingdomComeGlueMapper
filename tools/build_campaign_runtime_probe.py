@@ -13,7 +13,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
-from campaign_entity_links import native_guid, guid_value, append_links
+from campaign_entity_links import native_guid, append_links
 from campaign_package import campaign_spawn_objects, level_table_shells, level_registration
 from campaign_quest_graph import identifier, xml, edge, constant
 from campaign_sources import opening_spawn

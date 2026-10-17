@@ -11,6 +11,7 @@ import json
 import os
 from pathlib import Path
 import struct
+import sys
 import xml.etree.ElementTree as ET
 import zlib
 
@@ -64,6 +65,10 @@ def _bounded_map(executor, func, jobs, workers):
     iterator one small window at a time keeps the bounded look-ahead the octree
     walk needs, and yields results in job order on every supported version.
     """
+    # Preserve the existing streaming scheduler on Python 3.14+.
+    if sys.version_info >= (3, 14):
+        yield from executor.map(func, jobs, buffersize=max(1, workers))
+        return
     jobs = iter(jobs)
     while window := _take(jobs, max(1, workers)):
         yield from executor.map(func, window)

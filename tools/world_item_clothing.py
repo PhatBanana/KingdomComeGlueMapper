@@ -17,6 +17,29 @@ from upgrade_map import read, xml
 from character_native_materials import convert_character_materials
 
 
+def material_inputs(emitted, files):
+    """Stage this item's files and shared texture families, not prior outfits."""
+    selected=dict(files)
+    textures=set()
+    for name,payload in files.items():
+        if not name.lower().endswith('.mtl'):continue
+        root=ET.fromstring(payload.read_bytes() if isinstance(payload,Path) else payload)
+        textures.update(t.get('File','').replace('\\','/').lower() for t in root.iter('Texture') if t.get('File'))
+    for name,payload in emitted.items():
+        key=name.replace('\\','/').lower()
+        if any(key==texture or key.startswith(texture+'.') for texture in textures):
+            selected.setdefault(name,payload)
+    return selected
+
+
+def retain_material_file(assets, name, path):
+    # DependencyImporter supports Path payloads. Keep native float-DDS outputs
+    # on disk just like the source textures, rather than retaining every
+    # outfit's expanded textures in memory until the entire loot pass finishes.
+    assets.emitted[name] = path.read_bytes()
+    return assets.emitted[name]
+
+
 class ClothingAdapter:
     # Source SQL armor_type is distinct from KCD2's enum. Resolve an explicit
     # semantic role, then inherit the native role's layer and archetype.
@@ -118,7 +141,7 @@ class ClothingAdapter:
                     folder = Path(temporary)
                     # Material textures can be shared with an earlier item in
                     # this import batch; include their already-emitted files.
-                    for path, payload in {**a.emitted, **files}.items():
+                    for path, payload in material_inputs(a.emitted,files).items():
                         dest = folder/path; dest.parent.mkdir(parents=True, exist_ok=True)
                         dest.write_bytes(payload.read_bytes() if isinstance(payload, Path) else payload)
                     (folder/'Libs/Tables/Character').mkdir(parents=True,exist_ok=True)
@@ -127,7 +150,7 @@ class ClothingAdapter:
                         if path.is_file():
                             relative = path.relative_to(folder).as_posix()
                             if relative.startswith(prefix) or relative.startswith('Libs/Tables/Character/ClothingMaterial__'):
-                                files[relative] = path.read_bytes()
+                                files[relative] = retain_material_file(a,relative,path)
         elif role not in ('HorseShoe','Ring','Necklace','Spurs'): raise ValueError('Source wearable is missing a model')
         files['Libs/Tables/Character/CharacterComponent__'+name+'.xml'] = xml(root)
         return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=True,

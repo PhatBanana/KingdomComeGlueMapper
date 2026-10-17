@@ -1,6 +1,6 @@
 """Import native companion scheduling objects without creating a new horse."""
 import copy
-import json
+import re
 from pathlib import Path
 import xml.etree.ElementTree as ET
 from upgrade_map import xml
@@ -8,20 +8,30 @@ from campaign_entity_links import guid_value
 from player_animation_updates import patch_player
 
 
-def horse_recovery_resources(native_player, road_arrivals=None):
-    """Append a bounded lifecycle hook to the installed game's complete script."""
-    marker=b'GlueTravelHorseRecovery'
-    if marker in native_player or b'function Player:OnInit()' not in native_player or b'function Player:OnLoadAI(' not in native_player:
-        raise ValueError('Unexpected or already-patched native Player script')
-    def vector(values):
-        return '{'+','.join(f'{axis}={float(value):.9f}' for axis,value in zip('xyz',values))+'}'
-    rows=[]
-    for level,report in (road_arrivals or {}).items():
-        points=','.join(vector(c['position']) for c in report['candidates'])
-        rows.append('['+json.dumps(level)+']={arrival='+vector(report['arrival'])+',positions={'+points+'}}')
-    config=('\nGlueTravelHorseRoadArrivals={'+','.join(rows)+'}\n').encode('utf-8')
-    hook=Path(__file__).with_name('region_travel_horse_recovery.lua').read_bytes()
-    return {'Scripts/Entities/actor/player.lua':patch_player(native_player+config+hook)}
+def remove_horse_recovery(player):
+    """Remove only the known legacy hook, preserving later gameplay wrappers.
+
+    The old Lua file remains a migration signature; new packages never execute
+    it. Refuse an unfamiliar version rather than cutting arbitrary Lua code.
+    """
+    if b'GlueTravelHorseRecovery' not in player:
+        return player
+    hook = Path(__file__).with_name('region_travel_horse_recovery.lua').read_bytes()
+    variants = {hook, hook.replace(b'\r\n', b'\n'),
+                hook.replace(b'\r\n', b'\n').replace(b'\n', b'\r\n')}
+    matches = [blob for blob in variants if player.count(blob) == 1]
+    if len(matches) != 1:
+        raise ValueError('Unrecognized legacy horse recovery hook; preserve Player script')
+    result = player.replace(matches[0], b'', 1)
+    result = re.sub(rb'(?m)^GlueTravelHorseRoadArrivals=[^\r\n]*\r?\n', b'', result)
+    if b'GlueTravelHorseRecovery' in result or b'GlueTravelHorseRoadArrivals' in result:
+        raise ValueError('Incomplete legacy horse recovery removal')
+    return result
+
+
+def travel_player_resources(native_player):
+    """Retain animation updates; leave horse transfer to the native game."""
+    return {'Scripts/Entities/actor/player.lua': patch_player(remove_horse_recovery(native_player))}
 
 
 def import_horse_scheduler_table(destination, native, mission):

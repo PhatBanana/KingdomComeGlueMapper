@@ -1,5 +1,6 @@
 """Opt-in testing override for the reviewed Talburg and Skalitz gate pieces."""
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -15,7 +16,21 @@ GRATES = ((665.926513671875,3467.761962890625,68.28124237060547),
 LIFT = 4.0
 
 
-def open_gates(files, meshes):
+def source_geometry(source, names):
+    """Read geometry across the same base/DLC/patch families as asset_pack."""
+    wanted=set(names);found={}
+    paths=sorted((p for p in (Path(source)/'Data').glob('*.pak') if p.name.startswith(('GameData','Objects','Buildings','Characters'))),key=lambda p:('_HD' in p.name,p.name.lower()))
+    paths.extend(sorted((Path(source)/'Data/patch').glob('*.pak')))
+    for path in paths:
+        with zipfile.ZipFile(path) as archive:
+            for name in archive.namelist():
+                key=name.replace('\\','/').lower()
+                if key in wanted:found[key]=read(archive,name)
+    if set(found)!=wanted:raise ValueError('Missing original geometry: '+str(sorted(wanted-set(found))))
+    return found
+
+
+def open_gates(files, meshes, grate_mesh='gluebuild/setup_buildings/mesh1197.cgf', palisade_mesh='gluebuild/setup_props/entity104.cga'):
     data = bytearray(files['terrain/hlods.dat'])
     hierarchy = ET.fromstring(files['terrain/hlods.xml'])
     mission = ET.fromstring(files['objects_mission0.xml'])
@@ -33,7 +48,7 @@ def open_gates(files, meshes):
             if kind == 1:
                 mesh = meshes[struct.unpack_from('<H',data,cursor+40)[0]]
                 position = tuple(struct.unpack_from('<f',data,cursor+i)[0] for i in (56,72,88))
-                if mesh == 'gluebuild/setup_buildings/mesh1197.cgf' and any(math.dist(position,p)<.01 for p in GRATES):
+                if mesh == grate_mesh and any(math.dist(position,p)<.01 for p in GRATES):
                     if position in hits:raise ValueError('Duplicate gate placement')
                     hits.append(position)
                     # Move the actual brush and its world-space render/collision bounds.
@@ -46,7 +61,7 @@ def open_gates(files, meshes):
     gates = [e for e in mission.iter('Entity') if e.get('Name')=='glue_item_124019']
     if len(gates)!=1:raise ValueError('Missing Talburg palisade gate')
     gate=gates[0]
-    if gate.get('Geometry')!='gluebuild/setup_props/entity104.cga' or gate.get('Pos')!='2346.5435,2828.605,105.96074':
+    if gate.get('Geometry')!=palisade_mesh or gate.get('Pos')!='2346.5435,2828.605,105.96074':
         raise ValueError('Talburg gate baseline changed')
     gate.set('Pos','2346.5435,2828.605,109.96074')
     result=dict(files)
@@ -55,14 +70,52 @@ def open_gates(files, meshes):
                        testing_only=True,runtime_passage_verified=False)
 
 
-def build(mod, output):
+def resolve_models(files, meshes, asset, original):
+    """Generated mesh numbers vary; require the original geometry at each site."""
+    from clothing_regions import read_chunks
+    from spatial_hlod import records
+    def signature(blob):
+        return hashlib.sha256(b''.join(struct.pack('<HHI',c.kind,c.version,c.id)+c.data
+            for c in read_chunks(blob) if c.kind!=0x1014)).digest()
+    candidates=set()
+    data=files['terrain/hlods.dat']
+    for group in ET.fromstring(files['terrain/hlods.xml']).iter('HLod'):
+        start=int(group.get('DataOffset'));end=start+int(group.get('DataSize'))
+        for row in records(data[start+4:end]):
+            if len(row)!=104:continue
+            point=tuple(struct.unpack_from('<f',row,i)[0] for i in (56,72,88))
+            if any(math.dist(point,p)<.01 for p in GRATES):
+                candidates.add(meshes[struct.unpack_from('<H',row,40)[0]])
+    if len(candidates)!=1:raise ValueError('Expected one gate model at the two reviewed Skalitz placements')
+    grate=candidates.pop()
+    gate=ET.fromstring(files['objects_mission0.xml']).find(".//Entity[@Name='glue_item_124019']")
+    if gate is None:raise ValueError('Missing Talburg gate source identity')
+    palisade=gate.get('Geometry')
+    for target,source in ((grate,'objects/buildings/castles/castle_talmberk/castle_talmberk_grate.cgf'),
+                          (palisade,'objects/buildings/wall_wooden/talmberk_palisade_gate.cga')):
+        if signature(asset(target))!=signature(original(source)):
+            raise ValueError('Gate geometry differs from its reviewed source: '+source)
+    return grate,palisade
+
+
+def build(mod, output, source=None):
     if output.exists():raise FileExistsError(output)
     level=mod/'Data/Levels/kcd1_travel/level.pak'
     with zipfile.ZipFile(mod/'Data/Levels/kcd1_travel/terrain.pak') as z:
         meshes=parse(read(z,'terrain/terrain.dat')).tables['meshes']['paths']
     with zipfile.ZipFile(level) as z:
         original={n:read(z,n) for n in ('terrain/hlods.dat','terrain/hlods.xml','objects_mission0.xml')}
-    updated,report=open_gates(original,meshes)
+    models=()
+    if source is not None:
+        from contextlib import ExitStack
+        with ExitStack() as stack:
+            assets={}
+            for path in sorted((mod/'Data').glob('*.pak')):
+                archive=stack.enter_context(zipfile.ZipFile(path))
+                assets.update({n.lower():(archive,n) for n in archive.namelist() if n.lower().endswith(('.cgf','.cga'))})
+            originals=source_geometry(source,('objects/buildings/castles/castle_talmberk/castle_talmberk_grate.cgf','objects/buildings/wall_wooden/talmberk_palisade_gate.cga'))
+            models=resolve_models(original,meshes,lambda n:read(*assets[n.lower()]),originals.__getitem__)
+    updated,report=open_gates(original,meshes,*models)
     target=output/'Data/Levels/kcd1_travel/level.pak'
     rewrite(level,target,updated)
     with zipfile.ZipFile(level) as a,zipfile.ZipFile(target) as b:
@@ -79,4 +132,5 @@ def build(mod, output):
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--mod',type=Path,required=True);p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--source',type=Path,help='KCD1 installation; resolve generated model names from original geometry')
     build(**vars(p.parse_args()))

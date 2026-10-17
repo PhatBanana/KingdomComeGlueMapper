@@ -2,7 +2,7 @@ import sys,struct,unittest
 from pathlib import Path
 import xml.etree.ElementTree as E
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from build_open_test_gates import open_gates, GRATES
+from build_open_test_gates import open_gates, resolve_models, GRATES
 
 class OpenGateTests(unittest.TestCase):
     def fixture(self):
@@ -26,5 +26,20 @@ class OpenGateTests(unittest.TestCase):
 
     def test_wrong_mesh_rejected(self):
         with self.assertRaisesRegex(ValueError,'Expected two original'):open_gates(self.fixture(),['other.cgf'])
+
+    def test_rebuilt_model_names_are_verified_by_geometry(self):
+        from clothing_regions import Chunk,write_chunks
+        def mesh(value):return write_chunks([Chunk(0x1000,0x800,1,value)],{})
+        grate,palisade=mesh(b'grate geometry'),mesh(b'palisade geometry')
+        files=self.fixture()
+        files['objects_mission0.xml']=files['objects_mission0.xml'].replace(b'entity104.cga',b'entity111.cga')
+        assets={'new/grate.cgf':grate,'gluebuild/setup_props/entity111.cga':palisade}
+        original=lambda n:grate if n.endswith('_grate.cgf') else palisade
+        models=resolve_models(files,['new/grate.cgf'],assets.__getitem__,original)
+        _,report=open_gates(files,['new/grate.cgf'],*models)
+        self.assertEqual(len(report['skalitz_portcullises']),2)
+        assets['new/grate.cgf']=mesh(b'wrong object at expected location')
+        with self.assertRaisesRegex(ValueError,'geometry differs'):
+            resolve_models(files,['new/grate.cgf'],assets.__getitem__,original)
 
 if __name__=='__main__':unittest.main()

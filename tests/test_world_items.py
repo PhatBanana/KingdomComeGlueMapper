@@ -15,6 +15,20 @@ from world_item_definitions import native_item_registry, WorldItemAdapter
 from campaign_dependencies import ImportPlan
 
 
+class MaterialStagingTests(unittest.TestCase):
+    def test_shared_texture_mips_are_staged_without_unrelated_outfits(self):
+        from world_item_clothing import material_inputs
+        shared={'shared/cloth.dds':b'base','shared/cloth.dds.1':b'mip',
+                'shared/cloth.dds.1a':b'alpha','shared/cloth_other.dds':b'other',
+                'prior/outfit.skin':b'old geometry'}
+        files={'current/source.mtl':b'<Material><Textures><Texture File="shared/cloth.dds"/></Textures></Material>',
+               'current/torso.skin':b'geometry'}
+        selected=material_inputs(shared,files)
+        self.assertEqual(set(selected),set(files)|{'shared/cloth.dds','shared/cloth.dds.1','shared/cloth.dds.1a'})
+        self.assertEqual(selected['shared/cloth.dds.1a'],b'alpha')
+        self.assertIn('prior/outfit.skin',shared)
+
+
 def entity(identity='1', cls='PickableItem', **props):
     e=E.Element('Entity',EntityId=identity,EntityGuid=f'{int(identity):016x}',EntityClass=cls,
                 Name='source_'+identity,Pos='1,2,3')

@@ -12,7 +12,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from campaign_dependency_adapters import SourceTables
-from campaign_entity_links import guid_value, native_guid
+from campaign_entity_links import native_guid
 from campaign_sources import RetailSourceReader
 from campaign_trigger_areas import TriggerArea, read_areas, write_areas
 from region_travel_services import native_xml
@@ -193,16 +193,16 @@ def resources(source, target, files, level_id, *, source_level='rataje', modid='
     used_types.update(r['poi_type_id'] for r in old_types.values()
                       if r.get('mark_type') in {m.findtext('MarkType') for m in source_marks if not m.findtext('POITypeId')})
     general = next(r for r in native_types.values() if r.get('label') == 'ui_maplegend_general_poi')
-    for id in sorted(used_types-native_types.keys()):
-        old = old_types[id]
+    for poi_type_id in sorted(used_types-native_types.keys()):
+        old = old_types[poi_type_id]
         match = next((r for r in native_types.values() if r.get('label') == old.get('label')), None)
         if match is None:
             match = general; generic_icons.append(old['label'])
-        row = dict(poi_type_id=id, poi_type_name='gmtravel_'+id.replace('-',''),
+        row = dict(poi_type_id=poi_type_id, poi_type_name='gmtravel_'+poi_type_id.replace('-',''),
             label=old['label'], mark_type=match.get('mark_type','-1'), discovery_dist=old['discovery_dist'],
             discovery_msg_mode='DoNotShow' if old['discovery_msg_mode']=='2' else 'Normal',
             discoverable_by_location=old['discoverable_by_location'].lower(), ui_order=old['ui_order'])
-        new_types[id]=row
+        new_types[poi_type_id]=row
     native_types.update(new_types)
     for mark in source_marks:
         marks.append(convert_mark(mark, old_types, native_types))
@@ -211,12 +211,12 @@ def resources(source, target, files, level_id, *, source_level='rataje', modid='
     ids.update(r['location_id'] for r in labels+local_maps)
     locations = []
     for row in old_locations:
-        id = row['location_id']
-        if id not in ids: continue
-        if id in native_locations:
-            raise ValueError('Refusing to reassign a native location: '+id)
-        converted = dict(location_id=id, location_name=row['location_name'], level_id=str(level_id), ui_type='Hidden')
-        if id in {label['location_id'] for label in labels}:
+        location_id = row['location_id']
+        if location_id not in ids: continue
+        if location_id in native_locations:
+            raise ValueError('Refusing to reassign a native location: '+location_id)
+        converted = dict(location_id=location_id, location_name=row['location_name'], level_id=str(level_id), ui_type='Hidden')
+        if location_id in {label['location_id'] for label in labels}:
             converted.update(ui_type='Common', icon_id='village')
         if row['location_category_id']: converted['location_category_id']=row['location_category_id']
         locations.append(converted)

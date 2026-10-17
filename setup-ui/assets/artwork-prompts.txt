@@ -1,0 +1,7 @@
+Mode: built-in image generation. Two separate new-image calls, opaque backgrounds.
+
+KCD1 Map:
+Create a premium original game-mod launcher square cover/logo artwork for KCD1 Map. Exact readable title 'KCD1 MAP' in finely crafted warm ivory serif lettering centered lower third. A beautiful embossed antique brass heraldic crest enclosing a medieval Bohemian stone castle with three roofs and a winding road, muted forest green and charcoal background, subtle parchment engraving and golden rim light. Sophisticated restrained Steam-library key art, excellent silhouette, crisp high quality, no other text, no official game logos, generous safe margins. Square composition. Intended as asset for installer mod-selection card.
+
+KCD2 Fishing:
+Create a premium original square game-mod launcher cover/logo artwork for KCD2 Fishing, sister artwork to a medieval brass castle crest. Exact readable title 'KCD2 FISHING' in warm ivory antique serif lettering centered lower third. Embossed antique brass heraldic shield enclosing a graceful freshwater trout jumping through delicate circular water ripples, a slender wooden fishing rod and subtle white goose quill cork float. Rich deep teal and charcoal background with faint engraved river-map lines and reeds, gold rim light, refined original medieval craft, elegant expensive collector edition look. Strong clear silhouette, no other text, no official game logos, generous safe margins. Square composition for installer mod selection card.

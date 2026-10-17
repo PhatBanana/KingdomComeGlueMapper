@@ -6,7 +6,7 @@ the separate native packing step normalizes them to the target's four slots.
 Render/internal positions, tangent frames, morph deltas and bounds move together
 when explicit bind-space reposing is requested.
 """
-from collections import Counter, defaultdict
+from collections import defaultdict
 import math
 import re
 import struct

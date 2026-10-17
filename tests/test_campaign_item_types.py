@@ -10,6 +10,20 @@ from test_campaign_dependencies import Tables
 
 
 class ItemTypeTests(unittest.TestCase):
+    def test_placeholder_model_still_supplies_enum_evidence(self):
+        from world_item_definitions import WorldItemAdapter, native_item_registry
+        identity = '12345678-1234-1234-1234-123456789abc'
+        source = [dict(npc_tool_type_id=n, npc_tool_type_name='meal_tray') for n in ('10','25')]
+        target = [dict(npc_tool_type_id='10', npc_tool_type_name='chicken_tray'),dict(npc_tool_type_id='25', npc_tool_type_name='meal_tray')]
+        native = {identity:E.Element('NPCTool', Id=identity, Type='25', Model='preproduction/traffic_cone/traffic_cone.cgf')}
+        tables = Tables({'item/npc_tool_type':source,'item/npc_tool':[dict(item_id=identity,npc_tool_type_id='25')]})
+        adapter = WorldItemAdapter(tables,'test',native,{},native_tool_types={'npc_tool_type':target})
+        rows = {name:{} for name in adapter.FIELDS};rows['npc_tool']={'npc_tool_type_id':'25'}
+        # Exercise the shared enum conversion without unrelated world-item fields.
+        _,files,_ = ItemAdapter.convert(adapter,identity,ImportPlan([],dict(category='npc_tool',rows=rows)),{})
+        self.assertEqual(E.fromstring(next(iter(files.values()))).find('ItemClasses/NPCTool').get('Type'),'25')
+        self.assertNotIn(identity,native_item_registry(native))
+
     def test_tool_definition_gets_native_manipulation_not_source_number(self):
         source = [dict(id='9', tag='broom', allow_run='False', allow_sprint='False', sharpening_anim='')]
         target = [dict(Id='42', Tag='broom', AllowRun='false', AllowSprint='false')]
