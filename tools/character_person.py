@@ -121,8 +121,19 @@ def register_person(add_entity, wh, person, placement=None):
     return npc
 
 
+def shop_role_operations(person):
+    """Native shop roles for a shopkeeper, by the source person's sex.
+
+    KCD2 finds the haggle and shop-ending dialogues through these roles. Without
+    them the engine logs "Unable to find haggle dialog" and accepts each
+    transaction without haggling (verified in the KCD1 port, mod 0.7.12).
+    """
+    sex = 'woman' if person['actor'].get('EntityClass') == 'NPC_Female' else 'man'
+    return [('addShopRoles_essential_' + sex, {}), ('addShopRoles_ending_' + sex, {})]
+
+
 def actor_resources(target, person, character, namespace, *, role_name, native_soul_table, native_soul_name,
-                    native_role_name, resources=None):
+                    native_role_name, resources=None, shop_roles=False):
     """Add a person to a resource collection; retain previously imported people."""
     files = dict(resources or {})
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
@@ -164,7 +175,7 @@ def actor_resources(target, person, character, namespace, *, role_name, native_s
         with zipfile.ZipFile(Path(target) / 'Data/IPL_GameData.pak') as archive:
             storm = ET.fromstring(read(archive, 'Libs/Storm/storm.xml'))
     operations = {
-        'roles': [('addRole', dict(name=role_name))],
+        'roles': [('addRole', dict(name=role_name))] + (shop_role_operations(person) if shop_roles else []),
         'names': [('setUiName', dict(name=person['instance'].findtext('StaticData/NameStringId')))],
         'appearance': [('set' + k.title(), dict(name=v)) for k, v in character['appearance'].items()],
         'equipment': [('setInventory', dict(preset=character['inventory']))],
