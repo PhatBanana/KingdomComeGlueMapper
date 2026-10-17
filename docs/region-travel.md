@@ -108,9 +108,31 @@ establish a broken return attachment. The v9 Player-script hook only reported
 `outside_travel_maps`; its TagPoint lookup never established the destination or
 the horse's state. Its guarded reattachment was not verified in retail.
 
-The entry package no longer overrides `Scripts/Entities/actor/player.lua` or
-calls `SetPlayerHorse`. The old experimental helper remains in the repository
-for reference, but the builder does not ship it.
+The current builder retains the native `Scripts/Entities/actor/player.lua`
+with the player animation-update wrapper. It removes the old horse-recovery
+hook and road-arrival table and never calls `SetPlayerHorse`. The old helper
+remains in the repository as a migration signature, not shipped arrival logic.
+
+### PR #25 integration audit (18 October 2026)
+
+The arrival-contract checks were reconciled with the current builder: the
+packaged Player script must retain animation updates and must not contain the
+obsolete horse-recovery hook. The optional ready-consumer count is measured
+after wiring existing activation edges, so the receipt describes the emitted
+graph. Normal builds still have no inventory/map input readiness gate.
+
+Read-only inspection of the mod moved to
+`D:\SteamLibrary\steamapps\common\KCD2Mod\Mods\kingdomcomegluemapper`
+found the old horse-recovery hook in `Data/gluemappertravel.pak`. That installation
+is therefore not equivalent to current source. The installed native Trosecko
+horse scheduler has two records and a `use` activity with `Parameters`, matching
+the stricter scheduler validation; the previously unverified schema assumption
+does hold for this local game installation.
+
+These structural checks do not establish fixes for issues #3 or #20. Acceptance
+must load the existing long-playtime Trosky save, travel through the coach,
+exercise inventory/map and horse riding, and return. A successful New Game
+load cannot substitute for that save-based test.
 
 ### Native destination entry (v11)
 
@@ -119,13 +141,22 @@ level omitted. `tools/region_travel_entry.py` now packages the following togethe
 
 - A `LevelHolder` with the registered destination ID, a matching Skald `Level`
   definition, and its `ConceptModules` registration.
-- `OnWake` and `OnLevelSwitched` feed the native streaming helper. A ready flag
-  resets on entry and becomes true only after its `onloaded` acknowledgement.
-  The cart interaction is gated by this ready flag. This also covers reloads and
-  subsequent visits without a timer or per-frame script.
+- `OnWake` and `OnLevelSwitched` feed the native streaming helper, and the entry
+  module declares a `ready` output. With optional station streaming enabled that
+  flag resets on entry and becomes true only after the helper's `onloaded`
+  acknowledgement; in normal builds streaming is off and the port is the
+  constant `true`. Nothing is gated by it today: the shipped travel graph creates
+  no `use_cart`/`InteractionTriggerNode` consumer, so the port is generated but
+  unconsumed, which the build receipt now records as `ready_port_consumers: 0`.
+  This is an offline/structural correction; connecting a real gate still needs a
+  consumer and in-game acceptance. No inventory or map input gate exists in this
+  overlay, so issue #3 remains open and unimplemented. Entry and revisit rely on
+  `OnWake`/`OnLevelSwitched`, with no timer or per-frame script.
 - A `GameProfileManager` arrival profile, its layer metadata, entity ID
-  reservations and layer payload. The existing cart, return driver, home and
-  interaction move into this profile with their identities preserved.
+  reservations and layer payload. The existing cart, return driver and home move
+  into this profile with their identities preserved. The stale
+  `gmtravel_interact_kcd1` entity is no longer streamed: direct cart triggers were
+  removed and the builder never emits that name.
 - `UseLayersActivation` is enabled in the mission environment, matching native
   Trosecko. The static probe had explicitly disabled it. This is the engine's
   per-level gate for [layer streaming](https://www.cryengine.com/docs/static/engines/cryengine-3/categories/1114113/pages/1048824);

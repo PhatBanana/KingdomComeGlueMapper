@@ -14,6 +14,10 @@ from desktop_setup import APP_VERSION, CONVERTERS, preflight, worker
 from steam_installations import discover
 
 
+# The bundled runtime scripts the frozen self-test must find and report.
+RUNTIME_FILES = ('campaign_menu.lua', 'retail_diagnostics.lua', 'launch_with_shaders.ps1')
+
+
 def self_test(destination):
     import tkinter
     from PIL import Image
@@ -39,7 +43,7 @@ def self_test(destination):
         compiler(Path(__file__).parent)  # Verify the bundled, pinned HDR compiler.
     from travel_bridge_package import combine, validate_bridge
     runtime = runtime_directory()
-    for name in ('campaign_menu.lua', 'retail_diagnostics.lua', 'launch_with_shaders.ps1'):
+    for name in RUNTIME_FILES:
         if not (runtime / name).is_file(): raise RuntimeError('Missing bundled runtime: ' + name)
     import region_travel_companions
     from world_surface_tiles import code_digest
@@ -70,7 +74,7 @@ def self_test(destination):
     pools = pool_self_test()
     result = {'version': APP_VERSION, 'frozen': bool(getattr(sys, 'frozen', False)),
               'tk': tkinter.Tcl().eval('info patchlevel'), 'converter_modules': len(CONVERTERS),
-              'runtime_files': 4, 'web_ui': True, 'hybrid_bake': gpu_test, 'worker_pools': pools,
+              'runtime_files': len(RUNTIME_FILES), 'web_ui': True, 'hybrid_bake': gpu_test, 'worker_pools': pools,
               'status': 'passed'}
     Path(destination).write_text(json.dumps(result, indent=2), encoding='utf-8')
 
