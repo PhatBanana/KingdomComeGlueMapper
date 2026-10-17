@@ -80,6 +80,8 @@ def map_receipt(root, hashes=True):
     receipt=verify_package(package,hashes=hashes)
     if not receipt.get('travel_bridge') or receipt.get('build_recipe',{}).get('status')!='complete':
         raise ValueError('Saved map package is incomplete. Its build recipe must finish before it can be reused.')
+    from build_recipe import require_current
+    require_current(receipt)
     return receipt
 
 
@@ -93,6 +95,8 @@ def preflight(config):
     if workspace.is_relative_to(target) or target.is_relative_to(workspace):
         raise ValueError('Choose a build folder outside the game.')
     if legacy.validate_games(Path(config['kcd1']),target)!='1.5.6':raise ValueError('KCD2 1.5.6 is required.')
+    from setup_shaders import tool_root
+    tool_root(target,config.get('mod_tools'))
     extra=1
     if config['baking']!='none' and receipt.get('baking',{}).get('preset')!=config['baking']:
         import numba

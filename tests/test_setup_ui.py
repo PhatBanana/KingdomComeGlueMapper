@@ -1,0 +1,119 @@
+"""Exercise the local setup screens without starting a build, Steam, or KCD2.
+
+Optional UI checks: use the development Playwright installation and Windows Edge.
+The native API is simulated; its filesystem and launch contracts have separate tests.
+"""
+import importlib.util
+import os
+from pathlib import Path
+import unittest
+
+HAS_BROWSER = os.name == 'nt' and importlib.util.find_spec('playwright') is not None
+FIXTURE = """
+window.testCalls=[];window.toolsPresent=true;window.launchFail=false;
+window.pywebview={api:{
+ state:async()=>({config:{mods:['map'],action:'build_install',baking:'none',cutscenes:'none',
+  kcd1:'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance',
+  kcd2:'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance2',
+  mod_tools:'D:/SteamLibrary/steamapps/common/KCD2Mod',workspace:'D:/BuildKCDMod',package:''},
+  installed:[],warnings:[],version:'0.3.4',busy:false,converter:null}),
+ poll:async()=>({busy:false,events:[]}),installed:async()=>[],
+ check_mod_tools:async()=>window.toolsPresent?
+  {ok:true,path:'D:/SteamLibrary/steamapps/common/KCD2Mod'}:
+  {ok:false,error:'Install the official KCD2 Modding Tools before continuing.'},
+ mod_tools_link:async()=>{window.testCalls.push('tools');return true;},
+ find_converter:async()=>{window.testCalls.push('find_converter');return null;},
+ locate_converter:async()=>{window.testCalls.push('locate_converter');return null;},
+ check:async c=>({ok:true,config:c,messages:['Locations and required files checked.']}),
+ launch_mod:async target=>{window.testCalls.push(['launch',target]);
+  await new Promise(r=>setTimeout(r,250));return window.launchFail?
+  {ok:false,error:'Retail shaders changed'}:{ok:true,pid:42,log:'D:/KCD2/Mods/runtime/kcd.log'};}
+}};
+"""
+
+
+@unittest.skipUnless(HAS_BROWSER,'Optional Playwright / Windows Edge UI check')
+class SetupUITests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        from playwright.sync_api import sync_playwright
+        cls.runtime=sync_playwright().start()
+        try:cls.browser=cls.runtime.chromium.launch(channel='msedge',headless=True)
+        except Exception:
+            cls.runtime.stop()
+            raise
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close();cls.runtime.stop()
+
+    def setUp(self):
+        self.page=self.browser.new_page(viewport={'width':1280,'height':900})
+        self.errors=[]
+        self.page.on('pageerror',lambda e:self.errors.append(str(e)))
+        self.page.add_init_script(FIXTURE)
+        self.page.goto((Path(__file__).resolve().parents[1]/'setup-ui/index.html').as_uri())
+        self.page.wait_for_function("document.querySelector('#mod-tools-badge').textContent==='Detected'")
+
+    def tearDown(self):
+        self.page.close()
+        self.assertEqual(self.errors,[])
+
+    def settings(self):
+        self.page.locator('button.nav[data-page=settings]').click()
+
+    def test_locations_layout_keeps_one_action_and_fixed_navigation(self):
+        page=self.page;self.settings()
+        for width,height in ((1280,900),(980,720)):
+            page.set_viewport_size({'width':width,'height':height})
+            self.assertTrue(page.locator('#review').is_hidden())
+            self.assertEqual(page.locator('button.primary:visible').count(),1)
+            box=page.locator('#wizard-next').bounding_box()
+            self.assertLessEqual(box['y']+box['height'],height)
+            self.assertTrue(page.evaluate('document.documentElement.scrollWidth===window.innerWidth'))
+            self.assertEqual(page.locator('.nav.active').count(),1)
+        page.locator('#workspace').scroll_into_view_if_needed()
+        before=page.locator('main').evaluate('(e)=>e.scrollTop')
+        self.assertGreater(before,0)
+        page.locator('#workspace').click()
+        self.assertEqual(page.locator('main').evaluate('(e)=>e.scrollTop'),before)
+        self.assertEqual(page.locator('.sidebar').bounding_box()['y'],0)
+
+    def test_missing_tools_gate_then_wizard_reaches_review_without_auto_file_picker(self):
+        page=self.page;self.settings()
+        page.evaluate('window.toolsPresent=false')
+        page.locator('#check-mod-tools').click()
+        page.wait_for_function("document.querySelector('#mod-tools-badge').textContent==='Not found'")
+        page.locator('#wizard-next').click()
+        self.assertTrue(page.locator('[data-pane="0"]').is_visible())
+        page.locator('#install-mod-tools').click()
+        self.assertIn('tools',page.evaluate('window.testCalls'))
+        page.evaluate('window.toolsPresent=true')
+        page.locator('#wizard-next').click()
+        page.wait_for_selector('[data-pane="1"]',state='visible')
+        page.locator('input[name=baking][value=all]').check()
+        page.locator('#wizard-next').click()
+        page.wait_for_selector('[data-pane="2"]',state='visible')
+        self.assertNotIn('locate_converter',page.evaluate('window.testCalls'))
+        page.locator('#wizard-next').click()
+        page.wait_for_selector('[data-pane="3"]',state='visible')
+        page.locator('#wizard-next').click()
+        page.wait_for_selector('#confirm[open]')
+        self.assertIn('All (Forest)',page.locator('#review-content').inner_text())
+
+    def test_installed_mod_launch_handles_success_and_failure(self):
+        page=self.page
+        self.assertTrue(page.locator('#launch-mod').is_hidden())
+        page.evaluate("installedMods=['map'];renderLibrary()")
+        page.locator('#launch-mod').click()
+        self.assertTrue(page.locator('#launch-mod').is_disabled())
+        page.wait_for_function("document.querySelector('#notice').textContent==='KCD2 started with the mod shaders.'")
+        page.evaluate('window.launchFail=true')
+        page.locator('#launch-mod').click()
+        page.wait_for_function("document.querySelector('#notice').textContent==='Retail shaders changed'")
+        self.assertTrue(page.locator('#launch-mod').is_enabled())
+        self.settings()
+        self.assertTrue(page.locator('#notice').is_hidden())
+
+
+if __name__=='__main__':unittest.main()

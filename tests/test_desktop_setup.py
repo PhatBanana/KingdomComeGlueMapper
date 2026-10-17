@@ -11,6 +11,8 @@ from game_paths import GameLibrary
 from steam_installations import discover, read_vdf
 from desktop_setup import Cancelled, EventLog, conversion_plan, install_transaction, preflight, worker
 from setup_campaign import MOD_ID, RECEIPT, verify_package
+from build_recipe import VERSION as RECIPE_VERSION
+from setup_gameplay import STAGE_IDS
 
 
 class DesktopSetupTests(unittest.TestCase):
@@ -57,6 +59,9 @@ class DesktopSetupTests(unittest.TestCase):
         for name, data in files.items():
             dest = path / name; dest.parent.mkdir(parents=True, exist_ok=True); dest.write_bytes(data)
         (path / RECEIPT).write_text(json.dumps(dict(schema=1, owner=MOD_ID, kind='retail-campaign-package', target_version='1.5.6',
+                                                build_recipe=dict(version=RECIPE_VERSION, status='complete',
+                                                    steps=[{'id': identity} for identity in STAGE_IDS],
+                                                    content_validation={'actors': 11}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'}),
                                                 files={n: hashlib.sha256(d).hexdigest() for n, d in files.items()})))
         return path
 
@@ -67,13 +72,19 @@ class DesktopSetupTests(unittest.TestCase):
 
     @patch('desktop_setup.game_running', return_value=False)
     @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
-    def test_install_backs_up_owned_mod_and_preserves_others(self, *_):
+    def test_install_changes_only_owned_mod_and_order_without_retained_backups(self, *_):
         target = self.target()
+        native = {'Engine/Shaders.pak': b'retail shaders', 'Data/Tables.pak': b'retail tables',
+                  'Bin/Win64/KingdomCome.exe': b'retail executable'}
+        for name, blob in native.items():
+            path=target/name; path.parent.mkdir(parents=True,exist_ok=True); path.write_bytes(blob)
         old = self.package(target / 'Mods' / MOD_ID, b'old')
         other = target / 'Mods/other_mod'; other.mkdir(); (other / 'keep').write_text('untouched')
         source = self.package(self.root / 'package', b'new')
         result = install_transaction(source, target)
-        self.assertEqual((Path(result['backup']) / f'Data/{MOD_ID}.pak').read_bytes(), b'old')
+        self.assertIsNone(result['backup'])
+        self.assertFalse((target/'GlueMapper Backups').exists())
+        for name, blob in native.items(): self.assertEqual((target/name).read_bytes(),blob)
         self.assertEqual((old / f'Data/{MOD_ID}.pak').read_bytes(), b'new')
         self.assertEqual((other / 'keep').read_text(), 'untouched'); verify_package(old)
 
@@ -84,7 +95,7 @@ class DesktopSetupTests(unittest.TestCase):
         source = self.package(self.root / 'package', b'new')
         original = Path.rename
         def fail_stage(path, to):
-            if path.parent.name.startswith('.gluemapper-install-'): raise OSError('simulated swap failure')
+            if path.name == MOD_ID and path.parent.name.startswith('.gluemapper-install-'): raise OSError('simulated swap failure')
             return original(path, to)
         with patch.object(Path, 'rename', fail_stage):
             with self.assertRaisesRegex(OSError, 'simulated'): install_transaction(source, target)
@@ -101,6 +112,7 @@ class DesktopSetupTests(unittest.TestCase):
         self.assertEqual((dest / f'Data/{MOD_ID}.pak').read_bytes(), b'old')
 
     @patch('desktop_setup.validate_games', return_value='1.5.6')
+    @patch('setup_shaders.tool_root')
     @patch('desktop_setup.game_running', return_value=False)
     @patch('desktop_setup.free_space', return_value=1024 ** 3)
     def test_low_space_is_reported_before_build(self, *_):
@@ -124,8 +136,8 @@ class DesktopSetupTests(unittest.TestCase):
         order.write_bytes(original)
         result = install_transaction(source, target)
         self.assertFalse(legacy.exists())
-        self.assertEqual((Path(result['legacy_backup'])/'keep.pak').read_bytes(), b'legacy')
-        self.assertEqual(Path(result['mod_order_backup']).read_bytes(), original)
+        self.assertIsNone(result['legacy_backup'])
+        self.assertIsNone(result['mod_order_backup'])
         self.assertEqual(order.read_text(), '# keep this comment\nother_mod\n'+MOD_ID+'\n')
 
     @patch('desktop_setup.game_running', return_value=False)
@@ -140,7 +152,7 @@ class DesktopSetupTests(unittest.TestCase):
         order = target/'Mods/mod_order.txt'; order.write_text('gluemappertravel\n')
         original = Path.rename
         def fail_stage(path, to):
-            if path.parent.name.startswith('.gluemapper-install-'): raise OSError('simulated swap failure')
+            if path.name == MOD_ID and path.parent.name.startswith('.gluemapper-install-'): raise OSError('simulated swap failure')
             return original(path, to)
         with patch.object(Path, 'rename', fail_stage):
             with self.assertRaisesRegex(OSError, 'simulated'): install_transaction(source, target)
@@ -184,10 +196,11 @@ class DesktopSetupTests(unittest.TestCase):
 
     def test_incomplete_recipe_cannot_be_installed(self):
         with patch('desktop_setup.verify_package', return_value={'build_recipe': {'status': 'building'}}):
-            with self.assertRaisesRegex(ValueError, 'did not finish'):
+            with self.assertRaisesRegex(ValueError, 'incomplete or older'):
                 install_transaction(self.root/'package', self.root/'target')
 
     @patch('desktop_setup.validate_games', return_value='1.5.6')
+    @patch('setup_shaders.tool_root')
     @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
     @patch('desktop_setup.game_running', return_value=False)
     def test_travel_preflight_requires_owned_world_and_idle_game(self, *_):
@@ -197,7 +210,7 @@ class DesktopSetupTests(unittest.TestCase):
         world.mkdir(parents=True)
         for path in (world / 'level.pak', world / 'terrain.pak', self.root / 'a/Data/Levels/rataje/recast.pak', self.root / 'b/Data/Levels/trosecko/level.pak'):
             path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(b'fixture')
-        with patch('desktop_setup.verify_package', return_value={}):
+        with patch('desktop_setup.verify_package', return_value={}), patch('setup_shaders.tool_root'):
             self.assertIn('Build and install region travel', preflight(config))
             with patch('desktop_setup.game_running', return_value=True):
                 with self.assertRaisesRegex(ValueError, 'Close Kingdom Come'): preflight(config)
@@ -206,10 +219,11 @@ class DesktopSetupTests(unittest.TestCase):
     def test_travel_worker_combines_and_installs_one_mod(self, *_):
         config = self.root / 'config.json'
         config.write_text(json.dumps(dict(kcd1=str(self.root / 'a'), kcd2=str(self.root / 'b'), workspace=str(self.root), action='build_travel')))
-        with patch('region_travel.build') as build, patch('desktop_setup.install_transaction', return_value={'installed': 'destination'}) as install, patch('desktop_setup.build_campaign') as campaign, patch('travel_bridge_package.combine', return_value=self.root/'package') as combine:
+        with patch('region_travel.build') as build, patch('desktop_setup.install_transaction', return_value={'installed': 'destination'}) as install, patch('desktop_setup.build_campaign') as campaign, patch('travel_bridge_package.combine', return_value=self.root/'package') as combine, patch('build_recipe.run') as recipe:
             self.assertEqual(worker(config), 0)
             build.assert_called_once_with(str(self.root / 'a'), str(self.root / 'b'), (self.root / 'b/Mods' / MOD_ID / 'Data/Levels/kcd1_rataje').resolve(), self.root.resolve() / 'region-travel', modid=MOD_ID)
             combine.assert_called_once()
+            recipe.assert_called_once()
             install.assert_called_once(); campaign.assert_not_called()
         events = [json.loads(line) for line in (self.root / 'events.jsonl').read_text().splitlines()]
         self.assertEqual(events[-1]['kind'], 'done')

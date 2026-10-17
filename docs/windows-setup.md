@@ -1,5 +1,18 @@
 # Windows setup — 0.3.2
 
+> Development source update (0.3.4, not yet packaged as a release): map recipe 3
+> connects the bounded Skalitz gameplay stages and final streaming validation.
+> It also compiles shader candidates in the job workspace using the installed
+> KCD2 Modding Tools (`KCD2_MOD_TOOLS` may select their directory). Those shader
+> archives are included under the mod's `ShaderCache` folder. **Launch mod** in the
+> setup Library uses one linked private root inside Mods; setup never replaces
+> retail Engine files. KCD1 Map now requires the official Modding Tools for builds,
+> installs and resumes. Locations includes detection, Browse, Recheck tools and
+> Install through Steam. Fishing alone does not require them.
+> See [mod-contained shader loading](mod-shader-loading.md). Map replacement keeps only temporary rollback
+> during installation, with no retained full-mod backup on success. The released
+> EXE and its older requirements/backup behavior described below are unchanged.
+
 Download `KingdomComeGlueMapper-Setup-0.3.3-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). This is an experimental prerelease. Python and the game modding tools are not required to run the executable. Microsoft Edge WebView2 is required for its local interface.
 
 ## Choose a mod

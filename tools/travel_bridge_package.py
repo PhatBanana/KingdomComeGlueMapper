@@ -138,6 +138,10 @@ def combine(base, bridge, target, output):
         water_report = repair_water(output, receipt['sources']['kcd1'])
     receipt.update(version=VERSION, menu=False, start_probe=False,
                    travel_bridge=dict(files=bridge_files, destination='kcd1_travel', runtime_verified=False))
+    # A new bridge replaces the quest graphs and actor registrations that the
+    # gameplay recipe validated. Never carry its success stamp across that swap.
+    receipt.pop('build_recipe', None)
+    receipt.pop('new_game_menu', None)
     if roof_report is not None:
         receipt['travel_bridge']['probe_activation'] = probe_report
         receipt['travel_bridge']['brush_registration'] = {'changed_brushes': brush_report['changed_brushes']}

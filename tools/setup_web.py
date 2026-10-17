@@ -12,6 +12,7 @@ import shutil
 from setup_mods import CATALOG, checked_config, preflight
 from desktop_setup import APP_VERSION
 from steam_installations import discover
+from setup_launch import launch as launch_map
 
 def planned_steps(config):
     """Selected operations in execution order, before any work starts."""
@@ -48,12 +49,13 @@ def converter_info(path):
 class SetupAPI:
     def __init__(self):
         self._window=None;self._process=None;self._job=None;self._lock=threading.Lock()
-        self._offsets={};self._terminal=False
+        self._offsets={};self._terminal=False;self._launching=False
         self._settings=Path(os.environ.get('LOCALAPPDATA',Path.home()))/'KingdomComeGlueMapper'/'setup-settings.json'
 
     def state(self):
         found,warnings=discover()
         defaults=dict(kcd1=next(iter(found['kcd1']),''),kcd2=next(iter(found['kcd2']),''),
+            mod_tools=next(iter(found.get('mod_tools',[])),''),
             workspace=str(self._settings.parent/'builds'),package='',action='build_install',mods=['map'],baking='none',cutscenes='none',converter='')
         try:defaults.update({k:v for k,v in json.loads(self._settings.read_text()).items() if k in defaults})
         except (OSError,ValueError,TypeError):pass
@@ -92,10 +94,32 @@ class SetupAPI:
             return info
         return None
 
-    def _busy(self):return self._process is not None and self._process.poll() is None
+    def _busy(self):return self._launching or (self._process is not None and self._process.poll() is None)
+
+    def installed(self,target):
+        if not isinstance(target,str) or not target.strip():return []
+        return [i['id'] for i in CATALOG if (Path(target)/'Mods'/i['modid']/'mod.manifest').is_file()]
+
+    def launch_mod(self,target):
+        with self._lock:
+            if self._busy():return dict(ok=False,error='Wait for the current setup operation to finish.')
+            self._launching=True
+        try:return launch_map(target)
+        except (OSError,ValueError,subprocess.SubprocessError) as e:return dict(ok=False,error=str(e))
+        finally:
+            with self._lock:self._launching=False
+
+    def mod_tools_link(self):
+        os.startfile('steam://install/2429020')
+        return True
+
+    def check_mod_tools(self,target,selected=''):
+        from setup_shaders import tool_root
+        try:return dict(ok=True,path=str(tool_root(target,selected)))
+        except (OSError,ValueError) as e:return dict(ok=False,error=str(e))
 
     def browse(self,field):
-        if field not in ('kcd1','kcd2','workspace','package') or self._busy():return None
+        if field not in ('kcd1','kcd2','mod_tools','workspace','package') or self._busy():return None
         import webview
         result=self._window.create_file_dialog(webview.FileDialog.FOLDER)
         return result[0] if result else None

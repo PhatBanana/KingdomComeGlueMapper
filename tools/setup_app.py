@@ -38,12 +38,13 @@ def self_test(destination):
         compiler(Path(__file__).parent)  # Verify the bundled, pinned HDR compiler.
     from travel_bridge_package import combine, validate_bridge
     runtime = runtime_directory()
-    for name in ('campaign_menu.lua', 'retail_diagnostics.lua'):
+    for name in ('campaign_menu.lua', 'retail_diagnostics.lua', 'launch_with_shaders.ps1'):
         if not (runtime / name).is_file(): raise RuntimeError('Missing bundled runtime: ' + name)
     import region_travel_companions
     from world_surface_tiles import code_digest
     if len(code_digest())!=64:raise RuntimeError('Bake source signatures unavailable')
     import setup_resume
+    import setup_launch
     import setup_baking
     for resource in ('world_surface_scene.py','world_surface_landscape.py','stage_world_surfaces.py'):
         if not Path(setup_baking.__file__).with_name(resource).is_file():raise RuntimeError('Missing resume signature source: '+resource)
@@ -67,7 +68,7 @@ def self_test(destination):
         raise RuntimeError('Bundled image codec failed')
     result = {'version': APP_VERSION, 'frozen': bool(getattr(sys, 'frozen', False)),
               'tk': tkinter.Tcl().eval('info patchlevel'), 'converter_modules': len(CONVERTERS),
-              'runtime_files': 3, 'web_ui': True, 'hybrid_bake': gpu_test, 'status': 'passed'}
+              'runtime_files': 4, 'web_ui': True, 'hybrid_bake': gpu_test, 'status': 'passed'}
     Path(destination).write_text(json.dumps(result, indent=2), encoding='utf-8')
 
 

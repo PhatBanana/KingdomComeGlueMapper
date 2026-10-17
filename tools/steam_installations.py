@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import re
 
-APP_IDS = {'kcd1': '379430', 'kcd2': '1771300'}
+APP_IDS = {'kcd1': '379430', 'kcd2': '1771300', 'mod_tools': '2429020'}
 
 
 def read_vdf(text):

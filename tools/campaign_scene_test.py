@@ -175,9 +175,17 @@ def build(a):
     audio = {p.relative_to(a.runtime/'Localization/English').as_posix():p.read_bytes()
              for p in (a.runtime/'Localization/English').rglob('*.ogg')}
     audio_pak=a.mod/'Localization/English.pak'
-    with zipfile.ZipFile(audio_pak) as z:existing=read(z,DEPOT)
+    existing = None
+    if audio_pak.exists():
+        with zipfile.ZipFile(audio_pak) as z:existing=read(z,DEPOT)
     audio[DEPOT],_ = dubbing_index(a.target,audio,existing)
-    rewrite(audio_pak,package/'Localization/English.pak',audio)
+    if audio_pak.exists():
+        rewrite(audio_pak,package/'Localization/English.pak',audio)
+    else:
+        destination = package/'Localization/English.pak'
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(destination, 'x', zipfile.ZIP_STORED) as z:
+            for name, blob in sorted(audio.items()): z.writestr(name, blob)
     locale=a.mod/'Localization/English_xml.pak'
     with zipfile.ZipFile(locale) as z:
         strings={'text_ui_dialog.xml':merge_audio_strings(read(z,'text_ui_dialog.xml'),
@@ -195,7 +203,7 @@ def build(a):
                  rewards=effects,animations=animation_report,world=world_receipt,cameras=camera_report,
                  scene_placement=placement_report,
                  quest_conversion=quest_report,quest_localization=quest_text_report,quest_scope=scope_report,
-                 baseline={str(p.relative_to(a.mod)):digest(p) for p in (travel,level,audio_pak,locale)},
+                 baseline={str(p.relative_to(a.mod)):digest(p) for p in (travel,level,audio_pak,locale) if p.exists()},
                  pending=['Full original campaign continuation','Original facial tracks','In-game two-round choices and gameplay handoff'])
     (a.output/'scene-test.json').write_text(json.dumps(receipt,indent=2))
     print(json.dumps(dict(package=str(package),rewards=len(effects),gestures=len(animation_report),

@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 1
+VERSION = 3
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -20,11 +20,27 @@ REVIEWED_BLEND_MODELS = (
 )
 
 
+def require_current(receipt):
+    """A hash-valid old recipe is not a complete current setup build."""
+    report = receipt.get('build_recipe', {})
+    if report.get('version') != VERSION or report.get('status') != 'complete':
+        raise ValueError('This package uses an incomplete or older gameplay recipe. Rebuild with the current setup.')
+    if not all(report.get(key) for key in ('content_validation', 'streaming_validation', 'shader_validation')):
+        raise ValueError('This package has no current campaign/streaming/shader validation. Rebuild with the current setup.')
+    if report['shader_validation'].get('installation') != 'mod_private_root':
+        raise ValueError('This package has no mod-contained shader launcher. Rebuild with the current setup.')
+    from setup_gameplay import STAGE_IDS
+    completed = [step.get('id') for step in report.get('steps', []) if step.get('id')]
+    if completed != list(STAGE_IDS):
+        raise ValueError('This package is missing ordered campaign recipe stages. Rebuild with the current setup.')
+    return report
+
+
 def reviewed_blend_mesh(name):
     return re.sub(r'_lod[1-6](?=\.cgf$)', '', (name or '').replace('\\', '/').lower()) in REVIEWED_BLEND_MODELS
 
 
-def apply_overlay(package, overlay):
+def apply_overlay(package, overlay, *, consume=False):
     """Replace files, never write through links to an older build."""
     package, overlay = Path(package).resolve(), Path(overlay).resolve()
     files = sorted(p for p in overlay.rglob('*') if p.is_file())
@@ -38,8 +54,14 @@ def apply_overlay(package, overlay):
             raise ValueError('Unsafe builder output: ' + str(relative))
         destination.parent.mkdir(parents=True, exist_ok=True)
         pending = destination.with_name(destination.name + '.recipe-pending')
-        shutil.copy2(source, pending)
         expected = digest(source)
+        if consume:
+            # Builders and the assembled package share the configured workspace.
+            # Move completed archives instead of retaining another full copy at
+            # every recipe step. Reports and source conversion inputs remain.
+            source.replace(pending)
+        else:
+            shutil.copy2(source, pending)
         if digest(pending) != expected:
             raise ValueError('Builder output copy failed: ' + str(relative))
         pending.replace(destination)
@@ -72,7 +94,7 @@ def build_containers(source, target, package, output):
     rewrite(package/'Localization/English_xml.pak', overlay/'Localization/English_xml.pak', strings)
 
 
-def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda: False):
+def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda: False, *, converted_data=None):
     from game_paths import GameLibrary
     from build_open_test_gates import build as gates
     from build_horse_trader_test import build as horses
@@ -103,6 +125,12 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
         (STAGE_LABELS[6], lambda out: prayer(library, package, out, game=target), 'package'),
         (STAGE_LABELS[7], lambda out: workshop(target, package, out), 'package'),
     )
+    from setup_gameplay import steps as gameplay_steps, validate as validate_gameplay
+    from setup_streaming import validate as validate_streaming
+    from setup_shaders import build as build_shaders, tool_root, stage_for_mod
+    tool_root(target)  # Fail before modifying the package if native tools are absent.
+    campaign_steps = gameplay_steps(source, target, package, work)
+    total = len(steps) + len(campaign_steps) + 2
     report = dict(version=VERSION, status='building', steps=[], runtime_verified=False)
     if cancelled():
         raise InterruptedError('Build cancelled before gameplay recipe')
@@ -115,7 +143,7 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
     for index, (label, build, folder) in enumerate(steps):
         if cancelled():
             raise InterruptedError('Build cancelled before ' + label)
-        notify(label, index, len(steps)+1, '')
+        notify(label, index, total, '')
         output = work / f'{index+1:02d}'
         build(output)
         overlay = output / folder
@@ -125,15 +153,36 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
             staged.mkdir()
             (output/'Data').rename(staged/'Data')
             overlay = staged
-        changed = apply_overlay(package, overlay)
+        changed = apply_overlay(package, overlay, consume=True)
         receipt['files'].update(changed)
         report['steps'].append(dict(name=label, files=changed))
         pending = package / (RECEIPT+'.pending')
         pending.write_text(json.dumps(receipt, indent=2))
         pending.replace(package/RECEIPT)
+    for index, (identity, label, build) in enumerate(campaign_steps, len(steps)):
+        if cancelled(): raise InterruptedError('Build cancelled before ' + label)
+        notify(label, index, total, '')
+        output = work / identity
+        build(output)
+        changed = apply_overlay(package, output/'package', consume=True)
+        receipt['files'].update(changed)
+        report['steps'].append(dict(id=identity, name=label, files=changed))
+        pending = package / (RECEIPT+'.pending')
+        pending.write_text(json.dumps(receipt, indent=2))
+        pending.replace(package/RECEIPT)
+    report['content_validation'] = validate_gameplay(package)
+    report['streaming_validation'] = validate_streaming(package, converted_data=converted_data)
+    if cancelled(): raise InterruptedError('Build cancelled before shader compilation')
+    notify('Compile native retail shader archives', total-2, total, '')
+    build_shaders(target, work/'shaders', notify, cancelled)
+    report['shader_validation'], changed = stage_for_mod(work/'shaders/package', package, consume=True)
+    receipt['files'].update(changed)
+    report['steps'].append(dict(name='Compile and package mod-contained shaders', files=changed))
+    pending.write_text(json.dumps(receipt, indent=2))
+    pending.replace(package/RECEIPT)
     if cancelled():
         raise InterruptedError('Build cancelled before menu registration')
-    notify(STAGE_LABELS[8], len(steps), len(steps)+1, '')
+    notify(STAGE_LABELS[8], total-1, total, '')
     add_to_package(target, package)
     report['status'] = 'complete'
     report['steps'].append(dict(name='KCD1 New Game menu'))
@@ -143,7 +192,7 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
     pending.write_text(json.dumps(receipt, indent=2))
     pending.replace(package/RECEIPT)
     (work/'report.json').write_text(json.dumps(report, indent=2))
-    notify('Gameplay recipe complete', len(steps)+1, len(steps)+1, '')
+    notify('Gameplay recipe complete', total, total, '')
     return report
 
 
@@ -151,4 +200,5 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ('source', 'target', 'package', 'work'):
         parser.add_argument('--'+key, type=Path, required=True)
+    parser.add_argument('--converted-data', type=Path)
     run(**vars(parser.parse_args()))

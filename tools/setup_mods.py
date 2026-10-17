@@ -15,7 +15,7 @@ from setup_baking import PRESETS,bake_package
 from setup_cutscenes import build as build_opening, check_tools
 
 CATALOG=[
-    dict(id='map',name='KCD1 Map',requirements='KCD1 + KCD2',version='0.2.0-alpha.4',modid='kingdomcomegluemapper'),
+    dict(id='map',name='KCD1 Map',requirements='KCD1 + KCD2 + KCD2 Modding Tools',version='0.2.0-alpha.4',modid='kingdomcomegluemapper'),
     dict(id='fishing',name='KCD2 Fishing',requirements='KCD2 only',version='0.3.0',modid=MOD_ID)]
 
 
@@ -28,6 +28,8 @@ def checked_config(raw):
         if not isinstance(raw.get(key),str) or not raw[key].strip():raise ValueError('Choose '+key+' folder.')
     if 'map' in mods and not str(raw.get('kcd1','')).strip():raise ValueError('KCD1 Map also requires a KCD1 installation.')
     config={k:raw.get(k,'') for k in ('kcd1','kcd2','workspace','package','action')};config['mods']=mods
+    config['mod_tools']=raw.get('mod_tools','')
+    if not isinstance(config['mod_tools'],str):raise ValueError('Invalid Modding Tools folder.')
     config['baking']=raw.get('baking','none')
     if config['baking'] not in PRESETS:raise ValueError('Choose No Baking, Buildings or All (Forest).')
     if 'map' not in mods or config['action']=='install':config['baking']='none'
@@ -211,7 +213,9 @@ def _worker(path):
                     if (package/'fishing').exists():(package/'fishing').rename(job/'incomplete-fishing')
                     fishwork.rename(package/'fishing')
             if c['action']!='build_only':install_fishing(package/'fishing',c['kcd2'],events.progress,cancel)
-        events.emit('done',message='Selected packages are ready.' if c['action']=='build_only' else 'Selected mods installed.',package=str(package));return 0
+        message='Selected packages are ready.' if c['action']=='build_only' else 'Selected mods installed.'
+        if 'map' in c['mods'] and c['action']!='build_only':message+=' Use Launch mod in the Library to play with its shaders.'
+        events.emit('done',message=message,package=str(package));return 0
     except (legacy.Cancelled,InterruptedError) as e:events.emit('cancelled',message=str(e));return 2
     except BaseException as e:events.emit('error',message=str(e),traceback=traceback.format_exc());return 1
     finally:

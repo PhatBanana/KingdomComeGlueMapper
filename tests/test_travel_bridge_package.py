@@ -71,6 +71,16 @@ class BridgePackageTests(unittest.TestCase):
         with zipfile.ZipFile(self.base/f'Data/{MOD_ID}.pak') as z:
             self.assertIn('Libs/UI/Menu.gfx', z.namelist())
 
+    def test_replacing_bridge_invalidates_prior_recipe_and_menu_receipts(self):
+        receipt=json.loads((self.base/RECEIPT).read_text())
+        receipt.update(build_recipe={'version':2,'status':'complete'},new_game_menu={'registered':True})
+        (self.base/RECEIPT).write_text(json.dumps(receipt))
+        with patch('travel_bridge_package.level_registration',return_value=self.native_level):
+            output=combine(self.base,self.bridge,'target',self.root/'combined')
+        result=verify_package(output)
+        self.assertNotIn('build_recipe',result)
+        self.assertNotIn('new_game_menu',result)
+
     def test_linked_world_matches_copy_and_never_changes_base(self):
         files = lambda root: {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob('*') if p.is_file()}
         before = files(self.base)

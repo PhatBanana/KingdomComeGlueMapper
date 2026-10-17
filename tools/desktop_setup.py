@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.3'
+APP_VERSION = '0.3.4'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -57,6 +57,8 @@ def preflight(config):
     action = config['action']
     if action not in ('build_install', 'build_only', 'install', 'build_travel'):
         raise ValueError('Unknown setup operation')
+    from setup_shaders import tool_root
+    sdk = tool_root(target,config.get('mod_tools'))
     workspace = Path(config['workspace']).resolve()
     for game in (source, target):
         if workspace.is_relative_to(game) or game.is_relative_to(workspace):
@@ -82,7 +84,7 @@ def preflight(config):
         if workspace.anchor.lower() == target.anchor.lower(): staging += needed
         if free_space(target) < staging:
             raise ValueError('Insufficient space to stage the combined travel mod and preserve the installed backup.')
-        return f'KCD2 {version}. Build and install region travel into {installed}; the previous mod is backed up.'
+        return f'KCD2 {version}. Build and install region travel into {installed}.'
     if action != 'build_only':
         if game_running(): raise ValueError('Close Kingdom Come before installing the mod.')
         installed = target / 'Mods' / MOD_ID
@@ -105,7 +107,7 @@ def preflight(config):
         needed = install_bytes + (build_bytes if workspace.anchor.lower() == target.anchor.lower() else 0)
         if free_space(target) < needed:
             raise ValueError(f'KCD2 drive needs {needed / GIB:.1f} GiB free for staging; {free_space(target) / GIB:.1f} GiB available. Existing installs are backed up.')
-    return f'KCD2 {version}. Build drive: {free_space(workspace) / GIB:.1f} GiB free. Mod destination: {target / "Mods" / MOD_ID}'
+    return f'KCD2 {version}. Modding Tools: {sdk}. Build drive: {free_space(workspace) / GIB:.1f} GiB free. Mod destination: {target / "Mods" / MOD_ID}'
 
 
 def travel_world(config):
@@ -137,9 +139,8 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
     package, target = Path(package).resolve(), Path(target).resolve()
     # Package bytes are hashed while staging below, so the package is read only once.
     receipt = verify_package(package, hashes=False)
-    recipe = receipt.get('build_recipe')
-    if recipe and recipe.get('status') != 'complete':
-        raise ValueError('This build did not finish its gameplay recipe. Start a fresh build.')
+    from build_recipe import require_current
+    require_current(receipt)
     if receipt.get('kind') != 'retail-campaign-package':
         raise ValueError('Select a full campaign package, not a loader-only probe')
     from setup_campaign import game_version
@@ -193,9 +194,9 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
         verify_package(stage)
         if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
         if game_running(): raise ValueError('Game started during setup; close it and retry installation')
-        backup_path = target / 'GlueMapper Backups' / (datetime.now().strftime('%Y%m%d-%H%M%S-') + uuid.uuid4().hex[:8])
-        if destination.exists() or migrate_legacy or new_order != old_order:
-            backup_path.parent.mkdir(exist_ok=True)
+        # Keep rollback only for this transaction. Generated mods are reproducible;
+        # successful installs must not accumulate full historical mod directories.
+        backup_path = Path(temporary)/'previous-mod'
         if new_order != old_order:
             order_backup = backup_path.with_name(backup_path.name+'-mod_order.txt')
             order_backup.write_bytes(old_order)
@@ -210,14 +211,14 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
                 legacy.rename(legacy_backup)
             stage.rename(destination)
             if new_order != old_order: staged_order.replace(order)
-        except OSError:
+        except BaseException:
             if destination.exists(): destination.rename(stage)
             if legacy_backup is not None and legacy_backup.exists(): legacy_backup.rename(legacy)
             if backup is not None: backup.rename(destination)
             raise
-    return {'installed': str(destination), 'backup': str(backup) if backup else None,
-            'legacy_backup': str(legacy_backup) if legacy_backup else None,
-            'mod_order_backup': str(order_backup) if order_backup else None}
+    return {'installed': str(destination), 'backup': None,
+            'shader_launcher': 'setup' if (destination/'ShaderCache/shader-build.json').is_file() else None,
+            'legacy_backup': None, 'mod_order_backup': None}
 
 
 class EventLog:
@@ -290,6 +291,9 @@ class LogWriter(io.TextIOBase):
 def worker(config_path):
     config_path = Path(config_path).resolve()
     config = json.loads(config_path.read_text(encoding='utf-8'))
+    original_sdk = os.environ.get('KCD2_MOD_TOOLS')
+    # Workers are separate processes; keep the selected SDK consistent with preflight.
+    if config.get('mod_tools'):os.environ['KCD2_MOD_TOOLS']=config['mod_tools']
     job = config_path.parent
     events = EventLog(job / 'events.jsonl', profile=os.environ.get('GLUEMAPPER_PROFILE') == '1')
     output = LogWriter(events)
@@ -312,6 +316,8 @@ def worker(config_path):
                 events.emit('stage', index=1, total=3, label='Combine world and travel as one verified mod')
                 package = combine(Path(config['kcd2'])/'Mods'/MOD_ID, destination/MOD_ID,
                                   config['kcd2'], job/'package')
+                from build_recipe import run as run_recipe
+                run_recipe(config['kcd1'], config['kcd2'], package, job/'gameplay-recipe', events.progress, cancel)
                 if cancel(): raise Cancelled('Combined package retained; cancelled before installation')
                 events.emit('stage', index=2, total=3, label='Install combined world and travel mod')
                 result = install_transaction(package, config['kcd2'], events.progress, cancel)
@@ -345,7 +351,8 @@ def worker(config_path):
                 events.emit('stage', index=len(plan)+2, total=total, label='Combine and verify one complete mod')
                 package = combine(base, destination/MOD_ID, config['kcd2'], job/'package')
                 from build_recipe import run as run_recipe
-                run_recipe(config['kcd1'], config['kcd2'], package, job/'gameplay-recipe', events.progress, cancel)
+                run_recipe(config['kcd1'], config['kcd2'], package, job/'gameplay-recipe', events.progress, cancel,
+                           converted_data=job/'conversion/Data')
             else:
                 package = Path(config['package']).resolve()
                 total = 1
@@ -354,13 +361,17 @@ def worker(config_path):
                 if cancel(): raise Cancelled('Cancelled before installation')
                 events.emit('stage', index=total - 1, total=total, label='Install verified mod')
                 result.update(install_transaction(package, config['kcd2'], events.progress, cancel))
-            events.emit('done', message=('Complete world and travel package built.' if config['action']=='build_only' else 'World and travel installed.') + ' Continue your Trosky save and talk to the coachman: Travel to the Rattay region.', **result)
+            shader_hint = (' Use Launch mod in the setup Library to enable its shaders.'
+                           if (package/'ShaderCache/shader-build.json').is_file() else '')
+            events.emit('done', message=('Complete world and travel package built.' if config['action']=='build_only' else 'World and travel installed.') + shader_hint + ' Continue your Trosky save and talk to the coachman: Travel to the Rattay region.', **result)
         return 0
     except (Cancelled, InterruptedError) as error:
         events.emit('cancelled', message=str(error)); return 2
     except BaseException as error:
         events.emit('error', message=str(error), traceback=traceback.format_exc()); return 1
     finally:
+        if original_sdk is None:os.environ.pop('KCD2_MOD_TOOLS',None)
+        else:os.environ['KCD2_MOD_TOOLS']=original_sdk
         output.flush(); events.stream.close(); events.text.close()
         setup_progress.sink = None
         os.chdir(original_cwd); sys.argv = original_argv
