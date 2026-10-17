@@ -70,7 +70,7 @@ def build(source, target, mod, output):
     character = build_appearance(source, target, person, 'gm_neuhof_zora', character_dir)
     resources = actor_resources(target, person, character, 'gm_neuhof_zora', role_name=ROLE,
         native_soul_table='Libs/Tables/rpg/soul__tsem.xml', native_soul_name='tsem_man_15',
-        native_role_name='PODKONI_TROSECKO', resources=resources)
+        native_role_name='PODKONI_TROSECKO', resources=resources, shop_roles=True)
     zora_soul = ET.fromstring(resources['Libs/Tables/rpg/soul__gm_neuhof_zora.xml']).find('souls/soul')
     resources = horse_resources(resources, target, horses, zora_soul.get('factionName'))
     print('Registering stable, purchase dialogue and companion transfer', flush=True)

@@ -101,7 +101,7 @@ def repair_trade_prompts(data):
 def actor_resources(target, merchant, character, namespace):
     return person_resources(target, merchant, character, namespace, role_name=ROLE,
         native_soul_table='Libs/Tables/rpg/soul__ttac.xml', native_soul_name='ttac_procek',
-        native_role_name='PREVOZNIK_TROSECKO')
+        native_role_name='PREVOZNIK_TROSECKO', shop_roles=True)
 
 
 def register_world(files, graphs, graph_path, source, target, merchant, shop, identity):
