@@ -107,6 +107,51 @@ a missing renderer interior/exterior trigger.
 Local detailed evidence: `outputs/InteriorLightingAudit/building-texture-import.json`;
 installed shader extracts under `outputs/InteriorLightingAudit/shaders/`.
 
+## Full-map atlas charting (17 October 2026)
+
+Before `build_recipe.REVIEWED_BLEND_MODELS` limited the bake to the two
+reviewed 6x15 models, a fresh full-map conversion stopped in the buildings
+stage: 134 blend conversions across 108 meshes raised `Generated building
+atlas overlaps`.
+Sampling showed two source pixels baked into one atlas pixel along chart
+seams. `reatlas()` gave xatlas positions plus primary UVs, and xatlas charts
+by welded positions: render vertices duplicated at UV0/UV2 seams were joined,
+so both sides of a seam shared atlas pixels. KCD1 T-junctions, authored UV2
+overlap and zero-area UV2 faces (one Sasau wall panel spans thousands of UV2
+units) contributed further collisions.
+
+Charts are now built in Python from faces continuous in position, UV0 and
+UV2, never overlapping in UV2 and bounded in 3D size. Each chart is scaled to
+uniform world-space texel density (enlargement capped at 4x the typical
+chart), rotated to its minimum bounding rectangle and packed on shelves
+within `resolution`. When a few long charts would leave most of the atlas
+empty, multi-face charts are cut and single long faces (beams, strips) get
+lower density, and the densest of up to eight packings is kept. Zero-area
+UV2 faces get collapsed single-face charts:
+they bake nothing and render without the secondary layer. xatlas is no longer
+used; its UV-mesh mode dropped sliver faces, split charts without duplicating
+shared vertices and reshaped charts.
+
+Verification with the unmodified `bake_atlas` overlap check, baking every
+one of the 1,250 building/structure meshes (including LODs) with blend
+inputs regardless of the reviewed list: 1,165 convert, none that converted
+before regress, and the 133 previous failures convert (five reach the separate
+secondary-UV detail-mapping guard instead). The other 85 stop at existing
+guards: float UV streams (55), secondary-UV detail mapping (29) and texture
+modifiers (1). The reviewed list still decides which meshes bake in setup;
+these results are evidence for extending it, not a change of that policy.
+
+Texel density is lower. Across 413 materials baked by both versions, the new
+density per unit of source UV2 is a median 0.76 of the old (1st percentile
+0.48, 10th 0.62, 90th 0.92); 3.6% are equal or higher. The old atlases were
+mostly 4096 or larger (up to 8192x2048 and 16384x1024) although `resolution`
+is 2048: xatlas's output exceeded it (typically 2,100-3,300 px) and was
+rounded up to the next power of two. The new atlases respect 2048, so a full
+2048 atlas replacing a 4096 one holds about half the linear density. For the
+reviewed models: 6x15_roof_p_03_flipped 2048x2048 at 0.79 of the old density,
+6x15_basefloor_p_2_flipped 2048x2048 at 0.72 (old 4096x2048). In-game
+appearance of the new atlases has not been checked.
+
 ## Secondary-UV authoring comparison
 
 A follow-up read-only audit compared the installed KCD2 developer shaders with
