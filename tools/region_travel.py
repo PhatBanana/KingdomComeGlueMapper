@@ -275,7 +275,7 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
     character_directories.append(miller_directory)
     dialogue_files=person_resources(target,miller_person,miller_character,miller.NAMESPACE,role_name=miller.ROLE,
         native_soul_table='Libs/Tables/rpg/soul__ttac.xml',native_soul_name='ttac_procek',
-        native_role_name='PREVOZNIK_TROSECKO',resources=dialogue_files)
+        native_role_name='PREVOZNIK_TROSECKO',resources=dialogue_files,shop_roles=True)
     with zipfile.ZipFile(source/'Localization/English_xml.pak') as source_strings:
         names=ET.fromstring(read(source_strings,'text_ui_soul.xml'))
     selected=ET.Element('Table')

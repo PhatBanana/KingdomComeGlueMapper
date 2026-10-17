@@ -40,7 +40,7 @@ def build(source, target, mod, output):
     character=build_appearance(source,target,person,miller.NAMESPACE,character_dir)
     resources=actor_resources(target,person,character,miller.NAMESPACE,role_name=miller.ROLE,
         native_soul_table='Libs/Tables/rpg/soul__ttac.xml',native_soul_name='ttac_procek',
-        native_role_name='PREVOZNIK_TROSECKO',resources=resources)
+        native_role_name='PREVOZNIK_TROSECKO',resources=resources,shop_roles=True)
     print('Registering shop, authored work point, home and native bed',flush=True)
     files,resources,world=miller_world.register(files,resources,person,shop,source,target,guid)
     assets={}
