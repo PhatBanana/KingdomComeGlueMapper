@@ -87,7 +87,42 @@ function Add-Input([string]$Source, [string]$Relative, [string]$Kind) {
     }
     $links.Add(@{path=$Relative; source=$Source; kind=$Kind})
 }
-Add-Input (Join-Path $game 'Data') 'Data' 'Junction'
+# Levels must be discoverable under the canonical Data/Levels root. Retail's
+# mod-relative discovery otherwise resolves level-local AI data differently.
+# Project Data rather than editing retail: old runtimes with a Data junction
+# are detached by Remove-PrivateEntry above, without traversing their target.
+$levelRoot = Join-Path $mod 'Data/Levels'
+$modLevels = @{}
+if (Test-Path -LiteralPath $levelRoot) {
+    foreach ($level in Get-ChildItem -LiteralPath $levelRoot -Directory) {
+        if (Test-Path -LiteralPath (Join-Path $level.FullName 'level.pak')) {
+            $modLevels[$level.Name] = $level.FullName
+        }
+    }
+}
+foreach ($entry in Get-ChildItem -LiteralPath (Join-Path $game 'Data')) {
+    if ($entry.Name -ieq 'Levels' -and $entry.PSIsContainer) {
+        foreach ($level in Get-ChildItem -LiteralPath $entry.FullName) {
+            if ($modLevels.ContainsKey($level.Name)) {
+                # Accept the earlier diagnostic alias, but never shadow a native level.
+                $isAlias = ($level.Attributes -band [IO.FileAttributes]::ReparsePoint) -and
+                    ([IO.Path]::GetFullPath($level.Target[0]).TrimEnd('\') -ieq $modLevels[$level.Name].TrimEnd('\'))
+                if ($isAlias) { continue }
+                # Native-level mod packages (for example travel edits in
+                # trosecko) remain normal overlays; expose the native base here.
+                $modLevels.Remove($level.Name)
+            }
+            $kind = if ($level.PSIsContainer) { 'Junction' } else { 'HardLink' }
+            Add-Input $level.FullName ('Data/Levels/' + $level.Name) $kind
+        }
+    } else {
+        $kind = if ($entry.PSIsContainer) { 'Junction' } else { 'HardLink' }
+        Add-Input $entry.FullName ('Data/' + $entry.Name) $kind
+    }
+}
+foreach ($name in $modLevels.Keys) {
+    Add-Input $modLevels[$name] ('Data/Levels/' + $name) 'Junction'
+}
 Add-Input (Join-Path $game 'Localization') 'Localization' 'Junction'
 foreach ($file in Get-ChildItem -LiteralPath (Join-Path $game 'Bin') -File -Recurse) {
     # DLLs/executables are immutable inputs; never share logs or writable config.

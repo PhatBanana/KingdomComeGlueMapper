@@ -38,6 +38,15 @@ Existing unrecognized/modified installations are refused. Fishing is not install
 
 After installation, **KCD1 Map → Launch mod** prepares one reusable linked runtime inside Mods. It uses the mod's shader archives and unchanged retail binaries, leaving the original Engine archives intact. Steam must be running with an account that owns the game. The ordinary Steam launch continues to use retail shaders. See [mod-contained shader loading](mod-shader-loading.md).
 
+The launcher also projects installed mod levels into its private `Data/Levels`
+directory. Retail then discovers the canonical level path used by level-local
+AI data. This corrects the tested difference where schedules and horse arrival
+worked in Mod Tools but failed in retail. Native Data files and native levels
+remain linked to their original locations; mod level names cannot replace a
+native level. No game assets are copied. Existing launcher runtimes migrate on
+the next Launch mod action, including packages installed by an older setup or
+resumed build, without rebuilding or rebaking the world.
+
 ## Development and validation
 
 Clean development builds and the launcher use `desktop_setup.worker` and the

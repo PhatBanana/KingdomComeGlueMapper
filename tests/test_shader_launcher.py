@@ -33,6 +33,8 @@ class ShaderLauncherTests(unittest.TestCase):
             'system.cfg': b'config', 'user.cfg': b'user config',
             'Mods/example/mod.manifest': b'<kcd_mod><info><modid>example</modid></info></kcd_mod>',
             'Mods/example/Data/mod.pak': b'mod',
+            'Mods/example/Data/Levels/custom/level.pak': b'custom level',
+            'Data/Levels/native/level.pak': b'native level',
             'Mods/other/mod.manifest': b'<kcd_mod/>', 'Mods/other/Data/other.pak': b'other',
             'Mods/mod_order.txt': b'example\nother\n',
         }
@@ -89,6 +91,28 @@ class ShaderLauncherTests(unittest.TestCase):
         (self.game/'Engine/Shaders.pak').write_bytes(b'new version')
         self.assertIn('Retail shaders changed',self.prepare(False))
         self.assertFalse(self.view.exists())
+
+    def test_canonical_level_projection_and_old_runtime_migration(self):
+        self.prepare()
+        self.assertTrue(os.path.samefile(self.view/'Data/Levels/custom/level.pak',
+                                        self.mod/'Data/Levels/custom/level.pak'))
+        self.assertFalse((self.game/'Data/Levels/custom').exists())
+        # Simulate the previous launcher layout (one Data junction).
+        shutil.rmtree(self.view/'Data')
+        subprocess.run(['cmd', '/c', 'mklink', '/J', str(self.view/'Data'),
+                        str(self.game/'Data')], check=True, capture_output=True)
+        self.prepare()
+        self.assertTrue((self.view/'Data/Levels/custom/level.pak').is_file())
+        self.unchanged()
+
+    def test_native_level_overlay_does_not_replace_canonical_base(self):
+        collision = self.mod/'Data/Levels/native/level.pak'
+        collision.parent.mkdir(parents=True)
+        collision.write_bytes(b'collision')
+        self.prepare()
+        self.assertEqual((self.view/'Data/Levels/native/level.pak').read_bytes(), b'native level')
+        self.assertEqual((self.view/'Mods/example/Data/Levels/native/level.pak').read_bytes(), b'collision')
+        self.unchanged()
 
 
 if __name__ == '__main__': unittest.main()
