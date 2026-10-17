@@ -1,39 +1,32 @@
-# Windows setup — 0.3.2
+# Windows setup — 0.3.4
 
-> Development source update (0.3.4, not yet packaged as a release): map recipe 3
-> connects the bounded Skalitz gameplay stages and final streaming validation.
-> It also compiles shader candidates in the job workspace using the installed
-> KCD2 Modding Tools (`KCD2_MOD_TOOLS` may select their directory). Those shader
-> archives are included under the mod's `ShaderCache` folder. **Launch mod** in the
-> setup Library uses one linked private root inside Mods; setup never replaces
-> retail Engine files. KCD1 Map now requires the official Modding Tools for builds,
-> installs and resumes. Locations includes detection, Browse, Recheck tools and
-> Install through Steam. Fishing alone does not require them.
-> See [mod-contained shader loading](mod-shader-loading.md). Map replacement keeps only temporary rollback
-> during installation, with no retained full-mod backup on success. The released
-> EXE and its older requirements/backup behavior described below are unchanged.
+Download `KingdomComeGlueMapper-Setup-0.3.4-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.4). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface.
 
-Download `KingdomComeGlueMapper-Setup-0.3.3-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases). This is an experimental prerelease. Python and the game modding tools are not required to run the executable. Microsoft Edge WebView2 is required for its local interface.
+**KCD1 Map requires the official KCD2 Modding Tools from Steam before building, installing an existing package, or resuming installation.** Setup detects the tools and offers Browse, Recheck, and Install through Steam. It uses your installed tools to compile shaders; Warhorse's tools are not bundled. Fishing alone does not require them.
+
+Recipe 3 connects the bounded Skalitz opening, selected actors and routines, initial equipment, conversations, quest combat, and final streaming checks to the normal setup build. The redesigned interface groups locations and prerequisites, with one persistent navigation bar. The parallel conversion changes from PR #28 include bounded worker pools, concurrent package reads and hashing, and a workspace lighting cache.
+
+Compiled shader archives stay under the mod's `ShaderCache` folder. **Launch mod** in the setup Library prepares one reusable linked runtime inside Mods and starts the unchanged retail executable. Retail Engine archives are not replaced. See [mod-contained shader loading](mod-shader-loading.md) for the mechanism and validation limits.
 
 ## Choose a mod
 
 | Mod | Package version | Required games | What it installs |
 | --- | --- | --- | --- |
-| KCD1 Map | 0.2.0-alpha.4 | KCD1 and KCD2 1.5.6 | Converted Rattay region, coach travel, supported interactions and services, Rattay smithing, church prayer, containers and test supplies. |
+| KCD1 Map | 0.2.0-alpha.4 | KCD1, KCD2 1.5.6, and official KCD2 Modding Tools | Converted Rattay region, coach travel, supported interactions and services, plus the bounded Skalitz opening/gameplay recipe. |
 | KCD2 Fishing | 0.3.0 | KCD2 1.5.6 | Standalone fishing in Trosky and Kuttenberg; also includes converted-map water when built with KCD1 Map. |
 
 The setup version and mod package versions are separate. KCD1 Map does not convert a complete playable campaign or KCD1 saves. Standalone fishing's native-region runtime validation remains pending.
 
 ## Install step by step
 
-1. Install the required games. Run the setup executable as your normal Windows user in writable folders.
+1. Install the required games and, for KCD1 Map, the official KCD2 Modding Tools through Steam. Run the setup executable as your normal Windows user in writable folders.
 2. In **Library**, select one or both mods, then **Configure installation**.
-3. **Locations:** confirm detected Steam paths or browse to each game's main folder. Choose a build folder outside the games, such as `D:\KCDModBuilds`. Select **Build & install**. Use **Build packages only** to create packages without installing them.
-4. **Baking:** choose a mode from the table below. Baking follows the complete map conversion and gameplay packaging. It does not run during the early tree/vegetation conversion step.
-5. **Cutscenes:** leave the optional opening movie off, or locate your installed RAD Video Tools encoder and enable it. FFmpeg and FFprobe must be on PATH. Setup does not download RAD. The optional movie currently replaces the shared New Game intro, including ordinary KCD2 New Game. Later campaign scenes are not included.
+3. **Locations:** confirm detected Steam paths or browse to each game's main folder. Check that KCD2 Modding Tools are detected. Choose a build folder outside the games, such as `D:\BuildKCDMod`. Select **Build & install**, or **Build packages** to prepare files without installing them.
+4. **Lighting:** choose a mode from the table below. Surface baking follows the map conversion and gameplay packaging. It does not run during the early tree/vegetation conversion step.
+5. **Opening movie:** leave the optional movie off, or locate your installed RAD Video Tools encoder and enable it. FFmpeg and FFprobe must be on PATH. Setup does not download RAD or open a file picker until you choose to locate it. The optional movie currently replaces the shared New Game intro, including ordinary KCD2 New Game. Later campaign scenes are not included.
 6. **Review:** check paths, selected mods and options. Close the games before installation, then start.
 7. **Activity:** all planned steps appear up front. The current task reports progress when measurable. Overall stage counts are not time percentages. An ETA only appears where throughput can be measured.
-8. Wait for **Selected mods installed**. Launch KCD2 normally.
+8. Wait for **Selected mods installed**. With Steam running, select **KCD1 Map → Launch mod** in Library to use the compiled mod shaders. Fishing alone can use the ordinary Steam launch.
 
 ### Lighting choices and space
 
@@ -43,13 +36,13 @@ The setup version and mod package versions are separate. KCD1 Map does not conve
 | Buildings | Structures, static props, ground and roads; forest instances excluded from this pass. | 30 GiB |
 | All (Forest) | Buildings coverage plus eligible trees and foliage. | 60 GiB |
 
-All modes include visible buildings and vegetation. Baking prepares surface data for indirect illumination. It does not build or clear the game's shader cache. The bake uses the established hybrid pipeline: two compiled CPU workers for tiles below one million triangles, persistent OptiX for dense tiles, and 64-brick GPU batches with CPU preparation/encoding overlap. GPU failures fall back to CPU with the reason recorded. Baking remains experimental, including approximations for layered materials and foliage.
+All modes include visible buildings and vegetation. Optional surface baking prepares data for indirect illumination; the separate shader compilation stage runs for every fresh KCD1 Map build, including No Baking. Setup does not clear retail shader caches. The surface bake uses two compiled CPU workers for tiles below one million triangles, persistent OptiX for dense tiles, and 64-brick GPU batches with CPU preparation/encoding overlap. GPU failures fall back to CPU with the reason recorded. Baking remains experimental, including approximations for layered materials and foliage.
 
 The bundled GPU binary currently targets `sm_120` (the tested development GPU). Other architectures or unsupported drivers use the CPU fallback; broader GPU compatibility has not been validated. The executable includes the GPU DLL, PTX, integrity metadata and OptiX license. Users do not need the CUDA toolkit to run setup.
 
-A fresh map build reserves **200 GiB** in the build location and **64 GiB** for installation staging. Add the chosen bake allowance and another **10 GiB** for the optional movie. Requirements combine when build and game folders share a drive. Fishing alone needs approximately 1 GiB for build and staging. Existing builds and backups already consume space and are retained.
+A fresh map build reserves **200 GiB** in the build location and **64 GiB** for installation staging. Add the chosen bake allowance and another **10 GiB** for the optional movie. Requirements combine when build and game folders share a drive. Fishing alone needs approximately 1 GiB for build and staging. These are planning allowances, not final installed sizes. Existing build folders and older backups are not automatically removed. Successful map replacement retains no additional full-mod backup.
 
-The measured local map conversion took **43 minutes 10 seconds**, excluding optional baking. The previously reported 190.5-second bake ended with an error and was not a completed bake. Full-world bake time is not yet established; CPU, storage, available memory and selected coverage affect duration.
+End-to-end timing for recipe 3, including its additional gameplay and shader stages, is not established. Earlier 43-minute conversion measurements predate this recipe. PR #28 includes contributor measurements for its parallel conversion changes, with warm-cache caveats; they are not a timing guarantee for this release. CPU, storage, memory, shader compilation, and selected coverage affect duration.
 
 ## Continue a failed setup
 
@@ -59,7 +52,9 @@ The measured local map conversion took **43 minutes 10 seconds**, excluding opti
 4. Select the timestamped folder containing `job.json`, `package`, and `map-job`. Do not select `map-job`, `baking`, or the installed Mods folder.
 5. Setup reads the saved options, verifies completed packages and resumes remaining operations. Watch the new attempt's log.
 
-For a failure in optional baking, the completed map package is reused: the 43-minute conversion need not repeat. A completed movie or selected bake is skipped when its package receipt confirms completion. Compatible completed bake tiles are verified and reused. Missing or damaged tiles are rebuilt. Interrupted scene planning restarts that planning phase.
+For a failure in optional baking, a completed map package from the current recipe is reused. A completed movie or selected bake is skipped when its package receipt confirms completion. Compatible completed bake tiles are verified and reused. Missing or damaged tiles are rebuilt. Interrupted scene planning restarts that planning phase.
+
+**Packages from older setup recipes must be rebuilt with 0.3.4.** Resume and installation reject receipts missing the current gameplay, streaming, or shader validations. The setup does not silently treat an older hash-valid package as a complete current build.
 
 If map conversion failed before a complete package existed, the map phase restarts. Resume does not checkpoint every individual world-converter stage. Partial outputs remain for diagnosis. Modified or incomplete packages are rejected rather than treated as successful.
 
@@ -69,14 +64,14 @@ Use **Cancel safely** rather than terminating the process. Cancellation waits fo
 
 ## Enter the map or fish
 
-- **KCD1 Map:** continue a Trosky save, speak to the coachman and choose **Travel to the Rattay region**. The retail menu also offers **New Game Sasau region (In Progress)** as an experimental start.
+- **KCD1 Map:** use **Launch mod** in the setup Library, then continue a Trosky save, speak to the coachman and choose **Travel to the Rattay region**. The retail menu also offers **New Game Sasau region (In Progress)** as an experimental start. Launching through the ordinary Steam entry uses the original retail Engine shaders. The custom launcher changes the shared shaders for the entire game session; other regions and mods still need compatibility testing.
 - **KCD2 Fishing:** buy a rod from a general merchant after its stock refreshes. Having the rod in your inventory is enough. Face nearby water and use the contextual **Fish** action. Follow the casting and bite prompts; cancelling or moving ends fishing.
 
 If the old map contains an embedded fishing test, standalone fishing installation is blocked. Build the clean map package before adding the separate fishing mod.
 
 ## Install existing packages
 
-Choose **Install existing packages** and select the job's parent `package` folder, which contains `map` and/or `fishing`. The selected packages must match their receipts. This does not run conversion or change their bake settings.
+Choose **Install existing packages** and select the job's parent `package` folder, which contains `map` and/or `fishing`. The selected packages must match their receipts and the map must have completed recipe 3. The official Modding Tools are required for map installation even when compilation was already completed. This operation does not rerun conversion or change bake settings.
 
 ## Logs and reporting problems
 
@@ -88,11 +83,11 @@ When filing an issue, include setup version, selected mods and bake mode, game v
 
 ## Installation, backups and removal
 
-The destinations are `<KCD2>/Mods/kingdomcomegluemapper` and `<KCD2>/Mods/kcd2fishing`. Setup stages and verifies files before replacing recognized installations. Previous installations and mod-order backups are retained under `<KCD2>/GlueMapper Backups`. Modified or unknown installations block replacement. The game archives and saves are not overwritten.
+The destinations are `<KCD2>/Mods/kingdomcomegluemapper` and `<KCD2>/Mods/kcd2fishing`. Setup stages and verifies files before replacing recognized installations. Map replacement keeps rollback data only during the transaction, then removes it on success. Standalone Fishing still retains its previous installation and mod-order backup under `<KCD2>/GlueMapper Backups`. Modified or unknown installations block replacement. Retail game archives and saves are not overwritten.
 
-To roll back, close the game, move the current mod to a safe location, restore its chosen backup to the original Mods path, and restore the corresponding `mod_order.txt` backup if necessary. To disable a mod, move its folder outside Mods and remove its line from `mod_order.txt` if that file exists. Keep unrelated entries. Retain backups until the new build works for you.
+To disable a mod, close the game, move its folder outside Mods, and remove its line from `mod_order.txt` if that file exists. Keep unrelated entries. Launch KCD2 through Steam to use its original Engine shaders. The linked `.kingdomcomegluemapper-runtime` folder is generated by Launch mod and can be refreshed by the launcher; it contains junctions to game assets, so do not use a cleanup tool that traverses junction targets.
 
-Build folders, unsuccessful attempts and backups are not automatically deleted. Remove them only after you no longer need recovery or comparison. Shader caches are not cleared by setup.
+Existing build folders, unsuccessful attempts, and backups from earlier versions are not automatically deleted. A successful map install no longer creates a permanent rollback copy; regenerate the desired version from source or keep a verified package when recovery is needed. Setup does not clear retail shader caches.
 
 ## Build from source
 

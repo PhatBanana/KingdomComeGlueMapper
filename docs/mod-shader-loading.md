@@ -1,10 +1,10 @@
 # Mod-contained shader loading
 
-The source setup recipe now includes the four compiled shader archives inside
+Setup 0.3.4 includes the four locally compiled shader archives inside
 `Mods/kingdomcomegluemapper/ShaderCache/Engine`. The setup Library has a **Launch mod**
 button; no CMD or PowerShell shortcut is installed in the mod. No retail Engine
-archive is overwritten. The released
-setup EXE has not yet been rebuilt with this change.
+archive is overwritten. Shader compilation uses the user's installed official
+Modding Tools; those tool binaries are not redistributed in setup.
 
 ## Why a separate launcher is needed
 
