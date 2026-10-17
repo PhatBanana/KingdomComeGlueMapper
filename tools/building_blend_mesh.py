@@ -64,7 +64,9 @@ def secondary_charts(positions, faces, uv0, uv2):
             neighbours[f].extend(g for g in shared if g != f)
     tri2 = uv2[faces].astype(np.float64)
     chart = np.full(len(faces), -1, np.int64)
-    cell = max(float(np.median(np.ptp(tri2, axis=1).max(1))), 1e-4)
+    # Typical-triangle grid cells, but never more than 1024 across the layout,
+    # so one very large face cannot occupy an unbounded number of cells.
+    cell = max(float(np.median(np.ptp(tri2, axis=1).max(1))), float(np.ptp(tri2.reshape(-1, 2), axis=0).max())/1024, 1e-6)
     count = 0
     for seed in range(len(faces)):
         if chart[seed] >= 0:
@@ -187,7 +189,6 @@ def reatlas(blob, material_id, resolution=2048):
     # merges faces across seams, drops slivers and reshapes or splits UV
     # charts, so charts are built and packed here. Each chart gets its own
     # copy of its vertices; faces keep their order and corner identity.
-    chart = secondary_charts(positions, faces, uv0, uv2)
     # Zero-area UV2 faces (needles; some source panels were never unwrapped
     # and span thousands of units) carry no bakeable texels but would set the
     # packing scale. Give each its own chart collapsed to a point: it bakes
@@ -196,8 +197,10 @@ def reatlas(blob, material_id, resolution=2048):
     e1, e2 = tri2[:, 1]-tri2[:, 0], tri2[:, 2]-tri2[:, 0]
     area = np.abs(e1[:, 0]*e2[:, 1]-e1[:, 1]*e2[:, 0])/2
     needle = area <= 1e-6*np.ptp(tri2, axis=1).max(1)**2
-    chart = chart.copy()
-    chart[needle] = chart.max()+1+np.arange(int(needle.sum()))
+    chart = np.empty(len(faces), np.int64)
+    kept = np.flatnonzero(~needle)
+    chart[kept] = secondary_charts(positions, faces[kept], uv0, uv2) if len(kept) else []
+    chart[needle] = (chart[kept].max()+1 if len(kept) else 0)+np.arange(int(needle.sum()))
     pairs = np.stack([np.repeat(chart, 3), faces.reshape(-1)], 1)
     unique, inverse = np.unique(pairs, axis=0, return_inverse=True)
     mapping = unique[:, 1].astype(np.uint32)
