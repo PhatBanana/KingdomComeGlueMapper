@@ -81,15 +81,17 @@ Build folders, unsuccessful attempts and backups are not automatically deleted. 
 
 ## Build from source
 
-On Windows x64 with Python 3.14:
+On Windows x64, Python 3.13 avoids compiling the pinned xatlas dependency:
 
 ```powershell
-python -m venv .venv
+py -3.13 -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements-setup.txt
 .venv/Scripts/python.exe -m pip install -r requirements-test.txt
 .venv/Scripts/python.exe -m unittest discover -s tests
 .venv/Scripts/python.exe tools/build_setup_exe.py
 ```
+
+Python 3.14 also works when the Visual Studio C++ build tools are available to build `xatlas==0.0.11` from source. That version of xatlas has a Windows cp313 wheel but no cp314 wheel; a missing wheel is not a Python 3.14 incompatibility. The parallel CPU baker supports both Python versions.
 
 Outputs include the EXE, SHA-256 checksum and frozen-runtime self-test report. GitHub Actions is manual-only; a push or release tag does not automatically run tests. Frozen checks validate included resources, native extensions and a small CPU raster job; they do not substitute for a complete bake or in-game playtest.
 
