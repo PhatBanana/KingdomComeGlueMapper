@@ -122,8 +122,10 @@ def resolve_null_tracking_edges(graph, tables):
 
 
 def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior=True, profile_level=None,
-                 native_person_brains=None):
+                 native_person_brains=None, actor_roots=()):
     if not re.fullmatch(r'[A-Za-z0-9_]+', quest): raise ValueError('Invalid quest name')
+    if actor_roots and profile_level is None:
+        raise ValueError('Selected actor routines require a source level')
     resolve = source_reader or retail_sources
     requested = {'graph': ('GameData.pak', f'Libs/quests/flowgraphs/{quest}.xml')}
     for index, entry in enumerate(bootstrap):
@@ -161,6 +163,23 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
     profile_index = None
     profile_tables = None
     profile_evidence = {}
+    def population(names, selected=False):
+        nonlocal profile_world, profile_index, profile_tables, profile_evidence
+        if profile_world is None:
+            with zipfile.ZipFile(Path(game)/'Data/Levels'/profile_level/'level.pak') as archive:
+                blobs={n:read(archive,n) for n in archive.namelist() if key(n) in
+                       ('whdata_0','whdata_1','objects_mission0.xml') or
+                       key(n).startswith('layers/') and key(n).endswith('.xml')}
+            normalized={key(n):data for n,data in blobs.items()}
+            profile_world=(ET.fromstring(normalized['whdata_1']), ET.fromstring(normalized['whdata_0']),
+                {n:data for n,data in blobs.items() if key(n) not in ('whdata_0','whdata_1')})
+            profile_evidence={n:hashlib.sha256(data).hexdigest() for n,data in blobs.items()}
+        from campaign_dependency_adapters import SourceTables
+        from campaign_profile_work import discover, discover_selected, ProfileWorld
+        if profile_index is None: profile_index=ProfileWorld(*profile_world)
+        if profile_tables is None: profile_tables=SourceTables(game,resolve)
+        return (discover_selected if selected else discover)(*profile_world,names,profile_tables,
+            world=profile_index,native_person_brains=native_person_brains)
     def work_rows(name):
         if name not in work_tables:
             record = resolve(game, {'work': ('Tables.pak', 'Libs/Tables/ai/' + name + '.xml')})['work']
@@ -174,6 +193,14 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
     loaded = {key(item['entry']): item for label,item in sources.items() if label != 'graph'}
     parsed = {}
     pending = [(item, None) for item in loaded.values()]
+    if actor_roots:
+        closure = population(actor_roots, selected=True)
+        profile_work.append(closure)
+        for program in closure['programs']:
+            path = key(program['file'])
+            if path not in loaded:
+                loaded[path] = resolve(game, {'actor_work': ('Scripts.pak', program['file'])})['actor_work']
+            pending.append((loaded[path], {program['tree']}))
     while pending:
         source, requested_trees = pending.pop(0); entry = key(source['entry'])
         if entry not in parsed:
@@ -199,22 +226,7 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
                         if not name or name.startswith('$') or name.lower() in visited_profiles:
                             continue
                         visited_profiles.add(name.lower())
-                        if profile_world is None:
-                            with zipfile.ZipFile(Path(game)/'Data/Levels'/profile_level/'level.pak') as archive:
-                                blobs={n:read(archive,n) for n in archive.namelist() if key(n) in
-                                       ('whdata_0','whdata_1','objects_mission0.xml') or
-                                       key(n).startswith('layers/') and key(n).endswith('.xml')}
-                                normalized={key(n):data for n,data in blobs.items()}
-                                profile_world=(ET.fromstring(normalized['whdata_1']),
-                                    ET.fromstring(normalized['whdata_0']),
-                                    {n:data for n,data in blobs.items() if key(n) not in ('whdata_0','whdata_1')})
-                                profile_evidence={n:hashlib.sha256(data).hexdigest() for n,data in blobs.items()}
-                        from campaign_dependency_adapters import SourceTables
-                        from campaign_profile_work import discover as discover_profile_work, ProfileWorld
-                        if profile_index is None: profile_index=ProfileWorld(*profile_world)
-                        if profile_tables is None: profile_tables=SourceTables(game,resolve)
-                        closure=discover_profile_work(*profile_world,[name],profile_tables,world=profile_index,
-                                                      native_person_brains=native_person_brains)
+                        closure=population([name])
                         profile_work.append(closure)
                         includes.update((p['file'],p['tree']) for p in closure['programs'])
         from campaign_work_sources import discover

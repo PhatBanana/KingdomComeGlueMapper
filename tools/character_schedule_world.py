@@ -38,11 +38,17 @@ def arrival_resources():
             'AI/gluemapper/schedule_arrival.xml':xml(trees)}
 
 
-def resolve_arrivals(schedule, archive, person=None):
+def resolve_arrivals(schedule, archive, person=None, source=None, reader=None):
     result = []
     mission = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
     for entry in schedule['resolved']:
         behavior = entry['behavior']
+        if entry.get('target_kind') == 'quest_controller':
+            if source is None or reader is None:
+                raise ValueError('Controller work requires its effective source behavior')
+            from character_station_work import resolve
+            result.append(resolve(entry, archive, source, reader))
+            continue
         if (behavior['tree_file'].lower(), behavior['tree_name']) == ('final/sa_garrison.xml', 'Guard'):
             forced = [l for l in (person or {}).get('ai', {}).get('links', [])
                       if l['label'] == 'garrison_forcedWorkplace']

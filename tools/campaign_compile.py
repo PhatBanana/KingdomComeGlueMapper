@@ -109,7 +109,7 @@ def wire_bridge(files, project, bridge_files, report, instance_name='source_ques
 
 
 def compile_campaign(source, target, level, output, project, entry_action='Libs/UI/UIActions/MM_NewGame.xml', registered=None,
-                     engine_enum_evidence=None, baseline_objects=None, baseline_level=None):
+                     engine_enum_evidence=None, baseline_objects=None, baseline_level=None, actor_roots=None):
     identifier(project)
     source, target, output = Path(source), Path(target), Path(output)
     if baseline_objects is not None and baseline_level is not None:
@@ -123,12 +123,25 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         stage = Path(temporary) / 'stage'
         stage.mkdir()
         links = build_links(source, level, entry_action, source_reader=resolver)
-        seeds = sorted({r['database_row']['quest_name'] for r in links['quests']})
+        actor_roots = actor_roots or {}
+        seeds = sorted({r['database_row']['quest_name'] for r in links['quests']} | set(actor_roots))
         if not seeds:
             raise ValueError('The source New Game link closure contains no quest registrations')
         table = resolver(source, {'quest': ('Tables.pak', 'Libs/Tables/quest/quest.xml')})['quest']
         known = {r.get('quest_name') for r in ET.fromstring(table['data']).findall('./table/rows/row')}
         tables = SourceTables(source, resolver)
+        actor_dialogues = None
+        if actor_roots:
+            from campaign_actor_dialogues import branch_catalog, quest_dependencies as dialogue_quest_dependencies
+            selected = sorted({name for names in actor_roots.values() for name in names})
+            soul_ids = [tables.row('rpg/soul', 'soul_name', name)['soul_id'] for name in selected]
+            actor_tables = {n: tables.get('text/' + n)['rows'] for n in (*DIALOGUE_TABLES, 'dialogue_functions')}
+            actor_dialogues = branch_catalog(actor_tables['v_branch'], actor_tables['topictorole'],
+                tables.get('rpg/soul2role')['rows'], tables.get('rpg/role')['rows'],
+                tables.get('rpg/metarole')['rows'], soul_ids)
+            actor_dialogues['quest_dependencies'] = dialogue_quest_dependencies(
+                actor_tables, actor_dialogues, tables.get('quest/quest')['rows'])
+            seeds = sorted(set(seeds) | {name for names in actor_dialogues['quest_dependencies'].values() for name in names})
         native_ai = NativeAIRegistry.load(target, project)
         from character_person_ai import BRAIN_ADAPTERS
         native_person_brains = {}
@@ -150,7 +163,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 bootstrap = sorted({p['file'] for p in definition['entry_points']}) if definition else []
                 model, _ = import_quest(source, name, bootstrap=bootstrap, source_reader=resolver,
                                        require_behavior=False, profile_level=level,
-                                       native_person_brains=native_person_brains)
+                                       native_person_brains=native_person_brains, actor_roots=actor_roots.get(name, ()))
                 model['controller_registration'] = definition
             except (ValueError, KeyError) as error:
                 failures.append(dict(kind='quest_import', quest=name, reason=str(error)))
@@ -432,7 +445,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 counts.update(n['op'] for n in walk(tree['root']))
         report = dict(schema=1, project=project, source_level=level,
                       source_entry=links['entry']['dispatch'], source_entry_provenance=links['entry_provenance'],
-                      seed_quests=seeds, quests=sorted(models), attempted_quests=sorted(attempted),
+                      seed_quests=seeds, actor_roots=actor_roots, quests=sorted(models), attempted_quests=sorted(attempted),
                       dependencies=dependencies, import_failures=failures,
                       registration_errors=missing, quest_state_conversion=quest_report,
                       dependency_import_counts=importer.report()['counts'],
@@ -453,6 +466,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                             ('dependency-imports.json', importer.report()), ('native-behavior-catalog.json', catalog),
                             ('native-registrations.json', registration_report),
                             ('dialogue-dependencies.json', dialogues),
+                            ('actor-dialogue-dependencies.json', actor_dialogues),
                             ('population-dependencies.json', population_imports),
                             ('work-graph-dependencies.json', dict(closures=work_closures, imports=work_graph_imports)),
                             ('population-schedules.json', population_schedule_report),
@@ -484,12 +498,18 @@ def main():
     p.add_argument('--engine-enums', type=Path, help='Explicit source-engine enum evidence; revalidated read-only against WHGame.dll')
     p.add_argument('--baseline-objects', type=Path, help='Converted objects_mission0.xml to assemble gameplay placements into')
     p.add_argument('--baseline-level', type=Path, help='Converted level.pak to assemble native world registration resources into')
+    p.add_argument('--actor-roots', type=Path, help='JSON mapping source quest owners to actor names; imports their authored routines and work dependencies')
     a = p.parse_args()
     import setup_progress
     setup_progress.sink = lambda label, current, total, detail='': print(
         f'{label} [{current}/{total}] {detail}', flush=True)
     registered = json.loads(a.registered.read_text(encoding='utf-8')) if a.registered else None
-    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered, a.engine_enums, a.baseline_objects, a.baseline_level), indent=2))
+    actor_roots = json.loads(a.actor_roots.read_text(encoding='utf-8')) if a.actor_roots else None
+    if actor_roots is not None and (not isinstance(actor_roots, dict) or any(
+            not isinstance(names, list) or not all(isinstance(n, str) and n for n in names)
+            for names in actor_roots.values())):
+        p.error('--actor-roots must map quest names to lists of source actor names')
+    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered, a.engine_enums, a.baseline_objects, a.baseline_level, actor_roots), indent=2))
 
 
 if __name__ == '__main__':

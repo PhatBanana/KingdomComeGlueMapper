@@ -9,7 +9,8 @@ from collections import deque
 from campaign_entity_links import native_guid
 
 
-def discover(world, roots):
+def discover(world, roots, *, actor_roots=()):
+    actor_roots = {guid.lower() for guid in actor_roots}
     by_guid = {}
     for key, entity in world['entities'].items():
         guid = entity['attributes'].get('EntityGuid')
@@ -48,7 +49,9 @@ def discover(world, roots):
             continue
         entities.append(dict(source=key, guid=identity, attributes=attrs,
                              entity=source['entity']))
-        if attrs.get('EntityClass') in ('NPC', 'NPC_Female', 'QuestObject'):
+        if attrs.get('EntityClass') == 'QuestObject' or (
+                attrs.get('EntityClass') in ('NPC', 'NPC_Female') and
+                attrs.get('EntityGuid', '').lower() not in actor_roots):
             continue
         authored = []
         has_authored_links = False
@@ -81,11 +84,18 @@ def for_models(models, world):
     result = {}
     for model in models:
         roots = set()
+        actors = set()
         for population in model.get('profile_work_dependencies', []):
             for resident in population['actors']:
+                # Homes, owned containers and other explicit person links are
+                # dependencies even when an activity has no direct Work edge.
+                # Follow only these selected actors, not every NPC encountered
+                # through their shared work area.
+                if resident.get('source_links'):
+                    actors.add(resident['actor']['entity_guid'])
                 for activity in (resident.get('schedule') or {}).get('resolved', []):
                     roots.add(activity['area']['EntityGuid'])
-        result[model['quest']] = discover(world, roots)
+        result[model['quest']] = discover(world, roots | actors, actor_roots=actors)
     return result
 
 

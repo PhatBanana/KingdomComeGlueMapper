@@ -4,7 +4,7 @@ An EnableProfile can introduce an entire population. Their daycycle roots are
 not IncludeTree calls in the quest, so a quest-only traversal misses their jobs.
 """
 import xml.etree.ElementTree as ET
-from campaign_profile_actors import collect
+from campaign_profile_actors import collect, select
 from character_person_ai import capture_person_ai, index_person_links
 from character_schedule import plan
 from campaign_work_sources import area_context
@@ -31,6 +31,17 @@ class ProfileWorld:
 def discover(profiles, souls, documents, names, tables, world=None, native_person_brains=None):
     world = world or ProfileWorld(profiles, souls, documents)
     actors=collect(profiles,souls,world.documents,names)
+    return discover_actors(world, actors, tables, native_person_brains, profiles=names)
+
+
+def discover_selected(profiles, souls, documents, names, tables, world=None, native_person_brains=None):
+    """Use the same work conversion for explicitly selected builder actors."""
+    world = world or ProfileWorld(profiles, souls, documents)
+    actors = select(profiles, souls, world.documents, names)
+    return discover_actors(world, actors, tables, native_person_brains)
+
+
+def discover_actors(world, actors, tables, native_person_brains=None, profiles=()):
     entities, indexed, instances = world.entities, world.indexed, world.instances
     programs={};records=[]
     for actor in actors:
@@ -40,7 +51,8 @@ def discover(profiles, souls, documents, names, tables, world=None, native_perso
         ai=capture_person_ai(tables,soul,candidates[0],instances[actor['instance_id']],entities,
                              link_index=world.person_link_index)
         brain=brain_definition(tables, ai['source_brain']['brain_id'])
-        record=dict(actor=actor,source_brain=ai['source_brain'],brain_dependencies=brain,schedule=None)
+        record=dict(actor=actor,source_brain=ai['source_brain'],brain_dependencies=brain,schedule=None,
+                    source_links=ai.get('links', []))
         replacement = (native_person_brains or {}).get(ai['source_brain'].get('brain_name'))
         if replacement:
             record['native_brain'] = replacement
@@ -67,7 +79,7 @@ def discover(profiles, souls, documents, names, tables, world=None, native_perso
                 if actor['entity_guid'] not in programs[identity]['actors']:
                     programs[identity]['actors'].append(actor['entity_guid'])
         records.append(record)
-    return dict(profiles=sorted(set(names)),actors=records,programs=list(programs.values()),
+    return dict(profiles=sorted(set(profiles)),actors=records,programs=list(programs.values()),
                 runtime_verified=False)
 
 

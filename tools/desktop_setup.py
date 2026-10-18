@@ -30,6 +30,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'build_entity_probe', 'build_landscape_surface_probe', 'repair_tree_materials',
               'region_travel', 'prepare_spatial_hlod', 'build_recipe', 'campaign_start_policy',
               'setup_package_upgrade', 'setup_tavern_upgrade', 'campaign_merchant_work',
+              'setup_merchant_upgrade', 'source_merchant_upgrade', 'character_station_work',
               'campaign_dialogue_requests', 'campaign_script_import', 'item_icons', 'item_icon_atlas',
               'smart_area_registration', 'area_geometry_contract')
 

@@ -19,6 +19,26 @@ class Inbox:
 
 
 class WorkBehaviorTests(unittest.TestCase):
+    def test_work_route_selection_keeps_randomness_and_runtime_range(self):
+        model = source('''<Root><Sequence>
+          <RandomItem Array="&quot;points&quot;" Result="&quot;selected&quot;" Clamp="&quot;-1&quot;"/>
+          <GraphSearch><RangeFilter min="&quot;0&quot;" max="&quot;$range&quot;"
+            point="&quot;this.id&quot;" excludeRef="&quot;true&quot;" Source="&quot;Child&quot;"
+            prune="&quot;true&quot;" negprune="&quot;unknown&quot;" Parent="&quot;&quot;"
+            Child="&quot;candidate&quot;"/></GraphSearch></Sequence></Root>''')
+        native = catalog()
+        files, _, report = convert_behaviors([model], 'Converted', native)
+        self.assertEqual(report['whole_trees_emitted'], 1)
+        root = E.fromstring(next(iter(files.values())))
+        self.assertEqual(root.find('.//RandomItem').attrib,
+                         dict(Array='$points', Result='$selected', Clamp='-1'))
+        node = root.find('.//RangeFilter')
+        self.assertEqual(node.get('max'), '$range')
+        self.assertEqual(node.get('point'), '$this.id')
+        self.assertEqual(node.get('Child'), '$candidate')
+        del native['nodes']['RandomItem']
+        self.assertFalse(convert_behaviors([model], 'Converted', native)[0])
+
     def test_animation_helper_query_keeps_runtime_selection_and_outputs(self):
         model = source('''<Root><GetAnimationHelperData smartObject="&quot;__object.id&quot;"
           helperID="&quot;entryID&quot;" fragment="&quot;$animation&quot;" tags="&quot;$tags&quot;"

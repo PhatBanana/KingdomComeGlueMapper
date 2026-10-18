@@ -4,7 +4,7 @@ from pathlib import Path
 import xml.etree.ElementTree as E
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from campaign_work_dependencies import discover, templates, import_all, merge_world
+from campaign_work_dependencies import discover, templates, import_all, merge_world, for_models
 from campaign_dependency_adapters import EntityAdapter
 from campaign_dependencies import DependencyImporter
 from campaign_entity_links import native_guid
@@ -19,6 +19,18 @@ def record(number, cls, props=''):
 
 
 class WorkDependencyTests(unittest.TestCase):
+    def test_selected_actor_brings_home_and_owned_stash_without_expanding_neighbors(self):
+        world = dict(entities={str(n): record(n, cls) for n, cls in
+            [(1,'NPC'),(2,'SmartAreaShape'),(3,'Stash'),(4,'NPC'),(5,'TagPoint')]},
+            links=[dict(**{'from':a,'to':b}, source_link={'Name':tag}) for a,b,tag in
+                   [('1','2','Home'),('1','3','owner'),('2','4','inhabitant'),('4','5','Work')]])
+        model = dict(quest='arbitrary', profile_work_dependencies=[dict(actors=[dict(
+            actor={'entity_guid':'0000000000000001'}, source_links=[{'label':'Home'}],
+            schedule={'resolved':[], 'pending':[{'activity':'sleep'}]})])])
+        result = for_models([model], world)['arbitrary']
+        self.assertEqual({r['source'] for r in result['entities']}, {'1','2','3','4'})
+        self.assertEqual(len(result['edges']), 3)
+
     def test_unlinked_workplace_resolves_authored_edges_from_full_level(self):
         workplace = record(1, 'SmartObjectHolder', '<EntityLinks><Link Name="tool" '
             'TargetId="2" TargetGuid="0000000000000002"/></EntityLinks>')

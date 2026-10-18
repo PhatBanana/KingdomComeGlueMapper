@@ -5,10 +5,87 @@ and validates the entire connected graph, including unnamed entry points.
 """
 from collections import defaultdict
 import copy
+import re
 import xml.etree.ElementTree as ET
 
 from campaign_dialogue import resolve, unique_index, index_tables
 from campaign_quest_graph import identifier, xml
+
+
+def branch_catalog(branches, participants, memberships, roles, metaroles, soul_ids):
+    """Inventory every production branch owned by selected source actors.
+
+    Preserve shared event roles and branch kinds instead of turning reactions
+    into ordinary conversation choices. A caller must provide an adapter for
+    each selected kind; source test branches are recorded separately.
+    """
+    requested = {s.lower() for s in soul_ids}
+    role_index = unique_index(roles, 'role_id')
+    meta_index = unique_index(metaroles, 'metarole_id')
+    owned = defaultdict(set)
+    for row in memberships:
+        if row['soul_id'].lower() in requested:
+            owned[row['soul_id'].lower()].add(row['role_id'])
+    if requested - owned.keys():
+        raise ValueError('Missing source dialogue memberships: ' + ', '.join(sorted(requested - owned.keys())))
+    by_topic = defaultdict(set)
+    for row in participants:
+        by_topic[row['topic_id']].add(row['role_id'])
+    result = dict(branches=[], excluded_test_branches=[])
+    for topic, branch in sorted(unique_index(branches, 'start_topic').items()):
+        actors = {}
+        for soul in sorted(requested):
+            matches = owned[soul] & by_topic[topic]
+            if matches:
+                records = []
+                for rid in sorted(matches):
+                    if rid not in role_index or role_index[rid]['metarole_id'] not in meta_index:
+                        raise ValueError('Unresolved source dialogue role: ' + rid)
+                    role = role_index[rid]
+                    records.append(dict(role, metarole_name=meta_index[role['metarole_id']]['metarole_name']))
+                actors[soul] = records
+        if actors:
+            record = dict(source=dict(branch), actors=actors)
+            key = 'excluded_test_branches' if branch.get('is_test', '').lower() == 'true' else 'branches'
+            result[key].append(record)
+    return result
+
+
+def quest_dependencies(tables, catalog, quests):
+    """Follow effects and expanded predicates in every connected actor branch.
+
+    Selecting an actor must retain later-quest gates, not remove a conversation
+    because its owner was absent from the opening quest selection.
+    """
+    from campaign_dialogue_conditions import expand_functions, QUEST, OBJECTIVE
+    by_id = unique_index(quests, 'quest_id')
+    known = {q['quest_name'] for q in quests}
+    functions = {r['function_name']: r['expression'] for r in tables.get('dialogue_functions', [])}
+    indexes = index_tables(tables)
+    result = {}
+    calls = '|'.join(map(re.escape, (*QUEST, *OBJECTIVE)))
+    pattern = re.compile(r"'(?:[^'\\]|\\.)*'|\b(?:" + calls + r")\s*\(\s*'([^']+)'")
+    for branch in catalog['branches']:
+        topic = branch['source']['start_topic']
+        model = resolve(tables, start_topic=topic, indexes=indexes)
+        names = set()
+        for record in model['topics'].values():
+            for sequence in record['sequences']:
+                for effect in sequence['effects']:
+                    identity = effect['quest_id']
+                    if identity not in by_id:
+                        raise ValueError('Missing dialogue effect quest: ' + identity)
+                    names.add(by_id[identity]['quest_name'])
+                for field in ('entry_condition', 'npc_entry_condition'):
+                    # Conditions belong to topic membership, not the shared
+                    # sequence row. Keep the runtime branch eligibility.
+                    expression = expand_functions(sequence['entry'].get(field, ''), functions)
+                    names.update(m.group(1) for m in pattern.finditer(expression) if m.group(1))
+        missing = names - known
+        if missing:
+            raise ValueError('Missing dialogue predicate quests: ' + ', '.join(sorted(missing)))
+        result[topic] = sorted(names)
+    return result
 
 
 def actor_branches(closure, memberships, soul_ids):

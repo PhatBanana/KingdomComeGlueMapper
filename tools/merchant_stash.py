@@ -12,6 +12,8 @@ from upgrade_map import read
 def source_stash(source, shop):
     with zipfile.ZipFile(source / 'Data/Levels/rataje/level.pak') as archive:
         entities = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
+        from character_person import resolve_link_targets
+        entities = resolve_link_targets(archive, shop, entities, {})
     targets = {link.get('TargetId') for link in shop.findall('EntityLinks/Link')}
     matches = [e for e in entities if e.get('EntityId') in targets and e.get('EntityClass') == 'Stash']
     if len(matches) != 1:

@@ -52,6 +52,13 @@ WORK_CONTRACTS = {
     # AI/npc/basic/switch/interrupt_mourn.xml retain these work-selection ABIs.
     # Weather remains a runtime expression; it is not evaluated at import time.
     'RangeSorter': {'point': 'reference', 'SortOrder': 'value', 'Source': 'value'},
+    # Native so_playerHorseDefault and closedCastle/guardWalk use these
+    # queries. Preserve runtime range and random selection, not a chosen
+    # waypoint baked into the converted job.
+    'RangeFilter': {'min': 'expression', 'max': 'expression', 'point': 'reference',
+        'excludeRef': 'value', 'Source': 'value', 'prune': 'value', 'negprune': 'value',
+        'Parent': 'reference', 'Child': 'reference'},
+    'RandomItem': {'Array': 'reference', 'Result': 'reference', 'Clamp': 'expression'},
     'WeatherCondition': {'condition': 'expression', 'failOnCondition': 'value'},
     'LinkDataFilter': {'tag': 'link_type', 'condition': 'expression',
                        'prune': 'value', 'negprune': 'value',

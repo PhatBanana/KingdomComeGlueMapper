@@ -16,6 +16,10 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe28_migrates_to_current_merchant_recipe(self):
+        self.source_recipe = 28
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe27_migrates_to_current_icon_recipe(self):
         self.source_recipe = 27
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -99,7 +103,7 @@ class UpgradeTests(unittest.TestCase):
             r['files']={f.relative_to(p).as_posix():digest(f) for f in p.rglob('*') if f.is_file()}
             (p/RECEIPT).write_text(json.dumps(r))
             eligible(r)
-            with patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
+            with patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
                 result=finalize(p, source=p)
             if getattr(self, 'restore_markers', False):
                 self.assertEqual(len(result['quest_markers']['converted']), 1)

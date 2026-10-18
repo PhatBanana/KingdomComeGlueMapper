@@ -4,7 +4,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from campaign_actor_dialogues import discover, role_bindings, register_roles, remap_roles, actor_branches, required_actor_souls
+from campaign_actor_dialogues import discover, role_bindings, register_roles, remap_roles, actor_branches, required_actor_souls, branch_catalog, quest_dependencies
 from build_actor_dialogues_test import actor_voice_bindings, actor_ui_name
 
 
@@ -25,6 +25,37 @@ def tables():
 
 
 class ActorDialogueTests(unittest.TestCase):
+    def test_actor_dialogues_pull_connected_later_quests_and_expanded_conditions(self):
+        t = tables()
+        t['sequence2quest_objective'] = [dict(sequence_id='80', order_by='0', quest_id='2')]
+        t['dialogue_functions'] = [dict(function_name='LaterGate', expression="IsQuestStarted('future')")]
+        t['topic2sequence'][0]['entry_condition'] = 'LaterGate'
+        t['topic2sequence'][1]['npc_entry_condition'] = "IsObjectiveCompleted('third', 'done')"
+        c = dict(branches=[dict(source={'start_topic':'7'})])
+        quests = [dict(quest_id=str(i), quest_name=n) for i,n in enumerate(('future','effect','third'),1)]
+        self.assertEqual(quest_dependencies(t,c,quests), {'7':['effect','future','third']})
+        with self.assertRaisesRegex(ValueError, 'Missing dialogue effect quest'):
+            quest_dependencies(t,c,quests[:1])
+        t['sequence2quest_objective'] = []
+        with self.assertRaisesRegex(ValueError, 'Missing dialogue predicate quests'):
+            quest_dependencies(t,c,quests[:1])
+
+    def test_catalog_keeps_shared_event_roles_and_excludes_source_tests(self):
+        t=tables()
+        t['soul2role'].append(dict(soul_id='def',role_id='12'))
+        t['metarole'].append(dict(metarole_id='9',metarole_name='reaction'))
+        t['role'][0]['metarole_id']='9'
+        t['v_branch'][0].update(branch_type_id='5',is_test='False')
+        t['v_branch'][1].update(branch_type_id='0',is_test='True')
+        result=branch_catalog(t['v_branch'],t['topictorole'],t['soul2role'],t['role'],t['metarole'],['ABC','def'])
+        self.assertEqual(len(result['branches']),1)
+        self.assertEqual(result['branches'][0]['source']['branch_type_id'],'5')
+        self.assertEqual(set(result['branches'][0]['actors']),{'abc','def'})
+        self.assertEqual(result['branches'][0]['actors']['abc'][0]['metarole_name'],'reaction')
+        self.assertEqual(result['excluded_test_branches'][0]['source']['start_topic'],'8')
+        with self.assertRaisesRegex(ValueError,'Missing source dialogue memberships'):
+            branch_catalog(t['v_branch'],t['topictorole'],t['soul2role'],t['role'],t['metarole'],['absent'])
+
     def test_required_souls_include_connected_silent_participants_and_reject_ambiguity(self):
         t=tables()
         _,models=discover(t,['abc'])

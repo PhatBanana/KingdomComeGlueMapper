@@ -29,8 +29,9 @@ def resolve_stock(shop, defaults, overrides):
         selected = [o for o in overrides if o['shop_id'] == shop['shop_id'] and o['item_id'] == item]
         if len(selected) > 1:
             raise ValueError('Ambiguous source shop override')
-        if not selected and row['default_on'].lower() != 'true':
-            continue
+        # KCD1 includes every type row in the stock vector. default_on is
+        # copied into an item-creation flag (0x8000), not an enabled-stock
+        # predicate. Filtering it drops whole shops, including coal sellers.
         multiplier = Decimal(selected[0]['amount_multiplier']) if selected else Decimal(1)
         amount = Decimal(row['amount']) * Decimal(shop['amount_multiplier'] or '1') * multiplier
         if amount < 0 or amount != amount.to_integral_value():

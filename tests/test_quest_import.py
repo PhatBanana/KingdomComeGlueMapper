@@ -203,6 +203,16 @@ class QuestImportTests(unittest.TestCase):
             self.assertEqual(discovered.call_count,2)
             self.assertIs(discovered.call_args_list[0].kwargs['world'],
                           discovered.call_args_list[1].kwargs['world'])
+            # Explicit builder selections use the same include traversal even
+            # when no profile transition introduces them. Keep library scope.
+            documents['Libs/AI/quests/q_test.xml'] = b'<BehaviorTrees><BehaviorTree name="onUpdate"><Root/></BehaviorTree></BehaviorTrees>'
+            documents['Libs/AI/custom/work.xml'] = b'<BehaviorTrees><BehaviorTree name="job"><Root/></BehaviorTree><BehaviorTree name="unrelated"><Root/></BehaviorTree></BehaviorTrees>'
+            with patch('campaign_profile_work.discover_selected', side_effect=population) as selected:
+                explicit, _ = import_quest(game, 'q_test', source_reader=resolve,
+                    profile_level='anywhere', actor_roots=['arbitraryActor'])
+            self.assertEqual(selected.call_args.args[3], ['arbitraryActor'])
+            self.assertEqual(set(explicit['behavior_documents']['libs/ai/custom/work.xml']['trees']), {'job'})
+            self.assertEqual(len(explicit['profile_work_dependencies']), 1)
         self.assertEqual([r['profiles'] for r in model['profile_work_dependencies']],[['late'],['early']])
         self.assertIn('libs/ai/custom/work.xml',model['behavior_documents'])
         self.assertEqual(model['profile_work_provenance']['level'],'anywhere')

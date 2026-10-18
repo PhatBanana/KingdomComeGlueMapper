@@ -15,7 +15,7 @@ def hours(shop):
     return [(start,end)] if start<end else [(start,1440),(0,end)]
 
 
-def register(files, resources, entry, merchant, stock, namespace):
+def register(files, resources, entry, merchant, stock, namespace, role='innkeeper'):
     files,resources=dict(files),dict(resources)
     mission=E.fromstring(files['objects_mission0.xml']);scheduler=E.fromstring(files['tables/ai/scheduler.xml'])
     rows=scheduler.find('Schedulers');name=merchant['name']
@@ -52,7 +52,7 @@ def register(files, resources, entry, merchant, stock, namespace):
             actor.find('Links').append(incoming);arrivals.append(incoming)
     if len(arrivals)!=1:
         raise ValueError('Multiple merchant opening intervals require scheduler lifecycle conversion')
-    files['tables/ai/scheduler.xml']=register_shop_activity(xml(scheduler),merchant['target'],npc,hub,shop)
+    files['tables/ai/scheduler.xml']=register_shop_activity(xml(scheduler),merchant['target'],npc,hub,shop,role=role)
     resources[entry]=register_shop_service(resources[entry],merchant['soul']['soul_id'],namespace)
     root=E.fromstring(resources[entry]);nodes=root.find('Skald/Level/Nodes')
     nodes.remove(nodes.find("SetEntityContext[@Name='"+namespace+"_ready']"))

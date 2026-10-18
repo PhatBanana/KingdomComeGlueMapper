@@ -38,6 +38,14 @@ It does not represent the other housework activities as converted.
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
+            if entry.get('station_work'):
+                from character_station_work import resources
+                template,_ = resources(entry['station_work'])
+                job=next(e for e in mission if e.get('Name')=='gm_schedule_'+person+'_'+entry['arrival']['EntityId'])
+                job.find('Properties').set('guidSmartObjectType',template)
+                report.append(dict(person=person,job='source_station',source_behavior=dict(behavior),
+                    source_destination=entry['arrival'],pending=[],runtime_verified=False))
+                continue
             if (behavior['tree_file'].lower(),behavior['tree_name']) == ('final/sa_garrison.xml','Guard'):
                 # Source fixed duty posts become native guard activities. The
                 # native behavior owns authority/on-duty contexts and releases
