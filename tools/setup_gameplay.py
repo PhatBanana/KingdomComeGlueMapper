@@ -332,6 +332,9 @@ def validate(package):
         required = (OPENING, OPENING+'_started', 'gm_source_baseline_stat_agility')
         names = {n.get('Name') for n in project.findall('./Skald/Project/Nodes/*')}
         if set(required)-names: raise ValueError('Setup opening initialization is incomplete')
+        if any(n.get('MethodName', '').endswith(('SetStatLevelDebug', 'SetSkillLevelDebug'))
+               for n in project.findall('./Skald/Project/Nodes/*')):
+            raise ValueError('Setup opening initialization still uses retail-incompatible debug setters')
         from campaign_start_policy import validate_start_policy
         start_policy = validate_start_policy(read(z, PROJECT), OPENING)
         read(z, QUEST_PATH)
@@ -339,4 +342,5 @@ def validate(package):
     for name in ('Data/gluemapper_initial_loadout.pak', 'Localization/English.pak',
                  'Data/gluemapper_dialogue_facials.pak', 'Data/gluemapper_world_items.pak'):
         if not (package/name).is_file(): raise ValueError('Setup dependency missing: ' + name)
-    return dict(actors=len(PEOPLE)+len(SCENE_PEOPLE), opening=True, combat=True, start_policy=start_policy, runtime_verified=False)
+    return dict(actors=len(PEOPLE)+len(SCENE_PEOPLE), opening=True, combat=True, start_policy=start_policy,
+                initial_level_policy='advance_to_minimum', runtime_verified=False)

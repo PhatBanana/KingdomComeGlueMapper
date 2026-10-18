@@ -63,8 +63,9 @@ def bind_before(blob, destination, input_port, source_event, soul_asset,
 
     The caller must select an entry protected by its existing persisted New
     Game latch. Never attach this to level load: it would erase earned levels.
-    Native setters are used because AdvanceToStatLevel cannot reset a higher
-    inherited level. Validate their ABI against the installed engine first.
+    Native advancement methods establish minimum levels. They do not reset
+    higher inherited levels; report that policy explicitly. Debug setters are
+    not a retail runtime contract even when listed in definitions.xml.
     """
     identifier(namespace)
     root = ET.fromstring(blob)
@@ -85,8 +86,8 @@ def bind_before(blob, destination, input_port, source_event, soul_asset,
     registry = ET.fromstring(definitions)
     operations = []
     for kind, values, typ, method, selector, enum in (
-        ('stat', stats, 'Function', 'wh::rpgmodule::SetStatLevelDebug', 'Stat', 'SoulStat'),
-        ('skill', skills, 'Function', 'wh::rpgmodule::SetSkillLevelDebug', 'Skill', 'SoulSkill'),
+        ('stat', stats, 'MemberFunction', 'AdvanceToStatLevel', 'Stat', 'SoulStat'),
+        ('skill', skills, 'MemberFunction', 'AdvanceToSkillLevel', 'Skill', 'SoulSkill'),
         ('state', states, 'MemberFunction', 'SetState', 'State', 'SoulState')):
         allowed = {e.get('Name') for t in registry.iter('Type')
                    if t.get('TypeName') == 'wh::rpgmodule::' + enum for e in t.findall('Enumeration')}
@@ -113,10 +114,47 @@ def bind_before(blob, destination, input_port, source_event, soul_asset,
         node = ET.SubElement(nodes, typ, Name=node_name, MethodName=method,
                              DeclaringType='wh::rpgmodule' if typ == 'Function' else 'wh::rpgmodule::I_Soul')
         ET.SubElement(node, 'Asset', Name='Soul', Alias=soul_asset)
-        constant(node, selector, name); constant(node, 'Value', str(value))
+        constant(node, selector, name); constant(node, 'Value' if kind == 'state' else 'Level', str(value))
         edge(node, previous, 'Exec')
         previous = node_name + '.OnExec'
     links[0].set('From', previous)
     return xml(root), dict(stats=stats, skills=skills, states=states,
                            source_event=source_event, destination=destination + '.' + input_port,
-                           soul_asset=soul_asset, runtime_verified=False)
+                           soul_asset=soul_asset, level_policy='advance_to_minimum', runtime_verified=False)
+
+
+def upgrade_debug_initializers(blob, namespace, definitions):
+    """Migrate generated initializers without changing lifecycle or values.
+
+    The explicit namespace limits this to importer-owned nodes. Arbitrary
+    gameplay debug calls are not assumed to have equivalent semantics.
+    """
+    identifier(namespace)
+    registry = ET.fromstring(definitions)
+    root = ET.fromstring(blob)
+    changes = []
+    for kind, method, selector in [('stat', 'AdvanceToStatLevel', 'Stat'),
+                                   ('skill', 'AdvanceToSkillLevel', 'Skill')]:
+        legacy = 'wh::rpgmodule::Set' + kind.title() + 'LevelDebug'
+        selected = [n for n in root.iter('Function')
+                    if n.get('Name', '').startswith(namespace+'_'+kind+'_')
+                    and n.get('MethodName') == legacy]
+        if not selected: continue
+        abi = [d for d in registry.iter('Definition') if d.get('TypeName') == 'MemberFunction'
+               and d.find("Properties/Property[@Name='MethodName'][@Value='"+method+"']") is not None
+               and d.find("Properties/Property[@Name='DeclaringType'][@Value='wh::rpgmodule::I_Soul']") is not None]
+        if len(abi) != 1: raise ValueError('Missing retail initializer: '+method)
+        ports = {p.get('Name'): p.get('Type') for p in abi[0].findall('Ports/*')}
+        if ports.get('Level') != 'uint' or ports.get('OnExec') != 'trigger':
+            raise ValueError('Unsupported retail initializer ABI: '+method)
+        for node in selected:
+            value = node.find("Constant[@Name='Value']")
+            if value is None or node.find("Constant[@Name='"+selector+"']") is None:
+                raise ValueError('Unsupported generated initializer: '+node.get('Name'))
+            node.tag = 'MemberFunction'
+            node.set('MethodName', method)
+            node.set('DeclaringType', 'wh::rpgmodule::I_Soul')
+            value.set('Name', 'Level')
+            changes.append(node.get('Name'))
+    return (xml(root) if changes else blob), dict(nodes=changes,
+        level_policy='advance_to_minimum', runtime_verified=False)

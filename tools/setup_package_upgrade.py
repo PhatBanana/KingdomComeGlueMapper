@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -77,6 +77,14 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     with zipfile.ZipFile(package/travel) as z:
         player = 'Scripts/Entities/actor/player.lua'
         changes = {PROJECT: gate_start(read(z, PROJECT), OPENING), player: remove_horse_recovery(read(z, player))}
+        if b'SetStatLevelDebug' in changes[PROJECT] or b'SetSkillLevelDebug' in changes[PROJECT]:
+            if target is None:
+                raise ValueError('Game folder required to migrate retail campaign initialization')
+            from campaign_initial_state import upgrade_debug_initializers
+            with zipfile.ZipFile(Path(target)/'Data/IPL_GameData.pak') as native:
+                changes[PROJECT], initialization_report = upgrade_debug_initializers(
+                    changes[PROJECT], 'gm_source_baseline', read(native, 'Libs/concept/definitions.xml'))
+            receipt['retail_initialization_upgrade'] = initialization_report
         from region_travel_merchant import repair_trade_prompts
         for name in z.namelist():
             if name.lower().startswith('quests/') and name.lower().endswith('.xml'):

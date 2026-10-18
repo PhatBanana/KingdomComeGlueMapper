@@ -16,6 +16,11 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe29_migrates_debug_initializer_with_native_abi(self):
+        self.source_recipe = 29
+        self.retail_initializers = True
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe28_migrates_to_current_merchant_recipe(self):
         self.source_recipe = 28
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -67,6 +72,13 @@ class UpgradeTests(unittest.TestCase):
             graph=ET.fromstring(attach_scene(host,source,OPENING,'q','level.arrived','done','player'))
             from test_campaign_start_policy import old_scene
             graph=ET.fromstring(old_scene(ET.tostring(graph),OPENING,guarded=True))
+            if getattr(self, 'retail_initializers', False):
+                node = ET.SubElement(graph.find('./Skald/Project/Nodes'), 'Function',
+                    Name='gm_source_baseline_stat_strength', MethodName='wh::rpgmodule::SetStatLevelDebug')
+                ET.SubElement(node, 'Constant', Name='Stat', Value='strength')
+                ET.SubElement(node, 'Constant', Name='Value', Value='1')
+                ET.SubElement(node, 'Edge', From=OPENING+'_initialize.B', To='Exec')
+                archive('native/Data/IPL_GameData.pak', {'Libs/concept/definitions.xml': b'''<Definitions><Definition TypeName="MemberFunction"><Properties><Property Name="MethodName" Value="AdvanceToStatLevel"/><Property Name="DeclaringType" Value="wh::rpgmodule::I_Soul"/></Properties><Ports><RunTimePort Name="Level" Type="uint"/><RunTimePort Name="OnExec" Type="trigger"/></Ports></Definition></Definitions>'''})
             player=travel_player_resources(b'function Player:OnInit() end\nfunction Player:OnLoadAI() end\n')['Scripts/Entities/actor/player.lua']
             player+=Path('tools/region_travel_horse_recovery.lua').read_bytes()
             archive('Data/gluemappertravel.pak',{PROJECT:ET.tostring(graph),'Scripts/Entities/actor/player.lua':player,'keep':b'unchanged'})
@@ -104,7 +116,15 @@ class UpgradeTests(unittest.TestCase):
             (p/RECEIPT).write_text(json.dumps(r))
             eligible(r)
             with patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
-                result=finalize(p, source=p)
+                with patch('campaign_menu_stage.add_to_package'):
+                    result=finalize(p, source=p, target=p/'native' if getattr(self, 'retail_initializers', False) else None)
+            if getattr(self, 'retail_initializers', False):
+                self.assertEqual(result['retail_initialization_upgrade']['nodes'], ['gm_source_baseline_stat_strength'])
+                with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
+                    upgraded = ET.fromstring(z.read(PROJECT))
+                node = upgraded.find(".//MemberFunction[@Name='gm_source_baseline_stat_strength']")
+                self.assertEqual(node.get('MethodName'), 'AdvanceToStatLevel')
+                self.assertEqual(node.find('Edge').get('From'), OPENING+'_initialize.B')
             if getattr(self, 'restore_markers', False):
                 self.assertEqual(len(result['quest_markers']['converted']), 1)
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
