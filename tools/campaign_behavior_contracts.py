@@ -5,6 +5,17 @@ also checks each field against the installed game's runtime examples.
 """
 
 WORK_CONTRACTS = {
+    # Shipped beggar, movement and ladder controllers retain these work APIs.
+    # Entity names, participants and helper outputs remain runtime references.
+    'GetBehaviorHolders': dict(area='reference', behaviors='string_expression',
+                              targetVar='reference'),
+    'GetHelperData': dict(smartObjectName='reference', helperID='reference',
+        positionTargetVar='reference', orientationTargetVar='reference',
+        transformTargetVar='reference', fragmentTargetVar='reference',
+        tagsTargetVar='reference'),
+    'GetLockParticipants': dict(OutArray='reference', IncludeSelf='value'),
+    'TimerBox': dict(startTime='string_expression', endTime='string_expression',
+                    variation='string_expression', duration='string_expression'),
     'HasGenderCheck': dict(Gender='human_gender', SoulWUID='reference',
                           FailSubtMissing='value', saveVersion='value'),
     # The native door behaviors retain the source helper-query ABI, including

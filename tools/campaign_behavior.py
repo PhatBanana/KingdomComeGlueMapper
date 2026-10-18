@@ -134,6 +134,8 @@ def native_catalog(game):
                      'perceivable_states': set(), 'item_filter_parameters': set()}
     speech_consumer = False
     path_parameter_fields = set()
+    numerical_operations = set()
+    behavior_map = False
     script_property_reader = False
     misc_property_reader = False
     with zipfile.ZipFile(Path(game) / 'Data/Scripts.pak') as archive:
@@ -167,6 +169,11 @@ def native_catalog(game):
                 if root is None:
                     continue
                 for node in root.iter():
+                    if any(re.search(r"\$__behaviors\['[A-Za-z_]\w*'\]\.count", value)
+                           for value in node.attrib.values()):
+                        behavior_map = True
+                    if node.tag == 'NumericalOperation' and node.get('Operation'):
+                        numerical_operations.add(node.get('Operation'))
                     if node.tag == 'HasPerceivableState' and node.get('PerceivableState'):
                         policy_values['perceivable_states'].add(node.get('PerceivableState'))
                     if node.tag == 'ItemParamFilter' and node.get('Param'):
@@ -195,6 +202,9 @@ def native_catalog(game):
     from campaign_native_contracts import supplement
     supplement(game, nodes)
     from campaign_work_animations import fragment_catalog
+    with zipfile.ZipFile(Path(game) / 'Data/Tables.pak') as archive:
+        metaroles = {row.get('metarole_name') for row in ET.fromstring(
+            read(archive, 'Libs/Tables/rpg/metarole.xml')).iter('metarole')}
     return dict(nodes={n: dict(r, attributes=sorted(r['attributes']), children=sorted(r['children']))
                        for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types),
                 native_monologue_consumer=speech_consumer, work_animations=fragment_catalog(game),
@@ -205,6 +215,9 @@ def native_catalog(game):
                 policy_values={k:sorted(v) for k,v in policy_values.items()},
                 native_script_property_reader=script_property_reader,
                 native_misc_property_reader=misc_property_reader,
+                metaroles=sorted(metaroles),
+                numerical_operations=sorted(numerical_operations),
+                native_behavior_map=behavior_map,
                 path_parameter_fields=sorted(path_parameter_fields))
 
 
@@ -223,12 +236,42 @@ def reference(value):
     # Runtime-selected array/map elements occur in both engines, including
     # participant maps keyed by a message sender's id. Retain the lookup;
     # it cannot be resolved to a fixed actor during import.
-    if not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\['[^']+'\]|\[\d+\]|\[\$[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*\])*", value):
+    # Native shootingRange uses $scoreTable[$participants[$participantsIndex]].
+    # Parse balanced indexes rather than bounding nesting with a flat regex.
+    def variable(pos, depth=0):
+        if depth > 64:
+            return -1
+        match = re.match(r'\$?[A-Za-z_]\w*', value[pos:])
+        if not match:
+            return -1
+        pos += match.end()
+        while pos < len(value):
+            if value[pos] == '.':
+                match = re.match(r'\.[A-Za-z_]\w*', value[pos:])
+                if not match:
+                    return -1
+                pos += match.end()
+            elif value[pos] == '[':
+                pos += 1
+                match = re.match(r"'[^']+'|\d+", value[pos:])
+                if match:
+                    pos += match.end()
+                elif pos < len(value) and value[pos] == '$':
+                    pos = variable(pos, depth + 1)
+                else:
+                    return -1
+                if pos < 0 or pos >= len(value) or value[pos] != ']':
+                    return -1
+                pos += 1
+            else:
+                break
+        return pos
+    if variable(0) != len(value):
         raise UnsupportedOperation('Unsupported source variable reference: ' + value)
     return '$' + value
 
 
-def associative_indexes(value, variables):
+def associative_indexes(value, variables, native_behavior_map=False):
     """Quote source literal keys only for declared string-keyed maps.
 
     Source arrays, custom-key maps and keys that name variables need a separate
@@ -237,6 +280,11 @@ def associative_indexes(value, variables):
     def replace(match):
         base, index = match[1], match[2]
         declaration = variables.get(base.lstrip('$'), {})
+        if base.lstrip('$') == '__behaviors' and not declaration and native_behavior_map:
+            # The engine owns this string-keyed map. Its entries are source
+            # behavior names, not actor-specific special cases. A source
+            # declaration still takes precedence over the implicit ABI.
+            declaration = {'form': 'associative'}
         if declaration.get('form') != 'associative' or index in variables:
             raise UnsupportedOperation('Source index requires type resolution: ' + match[0])
         return base + "['" + index + "']"
@@ -351,7 +399,7 @@ class BehaviorCompiler:
         return ET.Element('Variable', target)
 
     def typed_expression(self, value):
-        value = associative_indexes(literal(value), self.variables)
+        value = associative_indexes(literal(value), self.variables, self.catalog.get('native_behavior_map', False))
         def segment(text):
             def replace(match):
                 original, member = match[1], match[2]
@@ -403,6 +451,9 @@ class BehaviorCompiler:
                         from campaign_script_properties import upgrade_reads
                         upgraded = upgrade_reads(script, self.catalog.get('native_script_property_reader', False),
                                                   self.catalog.get('native_misc_property_reader', False))
+                        if upgraded is None:
+                            from campaign_work_scripts import upgrade as upgrade_work_script
+                            upgraded = upgrade_work_script(script, self.catalog)
                         node = ET.Element('ExecuteLua', code=upgraded if upgraded is not None else upgrade_rpg_script(script))
             elif op == 'PlayAnimation':
                 from campaign_work_animations import lower as lower_work_animation
@@ -452,7 +503,11 @@ class BehaviorCompiler:
                         continue
                     if kind == 'native_lua':
                         if value.strip() and not self.lua_contracts.accepts(op, name, value):
-                            raise UnsupportedOperation('Source Lua requires a semantic adapter')
+                            from campaign_work_scripts import upgrade as upgrade_work_script
+                            converted_script = upgrade_work_script(value, self.catalog)
+                            if converted_script is None:
+                                raise UnsupportedOperation('Source Lua requires a semantic adapter')
+                            value = converted_script
                         values[name] = value
                         continue
                     if kind == 'item_property':
@@ -468,7 +523,8 @@ class BehaviorCompiler:
                         if value not in self.catalog.get('entity_classes', []):
                             raise UnsupportedOperation('Unverified native graph entity class: ' + value)
                     elif kind == 'reference':
-                        value = reference(associative_indexes(literal(raw), self.variables))
+                        value = reference(associative_indexes(literal(raw), self.variables,
+                                          self.catalog.get('native_behavior_map', False)))
                     elif kind == 'expression':
                         value = self.typed_expression(raw)
                     elif kind == 'string_expression':
@@ -525,7 +581,13 @@ class BehaviorCompiler:
                             if not re.fullmatch(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*', value):
                                 raise UnsupportedOperation('Unsupported numerical operand: ' + value)
                     elif kind == 'numeric_operation':
-                        if value != 'randRange':
+                        # These operations retain their input/output ABI in
+                        # native crime, movement and arrow-hit controllers.
+                        # Presence in this installation is checked as well as
+                        # the reviewed operation vocabulary.
+                        compatible = {'round', 'float2int', 'distance2dSq'}
+                        if value != 'randRange' and not (value in compatible and
+                                value in self.catalog.get('numerical_operations', ())):
                             raise UnsupportedOperation('Numerical operation requires a validated contract: ' + value)
                     elif kind == 'link_type':
                         if not value or value.startswith('$'):

@@ -23,6 +23,7 @@ ENUM_REF = re.compile(r'\$enum:([A-Za-z_]\w*)\.([A-Za-z_]\w*)')
 # declares id/name and the nested behavior sender; native battle and shooting
 # range controllers use the corresponding types without the common namespace.
 ENGINE_TYPE_ADAPTERS = {
+    'common:vec3': 'vec3',
     'common:senderInfo': 'senderInfo',
     'common:senderInfo:senderInfoBehavior': 'senderInfo:senderInfoBehavior',
 }

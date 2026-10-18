@@ -9,6 +9,26 @@ import xml.etree.ElementTree as E
 
 
 class LuaContractTests(unittest.TestCase):
+    def test_registered_roles_reuse_native_api_without_changing_lifecycle(self):
+        native = {'metaroles': ['CUSTOMER', 'WORKER'], 'lua_contracts': {'LuaWrapper': {
+            'onEnter': ["entity.soul:AddMetaRoleByName('NATIVE_EXAMPLE')"],
+            'onExit': ["entity.soul:RemoveMetaRoleByName('NATIVE_EXAMPLE')"]}}}
+        contracts = NativeLuaContracts(native)
+        script = "entity.soul:AddMetaRoleByName('CUSTOMER'); entity.soul:AddMetaRoleByName('WORKER')"
+        self.assertTrue(contracts.accepts('LuaWrapper', 'onEnter', script))
+        self.assertTrue(contracts.accepts('LuaWrapper', 'onExit', "entity.soul:RemoveMetaRoleByName('CUSTOMER')"))
+        for script in ["entity.soul:AddMetaRoleByName('MISSING')",
+                       "entity.soul:AddMetaRoleByName('CUSTOMER', false)",
+                       "entity.soul:AddMetaRoleByName(data.role)",
+                       "entity.soul:AddMetaRoleByName('CUSTOMER'); Unknown()",
+                       "other.soul:AddMetaRoleByName('CUSTOMER')"]:
+            with self.subTest(script=script):
+                self.assertFalse(contracts.accepts('ExecuteLua', 'code', script))
+        self.assertFalse(contracts.accepts('LuaGate', 'code', "entity.soul:AddMetaRoleByName('CUSTOMER')"))
+        native['lua_contracts']['LuaWrapper'].pop('onExit')
+        self.assertFalse(NativeLuaContracts(native).accepts('LuaWrapper', 'onExit',
+            "entity.soul:RemoveMetaRoleByName('CUSTOMER')"))
+
     def test_whitespace_and_comments_do_not_change_native_program(self):
         contracts = NativeLuaContracts({'lua_contracts': {'LuaGate': {'code': ['return not entity:IsReady()']}}})
         self.assertTrue(contracts.accepts('LuaGate', 'code', 'return -- wait\n not entity : IsReady ( )'))

@@ -65,10 +65,18 @@ def actor_constant_call(program):
 class NativeLuaContracts:
     def __init__(self, catalog):
         self.by_site, self.actor_calls = {}, set()
+        self.metaroles = set(catalog.get('metaroles', ()))
+        self.role_methods = set()
         for op, fields in catalog.get('lua_contracts', {}).items():
             for field, scripts in fields.items():
                 values = {p for s in scripts if (p := tokens(s)) is not None}
                 self.by_site[op, field] = values
+                for program in values:
+                    if (len(program) in (8, 9) and program[:4] == ('entity', '.', 'soul', ':')
+                            and program[4] in ('AddMetaRoleByName', 'RemoveMetaRoleByName')
+                            and program[5] == '(' and program[7] == ')'
+                            and (len(program) == 8 or program[8] == ';')):
+                        self.role_methods.add(program[4])
                 if op == 'LuaWrapper' and field in ('onEnter', 'onExit'):
                     self.actor_calls.update(p for p in values if actor_constant_call(p))
 
@@ -76,6 +84,27 @@ class NativeLuaContracts:
         program = tokens(script)
         if program is None: return False
         if program in self.by_site.get((op, field), set()): return True
+        if ((op, field) in {('ExecuteLua', 'code'), ('LuaWrapper', 'onEnter'), ('LuaWrapper', 'onExit')}
+                and self.role_program(program)):
+            return True
         # ExecuteLua performs the same synchronous call at its original source
         # location. Do not turn a statement into a gate or move lifecycle calls.
         return op == 'ExecuteLua' and field == 'code' and program in self.actor_calls
+
+    def role_program(self, program):
+        """Preserve constant role changes only for native methods and roles.
+
+        Optional legacy parameters remain unsupported rather than being dropped.
+        No NPC name or profession enters this decision.
+        """
+        pos = 0
+        while pos < len(program):
+            call = program[pos:pos + 8]
+            if (len(call) != 8 or call[:4] != ('entity', '.', 'soul', ':')
+                    or call[4] not in self.role_methods or call[5] != '(' or call[7] != ')'
+                    or not re.fullmatch(r'''(['"])[A-Za-z_][A-Za-z_0-9]*\1''', call[6])
+                    or call[6][1:-1] not in self.metaroles):
+                return False
+            pos += 8
+            if pos < len(program) and program[pos] == ';': pos += 1
+        return bool(program)
