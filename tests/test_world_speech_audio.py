@@ -42,7 +42,10 @@ class SpeechTests(unittest.TestCase):
             pak(package/'Localization/English.pak',{DEPOT:index,'dialog/custom/keep.ogg':b'OggSkeep'})
             source='dialog/open_world/hello/'+stem+'.ogg'
             pak(target/'Localization/English.pak',{source:b'OggSoriginal'})
-            changed,report=upgrade(package,target)
+            # Setup passes EventLog.progress(label, current, total, detail='').
+            stages=[]
+            changed,report=upgrade(package,target,lambda label,current,total,detail='':stages.append(label))
+            self.assertEqual(stages,['Relocating native nearby speech recordings'])
             self.assertEqual(report['changed'],1)
             self.assertIn('Localization/English.pak',changed)
             with zipfile.ZipFile(package/'Localization/English.pak') as z:
