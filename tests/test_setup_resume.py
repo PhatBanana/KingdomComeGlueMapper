@@ -63,13 +63,15 @@ class ResumeTests(unittest.TestCase):
                 saved={'travel_bridge':{'destination':'kcd1_travel'},'build_recipe':{'version':3}}
                 if baked:saved['baking']={'preset':'all'}
                 calls=[]
-                with patch('setup_resume.preflight'),patch('setup_resume.map_receipt',return_value=saved),patch('setup_mods.legacy.worker') as convert,patch('setup_mods.bake_package',side_effect=lambda *a:calls.append('bake')),patch('setup_resume.update_private_package',side_effect=lambda *a:calls.append('upgrade')) as upgrade,patch('setup_mods.legacy.install_transaction',side_effect=lambda *a:calls.append('install')):
+                with patch('setup_package_upgrade.finalize') as finalize,patch('setup_resume.preflight'),patch('setup_resume.map_receipt',return_value=saved),patch('setup_mods.legacy.worker') as convert,patch('setup_mods.bake_package',side_effect=lambda *a:calls.append('bake')),patch('setup_resume.update_private_package',side_effect=lambda *a:calls.append('upgrade')) as upgrade,patch('setup_mods.legacy.install_transaction',side_effect=lambda *a:calls.append('install')):
                     self.assertEqual(setup_mods.worker(attempt/'job.json'),0)
                     self.assertEqual(calls,(['bake'] if not baked else [])+['upgrade','install'])
                     convert.assert_not_called()
                     self.assertEqual(upgrade.call_args.args[0],root/'package/map')
-                    from setup_package_upgrade import finalize
-                    self.assertIs(upgrade.call_args.args[1],finalize)
+                    upgrade.call_args.args[1](root/'staged')
+                    self.assertEqual(finalize.call_args.args, (root/'staged',))
+                    self.assertEqual(finalize.call_args.kwargs['target'], 'target')
+                    self.assertTrue(callable(finalize.call_args.kwargs['notify']))
 
     def test_atomic_swap_recovery_and_job_lock(self):
         with tempfile.TemporaryDirectory() as t:
@@ -89,6 +91,7 @@ class ResumeTests(unittest.TestCase):
                 raise ValueError('failed after preparing one replacement')
             with self.assertRaises(ValueError):resume.update_private_package(package,failed,lambda:False)
             self.assertEqual((package/'asset').read_bytes(),b'original')
+            self.assertFalse(list(package.parent.glob('map-update-*')))
 
     def test_ui_resume_reopens_original_job_and_starts_separate_attempt(self):
         import setup_web

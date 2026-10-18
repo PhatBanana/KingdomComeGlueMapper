@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 10
+VERSION = 11
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -199,7 +199,7 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
     (work/'report.json').write_text(json.dumps(report, indent=2))
     if receipt.get('travel_bridge'):
         from setup_package_upgrade import finalize
-        finalize(package)
+        finalize(package, target=target, notify=notify, cancelled=cancelled)
     notify('Gameplay recipe complete', total, total, '')
     return report
 

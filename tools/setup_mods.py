@@ -204,7 +204,8 @@ def _worker(path):
                     from build_recipe import VERSION
                     if not saved.get('single_playable_world') or saved.get('build_recipe',{}).get('version') != VERSION:
                         events.emit('stage',index=0,total=len(c['mods']),label='Upgrade saved gameplay and keep one playable world')
-                        update_private_package(package/'map',finalize,cancel)
+                        update_private_package(package/'map',lambda staged:finalize(staged,
+                            target=c['kcd2'], notify=events.progress, cancelled=cancel),cancel)
                 if c['action']=='build_install':
                     events.emit('stage',index=0,total=len(c['mods']),label='Install and verify KCD1 Map')
                     legacy.install_transaction(package/'map',c['kcd2'],events.progress,cancel)

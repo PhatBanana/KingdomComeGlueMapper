@@ -91,7 +91,7 @@ Existing build folders, unsuccessful attempts, and backups from earlier versions
 
 ## Build from source
 
-Setup 0.3.6 can resume completed recipe 3 through 5 packages and upgrade them without
+The current setup can resume completed recipe 3 through 10 packages into recipe 11 without
 repeating world conversion. It finishes or reuses the existing `kcd1_travel`
 bake checkpoints first, then updates the campaign start guard, removes the old
 horse-recovery hook, reconciles smart-area registrations, and removes compiled
@@ -109,6 +109,20 @@ Use **Resume failed setup** in the new executable and select the original job
 folder containing `job.json`. A safely cancelled or completed job can also be
 selected. Stop the previous setup worker first. The upgrade runs before install;
 choosing **Install packages** directly does not migrate an older recipe.
+
+Recipe 11 also upgrades existing male `gm_person_*` fixed outfits through the
+same native material converter used by clean builds. It extracts and repacks one
+actor at a time on the build drive, uses ZIP32 shards, and updates only the actor
+assets and their character/clothing material tables. It preserves actor identity,
+quests, schedules, inventory registrations, and completed lighting bake metadata.
+Already upgraded native outfits are skipped. Failed migration staging is removed;
+the previous verified package remains available. Rendered appearance still needs
+an in-game check after installation.
+
+On 2026-10-18, the existing full-bake recipe 7 build was migrated to recipe 11
+and installed through the rebuilt setup. Seven male appearances were upgraded,
+the full bake was retained, and the user confirmed the installed result works
+in-game. This is a bounded playtest confirmation, not exhaustive NPC coverage.
 
 On Windows x64, Python 3.13 avoids compiling the pinned xatlas dependency. Building the GPU payload also requires Visual Studio C++ build tools and the CUDA toolkit; users of the finished setup do not need these build tools:
 

@@ -60,9 +60,17 @@ def update_private_package(package,operation,cancelled):
         try:os.link(src,dst)
         except OSError:shutil.copy2(src,dst)
     shutil.copytree(package,replacement,copy_function=link_or_copy)
-    operation(replacement)
-    verify_package(replacement)
-    if cancelled():raise InterruptedError('Cancelled before applying optional package update')
+    try:
+        operation(replacement)
+        verify_package(replacement)
+        if cancelled():raise InterruptedError('Cancelled before applying optional package update')
+    except BaseException:
+        # The original remains verified. Discard only this attempt's private
+        # staging directory instead of accumulating failed package copies.
+        if replacement.resolve().parent != package.resolve().parent or replacement.is_symlink():
+            raise ValueError('Unsafe failed update staging directory')
+        shutil.rmtree(replacement)
+        raise
     previous=package.with_name(package.name+'-before-update')
     if previous.exists():previous.rename(previous.with_name(previous.name+'-'+uuid.uuid4().hex[:12]))
     package.rename(previous)

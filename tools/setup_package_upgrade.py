@@ -14,7 +14,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     report.setdefault('content_validation', {})['start_policy'] = POLICY
@@ -35,7 +35,7 @@ def rewrite(package, relative, replacements, remove=lambda name: False):
     pending.replace(path)
 
 
-def finalize(package):
+def finalize(package, *, target=None, notify=lambda *a: None, cancelled=lambda: False):
     """Called only on a private build or the transactional resume staging copy."""
     from campaign_start_policy import gate_start
     from region_travel_companions import remove_horse_recovery
@@ -94,6 +94,11 @@ def finalize(package):
     mesh_files, mesh_report = upgrade_package(package)
     receipt['files'].update(mesh_files)
     receipt['mesh_lod_metadata'] = mesh_report
+    from setup_actor_materials import upgrade as upgrade_materials
+    actor_files, actor_removed, actor_report = upgrade_materials(package, target, notify, cancelled)
+    receipt['files'].update(actor_files)
+    for name in actor_removed: receipt['files'].pop(name, None)
+    receipt['actor_material_upgrade'] = actor_report
     receipt['build_recipe']['content_validation'] = validate(package)
     receipt['build_recipe']['version'] = VERSION
     receipt['package_upgrade'] = dict(version=2, registered_smart_areas=added,
