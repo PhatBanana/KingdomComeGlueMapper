@@ -16,6 +16,10 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe27_migrates_to_current_icon_recipe(self):
+        self.source_recipe = 27
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe26_migrates_to_current_dialogue_recipe(self):
         self.source_recipe = 26
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -82,7 +86,8 @@ class UpgradeTests(unittest.TestCase):
             (p/'mod.manifest').write_text(f'<Mod><info><modid>{MOD_ID}</modid></info></Mod>')
             (p/'campaign-audit.json').write_text('{}')
             base=p/'Data/Levels/kcd1_rataje';base.mkdir();(base/'terrain.pak').write_bytes(b'base')
-            shared=p/'Data/shared.pak';shared.write_bytes(b'shared')
+            archive('Data/shared.pak',{'shared.bin':b'shared'})
+            shared=p/'Data/shared.pak';shared_before=shared.read_bytes()
             r=dict(schema=1,owner=MOD_ID,travel_bridge={'destination':'kcd1_travel'},build_recipe=dict(version=getattr(self,'source_recipe',3),status='complete',content_validation={'actors':11},streaming_validation={'ok':True},shader_validation={'installation':'mod_private_root'},steps=[{'id':s} for s in STAGE_IDS]))
             if getattr(self,'restore_split',False):
                 from test_mesh_streaming import fixture as mesh_fixture
@@ -108,7 +113,7 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual(z.read('glueveg/tree.cgf'),normalize(mesh_fixture()))
             self.assertTrue(result['single_playable_world']);self.assertFalse(base.exists())
             self.assertEqual(result['package_upgrade']['skalitz_outer_gates']['opened_leaves'],6)
-            self.assertEqual(shared.read_bytes(),b'shared')
+            self.assertEqual(shared.read_bytes(),shared_before)
             with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
                 validate_start_policy(z.read(PROJECT),OPENING)
                 self.assertNotIn(b'GlueTravelHorseRecovery',z.read('Scripts/Entities/actor/player.lua'))

@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -233,6 +233,10 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     for name in actor_removed: receipt['files'].pop(name, None)
     if actor_report['actors'] or 'actor_material_upgrade' not in receipt:
         receipt['actor_material_upgrade'] = actor_report
+    from item_icons import upgrade as upgrade_item_icons
+    icon_files, icon_report = upgrade_item_icons(package, source)
+    receipt['files'].update(icon_files)
+    if icon_report: receipt['source_item_icons'] = icon_report
     receipt['build_recipe']['content_validation'] = validate(package)
     receipt['build_recipe']['version'] = VERSION
     migrate_step_ids(receipt['build_recipe'])
