@@ -42,6 +42,31 @@ MOD = 'gluemappertravel'
 LEVEL = 'kcd1_travel'
 LEVEL_ID = 1001
 PREFAB = 'Prefabs/manmade/vehicles/wagon_b_covered_empty.xml'
+# Same ZIP32 shard size as the per-actor PAKs; float clothing macros are ~43 MB each.
+CHARACTER_PAK_LIMIT = 900 * 1024**2
+
+
+def write_character_shards(assets, data, limit=CHARACTER_PAK_LIMIT):
+    """Keep travel actor appearances out of the shared travel PAK.
+
+    Later recipe steps rewrite gluemappertravel.pak with allowZip64=False, so
+    it must stay below Python's 2 GiB ZIP32 boundary.
+    """
+    paks, pak, used = [], None, 0
+    try:
+        for name, path in sorted(assets.items()):
+            size = path.stat().st_size + 2 * len(name.encode()) + 128
+            if size > limit: raise ValueError('Character asset exceeds ZIP32 shard limit: ' + name)
+            if pak is None or used + size > limit:
+                if pak is not None: pak.close()
+                paks.append(data / f'{MOD}_characters_{len(paks):02d}.pak')
+                pak = zipfile.ZipFile(paks[-1], 'x', zipfile.ZIP_STORED, allowZip64=False)
+                used = 0
+            pak.write(path, name)
+            used += size
+    finally:
+        if pak is not None: pak.close()
+    return paks
 
 
 def guid(name):
@@ -535,17 +560,22 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
         'Libs/Tables/level__'+MOD+'.xml': travel_level,
         **graphs, **dialogue_files,
     }
+    character_assets = {}
     for path in sorted(p for directory in character_directories for p in directory.rglob('*')):
         if path.is_file():
             owner = next(directory for directory in character_directories if path.is_relative_to(directory))
             name = path.relative_to(owner).as_posix()
             if name.startswith('Localization/'):
                 continue  # Localized source item names belong in the language PAK.
-            if name in common_files:
+            if name in common_files or name in character_assets:
                 raise ValueError('Duplicate packaged resource: ' + name)
-            common_files[name] = path.read_bytes()
+            if name.startswith('objects/'):
+                character_assets[name] = path
+            else:
+                common_files[name] = path.read_bytes()
+    write_character_shards(character_assets, data)
     common_files = managed_patches(common_files, modid)
-    with zipfile.ZipFile(data/(MOD+'.pak'),'x',zipfile.ZIP_STORED) as z:
+    with zipfile.ZipFile(data/(MOD+'.pak'),'x',zipfile.ZIP_STORED,allowZip64=False) as z:
         for n,b in common_files.items():z.writestr(n,b)
         for level in ('trosecko',LEVEL):
             with zipfile.ZipFile(data/'Levels'/level/'level.pak') as levelpak:
