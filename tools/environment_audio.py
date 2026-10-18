@@ -9,7 +9,6 @@ TRIGGERS = {
     'a_l_village_talmberk_country': 'a_l_village_amb02',
     'a_l_village_talmberk': 'a_l_village_amb03',
     'a_l_village_kolbens': 'a_l_village_amb04',
-    'a_o_village_oneshot': 'a_l_village_amb01',
     'a_l_rataje': 'a_l_busy_street01',
     'a_l_rataje_upper_castle': 'a_l_quiet_estate',
     'a_l_pub01': 'a_l_pub01_inside', 'a_l_pub02': 'a_l_pub02_outside',
@@ -96,7 +95,9 @@ ENVIRONMENTS = {
 # inputs. Do not alias them to unrelated gameplay or alchemy RTPCs.
 RETIRED = {'ATLEnvironment': {'fxwater', 'fx_water', 'fxwater2', 'fx_grass', 'fx_rock'},
            'ATLRtpc': {'fireplace_amount', 'ambient_morphing', 'wind_add', 'amb_sub', 's'},
-           'ATLTrigger': {'mus_enforced_stealth_music'}}
+           # KCD1's random village one-shots sit beside a village loop area. KCD2
+           # has no one-shot equivalent, and loop-substituting them doubles the loop.
+           'ATLTrigger': {'mus_enforced_stealth_music', 'a_o_village_oneshot'}}
 
 
 def aliases():
