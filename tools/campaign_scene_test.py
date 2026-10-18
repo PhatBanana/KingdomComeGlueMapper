@@ -38,7 +38,7 @@ def source_scene_positions(source, level, quest, alias):
     result = {}
     import re
     for link in controller[0].findall('EntityLinks/Link'):
-        m = re.fullmatch(r"CutsceneSpot\[npc\('([^']+)'\),alias\('([^']+)'\)\]", link.get('Name', ''))
+        m = re.fullmatch(r"CutsceneSpot\[npc\('([^']+)'\),alias\('([^']+)'\)(?:,idle\(true\))?\]", link.get('Name', ''))
         if m and m[2] == alias:
             found = {ET.tostring(e): e for e in entities if e.get('EntityId') == link.get('TargetId')}
             if len(found) != 1: raise ValueError('Ambiguous source scene spot')

@@ -184,3 +184,5 @@ Outputs include the EXE, SHA-256 checksum and frozen-runtime self-test report. G
 See [launcher implementation details](setup-launcher.md) and [region travel](region-travel.md) for further scope and limitations. The release distributes setup code and interface assets, not converted game archives.
 
 Recipe 18 also migrates supported source objective-update handlers so parent objectives and their map markers follow the original quest lifecycle.
+
+Recipe 19 imports the source guard supply conversations and their actor/inventory dependencies, including authored Skalitz opening placements. Existing packages receive these through the same builders during upgrade. Original cinematic movement choreography remains outside this bounded conversion.

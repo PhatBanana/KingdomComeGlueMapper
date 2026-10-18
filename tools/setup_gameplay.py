@@ -22,6 +22,7 @@ OPENING = 'gm_kcd1_character_creation'
 PEOPLE = ('ska_motherOfHenry', 'ska_fatherOfHenry', 'ska_blanka', 'ska_fricek',
           'ska_kunes', 'ska_matus', 'ska_matej', 'ska_sarka', 'ska_woman5',
           'ska_guard2', 'vra_vanek')
+SCENE_PEOPLE = {'rat_guardJanek': 'janek', 'rat_guardJaroslav': 'jaroslav'}
 # Source branch IDs are explicit slice selection. Conditions, effects, recordings
 # and combat transitions are compiled by the shared importers, never copied here.
 DIALOGUES = (
@@ -29,6 +30,7 @@ DIALOGUES = (
     ('gm_approach', 'Dialog', ('9072', '26993')),
     ('gm_debt_interaction', 'FaderDialog', ('7059',)),
     ('gm_debt_results', 'FaderDialog', ('7116', '26675', '26676')),
+    ('gm_guard_interaction', 'FaderDialog', ('7691', '14861')),
 )
 STAGE_IDS = ('opening', 'actors', 'initial-state', 'initial-loadout', 'quest-items',
              'schedules', 'actor-systems', 'character-props', 'dialogue-areas',
@@ -136,13 +138,16 @@ def source_player(source, level='rataje'):
 
 def actors(source, target, package, output):
     from build_quest_people_test import build
+    from campaign_scene_test import source_scene_positions
+    spots = source_scene_positions(source, 'rataje', QUEST, 'stribrna_skalice')
+    placements = {name: spots[alias] for name, alias in SCENE_PEOPLE.items()}
     build(SimpleNamespace(source=source, target=target, mod=package, output=output,
-        model=None, person=list(PEOPLE), source_level='rataje', level=LEVEL,
+        placements=placements, model=None, person=list(PEOPLE) + list(SCENE_PEOPLE), source_level='rataje', level=LEVEL,
         source_profile=[], dialogue_profile=[], dialogue_model=[], quest_path=None,
         project_path=PROJECT))
     report = json.loads((output/'report.json').read_text())
     actual = {p['person'] for group in ('converted', 'existing') for p in report[group]}
-    if report['pending'] or actual != set(PEOPLE):
+    if report['pending'] or actual != set(PEOPLE) | set(SCENE_PEOPLE):
         raise ValueError('Campaign actors incomplete; see ' + str(output/'report.json'))
 
 
@@ -199,10 +204,14 @@ def validate_quest_items(report, model):
 def dialogues(source, target, package, output, model_path, group):
     from build_actor_dialogues_test import build
     namespace, kind, topics = group
+    activation = QUEST + '.started'
+    if namespace == 'gm_guard_interaction':
+        from setup_guard_conversations import source_activation
+        activation = source_activation(json.loads(model_path.read_text()), 'janek_waitsAtTheGate')
     return build(SimpleNamespace(source=source, target=target, mod=package, output=output,
         quest_ir=[model_path], start_topic=list(topics), namespace=namespace, kind=kind,
         container=ENTRY.removeprefix('Quests/'), container_name=LEVEL,
-        activation=QUEST+'.started', skill_upgrade=['threaten=might'],
+        activation=activation, skill_upgrade=['threaten=might'],
         participant_asset=['Dude=player'], area_asset=[],
         level_archive=package/'Data/Levels'/LEVEL/'level.pak'))
 
@@ -315,7 +324,7 @@ def validate(package):
         reconcile(read(z, 'whdata_0'), read(z, 'objects_mission0.xml'), validate_only=True)
         from character_person_activity import validate_scheduler_targets
         validate_scheduler_targets(ET.fromstring(read(z, 'tables/ai/scheduler.xml')))
-    for name in PEOPLE:
+    for name in (*PEOPLE, *SCENE_PEOPLE):
         actors = [e for e in mission.iter('Entity') if e.get('Name') == name]
         if len(actors) != 1: raise ValueError('Setup omitted or duplicated actor: ' + name)
         registered = [s for s in souls.findall('SoulList/Souls/Soul')
@@ -333,4 +342,4 @@ def validate(package):
     for name in ('Data/gluemapper_initial_loadout.pak', 'Localization/English.pak',
                  'Data/gluemapper_dialogue_facials.pak', 'Data/gluemapper_world_items.pak'):
         if not (package/name).is_file(): raise ValueError('Setup dependency missing: ' + name)
-    return dict(actors=len(PEOPLE), opening=True, combat=True, start_policy=start_policy, runtime_verified=False)
+    return dict(actors=len(PEOPLE)+len(SCENE_PEOPLE), opening=True, combat=True, start_policy=start_policy, runtime_verified=False)

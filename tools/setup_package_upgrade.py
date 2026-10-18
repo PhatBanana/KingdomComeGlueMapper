@@ -9,14 +9,24 @@ from upgrade_map import read, xml
 from setup_campaign import RECEIPT, MOD_ID, digest, verify_package
 
 
+def migrate_step_ids(report):
+    from setup_gameplay import STAGE_IDS
+    old = [s for s in STAGE_IDS if s != 'gm_guard_interaction']
+    steps = report.get('steps', [])
+    if [s.get('id') for s in steps if s.get('id')] == old:
+        index = next(i for i,s in enumerate(steps) if s.get('id') == 'combat')
+        steps.insert(index, dict(id='gm_guard_interaction', name='Source guard conversations (migration)'))
+
+
 def eligible(receipt):
     from build_recipe import VERSION, require_current
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
+    migrate_step_ids(report)
     report.setdefault('content_validation', {})['start_policy'] = POLICY
     candidate['single_playable_world'] = True
     require_current(candidate)
@@ -49,6 +59,10 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     eligible(receipt)
     if receipt.get('travel_bridge', {}).get('destination') != 'kcd1_travel':
         raise ValueError('Expected the established playable travel world')
+    from setup_guard_conversations import upgrade as upgrade_guards
+    guard_files, guard_report = upgrade_guards(package, source, target)
+    receipt['files'].update(guard_files)
+    if guard_report: receipt['guard_conversations'] = guard_report
     changes = {}
     travel = 'Data/gluemappertravel.pak'
     with zipfile.ZipFile(package/travel) as z:
@@ -160,6 +174,7 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         receipt['actor_material_upgrade'] = actor_report
     receipt['build_recipe']['content_validation'] = validate(package)
     receipt['build_recipe']['version'] = VERSION
+    migrate_step_ids(receipt['build_recipe'])
     receipt['package_upgrade'] = dict(version=2, registered_smart_areas=added,
         removed_duplicate_smart_geometry=removed, skalitz_outer_gates=gate_report, runtime_verified=False)
     if marker_report is not None:

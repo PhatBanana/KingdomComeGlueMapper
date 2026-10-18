@@ -66,3 +66,26 @@ translates whole local objective-event branches with supported objective guards
 and ordered mutations. Unknown operations or enclosing conditions reject the
 branch; this is not a marker-hiding override. Clean builds and existing-package
 migration both use this adapter. Native playtest remains pending.
+
+## Guard supply conversations (recipe 19)
+
+Setup omitted rat_guardJanek and rat_guardJaroslav, and source branches 7691
+(q_skalitz_crossguard_trialog) and 14861 (q_skalitz_crossguard_dialog).
+Both actors' base placements are in Rattay. Their opening CutsceneSpot links,
+including idle(true), place them in Skalitz. Setup now uses those authored poses
+for their initial entities and idle anchors. The existing actor builders import
+their source equipment and carried inventories. Janek's source preset includes
+the crossguard item 3f770b82-32a7-410d-b546-c8744348ff93.
+
+The shared conversation builder imports both branches, 26 original recordings,
+roles, facial data, conditions and objective effects. The handover uses the
+verified ItemUtils.GiveItem translation with the imported Janek role. The
+conversation activation follows the getCrossguard Started guard from the source
+janek_waitsAtTheGate behavior; source branch conditions distinguish the request
+and subsequent handover. Native inventory tracking completes getCrossguard.
+
+This restores interactive conversations at the source opening positions. It does
+not yet reproduce the full original cutscene/daycycle movement choreography.
+Runtime handover and marker behavior still require a fresh New Game playtest.
+Existing-build migration uses the same actor and dialogue builders and consumes
+staged archives into the single package. Retail binaries are not modified.

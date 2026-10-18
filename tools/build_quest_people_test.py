@@ -162,9 +162,10 @@ def build(a):
         with zipfile.ZipFile(a.source / 'Localization/English_xml.pak') as z:
             key = person['instance'].findtext('StaticData/NameStringId')
             names.append(next(r for r in ET.fromstring(read(z, 'text_ui_soul.xml')) if r.findtext('Cell') == key))
-        register_person(add, wh, person)
+        placement = getattr(a, "placements", {}).get(person["name"])
+        register_person(add, wh, person, placement)
         people.append(person); registered.add(sid)
-        converted.append(dict(person=person['name'], soul_id=sid, position=person['actor'].get('Pos'),
+        converted.append(dict(person=person['name'], soul_id=sid, position=(placement or person['actor']).get('Pos'),
                               source_level=person['source_level'], namespace=namespace))
     files['objects_mission0.xml'], files['whdata_0'] = xml(mission), xml(wh)
     files, world = register_person_world(files, people, a.source, a.target)
