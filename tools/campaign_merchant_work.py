@@ -73,11 +73,13 @@ def register(files, resources, entry, merchant, stock, namespace):
 def add_trade_dialogue(resources, entry, person, role, namespace):
     """Use native merchant topic/action semantics with a caller-owned identity."""
     import posixpath
-    from region_travel_merchant import dialogue
+    from region_travel_merchant import dialogue, repair_trade_prompts
     resources=dict(resources)
     name=namespace+'_trade'
     path=posixpath.join(posixpath.dirname(entry),name+'.xml')
-    if path in resources: return resources
+    if path in resources:
+        resources[path] = repair_trade_prompts(resources[path])
+        return resources
     root=E.fromstring(resources[entry]);host=root.find('Skald/Level')
     definitions=host.find('Definitions')
     if definitions is None: definitions=E.SubElement(host,'Definitions')

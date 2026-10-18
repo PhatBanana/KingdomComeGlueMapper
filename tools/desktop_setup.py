@@ -29,7 +29,9 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'build_buildings_probe', 'build_water_surface_probe', 'complete_instances',
               'build_entity_probe', 'build_landscape_surface_probe', 'repair_tree_materials',
               'region_travel', 'prepare_spatial_hlod', 'build_recipe', 'campaign_start_policy',
-              'setup_package_upgrade', 'setup_tavern_upgrade', 'campaign_merchant_work', 'smart_area_registration', 'area_geometry_contract')
+              'setup_package_upgrade', 'setup_tavern_upgrade', 'campaign_merchant_work',
+              'campaign_dialogue_requests', 'campaign_script_import',
+              'smart_area_registration', 'area_geometry_contract')
 
 
 class Cancelled(Exception):

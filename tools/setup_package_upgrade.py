@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -73,6 +73,13 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     with zipfile.ZipFile(package/travel) as z:
         player = 'Scripts/Entities/actor/player.lua'
         changes = {PROJECT: gate_start(read(z, PROJECT), OPENING), player: remove_horse_recovery(read(z, player))}
+        from region_travel_merchant import repair_trade_prompts
+        for name in z.namelist():
+            if name.lower().startswith('quests/') and name.lower().endswith('.xml'):
+                original = changes.get(name, read(z, name))
+                repaired = repair_trade_prompts(original)
+                if repaired != original:
+                    changes[name] = repaired
         legacy_world = next((n for n in z.namelist() if n.lower() == 'quests/gluetravel/world/open_world.xml'), None)
         world = legacy_world or next((n for n in z.namelist() if n.lower() == 'quests/gluetravel/entry/world/open_world.xml'), None)
         if world:
@@ -120,9 +127,9 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
             if conditions or events:
                 changes[QUEST_PATH] = ET.tostring(quest_root, encoding='utf-8', xml_declaration=True)
             script_repairs = {}
-            candidates = {n: read(z, n) for n in z.namelist()
+            candidates = {n: changes.get(n, read(z, n)) for n in z.namelist()
                           if n.startswith('Quests/') and n.endswith('.xml') and b'ExitScript=' in read(z, n)}
-            if any(b'Utils.GiveItem' in b for b in candidates.values()):
+            if any(b'Utils.' in b for b in candidates.values()):
                 from campaign_sources import RetailSourceReader
                 from campaign_dependency_adapters import SourceTables
                 from campaign_script_import import upgrade_dialogue
@@ -147,6 +154,15 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         changes.update(dialogue_changes)
         receipt['dialogue_format_upgrade'] = dict(conversations=dialogue_report, runtime_verified=False)
         resources.update(changes)
+        from campaign_dialogue_requests import plans as dialogue_requests
+        if QUEST_PATH in resources and dialogue_requests(model):
+            from campaign_dialogue_requests import lower as lower_requests
+            from build_campaign_combat import source_binding
+            bindings = source_binding(model, Path(source)/'Data/Levels/rataje/level.pak')
+            request_changes, request_report = lower_requests(resources, model, bindings)
+            changes.update(request_changes)
+            resources.update(request_changes)
+            receipt['source_dialogue_requests'] = request_report
         from campaign_branch_resume import upgrade as upgrade_branch_resume
         branch_changes, branch_report = upgrade_branch_resume(resources, source)
         changes.update(branch_changes)

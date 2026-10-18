@@ -52,6 +52,13 @@ class HolderTests(unittest.TestCase):
         again=dict(f);again.update(second)
         self.assertEqual(f,again);self.assertEqual(level,level2)
 
+    def test_translated_creation_retains_quest_item_lifecycle(self):
+        f,a,source,objects=fixture()
+        f[D]=f[D].replace(b"ItemUtils.GiveItem(dc.seller,player,'reward',1)",b"ItemUtils.CreateInvItem(player,'reward')").replace(b"ItemUtils.GiveItem(player,dc.recipient,'reward',1)",b"Utils.RemoveInvItem(player,'reward')")
+        result,_,_=lower(f,P,'new_game_started.State',[],{'player':'player-id'},source,objects,None,quest_ids={'reward'})
+        self.assertNotIn(b'CreateInvItem',result[D])
+        self.assertEqual(len(E.fromstring(result[P]).findall('.//AddQuestItem')),1)
+
     def test_non_linear_ownership_rejected(self):
         for rows in ([dict(source='a',target='b'),dict(source='a',target='c')],
                      [dict(source='a',target='b'),dict(source='b',target='a')],

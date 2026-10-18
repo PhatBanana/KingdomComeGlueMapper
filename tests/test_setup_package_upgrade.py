@@ -16,6 +16,10 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe26_migrates_to_current_dialogue_recipe(self):
+        self.source_recipe = 26
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe24_migrates_to_current_holder_recipe(self):
         self.source_recipe = 24
         self.test_migrates_legacy_world_without_changing_shared_assets()

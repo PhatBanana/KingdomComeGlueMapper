@@ -10,8 +10,8 @@ def translate(script, roles=None):
     roles = roles or {}
     def replace(match):
         token = match.group()
-        if token == 'Utils.GiveItem':
-            return 'ItemUtils.GiveItem'
+        if token in ('Utils.GiveItem', 'Utils.CreateInvItem'):
+            return 'ItemUtils.' + token.split('.', 1)[1]
         if token.startswith('dc.') and token[3:] in roles:
             return 'dc.' + roles[token[3:]]
         return token

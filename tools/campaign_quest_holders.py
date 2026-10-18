@@ -80,7 +80,7 @@ def lower(files, project, active, actors, role_souls, source_objects, objects_bl
             if item in owners: raise ValueError('Ambiguous initial owner for quest item '+item)
             owners[item] = (actor['soul'], row)
     lifecycle = {}
-    item_call = re.compile(r"\s*Utils\.(CreateInvItem|RemoveInvItem)\s*\(\s*([\w.]+)\s*,\s*['\"]([\w-]+)['\"]\s*\)\s*;?\s*")
+    item_call = re.compile(r"\s*(?:ItemUtils|Utils)\.(CreateInvItem|RemoveInvItem)\s*\(\s*([\w.]+)\s*,\s*['\"]([\w-]+)['\"]\s*\)\s*;?\s*")
     for root in roots.values():
         for seq in root.iter('Sequence'):
             for line in seq.get('ExitScript','').splitlines():

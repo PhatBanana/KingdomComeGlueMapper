@@ -44,6 +44,10 @@ def dialogue(person_name, *, role=ROLE, name=DIALOG, trade_string='ui_gmtravel_r
     entry = ET.SubElement(body, 'Decision', Name='conversation_entry', Priority='General', Autoselect='true')
     started = ET.SubElement(ET.SubElement(entry, 'Sequences'), 'Sequence', Name='begin_conversation',
                             EndType='Decision', ExitScript=shop_trace('talk_started'))
+    # Another dialogue can merge this entry into its topic list even though
+    # this decision is automatic when opened alone. Label that visible entry
+    # too; otherwise Skald displays its generated graph path.
+    ET.SubElement(started, 'UiPrompt', StringName=trade_string, Text='(Trade)')
     ET.SubElement(ET.SubElement(started, 'Triggers'), 'Port', Name='dialog_started')
     ET.SubElement(ET.SubElement(started, 'Elements'), 'Response', Role='HENRY')
     choices = ET.SubElement(ET.SubElement(started, 'Decision', Name='services', Priority='General',
@@ -66,6 +70,32 @@ def dialogue(person_name, *, role=ROLE, name=DIALOG, trade_string='ui_gmtravel_r
     if not diagnostics:
         for sequence in root.iter('Sequence'): sequence.attrib.pop('ExitScript', None)
     return xml(root)
+
+
+def repair_trade_prompts(data):
+    """Repair unlabeled generated service entries using their own shop label.
+
+    Match the service graph shape, not a quest, actor or generated name.
+    Preserve all actions, conditions, triggers and any authored entry prompt.
+    """
+    import copy
+    root = ET.fromstring(data)
+    changed = False
+    for entry in root.findall('.//Dialogue/Decision[@Autoselect="true"]/Sequences/Sequence'):
+        if entry.find('UiPrompt') is not None:
+            continue
+        topics = entry.findall('./Decision/Sequences/Sequence')
+        shops = [topic for topic in topics if topic.get('Type') == 'Shop'
+                 and topic.find('./Decision/Sequences/Sequence[@Type="OpenShop"]') is not None]
+        if len(shops) != 1 or any(t.get('Type') != 'Shop' and t.get('EndType') != 'EndDialogue'
+                                  for t in topics):
+            continue
+        prompt = shops[0].find('UiPrompt')
+        if prompt is None or not prompt.get('StringName'):
+            continue
+        entry.insert(0, copy.deepcopy(prompt))
+        changed = True
+    return xml(root) if changed else data
 
 
 def actor_resources(target, merchant, character, namespace):

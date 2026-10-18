@@ -8,6 +8,16 @@ from campaign_actor_dialogues import remap_roles
 
 
 class ScriptImportTests(unittest.TestCase):
+    def test_creation_preserves_quantity_health_and_lexical_literals(self):
+        text = "Utils.CreateInvItem(dc.RECEIVER,'ordinary-item',5,0.75); -- Utils.CreateInvItem\n'Utils.CreateInvItem'"
+        result = translate(text, {'RECEIVER': 'recipient_17'})
+        self.assertEqual(result, "ItemUtils.CreateInvItem(dc.recipient_17,'ordinary-item',5,0.75); -- Utils.CreateInvItem\n'Utils.CreateInvItem'")
+        self.assertEqual(translate(result), result)
+        blob = b'<Database><Dialogue><Sequence ExitScript="Utils.CreateInvItem(player, item, 5)"/></Dialogue></Database>'
+        updated, count = upgrade_dialogue(blob, [])
+        self.assertEqual(count, 1)
+        self.assertIn(b'ItemUtils.CreateInvItem(player, item, 5)', updated)
+
     def test_saved_dialogue_uses_its_registered_role(self):
         blob = b'''<Database><Dialogue><Response Role="seller_28"/><Sequence ExitScript="Utils.GiveItem(dc.TRADER,player,'item',1)"/></Dialogue></Database>'''
         result, count = upgrade_dialogue(blob, [dict(role_id='28', role_name='TRADER')])
