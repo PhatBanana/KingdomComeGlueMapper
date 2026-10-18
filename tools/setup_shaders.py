@@ -12,6 +12,7 @@ import os
 import re
 from pathlib import Path
 import shutil
+import stat
 import subprocess
 import time
 import zipfile
@@ -92,6 +93,34 @@ def link_tree(source, destination):
         except OSError: shutil.copy2(path, dest)
 
 
+def same_volume(a, b):
+    return os.stat(a).st_dev == os.stat(b).st_dev
+
+
+def is_junction(path):
+    # os.path.isjunction is Python 3.12+; CI also runs 3.11.
+    try:
+        return os.lstat(path).st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT
+    except (OSError, AttributeError):
+        return False
+
+
+def share_tree(source, destination):
+    """Read-only game library: hard links on the same volume, else one junction.
+
+    Hard links cannot cross volumes, and link_tree's copy fallback would
+    duplicate the whole library (~90 GB). ShaderCacheGen only reads these
+    archives, as does the shader launcher's runtime, which also uses junctions.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if is_junction(destination): return
+    if os.name == 'nt' and not destination.exists() and not same_volume(source, destination.parent):
+        import _winapi
+        _winapi.CreateJunction(str(source), str(destination))
+        return
+    link_tree(source, destination)
+
+
 def prepare(target, output):
     target, output = Path(target).resolve(), Path(output).resolve()
     sdk = tool_root(target)
@@ -103,7 +132,7 @@ def prepare(target, output):
     for relative in ('Bin', 'Tools/ShaderCacheGen', 'Tools/rc'):
         link_tree(sdk/relative, root/relative)
     for relative in ('Data', 'Localization'):
-        link_tree(target/relative, root/relative)
+        share_tree(target/relative, root/relative)
     for name in ('whdlversions.json',):
         if (target/name).is_file(): shutil.copy2(target/name, root/name)
     engine = root/'Engine'; engine.mkdir(parents=True, exist_ok=True)
