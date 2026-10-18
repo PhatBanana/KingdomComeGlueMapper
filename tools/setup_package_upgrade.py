@@ -14,7 +14,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     report.setdefault('content_validation', {})['start_policy'] = POLICY
@@ -37,7 +37,7 @@ def rewrite(package, relative, replacements, remove=lambda name: False):
     pending.replace(path)
 
 
-def finalize(package, *, target=None, notify=lambda *a: None, cancelled=lambda: False):
+def finalize(package, *, source=None, target=None, notify=lambda *a: None, cancelled=lambda: False):
     """Called only on a private build or the transactional resume staging copy."""
     from campaign_start_policy import gate_start
     from region_travel_companions import remove_horse_recovery
@@ -68,6 +68,19 @@ def finalize(package, *, target=None, notify=lambda *a: None, cancelled=lambda: 
                 validate_dependency_scopes(dependencies, entry.rsplit('/', 1)[0]+'/world/open_world.xml',
                                            read(native, 'Libs/concept/definitions.xml'))
             changes.update(dependencies)
+        from setup_gameplay import QUEST_PATH, QUEST
+        marker_report = None
+        if QUEST_PATH in z.namelist():
+            if source is None:
+                raise ValueError('KCD1 source folder required to restore quest objective markers')
+            from quest_import import import_quest
+            from campaign_quest_people import bind_markers
+            model, _ = import_quest(Path(source), QUEST)
+            with zipfile.ZipFile(package/'Data/Levels/kcd1_travel/level.pak') as level_archive:
+                wh = ET.fromstring(read(level_archive, 'whdata_0'))
+            registered = {s.findtext('SharedSoulGuid') for s in wh.findall('SoulList/Souls/Soul')}
+            changes[PROJECT], changes[QUEST_PATH], marker_report = bind_markers(
+                changes[PROJECT], read(z, QUEST_PATH), model, registered)
     rewrite(package, travel, changes, lambda n: n == legacy_world)
     level = 'Data/Levels/kcd1_travel/level.pak'
     with zipfile.ZipFile(package/level) as z:
@@ -120,6 +133,8 @@ def finalize(package, *, target=None, notify=lambda *a: None, cancelled=lambda: 
     receipt['build_recipe']['version'] = VERSION
     receipt['package_upgrade'] = dict(version=2, registered_smart_areas=added,
         removed_duplicate_smart_geometry=removed, skalitz_outer_gates=gate_report, runtime_verified=False)
+    if marker_report is not None:
+        receipt['quest_markers'] = marker_report
     if 'baking' in receipt:
         receipt['baking']['levels'] = [r for r in receipt['baking'].get('levels', []) if r.get('level') == 'kcd1_travel']
     receipt['files'] = {n:h for n,h in receipt['files'].items() if not n.startswith('Data/Levels/kcd1_rataje/')}

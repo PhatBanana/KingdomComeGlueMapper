@@ -91,7 +91,7 @@ Existing build folders, unsuccessful attempts, and backups from earlier versions
 
 ## Build from source
 
-The current setup can resume completed recipe 3 through 14 packages into recipe 15 without
+The current setup can resume completed recipe 3 through 15 packages into recipe 16 without
 repeating world conversion. It finishes or reuses the existing `kcd1_travel`
 bake checkpoints first, then updates the campaign start guard, removes the old
 horse-recovery hook, reconciles smart-area registrations, and removes compiled
@@ -134,6 +134,12 @@ Recipe 15 also collects implicit sibling dependencies (empty namespaces) and
 short relative namespace references within utility libraries. Clean builds and
 migrations validate custom node types against the packaged lexical scopes and
 the selected game's built-in node definitions before accepting those graphs.
+
+Recipe 16 restores source-authored NPC objective markers after all gameplay
+stages finish. It binds active journal objectives to registered souls using the
+original KCD1 quest records, including Father and Kunesh. Both clean builds and
+resume migrations use this step; migration requires the configured KCD1 folder.
+Editor graph coordinates are never used as world/map locations.
 
 Recipe 12 replaces the arrival-time debug-mode guard with a native `GameStart`
 request and a separate region-readiness state. Both must be set before the

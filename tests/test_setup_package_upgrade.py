@@ -16,6 +16,9 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_migration_restores_registered_person_objective_marker(self):
+        self.restore_markers = True
+        self.test_migrates_legacy_world_without_changing_shared_assets()
     def test_rewrite_adds_dependency_payloads_and_removes_obsolete_wrapper(self):
         from setup_package_upgrade import rewrite
         with tempfile.TemporaryDirectory() as directory:
@@ -52,6 +55,15 @@ class UpgradeTests(unittest.TestCase):
             player+=Path('tools/region_travel_horse_recovery.lua').read_bytes()
             archive('Data/gluemappertravel.pak',{PROJECT:ET.tostring(graph),'Scripts/Entities/actor/player.lua':player,'keep':b'unchanged'})
             archive('Data/Levels/kcd1_travel/level.pak',{'objects_mission0.xml':b'<Objects><Entity EntityClass="SmartAreaShape" EntityGuid="0000000a-0000-0000"/></Objects>', 'whdata_0':b'<Root><AI><SmartAreaManager version="2"><SmartAreas/></SmartAreaManager></AI></Root>'})
+            from test_campaign_quest_people import model, QUEST as marker_quest, SID
+            from setup_gameplay import QUEST_PATH, QUEST as quest_name
+            marker_model = model(); marker_model['quest'] = quest_name
+            if getattr(self, 'restore_markers', False):
+                with zipfile.ZipFile(p/'Data/gluemappertravel.pak', 'a') as z:
+                    z.writestr(QUEST_PATH, marker_quest.replace(b'Name="test"', ('Name="'+quest_name+'"').encode()))
+                from setup_package_upgrade import rewrite
+                wh = f'<Root><AI><SmartAreaManager version="2"><SmartAreas/></SmartAreaManager></AI><SoulList><Souls><Soul><SharedSoulGuid>{SID}</SharedSoulGuid></Soul></Souls></SoulList></Root>'.encode()
+                rewrite(p, 'Data/Levels/kcd1_travel/level.pak', {'whdata_0': wh})
             from campaign_trigger_areas import write_areas
             with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak','a') as z:
                 z.writestr('triggerareas.fubar',write_areas([],1))
@@ -74,7 +86,12 @@ class UpgradeTests(unittest.TestCase):
             r['files']={f.relative_to(p).as_posix():digest(f) for f in p.rglob('*') if f.is_file()}
             (p/RECEIPT).write_text(json.dumps(r))
             eligible(r)
-            with patch('setup_gameplay.validate',return_value={'start_policy':POLICY}):result=finalize(p)
+            with patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
+                result=finalize(p, source=p)
+            if getattr(self, 'restore_markers', False):
+                self.assertEqual(len(result['quest_markers']['converted']), 1)
+                with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
+                    self.assertIn(b'Marker=', z.read(QUEST_PATH))
             verify_package(p)
             if getattr(self,'restore_split',False):
                 self.assertFalse(list((p/'Data').glob('*_meshes.pak')))
