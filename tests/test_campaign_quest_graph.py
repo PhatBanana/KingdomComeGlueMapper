@@ -28,6 +28,21 @@ def model():
 
 
 class QuestGraphTests(unittest.TestCase):
+    def test_source_objective_predicate_rechecks_at_start_and_dependency_change(self):
+        m = model()
+        m['tables']['quest_objective']['rows'][1]['condition'] = "IsObjectiveCompleted('arbitrary_quest','second')"
+        m['tables']['quest_tracked_asset'] = dict(rows=[dict(quest_id='42', objective_id='4', count='0')])
+        files, report = emit_project([m], 'Example')
+        root = E.fromstring(files['Example/arbitrary_quest.xml'])
+        timer = root.find(".//Timer[@Name='source_condition_4']")
+        self.assertEqual({e.get('From') for e in timer.findall('Edge')},
+                         {'objective_4.OnStarted', 'objective_5.OnExec'})
+        self.assertIn('first', report['quests'][0]['converted_conditions'])
+        self.assertIsNotNone(root.find(".//State[@Name='objective_4']/Edge[@From='source_condition_4_apply_0_gate.True']"))
+        m['tables']['quest_tracked_asset']['rows'][0]['count'] = '1'
+        files, report = emit_project([m], 'Example')
+        self.assertNotIn('first', report['quests'][0]['converted_conditions'])
+
     def test_exclusive_predecessors_advance_on_either_completion_and_cancel_sibling(self):
         m = model()
         for row in m['tables']['quest_objective']['rows']:

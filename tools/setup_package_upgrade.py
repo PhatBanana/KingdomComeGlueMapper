@@ -14,7 +14,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     report.setdefault('content_validation', {})['start_policy'] = POLICY
@@ -81,6 +81,35 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
             registered = {s.findtext('SharedSoulGuid') for s in wh.findall('SoulList/Souls/Soul')}
             changes[PROJECT], changes[QUEST_PATH], marker_report = bind_markers(
                 changes[PROJECT], read(z, QUEST_PATH), model, registered)
+            from campaign_objective_conditions import bind as bind_conditions
+            quest_root = ET.fromstring(changes[QUEST_PATH])
+            conditions = bind_conditions(quest_root.find('./Skald/Quest/Nodes'), model)
+            from campaign_objective_events import bind as bind_events
+            events = bind_events(quest_root.find('./Skald/Quest/Nodes'), model)
+            marker_report['objective_events'] = events
+            if conditions or events:
+                changes[QUEST_PATH] = ET.tostring(quest_root, encoding='utf-8', xml_declaration=True)
+            script_repairs = {}
+            candidates = {n: read(z, n) for n in z.namelist()
+                          if n.startswith('Quests/') and n.endswith('.xml') and b'ExitScript=' in read(z, n)}
+            if any(b'Utils.GiveItem' in b for b in candidates.values()):
+                from campaign_sources import RetailSourceReader
+                from campaign_dependency_adapters import SourceTables
+                from campaign_script_import import upgrade_dialogue
+                with RetailSourceReader(Path(source)) as reader:
+                    roles = SourceTables(Path(source), reader).get('rpg/role')['rows']
+                for name, blob in candidates.items():
+                    updated, count = upgrade_dialogue(blob, roles)
+                    if count:
+                        changes[name] = updated
+                        script_repairs[name] = count
+            marker_report['objective_conditions'] = conditions
+            marker_report['dialogue_script_repairs'] = script_repairs
+            from campaign_actor_inventory_upgrade import plan as inventory_upgrade
+            equipment = {n:read(z,n) for n in z.namelist() if n.startswith('Libs/Storm/equipment/')}
+            inventory_changes, inventories = inventory_upgrade(package, source, target, equipment)
+            changes.update(inventory_changes)
+            marker_report['actor_inventories'] = inventories
     rewrite(package, travel, changes, lambda n: n == legacy_world)
     level = 'Data/Levels/kcd1_travel/level.pak'
     with zipfile.ZipFile(package/level) as z:

@@ -1,4 +1,4 @@
-"""Shared equipped/carried weapon preset emission for NPC import paths."""
+"""Shared equipment and source carried-inventory emission for NPC imports."""
 import uuid
 import xml.etree.ElementTree as E
 from pathlib import Path
@@ -32,13 +32,22 @@ def stage(source,target,mod,person,character,namespace,output,*,reuse_output=Fal
     from campaign_initial_loadout import resolve
     from character_instance import effective_soul
     from container_items import build
+    from campaign_inventory import TABLES
+    from container_audit import inventory_policy
+    from container_loot import compile_inventory
     soul=effective_soul(person['soul'],person['instance'])
     with RetailSourceReader(source) as reader:
-        plan=resolve(SourceTables(source,reader),soul['soul_id'],
+        tables=SourceTables(source,reader)
+        plan=resolve(tables,soul['soul_id'],
             {k:soul[k] for k in ('initial_clothing_preset_id','initial_weapon_preset_id') if k in soul})
+        inventory=inventory_policy(soul.get('inventory_id'),
+            {name:tables.get('inventory/'+name)['rows'] for name in TABLES})
+        if inventory['status']=='unresolved':
+            raise ValueError('Unresolved source actor inventory: '+str(inventory['blockers']))
     weapons=[i for i in plan['items'] if i['kind']=='weapon']
-    if not weapons:return dict(items=[],files={})
-    report=build(source,target,mod,output,{i['item'] for i in weapons},
+    carried=inventory.get('item_dependencies',[])
+    if not weapons and not carried:return dict(items=[],files={})
+    report=build(source,target,mod,output,{i['item'] for i in weapons}|set(carried),
                  asset_namespace=namespace+'_weapons',origin='source_actor_weapon_preset',reuse_output=reuse_output)
     root=E.Element('database',name='barbora')
     preset=E.SubElement(E.SubElement(root,'InventoryPresets',version='2'),'InventoryPreset',
@@ -47,6 +56,10 @@ def stage(source,target,mod,person,character,namespace,output,*,reuse_output=Fal
     files={p.relative_to(Path(output)/'converted').as_posix():p.read_bytes()
            for p in (Path(output)/'converted').rglob('*') if p.is_file()}
     files.update(append_weapons(preset,weapons,report['registered_items'],report['item_names'].__getitem__,namespace))
+    if carried:
+        loot,name,policy=compile_inventory(inventory,report['registered_items'],report['item_names'])
+        E.SubElement(preset,'InventoryPresetRef',Name=name)
+        files['Libs/Tables/item/InventoryPreset__'+name+'.xml']=xml(loot)
     files['Libs/Tables/item/InventoryPreset__'+namespace+'_equipped.xml']=xml(root)
     character['inventory']=namespace+'_equipped'
-    return dict(items=weapons,files=files)
+    return dict(items=weapons,carried_inventory=inventory,files=files)

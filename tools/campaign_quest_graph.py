@@ -278,6 +278,12 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
     for table, payload in model['tables'].items():
         if table.startswith('quest_reward') and payload['rows']:
             report['unsupported'].append(dict(kind='rewards', table=table, rows=payload['rows']))
+    from campaign_objective_conditions import bind as bind_conditions
+    report['converted_conditions'] = bind_conditions(nodes, model)
+    from campaign_objective_events import bind as bind_events
+    report['converted_objective_events'] = bind_events(nodes, model)
+    report['unsupported'] = [r for r in report['unsupported'] if not (
+        r['kind'] == 'completion_policy' and r['objective'] in report['converted_conditions'])]
     from campaign_quest_text import register_journal_strings
     blob, report['journal_strings'] = register_journal_strings(xml(root))
     return blob, report

@@ -157,7 +157,13 @@ role-name mappings must also be applied to their dialogue models before emit.
 
 
 def remap_roles(model, mapping):
-    result = dict(model, roles=copy.deepcopy(model['roles']))
+    from campaign_script_import import translate
+    result = copy.deepcopy(model)
     for role in result['roles'].values():
         role['role_name'] = mapping.get(role['role_name'], role['role_name'])
+    for topic in result['topics'].values():
+        for record in topic['sequences']:
+            source = record['source']
+            if source.get('script'):
+                source['script'] = translate(source['script'], mapping)
     return result

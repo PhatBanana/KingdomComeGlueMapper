@@ -414,7 +414,8 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             if source['script']:
                 # Preserve the actual exit script. This is not evidence that its
                 # APIs survived the engine migration; require a live API audit.
-                attrs['ExitScript'] = source['script']
+                from campaign_script_import import translate
+                attrs['ExitScript'] = translate(source['script'])
                 scripts.append(dict(sequence=sid, source=source['script'], runtime_verified=False))
             if source['flags'] != '0':
                 presentation.append(dict(kind='sequence_flags', sequence=sid, value=source['flags']))

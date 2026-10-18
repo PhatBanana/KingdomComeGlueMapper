@@ -91,7 +91,7 @@ Existing build folders, unsuccessful attempts, and backups from earlier versions
 
 ## Build from source
 
-The current setup can resume completed recipe 3 through 15 packages into recipe 16 without
+The current setup can resume completed recipe 3 through 16 packages into recipe 17 without
 repeating world conversion. It finishes or reuses the existing `kcd1_travel`
 bake checkpoints first, then updates the campaign start guard, removes the old
 horse-recovery hook, reconciles smart-area registrations, and removes compiled
@@ -141,6 +141,16 @@ original KCD1 quest records, including Father and Kunesh. Both clean builds and
 resume migrations use this step; migration requires the configured KCD1 folder.
 Editor graph coordinates are never used as world/map locations.
 
+Recipe 17 translates the verified source `Utils.GiveItem` API to KCD2's
+`ItemUtils.GiveItem`, including imported dialogue participant aliases. It also
+compiles local objective completion predicates using the source expression and
+preserves source carried inventories alongside NPC clothing and weapons.
+Saved-package migration restores these same contracts for registered actors;
+it does not refill live inventories or repair already-created save entities.
+Test carried inventory changes with a fresh New Game. These repairs do not imply
+complete quest-world conversion: quest-controlled shop layers and their ownership
+and service lifecycle still require conversion and runtime validation.
+
 Recipe 12 replaces the arrival-time debug-mode guard with a native `GameStart`
 request and a separate region-readiness state. Both must be set before the
 once-only campaign initializer runs. Initialization consumes the request before
@@ -172,3 +182,5 @@ Python 3.14 also works when the Visual Studio C++ build tools are available to b
 Outputs include the EXE, SHA-256 checksum and frozen-runtime self-test report. GitHub Actions is manual-only; a push or release tag does not automatically run tests. Frozen checks validate included resources, native extensions, GPU payload hashes and a small CPU raster job. They also run a small OptiX bake against the CPU reference and report GPU availability explicitly; they do not substitute for a complete bake or in-game playtest.
 
 See [launcher implementation details](setup-launcher.md) and [region travel](region-travel.md) for further scope and limitations. The release distributes setup code and interface assets, not converted game archives.
+
+Recipe 18 also migrates supported source objective-update handlers so parent objectives and their map markers follow the original quest lifecycle.
