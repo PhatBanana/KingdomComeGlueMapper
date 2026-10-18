@@ -196,7 +196,7 @@ def attach_scene(project_blob, quest_project_blob, dialogue_name, quest_name,
     """Merge a source quest and dialogue into a destination native project.
 
     Only a native New Game arrival starts the quest and its ForcedDialog.
-    Existing-player arrivals close the saved latch without initialization.
+    Existing-player arrivals do not request campaign initialization.
     """
     identifier(dialogue_name); identifier(quest_name)
     root, incoming = ET.fromstring(project_blob), ET.fromstring(quest_project_blob)

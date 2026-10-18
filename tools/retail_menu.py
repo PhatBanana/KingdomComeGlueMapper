@@ -27,7 +27,7 @@ def after_new_game_action():
 def native_new_game_function():
     command = b'FSCommand:onBasicButton\0NewGame\0'
     body = b'\x83' + struct.pack('<H', len(command)) + command + b'\0'
-    header = b'fc_glueMapperNativeNewGame\0\0\0' + struct.pack('<H', len(body))
+    header = b'fc_glueMapperNativeCampaignNewGame\0\0\0' + struct.pack('<H', len(body))
     return b'\x9b' + struct.pack('<H', len(header)) + header + body
 
 
@@ -148,7 +148,7 @@ def patch_ui_xml(blob):
     remove = ET.SubElement(functions, 'function', name='GlueMapperRemoveButton', funcname='fc_removeBasicButton')
     ET.SubElement(remove, 'param', name='buttonId', type='string')
     ET.SubElement(remove, 'param', name='containerIndex', type='int')
-    ET.SubElement(functions, 'function', name='GlueMapperNativeNewGame', funcname='fc_glueMapperNativeNewGame')
+    ET.SubElement(functions, 'function', name='GlueMapperNativeCampaignNewGame', funcname='fc_glueMapperNativeCampaignNewGame')
     return ET.tostring(root, encoding='utf-8', xml_declaration=True)
 
 

@@ -19,6 +19,8 @@ def resources(game, level_id):
     """Build from retail UI assets; no developer runtime or debug flag needed."""
     from setup_campaign import runtime_directory
     with zipfile.ZipFile(Path(game) / 'Data/IPL_GameData.pak') as z:
+        from campaign_start_policy import validate_native
+        validate_native(read(z, 'Libs/concept/definitions.xml'))
         assets, source = menu_assets(z, read)
     lua = ('KingdomComeGlueMapper = KingdomComeGlueMapper or {}\n'
            'KingdomComeGlueMapper.startProbe = true\n'

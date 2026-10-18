@@ -2,70 +2,81 @@ import sys
 from pathlib import Path
 import unittest
 import xml.etree.ElementTree as ET
-
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from campaign_scene import attach_scene
-from campaign_start_policy import METHOD, POLICY, gate_start, validate_native, validate_start_policy
+from campaign_start_policy import POLICY, LEGACY_METHOD, gate_start, validate_native, validate_start_policy
+
+
+def old_scene(blob, name='opening', guarded=False):
+    root=ET.fromstring(blob); nodes=root.find('./Skald/Project/Nodes')
+    arrival=nodes.find("State[@Name='"+name+"_ready']/Edge").get('From')
+    for n in list(nodes):
+        if n.get('Name') in [name+s for s in ('_game_start','_requested','_ready','_new_game')]: nodes.remove(n)
+    nodes.find("If[@Name='"+name+"_begin']/Edge[@To='Exec']").set('From',arrival)
+    if guarded:
+        guard=ET.SubElement(nodes,'IfFunction',Name=name+'_new_game',MethodName=LEGACY_METHOD,DeclaringType='wh::rpgmodule')
+        ET.SubElement(guard,'Edge',From=name+'_begin.True',To='Exec')
+        nodes.find("TriggerSequence[@Name='"+name+"_initialize']/Edge").set('From',name+'_new_game.True')
+        ET.SubElement(nodes.find("State[@Name='"+name+"_started']"),'Edge',From=name+'_new_game.False',To='SetTrue')
+    return ET.tostring(root)
 
 
 class CampaignStartPolicyTests(unittest.TestCase):
     def scene(self):
-        host = b'<Database><Skald><Project><Definitions/><Nodes/><Types/><ObjectiveValueTypes/></Project></Skald></Database>'
-        source = b'<Database><Skald><Project><Definitions/><Nodes><Quest Name="quest"/><Dialogue Name="opening"/></Nodes><Types/><ObjectiveValueTypes/></Project></Skald></Database>'
-        return attach_scene(host, source, 'opening', 'quest', 'region.arrived', 'Finished', 'player')
+        host=b'<Database><Skald><Project><Definitions/><Nodes/><Types/><ObjectiveValueTypes/></Project></Skald></Database>'
+        source=b'<Database><Skald><Project><Definitions/><Nodes><Quest Name="quest"/><Dialogue Name="opening"/></Nodes><Types/><ObjectiveValueTypes/></Project></Skald></Database>'
+        return attach_scene(host,source,'opening','quest','region.arrived','Finished','player')
 
-    def test_shared_scene_builder_gates_entire_initialization(self):
-        blob = self.scene()
-        self.assertEqual(validate_start_policy(blob, 'opening'), POLICY)
-        nodes = ET.fromstring(blob).find('./Skald/Project/Nodes')
-        sequence = nodes.find("TriggerSequence[@Name='opening_initialize']")
-        self.assertEqual(sequence.find('Edge').attrib, {'From': 'opening_new_game.True', 'To': 'Exec'})
-        self.assertEqual(nodes.find("Quest/Edge[@To='start']").get('From'), 'opening_initialize.B')
-        self.assertEqual(nodes.find("Dialogue/Edge[@To='EnqueueDialogue']").get('From'), 'opening_initialize.C')
-        self.assertIsNotNone(nodes.find("State/Edge[@From='opening_new_game.False'][@To='SetTrue']"))
-        self.assertEqual(gate_start(blob, 'opening'), blob)
+    def test_shared_builder_and_legacy_migration(self):
+        blob=self.scene()
+        self.assertEqual(validate_start_policy(blob,'opening'),POLICY)
+        self.assertEqual(gate_start(blob,'opening'),blob)
+        for guarded in (False,True):
+            old=old_scene(blob,guarded=guarded)
+            with self.assertRaises(ValueError):validate_start_policy(old,'opening')
+            self.assertEqual(validate_start_policy(gate_start(old,'opening'),'opening'),POLICY)
+        self.assertNotIn(LEGACY_METHOD.encode(),blob)
 
-    def test_unprotected_existing_packages_can_be_migrated(self):
-        root = ET.fromstring(self.scene())
-        nodes = root.find('./Skald/Project/Nodes')
-        nodes.remove(nodes.find('IfFunction'))
-        nodes.find('TriggerSequence/Edge').set('From', 'opening_begin.True')
-        latch = nodes.find('State')
-        latch.remove(latch.find("Edge[@From='opening_new_game.False']"))
-        old = ET.tostring(root)
-        with self.assertRaises(ValueError):
-            validate_start_policy(old, 'opening')
-        self.assertEqual(validate_start_policy(gate_start(old, 'opening'), 'opening'), POLICY)
+    def test_events_require_new_start_and_ready_and_run_only_once(self):
+        # Interpret emitted control nodes, with each trigger chain dispatched before the next external event.
+        # No game-start event is synthesized for load, arrival or return.
+        nodes=ET.fromstring(self.scene()).find('./Skald/Project/Nodes')
+        def run(events,state=None):
+            state=dict(state or {}); effects=[]; queue=list(events)
+            def value(ref):
+                name,port=ref.rsplit('.',1)
+                if name=='opening_unstarted': return not state.get('opening_started',False)
+                return state.get(name,False)
+            for _ in range(200):
+                if not queue:return state,effects
+                event=queue.pop(0)
+                for node in nodes:
+                    name=node.get('Name')
+                    for edge in node.findall('Edge'):
+                        if edge.get('From')!=event:continue
+                        port=edge.get('To')
+                        if node.tag=='State' and port in ('SetTrue','SetFalse'):
+                            state[name]=port=='SetTrue';queue.insert(0,name+'.OnExec')
+                        elif node.tag in ('If','IfFunction') and port=='Exec':
+                            ports=['A','B'] if node.tag=='IfFunction' else ['Condition']
+                            yes=all(value(node.find("Edge[@To='"+p+"']").get('From')) for p in ports)
+                            queue.insert(0,name+('.True' if yes else '.False'))
+                        elif node.tag=='TriggerSequence' and port=='Exec':
+                            queue[0:0]=[name+'.'+p for p in 'ABC'];effects.append(name)
+            raise AssertionError('Graph did not settle')
+        for events in [('opening_game_start.OnStart','region.arrived'),('region.arrived','opening_game_start.OnStart')]:
+            state,effects=run(events)
+            self.assertEqual(effects,['opening_initialize'])
+            self.assertFalse(state['opening_requested'])
+            self.assertEqual(run(['region.arrived','opening_game_start.OnStart'],state)[1],[])
+        self.assertEqual(run(['region.arrived','region.arrived'])[1],[])
+        self.assertEqual(run([])[1],[])
 
-    def test_bypass_edges_and_wrong_predicate_are_rejected(self):
-        for kind in ('sequence', 'guard', 'condition', 'visitor', 'method'):
-            with self.subTest(kind=kind):
-                root = ET.fromstring(self.scene())
-                nodes = root.find('./Skald/Project/Nodes')
-                if kind in ('sequence', 'guard', 'condition'):
-                    tag, port = {'sequence': ('TriggerSequence', 'Exec'), 'guard': ('IfFunction', 'Exec'), 'condition': ('If', 'Condition')}[kind]
-                    ET.SubElement(nodes.find(tag), 'Edge', From='region.arrived', To=port)
-                elif kind == 'visitor':
-                    latch = nodes.find('State')
-                    latch.remove(latch.find("Edge[@From='opening_new_game.False']"))
-                else:
-                    nodes.find('IfFunction').set('MethodName', 'wrong')
-                with self.assertRaises(ValueError):
-                    validate_start_policy(ET.tostring(root), 'opening')
+    def test_bypass_rejected(self):
+        root=ET.fromstring(self.scene());nodes=root.find('./Skald/Project/Nodes')
+        ET.SubElement(nodes.find('TriggerSequence'),'Edge',From='region.arrived',To='Exec')
+        with self.assertRaises(ValueError):validate_start_policy(ET.tostring(root),'opening')
 
-    def test_native_definition_contract_required(self):
-        root = ET.fromstring('<Definitions><Definition TypeName="IfFunction"><Properties/><Ports/></Definition></Definitions>')
-        definition = root.find('Definition')
-        ET.SubElement(definition.find('Properties'), 'Property', Name='MethodName', Value=METHOD)
-        for name, direction in [('Exec', 'In'), ('True', 'Out'), ('False', 'Out')]:
-            ET.SubElement(definition.find('Ports'), 'CompileTimePort', Name=name, Direction=direction, Type='trigger')
-        validate_native(ET.tostring(root))
-        definition.find('Ports')[2].set('Type', 'bool')
-        with self.assertRaises(ValueError):
-            validate_native(ET.tostring(root))
-        with self.assertRaises(ValueError):
-            validate_native(b'<Definitions/>')
-
-
-if __name__ == '__main__':
-    unittest.main()
+    def test_native_contract_required(self):
+        validate_native(b'<Definitions><Definition TypeName="GameStart"><Ports><CompileTimePort Name="OnStart" Direction="Out" Type="trigger"/></Ports></Definition></Definitions>')
+        with self.assertRaises(ValueError):validate_native(b'<Definitions/>')

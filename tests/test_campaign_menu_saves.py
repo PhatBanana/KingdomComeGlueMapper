@@ -21,7 +21,7 @@ class CampaignMenuSaveTests(unittest.TestCase):
     def test_new_game_requested_only_with_protection_enabled(self):
         self.press()
         self.assertEqual(self.lua.eval('#calls'),1)
-        self.assertEqual(self.lua.eval('calls[1].f'),'GlueMapperNativeNewGame')
+        self.assertEqual(self.lua.eval('calls[1].f'),'GlueMapperNativeCampaignNewGame')
         self.assertEqual(self.lua.eval('calls[1].keep'),1)
         self.assertEqual(self.lua.eval('calls[1].level'),1001)
     def test_root_menu_restores_previous_values(self):

@@ -14,7 +14,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     report.setdefault('content_validation', {})['start_policy'] = POLICY
@@ -29,6 +29,8 @@ def rewrite(package, relative, replacements, remove=lambda name: False):
         for entry in source.infolist():
             if not remove(entry.filename):
                 out.writestr(entry, replacements.get(entry.filename, read(source, entry.filename)))
+        for name in sorted(set(replacements) - set(source.namelist())):
+            out.writestr(name, replacements[name])
     with zipfile.ZipFile(pending) as check:
         if check.testzip() is not None:
             raise ValueError('Package migration archive verification failed')
@@ -52,7 +54,21 @@ def finalize(package, *, target=None, notify=lambda *a: None, cancelled=lambda: 
     with zipfile.ZipFile(package/travel) as z:
         player = 'Scripts/Entities/actor/player.lua'
         changes = {PROJECT: gate_start(read(z, PROJECT), OPENING), player: remove_horse_recovery(read(z, player))}
-    rewrite(package, travel, changes)
+        legacy_world = next((n for n in z.namelist() if n.lower() == 'quests/gluetravel/world/open_world.xml'), None)
+        world = legacy_world or next((n for n in z.namelist() if n.lower() == 'quests/gluetravel/entry/world/open_world.xml'), None)
+        if world:
+            if target is None:
+                raise ValueError('Game folder required to repair packaged world gameplay dependencies')
+            from world_gameplay_basis import package_dependencies, validate_dependency_scopes
+            entry = next(n for n in z.namelist() if n.lower() == 'quests/gluetravel/entry/kcd1_travel.xml')
+            with zipfile.ZipFile(Path(target)/'Data/Scripts.pak') as scripts:
+                dependencies = package_dependencies({entry: read(z, entry), world: read(z, world)},
+                                                    entry, world, scripts)
+            with zipfile.ZipFile(Path(target)/'Data/IPL_GameData.pak') as native:
+                validate_dependency_scopes(dependencies, entry.rsplit('/', 1)[0]+'/world/open_world.xml',
+                                           read(native, 'Libs/concept/definitions.xml'))
+            changes.update(dependencies)
+    rewrite(package, travel, changes, lambda n: n == legacy_world)
     level = 'Data/Levels/kcd1_travel/level.pak'
     with zipfile.ZipFile(package/level) as z:
         metadata, added = reconcile(read(z, 'whdata_0'), read(z, 'objects_mission0.xml'))
@@ -98,7 +114,8 @@ def finalize(package, *, target=None, notify=lambda *a: None, cancelled=lambda: 
     actor_files, actor_removed, actor_report = upgrade_materials(package, target, notify, cancelled)
     receipt['files'].update(actor_files)
     for name in actor_removed: receipt['files'].pop(name, None)
-    receipt['actor_material_upgrade'] = actor_report
+    if actor_report['actors'] or 'actor_material_upgrade' not in receipt:
+        receipt['actor_material_upgrade'] = actor_report
     receipt['build_recipe']['content_validation'] = validate(package)
     receipt['build_recipe']['version'] = VERSION
     receipt['package_upgrade'] = dict(version=2, registered_smart_areas=added,
@@ -111,5 +128,8 @@ def finalize(package, *, target=None, notify=lambda *a: None, cancelled=lambda: 
     pending = package/(RECEIPT+'.pending')
     pending.write_text(json.dumps(receipt, indent=2), encoding='utf-8')
     pending.replace(package/RECEIPT)
-    verify_package(package)
+    if target is not None:
+        from campaign_menu_stage import add_to_package
+        add_to_package(target, package)
+    receipt = verify_package(package)
     return receipt

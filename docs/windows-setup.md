@@ -91,7 +91,7 @@ Existing build folders, unsuccessful attempts, and backups from earlier versions
 
 ## Build from source
 
-The current setup can resume completed recipe 3 through 10 packages into recipe 11 without
+The current setup can resume completed recipe 3 through 14 packages into recipe 15 without
 repeating world conversion. It finishes or reuses the existing `kcd1_travel`
 bake checkpoints first, then updates the campaign start guard, removes the old
 horse-recovery hook, reconciles smart-area registrations, and removes compiled
@@ -118,6 +118,32 @@ quests, schedules, inventory registrations, and completed lighting bake metadata
 Already upgraded native outfits are skipped. Failed migration staging is removed;
 the previous verified package remains available. Rendered appearance still needs
 an in-game check after installation.
+
+Recipe 13 also repairs world gameplay dependency packaging: it places the selected
+native quest graph closure under the mod with literal, downward-only include
+paths. This prevents the runtime XML reader from rejecting the campaign project
+on unresolved parent-directory archive paths. Migration uses the selected game's
+Scripts.pak and retains existing world assets and lighting.
+
+Recipe 14 extends that dependency collection to inherited `utils.*` namespaces.
+It packages referenced native utility modules recursively and preserves their
+library instances, instead of assuming Barbora's parent scope exists in the
+converted campaign. Recipe 13 packages are upgraded by the same collector.
+
+Recipe 15 also collects implicit sibling dependencies (empty namespaces) and
+short relative namespace references within utility libraries. Clean builds and
+migrations validate custom node types against the packaged lexical scopes and
+the selected game's built-in node definitions before accepting those graphs.
+
+Recipe 12 replaces the arrival-time debug-mode guard with a native `GameStart`
+request and a separate region-readiness state. Both must be set before the
+once-only campaign initializer runs. Initialization consumes the request before
+starter equipment and quests are applied; arrival alone cannot request it.
+Setup refreshes the campaign menu as well as the graph during migration, retaining
+the normal native New Game operation and save-deletion protection. Tests cover
+both event orders and repeated arrivals; runtime New Game and existing-save travel
+must still be checked in-game. An old save whose initialization latch was already
+closed is preserved, not reset: test the opening with a fresh New Game.
 
 On 2026-10-18, the existing full-bake recipe 7 build was migrated to recipe 11
 and installed through the rebuilt setup. Seven male appearances were upgraded,

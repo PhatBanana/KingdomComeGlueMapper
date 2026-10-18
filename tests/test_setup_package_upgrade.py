@@ -16,6 +16,22 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_rewrite_adds_dependency_payloads_and_removes_obsolete_wrapper(self):
+        from setup_package_upgrade import rewrite
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with zipfile.ZipFile(root/'graphs.pak', 'w') as z:
+                z.writestr('entry.xml', b'old')
+                z.writestr('obsolete.xml', b'obsolete')
+                z.writestr('keep.xml', b'keep')
+            rewrite(root, 'graphs.pak', {'entry.xml': b'new', 'native/child.xml': b'child'},
+                    lambda name: name == 'obsolete.xml')
+            with zipfile.ZipFile(root/'graphs.pak') as z:
+                self.assertEqual(set(z.namelist()), {'entry.xml', 'native/child.xml', 'keep.xml'})
+                self.assertEqual(z.read('native/child.xml'), b'child')
+                self.assertEqual(z.read('entry.xml'), b'new')
+                self.assertEqual(z.read('keep.xml'), b'keep')
+
     def test_recipe9_split_is_restored_during_resume(self):
         self.restore_split = True
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -30,9 +46,8 @@ class UpgradeTests(unittest.TestCase):
             host=b'<Database><Skald><Project><Nodes/><Definitions/><Types/><ObjectiveValueTypes/></Project></Skald></Database>'
             source=f'<Database><Skald><Project><Nodes><Quest Name="q"/><Dialogue Name="{OPENING}"/></Nodes><Definitions/><Types/><ObjectiveValueTypes/></Project></Skald></Database>'.encode()
             graph=ET.fromstring(attach_scene(host,source,OPENING,'q','level.arrived','done','player'))
-            nodes=graph.find('./Skald/Project/Nodes');nodes.remove(nodes.find('IfFunction'))
-            nodes.find('TriggerSequence/Edge').set('From',OPENING+'_begin.True')
-            latch=nodes.find('State');latch.remove(latch.find(f"Edge[@From='{OPENING}_new_game.False']"))
+            from test_campaign_start_policy import old_scene
+            graph=ET.fromstring(old_scene(ET.tostring(graph),OPENING,guarded=True))
             player=travel_player_resources(b'function Player:OnInit() end\nfunction Player:OnLoadAI() end\n')['Scripts/Entities/actor/player.lua']
             player+=Path('tools/region_travel_horse_recovery.lua').read_bytes()
             archive('Data/gluemappertravel.pak',{PROJECT:ET.tostring(graph),'Scripts/Entities/actor/player.lua':player,'keep':b'unchanged'})

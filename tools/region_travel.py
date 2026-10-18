@@ -410,11 +410,15 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_contracts:
                     replacements,contract_report=apply_world_contracts(replacements,native_contracts)
                 entry_report['runtime_contracts']=contract_report
-                from world_gameplay_basis import apply as apply_gameplay_basis
+                from world_gameplay_basis import apply as apply_gameplay_basis, validate_dependency_scopes
                 with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native_contracts, \
                      zipfile.ZipFile(target/'Data/Scripts.pak') as native_scripts:
                     replacements,graphs,basis_report=apply_gameplay_basis(
                         replacements,graphs,graph,LEVEL,native_contracts,native_scripts,guid)
+                with zipfile.ZipFile(target/'Data/IPL_GameData.pak') as native_definitions:
+                    basis_report['validated_dependency_graphs'] = validate_dependency_scopes(
+                        graphs, graph.rsplit('/',1)[0]+'/entry/world/open_world.xml',
+                        read(native_definitions,'Libs/concept/definitions.xml'))
                 entry_report['gameplay_basis']=basis_report
                 from cooking_pots import convert as convert_cooking_pots
                 with zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as source_pots, \

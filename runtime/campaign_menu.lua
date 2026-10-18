@@ -36,7 +36,7 @@ function mod:OnCampaignMenuEvent(element, instance, event, args)
         end
         self.pendingNewGame = true
         System.LogAlways("[GlueMapper] Requesting native New Game for level " .. tostring(level))
-        UIAction.CallFunction("Menu", 0, "GlueMapperNativeNewGame")
+        UIAction.CallFunction("Menu", 0, "GlueMapperNativeCampaignNewGame")
         return
     end
     if event == "GlueMapperRootMenu" and self.pendingNewGame then

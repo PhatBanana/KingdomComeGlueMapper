@@ -1,7 +1,7 @@
 """Register native open-world gameplay and its destination-owned bindings.
 
-Keep shipped graph implementations in Scripts.pak. Only generate the host and
-world links; never override Barbora.xml or enable Trosky story quests globally.
+Package the selected native dependency closure beside its host. Archive lookups
+must not depend on resolving parent-directory segments across mounted paks.
 """
 import copy
 import hashlib
@@ -22,6 +22,188 @@ SYSTEMS = (
     'requestplayerholsterweapon', 'generic_action_prompts',
     'battle_barks', 'punishment_barks', 'shop', 'repair', 'sharpening',
 )
+
+
+def validate_dependency_scopes(graphs, wrapper_path, native_definitions):
+    """Resolve custom node types through their packaged lexical scopes.
+
+    File presence alone cannot detect missing inherited types. Built-in node
+    types come from this game's definitions rather than an assumed allowlist.
+    """
+    definitions = ET.fromstring(native_definitions)
+    builtin = {n.get('TypeName') for n in definitions.findall('Nodes/Definition')} | {'Input', 'Output'}
+    prefix = wrapper_path.rsplit('/', 1)[0] + '/'
+    modules = {p: ET.fromstring(b).find('Skald')[0] for p, b in graphs.items() if p.startswith(prefix)}
+    visited = set()
+
+    def local(path):
+        result = {}
+        for node in modules[path].findall('Definitions/Definition'):
+            child = path.rsplit('/', 1)[0] + '/' + node.get('File')
+            if child not in modules: raise ValueError('Missing literal dependency: ' + child)
+            result[modules[child].get('Name')] = child
+        return result
+
+    def walk(path, parents=(), stack=()):
+        if path in stack: return
+        visited.add(path)
+        children = local(path)
+        scope = (children, *parents)
+        for node in modules[path].findall('Nodes/*'):
+            if node.tag in builtin: continue
+            context = scope
+            namespace = node.get('Namespace', '')
+            for part in namespace.split('.') if namespace else ():
+                target = next((s[part] for s in context if part in s), None)
+                if target is None: raise ValueError(f'Unresolved namespace {namespace} in {path}')
+                context = (local(target),)
+            if not any(node.tag in s for s in context):
+                raise ValueError(f'Unresolved node type {namespace}.{node.tag} in {path}')
+        for child in children.values(): walk(child, scope, (*stack, path))
+
+    walk(wrapper_path)
+    return len(visited)
+
+
+def package_dependencies(graphs, entry_path, wrapper_path, scripts):
+    """Relocate the native closure with literal, downward-only Definition paths.
+
+    The runtime XML reader does not normalize the chained ../ paths that Python's
+    dependency audit accepts. Keep copied native graphs private to this mod.
+    Also used when migrating an already-built package.
+    """
+    graphs = dict(graphs)
+    entry = ET.fromstring(graphs[entry_path])
+    wrapper = ET.fromstring(graphs[wrapper_path])
+    for section, attr, value in (('Definitions', 'File', 'native/utils.xml'), ('Nodes', 'Name', 'utils')):
+        parent = wrapper.find('Skald')[0].find(section)
+        if parent is not None:
+            for child in list(parent):
+                if child.get(attr) == value: parent.remove(child)
+    destination = posixpath.dirname(entry_path) + '/world/open_world.xml'
+    names = {n.lower(): n for n in scripts.namelist()}
+    copied = {}
+    requested = set()
+    libraries = {}
+    library_symbols = {}
+
+    def symbols(namespace):
+        if namespace not in library_symbols:
+            path = 'quests/final/barbora/' + namespace.replace('.', '/') + '.xml'
+            if path not in names:
+                raise ValueError('Missing native namespace: ' + namespace)
+            host = ET.fromstring(read(scripts, names[path])).find('Skald')[0]
+            result = {}
+            for definition in host.findall('Definitions/Definition'):
+                child = posixpath.normpath(posixpath.join(posixpath.dirname(path), definition.get('File'))).lower()
+                module = ET.fromstring(read(scripts, names[child])).find('Skald')[0]
+                symbol = module.get('Name')
+                if symbol in result: raise ValueError('Ambiguous native library symbol: ' + symbol)
+                result[symbol] = child
+            library_symbols[namespace] = result
+        return library_symbols[namespace]
+
+    def utility(namespace, symbol):
+        key = (namespace, symbol)
+        if key in requested:
+            return
+        requested.add(key)
+        path = 'quests/final/barbora/' + namespace.replace('.', '/') + '.xml'
+        if path not in names:
+            raise ValueError('Missing native namespace: ' + namespace)
+        source = ET.fromstring(read(scripts, names[path]))
+        host = source.find('Skald')[0]
+        if namespace not in libraries:
+            shell = copy.deepcopy(source)
+            target = shell.find('Skald')[0]
+            for section in ('Definitions', 'Nodes'):
+                node = target.find(section)
+                if node is not None: target.remove(node)
+                ET.SubElement(target, section)
+            libraries[namespace] = shell
+        target = libraries[namespace].find('Skald')[0]
+        child = symbols(namespace).get(symbol)
+        if child is None:
+            raise ValueError(f'Cannot resolve native namespace symbol {namespace}.{symbol}')
+        filename = copy_graph(child, namespace)
+        ET.SubElement(target.find('Definitions'), 'Definition', File=filename)
+        instances = [n for n in host.findall('Nodes/*') if n.tag == symbol]
+        if not instances:
+            raise ValueError(f'Missing native library instance {namespace}.{symbol}')
+        target.find('Nodes').extend(copy.deepcopy(instances))
+
+    def copy_graph(path, inherited_namespace=None):
+        path = posixpath.normpath(path).lower()
+        filename = hashlib.sha256(path.encode()).hexdigest()[:24] + '.xml'
+        if path in copied:
+            return filename
+        if path not in names:
+            raise ValueError('Missing packaged native gameplay dependency: ' + path)
+        copied[path] = filename
+        root = ET.fromstring(read(scripts, names[path]))
+        local = {}
+        for definition in root.findall('.//Definitions/Definition'):
+            child = posixpath.normpath(posixpath.join(posixpath.dirname(path), definition.get('File'))).lower()
+            module = ET.fromstring(read(scripts, names[child])).find('Skald')[0]
+            local[module.get('Name')] = child
+        for node in root.findall('.//Nodes/*'):
+            namespace = node.get('Namespace', '')
+            if namespace.startswith('utils.'):
+                utility(namespace, node.tag)
+            elif namespace and inherited_namespace and ('quests/final/barbora/utils/' + namespace.replace('.', '/') + '.xml') in names:
+                # Utility modules also refer to sibling libraries by a short
+                # namespace such as "rpg", relative to their parent utils.
+                utility('utils.' + namespace, node.tag)
+            elif not namespace and inherited_namespace and node.tag not in local:
+                # An empty Namespace means lexical lookup, not no dependency.
+                # E.g. utils.money.getmoney calls its sibling converters.
+                if node.tag in symbols(inherited_namespace):
+                    utility(inherited_namespace, node.tag)
+        for definition in root.findall('.//Definitions/Definition'):
+            child = posixpath.normpath(posixpath.join(posixpath.dirname(path), definition.get('File')))
+            definition.set('File', copy_graph(child, inherited_namespace))
+        graphs[posixpath.dirname(destination) + '/native/' + filename] = xml(root)
+        return filename
+
+    for definition in wrapper.findall('.//Definitions/Definition'):
+        path = posixpath.normpath(posixpath.join(posixpath.dirname(wrapper_path), definition.get('File')))
+        # Recipe 13 already has hashed private includes. Recover their source
+        # identity so migration can add namespace dependencies as well.
+        if path.lower() not in names:
+            stem = posixpath.basename(path)
+            matches = [n for n in names if hashlib.sha256(n.encode()).hexdigest()[:24] + '.xml' == stem]
+            if len(matches) != 1: raise ValueError('Unknown packaged graph: ' + path)
+            path = matches[0]
+        definition.set('File', 'native/' + copy_graph(path))
+    if libraries:
+        root = ET.Element('Database', Name='brambora')
+        module = ET.SubElement(ET.SubElement(root, 'Skald'), 'Module', Name='utils', VoiceNamespace='true')
+        definitions = ET.SubElement(module, 'Definitions')
+        nodes = ET.SubElement(module, 'Nodes')
+        for namespace, library in sorted(libraries.items()):
+            if namespace.count('.') != 1:
+                raise ValueError('Unsupported native namespace nesting: ' + namespace)
+            name = namespace.split('.')[1]
+            filename = 'utils_' + name + '.xml'
+            ET.SubElement(definitions, 'Definition', File=filename)
+            ET.SubElement(nodes, name, Name=name)
+            graphs[posixpath.dirname(destination) + '/native/' + filename] = xml(library)
+        graphs[posixpath.dirname(destination) + '/native/utils.xml'] = xml(root)
+        host = wrapper.find('Skald')[0]
+        ET.SubElement(host.find('Definitions'), 'Definition', File='native/utils.xml')
+        ET.SubElement(host.find('Nodes'), 'utils', Name='utils')
+    found = False
+    for definition in entry.findall('.//Definitions/Definition'):
+        path = posixpath.normpath(posixpath.join(posixpath.dirname(entry_path), definition.get('File')))
+        if path.lower() == wrapper_path.lower():
+            definition.set('File', 'world/open_world.xml')
+            found = True
+    if not found:
+        raise ValueError('Missing world gameplay Definition in entry graph')
+    if wrapper_path != destination:
+        del graphs[wrapper_path]
+    graphs[entry_path], graphs[destination] = xml(entry), xml(wrapper)
+    return graphs
 
 
 class NativeGraphs:
@@ -148,6 +330,7 @@ def apply(files, graphs, graph_path, level, native_level, scripts, identity):
     files['waitinglinks.xml'] = append_links(files['waitinglinks.xml'],
         [(a.get('EntityGuid'), b.get('EntityGuid'), label) for a, b, label in links])
     graphs[entry_path], graphs[wrapper_path] = xml(entry), xml(wrapper)
+    graphs = package_dependencies(graphs, entry_path, wrapper_path, scripts)
     return files, graphs, dict(systems=inventory, native_dependencies={p: native.cache[p][1] for p in sorted(selected_paths)},
         service_bindings=[dict(source=a.get('Name'), target=b.get('Name'), label=l) for a,b,l in links],
         runtime_verified=False, full_trosky_parity=False)
