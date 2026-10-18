@@ -42,4 +42,22 @@ class OpenGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'geometry differs'):
             resolve_models(files,['new/grate.cgf'],assets.__getitem__,original)
 
+    def test_packaged_lod_metadata_normalization_is_accepted(self):
+        from unittest.mock import patch
+        from clothing_regions import Chunk,read_chunks,write_chunks
+        def mesh(value):return write_chunks([Chunk(0x1000,0x800,1,value)],{})
+        files=self.fixture()
+        # write_asset_shards stores normalized meshes; the source stays raw.
+        normalized=lambda blob:write_chunks([Chunk(c.kind,c.version,c.id,c.data+b'+area')
+                                             for c in read_chunks(blob)],{})
+        assets={'new/grate.cgf':mesh(b'grate geometry+area'),
+                'gluebuild/setup_props/entity104.cga':mesh(b'palisade geometry+area')}
+        original=lambda n:mesh(b'grate geometry' if n.endswith('_grate.cgf') else b'palisade geometry')
+        with patch('mesh_lod_metadata.normalize',normalized):
+            self.assertEqual(resolve_models(files,['new/grate.cgf'],assets.__getitem__,original),
+                             ('new/grate.cgf','gluebuild/setup_props/entity104.cga'))
+            assets['new/grate.cgf']=mesh(b'other geometry+area')
+            with self.assertRaisesRegex(ValueError,'geometry differs'):
+                resolve_models(files,['new/grate.cgf'],assets.__getitem__,original)
+
 if __name__=='__main__':unittest.main()

@@ -91,10 +91,16 @@ def resolve_models(files, meshes, asset, original):
     gate=ET.fromstring(files['objects_mission0.xml']).find(".//Entity[@Name='glue_item_124019']")
     if gate is None:raise ValueError('Missing Talburg gate source identity')
     palisade=gate.get('Geometry')
+    from mesh_lod_metadata import normalize
     for target,source in ((grate,'objects/buildings/castles/castle_talmberk/castle_talmberk_grate.cgf'),
                           (palisade,'objects/buildings/wall_wooden/talmberk_palisade_gate.cga')):
-        if signature(asset(target))!=signature(original(source)):
-            raise ValueError('Gate geometry differs from its reviewed source: '+source)
+        # Packaging normalizes static mesh LOD metadata; accept that form too.
+        reviewed,actual=original(source),signature(asset(target))
+        if actual!=signature(reviewed):
+            try:normalized=signature(normalize(reviewed))
+            except ValueError:normalized=None
+            if actual!=normalized:
+                raise ValueError('Gate geometry differs from its reviewed source: '+source)
     return grate,palisade
 
 
