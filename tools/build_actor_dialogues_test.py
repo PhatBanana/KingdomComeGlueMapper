@@ -164,6 +164,16 @@ def build(a):
         blob, bound_media, binding_report = bind_recordings(blob, model, media, native_voices,
                                                          parent_namespace=parent_namespace)
         files = attach_dialogue(files, a.container_name, blob, report, a.activation, a.container)
+        from campaign_polylogue import adapt, MODULE, TRIGGER
+        participant_ids = {p['role_id'] for p in model.get('participants', []) if p['topic_id'] == topic}
+        participant_souls = [sid for sid, rs in bindings.items() if participant_ids & {r['role_id'] for r in rs}]
+        if len(participant_souls) > 1 and getattr(a, 'kind', 'FaderDialog') == 'FaderDialog':
+            with zipfile.ZipFile(a.target/'Data/Scripts.pak') as native:
+                templates = {p: read(native,p) for p in (MODULE,TRIGGER)}
+            import posixpath
+            dialogue_path = posixpath.join(posixpath.dirname(a.container), a.container_name, name+'.xml')
+            files, upgraded = adapt(files, a.container, dialogue_path, participant_souls, templates)
+            report['native_participant_upgrade'] = upgraded
         recordings.update(bound_media)
         strings = ET.Element('Table')
         for key, value in sorted(model['strings'].items()):

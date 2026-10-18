@@ -36,8 +36,9 @@ def bind_markers(project_blob, quest_blob, model, registered):
     for row in model['tables'].get('quest_tracked_asset', {}).get('rows', []):
         if row['quest_id'] != model['quest_id'] or row['objective_id'] not in objectives:
             raise ValueError('Unknown tracked objective')
-        if row['quest_asset_id'] in people and row.get('on_map', '').lower() == 'true':
-            grouped[row['objective_id']].append(row)
+        target = row.get('map_asset_id') or row['quest_asset_id']
+        if target in people and row.get('on_map', '').lower() == 'true':
+            grouped[row['objective_id']].append(dict(row, quest_asset_id=target))
     converted, pending = [], []
     for oid, rows in grouped.items():
         name = objective_identifier(objectives[oid]['objective_name'])

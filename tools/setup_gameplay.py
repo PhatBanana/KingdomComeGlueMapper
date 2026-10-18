@@ -205,9 +205,6 @@ def dialogues(source, target, package, output, model_path, group):
     from build_actor_dialogues_test import build
     namespace, kind, topics = group
     activation = QUEST + '.started'
-    if namespace == 'gm_guard_interaction':
-        from setup_guard_conversations import source_activation
-        activation = source_activation(json.loads(model_path.read_text()), 'janek_waitsAtTheGate')
     return build(SimpleNamespace(source=source, target=target, mod=package, output=output,
         quest_ir=[model_path], start_topic=list(topics), namespace=namespace, kind=kind,
         container=ENTRY.removeprefix('Quests/'), container_name=LEVEL,

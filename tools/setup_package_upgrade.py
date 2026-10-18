@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -64,6 +64,7 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     receipt['files'].update(guard_files)
     if guard_report: receipt['guard_conversations'] = guard_report
     changes = {}
+    format_level_changes = {}
     travel = 'Data/gluemappertravel.pak'
     with zipfile.ZipFile(package/travel) as z:
         player = 'Scripts/Entities/actor/player.lua'
@@ -95,6 +96,17 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
             registered = {s.findtext('SharedSoulGuid') for s in wh.findall('SoulList/Souls/Soul')}
             changes[PROJECT], changes[QUEST_PATH], marker_report = bind_markers(
                 changes[PROJECT], read(z, QUEST_PATH), model, registered)
+            from campaign_place_markers import bind as bind_places
+            if model['tables'].get('quest_place', {}).get('rows'):
+                with zipfile.ZipFile(Path(source)/'Data/Levels/rataje/level.pak') as original:
+                    source_entities = [e for n in original.namelist() if n.lower() == 'objects_mission0.xml'
+                        or n.lower().startswith('layers/') and n.lower().endswith('.xml')
+                        for e in ET.fromstring(read(original,n)).iter('Entity')]
+                with zipfile.ZipFile(package/'Data/Levels/kcd1_travel/level.pak') as level_archive:
+                    (changes[PROJECT], changes[QUEST_PATH], format_level_changes['objects_mission0.xml'],
+                     format_level_changes['waitinglinks.xml'], marker_report['places']) = bind_places(
+                        changes[PROJECT], changes[QUEST_PATH], read(level_archive,'objects_mission0.xml'),
+                        read(level_archive,'waitinglinks.xml'), model, source_entities)
             from campaign_objective_conditions import bind as bind_conditions
             quest_root = ET.fromstring(changes[QUEST_PATH])
             conditions = bind_conditions(quest_root.find('./Skald/Quest/Nodes'), model)
@@ -124,8 +136,16 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
             inventory_changes, inventories = inventory_upgrade(package, source, target, equipment)
             changes.update(inventory_changes)
             marker_report['actor_inventories'] = inventories
+        from campaign_format_upgrade import polylogues
+        resources = {n:read(z,n) for n in z.namelist() if n.startswith(('Libs/','Quests/'))}
+        resources.update(changes)
+        dialogue_changes, dialogue_report = polylogues(resources, source, target)
+        changes.update(dialogue_changes)
+        receipt['dialogue_format_upgrade'] = dict(conversations=dialogue_report, runtime_verified=False)
     rewrite(package, travel, changes, lambda n: n == legacy_world)
     level = 'Data/Levels/kcd1_travel/level.pak'
+    if format_level_changes:
+        rewrite(package, level, format_level_changes)
     with zipfile.ZipFile(package/level) as z:
         metadata, added = reconcile(read(z, 'whdata_0'), read(z, 'objects_mission0.xml'))
         from area_geometry_contract import normalize
