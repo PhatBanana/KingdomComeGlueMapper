@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -143,6 +143,10 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         changes.update(dialogue_changes)
         receipt['dialogue_format_upgrade'] = dict(conversations=dialogue_report, runtime_verified=False)
     rewrite(package, travel, changes, lambda n: n == legacy_world)
+    from world_speech_audio import upgrade as upgrade_world_speech
+    speech_files, speech_report = upgrade_world_speech(package, target, notify)
+    receipt['files'].update(speech_files)
+    receipt['world_speech_audio'] = speech_report
     level = 'Data/Levels/kcd1_travel/level.pak'
     if format_level_changes:
         rewrite(package, level, format_level_changes)
