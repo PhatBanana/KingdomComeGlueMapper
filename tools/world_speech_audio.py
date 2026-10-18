@@ -90,7 +90,7 @@ def upgrade(package, target, notify=lambda *a: None):
         report = dict(source_scope=native, destination_scope=destination, responses=len(responses),
                       recordings=len(selected), bytes=total, changed=len(changed), runtime_verified=False)
         if not changed: return {}, report
-        notify('Relocating native nearby speech recordings')
+        notify('Relocating native nearby speech recordings', 0, 0)
         try:
             with zipfile.ZipFile(pending, 'x', zipfile.ZIP_STORED) as out:
                 for info in current.infolist():
