@@ -42,6 +42,18 @@ class ProximityTests(unittest.TestCase):
     def test_unknown_effects_and_hysteresis_are_not_dropped(self):
         t=source();E.SubElement(t.find('.//Loop/Sequence'),'SetQuest')
         with self.assertRaises(ValueError):parse(t,'someObjective')
+
+    def test_enclosing_objective_branch_is_preserved(self):
+        t=source();root=t.find('Root');gate=root[0];root.remove(gate)
+        condition=E.SubElement(root,'QuestObjectiveCondition',quest='someQuest',objective='later',function='IsObjectiveStarted')
+        E.SubElement(condition,'Else').append(gate)
+        plan=parse(t,'someObjective')
+        self.assertEqual(plan['guards'],[dict(objective='later',started=False)])
+        blob=b'<Database><Skald><Quest><Nodes><Output Name="Output"><Edge From="a.Started" To="someObjective_Started"/><Edge From="b.Started" To="later_Started"/></Output></Nodes></Quest></Skald></Database>'
+        guid='11111111-2222-3333-4444-555555555555'
+        r=E.fromstring(install(blob,plan,guid,guid))
+        self.assertIsNotNone(r.find(".//Function[@Name='gm_proximity_guard_not_0']/Edge[@From='b.Started']"))
+        self.assertIsNotNone(r.find(".//State[@Name='gm_proximity_lane_0_ready']/Edge[@From='a.OnStarted'][@To='SetTrue']"))
         t=source();t.find('.//Loop//DistanceGate').set('High','9')
         with self.assertRaisesRegex(ValueError,'hysteresis'):parse(t,'someObjective')
         t=source();t.find('.//SendMessageToNPC').set('values','alias(otherGreeting),priority(99)')

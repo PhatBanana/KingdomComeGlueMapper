@@ -58,6 +58,20 @@ def parse(tree, objective):
     if attrs(lanes) != dict(successMode='All',failureMode='Any'): raise ValueError('Unsupported lane completion')
     children(exit_gate, ['Success']); wait(terminal, True)
     result = dict(objective=objective, initial=wait(initial), entry=distance(entry), exit=distance(exit_gate), lanes=[])
+    # Preserve enclosing objective branches when extracting the parallel observer.
+    parents = {child: parent for parent in tree.iter() for child in parent}
+    result['guards'] = []
+    current = gate
+    while current in parents:
+        parent = parents[current]
+        if parent.tag == 'QuestObjectiveCondition':
+            condition = attrs(parent)
+            if current.tag not in ('Then','Else') or condition.get('function') != 'IsObjectiveStarted':
+                raise ValueError('Unsupported enclosing proximity condition')
+            if condition.get('quest') not in ('', '$__object.name', attrs(gate).get('questName')):
+                raise ValueError('External enclosing proximity quest')
+            result['guards'].append(dict(objective=condition['objective'], started=current.tag=='Then'))
+        current = parent
     for loop in lanes:
         if loop.tag != 'Loop' or attrs(loop) != {'count':'-1'}: raise ValueError('Unsupported proximity repetition')
         seq, = children(loop, ['Sequence'])
@@ -108,12 +122,18 @@ def install(blob, plan, actor_guid, player_guid, prefix='gm_proximity'):
     initial=timer('initial',plan['initial']);edge(initial,state+'.OnStarted','SetRunning')
     ended=boolean('ended'); entered=boolean('entered')
     alive=both('alive',state+'.Started',inverse('not_ended',ref('ended','State')))
+    for i,guard in enumerate(plan.get('guards', [])):
+        values=[e.get('From') for e in out.findall('Edge') if e.get('To')==guard['objective']+'_Started']
+        if len(values)!=1: raise ValueError('Missing enclosing proximity objective state')
+        value=values[0] if guard['started'] else inverse('guard_not_'+str(i),values[0])
+        alive=both('guard_'+str(i),alive,value)
     armed=both('armed',alive,ref('initial','Finished'))
     enter=distance('enter',plan['entry'],armed);edge(entered,enter,'SetTrue')
     leave=distance('exit',plan['exit'],armed);edge(ended,leave,'SetTrue')
     active=both('active',armed,ref('entered','State'))
     for i,lane in enumerate(plan['lanes']):
         name='lane_'+str(i);ready=boolean(name+'_ready',True)
+        edge(ready,state+'.OnStarted','SetTrue')
         allowed=both(name+'_allowed',active,ref(name+'_ready','State'))
         request=distance(name+'_distance',lane['distance'],allowed)
         call=node('Function',name+'_request',MethodName='wh::xgenaimodule::RequestMonologue',DeclaringType='wh::xgenaimodule')
