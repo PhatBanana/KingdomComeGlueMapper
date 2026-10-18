@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -63,6 +63,10 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     guard_files, guard_report = upgrade_guards(package, source, target)
     receipt['files'].update(guard_files)
     if guard_report: receipt['guard_conversations'] = guard_report
+    from setup_tavern_upgrade import upgrade as upgrade_tavern
+    tavern_files, tavern_report = upgrade_tavern(package, source, target)
+    receipt['files'].update(tavern_files)
+    if tavern_report: receipt['source_tavern'] = tavern_report
     changes = {}
     format_level_changes = {}
     travel = 'Data/gluemappertravel.pak'

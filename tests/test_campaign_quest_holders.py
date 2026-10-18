@@ -40,6 +40,18 @@ class HolderTests(unittest.TestCase):
     def test_conditional_handover_rejected(self):
         f,*_=fixture();f[D]=f[D].replace(b'ItemUtils.GiveItem(dc.seller',b'if ok then ItemUtils.GiveItem(dc.seller')
         with self.assertRaisesRegex(ValueError,'control flow'):self.run_lower(f)
+    def test_script_created_quest_item_uses_native_holder_and_removal(self):
+        f,a,source,objects=fixture()
+        f[D]=f[D].replace(b"ItemUtils.GiveItem(dc.seller,player,'reward',1)",b"Utils.CreateInvItem(player,'reward')").replace(b"ItemUtils.GiveItem(player,dc.recipient,'reward',1)",b"Utils.RemoveInvItem(player,'reward')")
+        result,level,report=lower(f,P,'new_game_started.State',[],{'player':'player-id'},source,objects,None,quest_ids={'reward'})
+        self.assertNotIn(b'CreateInvItem',result[D]);self.assertNotIn(b'RemoveInvItem',result[D])
+        self.assertEqual(len(E.fromstring(result[P]).findall('.//AddQuestItem')),1)
+        self.assertIn(b'SetFalse',result[P]);self.assertIn(b'SetTrue',result[P])
+        f.update(result)
+        second,level2,report2=lower(f,P,'new_game_started.State',[],{'player':'player-id'},source,level['objects_mission0.xml'],level['waitinglinks.xml'],quest_ids={'reward'})
+        again=dict(f);again.update(second)
+        self.assertEqual(f,again);self.assertEqual(level,level2)
+
     def test_non_linear_ownership_rejected(self):
         for rows in ([dict(source='a',target='b'),dict(source='a',target='c')],
                      [dict(source='a',target='b'),dict(source='b',target='a')],

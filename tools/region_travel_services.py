@@ -13,7 +13,7 @@ import zipfile
 from campaign_dependency_adapters import SourceTables
 from campaign_sources import RetailSourceReader
 from upgrade_map import read, xml
-from character_person import native_xml, unique, resolve_person
+from character_person import native_xml, unique, resolve_person, resolve_link_targets
 
 
 def resolve_stock(shop, defaults, overrides):
@@ -55,8 +55,15 @@ def resolve_merchant(source, name):
         mission = read(archive, 'objects_mission0.xml')
         entities = list(ET.fromstring(mission).iter('Entity'))
         actor = person['actor']
+        entities = resolve_link_targets(archive, actor, entities, person['provenance']['actor_sources'])
         work = unique((l for l in actor.findall('EntityLinks/Link') if l.get('Name', '').startswith('Work[')), 'source merchant work link')
         area = unique((e for e in entities if e.get('EntityId') == work.get('TargetId')), 'source work area')
+        # Shop markers can live in source layers, just like their work areas.
+        for entry in archive.namelist():
+            if entry.lower().startswith('layers/') and entry.lower().endswith('.xml'):
+                for entity in ET.fromstring(read(archive, entry)).iter('Entity'):
+                    if entity.get('EntityClass') == 'Shop' and not any(e.get('EntityId') == entity.get('EntityId') for e in entities):
+                        entities.append(entity)
         shop_entity = unique((e for e in entities if e.get('EntityClass') == 'Shop' and e.find('Properties') is not None
                               and e.find('Properties').get('iShopId') == shop['shop_id']), 'placed source shop')
     person.update(shop=shop, stock=stock, area=copy.deepcopy(area), shop_entity=copy.deepcopy(shop_entity))
@@ -64,18 +71,14 @@ def resolve_merchant(source, name):
     return person
 
 
-def shop_resources(merchant, target, namespace):
+def shop_resources(merchant, target, namespace, item_patches=()):
     """Keep shared item identities; never redefine KCD2 items or other shops."""
-    definitions = {}
+    from world_item_definitions import native_items, native_item_registry
+    items = native_items(target, item_patches)
+    registry = native_item_registry(items)
+    definitions = {key:dict(items[registry[key]].attrib) for key in merchant['stock'] if key in registry}
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
         shops = native_xml(read(archive, 'Libs/Tables/shop/shop.xml'))
-        for name in archive.namelist():
-            if re.fullmatch(r'Libs/Tables/item/item(?:__[^/]+)?\.xml', name, flags=re.I):
-                for row in native_xml(read(archive, name)).findall('./ItemClasses/*'):
-                    if row.get('Id') in merchant['stock']:
-                        if row.get('Id') in definitions:
-                            raise ValueError('Ambiguous native item identity: ' + row.get('Id'))
-                        definitions[row.get('Id')] = dict(row.attrib)
     missing = set(merchant['stock']) - definitions.keys()
     if missing:
         raise ValueError('Stock items need native item conversion: ' + ', '.join(sorted(missing)))
@@ -97,7 +100,7 @@ def shop_resources(merchant, target, namespace):
     preset = ET.SubElement(ET.SubElement(preset_root, 'InventoryPresets', version='2'), 'InventoryPreset',
                           Name=name + '_stock', Mode='All', Health='1')
     for item, amount in sorted(merchant['stock'].items()):
-        ET.SubElement(preset, 'PresetItem', Name=definitions[item]['Name'], ItemClassId=item, Amount=str(amount))
+        ET.SubElement(preset, 'PresetItem', Name=definitions[item]['Name'], ItemClassId=definitions[item]['Id'], Amount=str(amount))
     return {'Libs/Tables/shop/shop__' + namespace + '.xml': xml(root),
             'Libs/Tables/item/InventoryPreset__' + namespace + '_stock.xml': xml(preset_root)}, dict(
         shop_id=shop_id, shop_name=name, source_shop=merchant['shop'], stock=merchant['stock'],

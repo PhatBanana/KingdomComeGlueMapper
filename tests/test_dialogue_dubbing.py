@@ -61,6 +61,19 @@ class DubbingTests(unittest.TestCase):
             again,_=bind_soul_voice(result,root,'test','seller','abigailRice','SELLER','seller_name')
             self.assertEqual(result,again)
 
+    def test_source_voice_import_is_stable_and_collision_checked(self):
+        from dialogue_dubbing import import_source_voices
+        native=b'<database><voices><voice abbreviation="native" voice_id="1"/></voices></database>'
+        source=[dict(abbreviation='original',voice_id='71')]
+        resources,catalog=import_source_voices({},native,source,{'original','native'})
+        self.assertIn(b'gm_source_original',catalog)
+        self.assertEqual(ET.fromstring(catalog).find(".//voice[@abbreviation='original']").get('voice_id'),'100071')
+        self.assertEqual((resources,catalog),import_source_voices(resources,native,source,{'original','native'}))
+        with self.assertRaisesRegex(ValueError,'Missing or ambiguous source'):
+            import_source_voices({},native,source,{'missing'})
+        with self.assertRaisesRegex(ValueError,'collision'):
+            import_source_voices({},native.replace(b'voice_id="1"',b'voice_id="100071"'),source,{'original'})
+
     def test_rebuilding_preserves_original_subtitles(self):
         text=b'<Table><Row><Cell>line</Cell><Cell>Hello.</Cell><Cell>Hello.</Cell></Row></Table>'
         self.assertEqual(len(ET.fromstring(merge_audio_strings(text,text))),1)

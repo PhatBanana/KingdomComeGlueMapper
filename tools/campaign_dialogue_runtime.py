@@ -329,7 +329,7 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
         stem = name + '_' + port
         if not actions or any(n.get('Name', '').startswith(stem + '_') for n in nodes):
             raise ValueError('Empty or conflicting dialogue effect program: ' + port)
-        wire_program(nodes, stem, name + '.' + port, actions, condition_outputs, node_port)
+        wire_program(nodes, stem, name + '.' + port, actions, condition_outputs, node_port, name + '.VariableContext')
     result[path] = dialogue_blob
     result[container_file] = xml(root)
     return result

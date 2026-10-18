@@ -50,7 +50,7 @@ def chain(owner, transfers):
     return result
 
 
-def lower(files, project, active, actors, role_souls, source_objects, objects_blob, waiting_blob):
+def lower(files, project, active, actors, role_souls, source_objects, objects_blob, waiting_blob, quest_ids=()):
     files = dict(files)
     previous = json.loads(files[MANIFEST]) if MANIFEST in files else {}
     roots = {p:E.fromstring(b) for p,b in files.items() if p.startswith('Quests/') and p.endswith('.xml')}
@@ -79,7 +79,22 @@ def lower(files, project, active, actors, role_souls, source_objects, objects_bl
             item = row['item_id']
             if item in owners: raise ValueError('Ambiguous initial owner for quest item '+item)
             owners[item] = (actor['soul'], row)
-    if not owners: return {}, {}, dict(items=[], scripts=[])
+    lifecycle = {}
+    item_call = re.compile(r"\s*Utils\.(CreateInvItem|RemoveInvItem)\s*\(\s*([\w.]+)\s*,\s*['\"]([\w-]+)['\"]\s*\)\s*;?\s*")
+    for root in roots.values():
+        for seq in root.iter('Sequence'):
+            for line in seq.get('ExitScript','').splitlines():
+                call = item_call.fullmatch(line)
+                if call and call[1] == 'CreateInvItem' and call[3] in quest_ids:
+                    if call[3] in owners:
+                        raise ValueError('Quest item has both initial inventory and scripted creation: '+call[3])
+                    if call[2] not in role_souls:
+                        raise ValueError('Unresolved quest-item creation holder: '+call[2])
+                    owner = role_souls[call[2]]
+                    record = lifecycle.setdefault(call[3], dict(owner=owner, create=[], remove=[]))
+                    if record['owner'] != owner:
+                        raise ValueError('Multiple scripted creation holders for quest item '+call[3])
+    if not owners and not lifecycle: return {}, {}, dict(items=[], scripts=[])
     objects = E.fromstring(objects_blob)
     stash, holder = recovery(source_objects, objects, ph.get('Name'))
     backup = PREFIX+'backup'
@@ -121,9 +136,24 @@ def lower(files, project, active, actors, role_souls, source_objects, objects_bl
             original=seq.get('ExitScript',''); lines=original.splitlines(keepends=True); lowered=[]
             for line in lines:
                 match=CALL.fullmatch(line)
-                relevant=any(i in line for i in owners)
+                if line.lstrip().startswith('--'):
+                    lowered.append(line); continue
+                item_match = item_call.fullmatch(line)
+                if item_match and item_match[3] in lifecycle:
+                    operation, who, item = item_match.groups()
+                    if role_souls.get(who) != lifecycle[item]['owner']:
+                        raise ValueError('Unresolved or different quest-item lifecycle holder: '+who)
+                    port=PREFIX+hashlib.sha256((path+seq.get('Name')+item+operation).encode()).hexdigest()[:20]
+                    dialog=root.find('Skald')[0]
+                    E.SubElement(dialog.find('Ports'),'Port',Name=port,Direction='Out',Type='trigger')
+                    triggers=seq.find('Triggers')
+                    if triggers is None: triggers=E.SubElement(seq,'Triggers')
+                    E.SubElement(triggers,'Port',Name=port)
+                    lifecycle[item]['create' if operation=='CreateInvItem' else 'remove'].append(expose(path,port))
+                    continue
+                relevant=any(i in line for i in set(owners)|set(lifecycle))
                 if not match or match[3] not in owners:
-                    if relevant and ('GiveItem' in line or 'RemoveInvItem' in line):
+                    if relevant and any(api in line for api in ('GiveItem','RemoveInvItem','CreateInvItem')):
                         raise ValueError('Unsupported quest-item script control flow: '+path+'/'+seq.get('Name',''))
                     lowered.append(line); continue
                 src,dst,item,amount=match.groups()
@@ -166,6 +196,21 @@ def lower(files, project, active, actors, role_souls, source_objects, objects_bl
             edge(n,condition,'IsActive')
         report.append(dict(item=item,holders=holders,transfers=len(ordered),quantity_policy='native unique quest item',
                            source_amount=row.get('amount'),source_random_add=row.get('amount_random_add')))
+    for item, record in sorted(lifecycle.items()):
+        name=PREFIX+item.replace('-','_')+'_created'
+        state=E.SubElement(nodes,'State',Name=name,TypeT='bool')
+        constant(state,'DefaultValue','false')
+        for event in sorted(set(record['create'])): edge(state,event,'SetTrue')
+        for event in sorted(set(record['remove'])): edge(state,event,'SetFalse')
+        E.SubElement(assets,'SoulAsset',Name=name,SharedSoulGuids=record['owner'])
+        condition=boolean(name+'_active','And',[('A',active),('B',name+'.State')])
+        effect=E.SubElement(nodes,'AddQuestItem',Name=name+'_item')
+        constant(effect,'ItemClassGUID',item)
+        E.SubElement(effect,'Asset',Name='StartingLocation',Alias=name)
+        E.SubElement(effect,'Asset',Name='BackupLocation',Alias=backup)
+        edge(effect,condition,'IsActive')
+        report.append(dict(item=item,holders=[record['owner']],creation_events=len(record['create']),
+                           removal_events=len(record['remove']),quantity_policy='native unique quest item'))
     manifest=dict(items=report,scripts=scripts,backup=stash.get('EntityGuid'),runtime_verified=False)
     changes={p:xml(r) for p,r in roots.items() if xml(r)!=original_xml[p]}
     changes[MANIFEST]=json.dumps(manifest,sort_keys=True,indent=2).encode()

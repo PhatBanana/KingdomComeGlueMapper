@@ -443,6 +443,9 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                 if triggers is None: triggers = ET.SubElement(s, 'Triggers')
                 ET.SubElement(triggers, 'Port', Name=pname)
             if program:
+                from campaign_dialogue_effects import global_snapshots
+                snapshots = global_snapshots(program)
+                if snapshots: s.set('ExitScript', s.get('ExitScript','')+'\n'+snapshots)
                 pname = 'effects_' + sid
                 if pname in action_programs and action_programs[pname] != program:
                     raise ValueError('Conflicting dialogue effect program: ' + sid)

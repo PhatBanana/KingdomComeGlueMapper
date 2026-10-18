@@ -96,7 +96,7 @@ def upgrade(package, source, target, resources, project, startup, level_changes=
         data = {n:read(level,n) for n in ('objects_mission0.xml','waitinglinks.xml')}
     data.update(level_changes or {})
     graph, level, report = lower(resources, project, startup+'_started.State', ordered,
-        role_souls, source_objects, data['objects_mission0.xml'], data['waitinglinks.xml'])
+        role_souls, source_objects, data['objects_mission0.xml'], data['waitinglinks.xml'], quest_ids)
     changes.update(graph)
     report['actors'] = ordered
     return changes, level, report

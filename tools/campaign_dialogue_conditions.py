@@ -163,15 +163,24 @@ class QuestConditions:
                 name = 'condition_' + hashlib.sha256(identity.encode()).hexdigest()[:20]
                 pending[name] = binding
                 return "Port('" + name + "')"
-            if token in ('var', 'GetAmountOfActorItems', 'CountOfActorItems'):
+            if token == 'GetActorMoney':
+                take('('); take(')'); take('['); selector = take(); take(']')
+                if not re.fullmatch(r'\d+', selector) or int(selector) > 255:
+                    raise ValueError('Unsupported money predicate context')
+                operator, amount = take(), take()
+                if operator not in ('==','!=','>=','<=','>','<') or not re.fullmatch(r'-?\d+(?:\.\d+)?', amount):
+                    raise ValueError('Unsupported money predicate comparison')
+                # Native shipped dialogues use this same dynamic context ABI.
+                return 'GetActorMoney()['+selector+'] '+operator+' '+amount
+            if token in ('var', 'gvar', 'GetAmountOfActorItems', 'CountOfActorItems'):
                 take('('); argument = take(); take(')')
                 if not argument.startswith("'"):
                     raise ValueError('Expected literal dialogue scalar argument')
                 value = argument[1:-1]
-                if token == 'var':
+                if token in ('var','gvar'):
                     if not re.fullmatch(r'[A-Za-z_]\w*', value):
                         raise ValueError('Invalid dialogue variable')
-                    native = 'var'
+                    native = token
                 else:
                     if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value):
                         raise ValueError('Invalid dialogue item identity')
@@ -181,7 +190,7 @@ class QuestConditions:
                 participant = None
                 if index < len(tokens) and tokens[index] == '[':
                     take('['); selector = take(); take(']')
-                    if token == 'var' or not selector.startswith("'") or selector[1:-1] not in self.participant_assets:
+                    if token in ('var','gvar') or not selector.startswith("'") or selector[1:-1] not in self.participant_assets:
                         raise ValueError('Unregistered inventory predicate participant: ' + selector)
                     participant = self.participant_assets[selector[1:-1]]
                 operator, number = take(), take()

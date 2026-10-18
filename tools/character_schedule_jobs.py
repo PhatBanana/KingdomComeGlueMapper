@@ -66,7 +66,8 @@ It does not represent the other housework activities as converted.
                 links,item_report=character_blacksmith_jobs.bind(mission,scheduler,entry,job,archive,target,registered_items)
                 waiting.extend(links);report.append(dict(person=person,**item_report))
                 continue
-            if (behavior['tree_file'].lower(),behavior['tree_name']) != ('final/sa_home.xml','housework'):
+            bartending = (behavior['tree_file'].lower(),behavior['tree_name']) == ('final/sa_pub_v3.xml','Bartender')
+            if not bartending and (behavior['tree_file'].lower(),behavior['tree_name']) != ('final/sa_home.xml','housework'):
                 report.append(dict(person=person, source_behavior=dict(behavior),
                     source_area=dict(entry['area']), source_links=copy.deepcopy(entry['target_links']),
                     pending=['source work program and its dependency graph require conversion'],
@@ -101,10 +102,10 @@ It does not represent the other housework activities as converted.
                 from character_sweeping_routes import bind
                 route_edges,route_report=bind(mission,job,routes.values(),read(archive,'ubernav.tmm'),files['ubernav.tmm'])
                 waiting.extend(route_edges)
-            report.append(dict(person=person, job='sweeping', tools=item_reports,
+            report.append(dict(person=person, job='bartender_sweeping' if bartending else 'sweeping', tools=item_reports,
                 source_routes=[e.attrib for e in routes.values()],
                 route_conversion=route_report,
-                pending=([] if convert_routes else ['source sweeping route traversal'])+['cooking','embroidery','water carrying','hanging out'],
+                pending=([] if convert_routes else ['source sweeping route traversal'])+(['patron drink/meal orders','table wiping','closing announcement'] if bartending else ['cooking','embroidery','water carrying','hanging out']),
                 runtime_verified=False))
     result=dict(files)
     for entity in mission:

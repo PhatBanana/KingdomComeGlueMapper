@@ -29,15 +29,15 @@ def shop_trace(event):
             f"System.LogAlways('GLUE_RATTAY_SHOP event={event} shop=' .. tostring(result) .. ' query_ok=' .. tostring(ok))")
 
 
-def dialogue(person_name):
+def dialogue(person_name, *, role=ROLE, name=DIALOG, trade_string='ui_gmtravel_rattay_trade', diagnostics=True):
     root = ET.Element('Database', Name='brambora')
-    dialog = ET.SubElement(ET.SubElement(root, 'Skald'), 'FaderDialog', Name=DIALOG)
+    dialog = ET.SubElement(ET.SubElement(root, 'Skald'), 'FaderDialog', Name=name)
     ET.SubElement(ET.SubElement(dialog, 'Ports'), 'Port', Name='dialog_started', Direction='Out', Type='trigger')
-    body = ET.SubElement(dialog, 'Dialogue', TechnicalStatus='Enabled', Initiator='Player', NonSpeakerRoles=ROLE,
+    body = ET.SubElement(dialog, 'Dialogue', TechnicalStatus='Enabled', Initiator='Player', NonSpeakerRoles=role,
                          AllowGreeting='false', AllowFarewell='false')
     selected = ET.SubElement(body, 'SelectedSouls')
     ET.SubElement(selected, 'SelectedSoul', Role='HENRY', Voice='tomMcKay', Type='Wave', Language='ENG')
-    ET.SubElement(selected, 'SelectedSoul', Role=ROLE, Soul=person_name, Type='Wave', Language='ENG')
+    ET.SubElement(selected, 'SelectedSoul', Role=role, Soul=person_name, Type='Wave', Language='ENG')
     # Match the shipped traveling-merchant FaderDialog: a silent automatic
     # entry emits dialog_started before offering topics. BeforePlay alone did
     # not complete the objective in retail. No purchase or area visit is needed.
@@ -53,16 +53,18 @@ def dialogue(person_name):
     # Keep explicit Trade/End choices and put the native action behind Trade.
     buy = ET.SubElement(choices, 'Sequence', Name='trade', EndType='Decision', Type='Shop',
                         GrayOutIfSequencesUsed='Never', ExitScript=shop_trace('trade_selected'))
-    ET.SubElement(buy, 'UiPrompt', StringName='ui_gmtravel_rattay_trade', Text='(Trade)')
+    ET.SubElement(buy, 'UiPrompt', StringName=trade_string, Text='(Trade)')
     ET.SubElement(ET.SubElement(buy, 'Elements'), 'Response', Role='HENRY')
     terminal = ET.SubElement(buy, 'Decision', Name='shop_handoff', Priority='General')
     action = ET.SubElement(ET.SubElement(terminal, 'Sequences'), 'Sequence', Name='open_shop',
                           EndType='EndDialogue', Type='OpenShop', ExitScript=shop_trace('open_shop'))
-    ET.SubElement(ET.SubElement(action, 'Elements'), 'Response', Role=ROLE)
+    ET.SubElement(ET.SubElement(action, 'Elements'), 'Response', Role=role)
     leave = ET.SubElement(choices, 'Sequence', Name='leave', EndType='EndDialogue',
                          GrayOutIfSequencesUsed='Never', ExitScript=shop_trace('leave_selected'))
     ET.SubElement(leave, 'UiPrompt', StringName='ui_end_topic', Text='(End dialog)')
     ET.SubElement(ET.SubElement(leave, 'Elements'), 'Response', Role='HENRY')
+    if not diagnostics:
+        for sequence in root.iter('Sequence'): sequence.attrib.pop('ExitScript', None)
     return xml(root)
 
 

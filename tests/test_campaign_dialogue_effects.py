@@ -64,6 +64,17 @@ class DialogueEffectsTests(unittest.TestCase):
         for unsupported in ("var('visited') == 1", 'unknown()', "Port('one') + 1", 'true false'):
             with self.subTest(unsupported=unsupported), self.assertRaises(ValueError): predicate(unsupported)
 
+    def test_global_effect_snapshots_and_native_context_binding(self):
+        from campaign_dialogue_effects import wire_program, global_snapshots
+        tree=predicate("gvar('debt') > 1 AND Port('one')")
+        action=dict(predicate=tree,quest='q',input='complete')
+        script=global_snapshots([action])
+        self.assertIn("Variables.GetGlobal('debt')",script)
+        nodes=E.Element('Nodes');dest=E.SubElement(nodes,'Quest',Name='q')
+        wire_program(nodes,'effect','talk.trigger',[action],{'one':'q.one'},lambda *a:dest,'talk.VariableContext')
+        self.assertIsNotNone(nodes.find("Function[@MethodName='wh::dialogmodule::GetVariableContextValue']/Edge[@From='talk.VariableContext']"))
+        self.assertIsNotNone(nodes.find("Function[@MethodName='Control::Compare']/Constant[@Value='Greater']"))
+
     def test_unsupported_conditional_effect_blocks_whole_dialogue(self):
         d, q = self.stage()
         d['topics']['1']['sequences'][0]['effects'][1]['condition'] = "var('local_only') == 1"

@@ -129,6 +129,7 @@ def build(a):
         if context_entities is not None:
             context_entities['IsActor'] = {s['soul_name']: souls[s['soul_id']]
                 for s in tables.get('rpg/soul')['rows'] if s['soul_id'] in souls}
+        source_voices = tables.get('text/v_voice_abbreviation')['rows']
         roles = {r['role_id']:r for r in tables.get('rpg/role')['rows']}
         meta = {r['metarole_id']:r['metarole_name'] for r in tables.get('rpg/metarole')['rows']}
         needed = {r for r in needed if meta[roles[r]['metarole_id']] == 'NPC'}
@@ -142,6 +143,11 @@ def build(a):
     with zipfile.ZipFile(a.target / 'Data/Tables.pak') as z:
         native_roles = [r.attrib for r in ET.fromstring(read(z, 'Libs/Tables/rpg/role.xml')).iter('role')]
         native_voices = read(z, 'Libs/Tables/skald/voice.xml')
+    from dialogue_dubbing import import_source_voices
+    prefixes = {line['voices'][0]['wave_file'].removesuffix('_' + line['response']['string_name'])
+        for model in models.values() for topic in model['topics'].values()
+        for seq in topic['sequences'] for line in seq['lines'] if line['response'] and len(line['voices']) == 1}
+    resources, native_voices = import_source_voices(resources, native_voices, source_voices, prefixes)
     resources, mapping = register_roles(resources, bindings, souls, native_roles, a.namespace)
     contract = load_contract(a.source, a.target, dict(p.split('=',1) for p in a.skill_upgrade))
     contract['preserve_reputation_caps'] = True
