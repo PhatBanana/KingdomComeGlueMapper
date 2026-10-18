@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -142,6 +142,11 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         dialogue_changes, dialogue_report = polylogues(resources, source, target)
         changes.update(dialogue_changes)
         receipt['dialogue_format_upgrade'] = dict(conversations=dialogue_report, runtime_verified=False)
+        resources.update(changes)
+        from campaign_branch_resume import upgrade as upgrade_branch_resume
+        branch_changes, branch_report = upgrade_branch_resume(resources, source)
+        changes.update(branch_changes)
+        receipt['dialogue_root_resume'] = dict(branches=branch_report, runtime_verified=False)
         resources.update(changes)
         from campaign_proximity_upgrade import upgrade as upgrade_proximity
         proximity_changes, proximity_report = upgrade_proximity(resources, source)
