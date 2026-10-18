@@ -16,6 +16,10 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe24_migrates_to_current_holder_recipe(self):
+        self.source_recipe = 24
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_migration_restores_registered_person_objective_marker(self):
         self.restore_markers = True
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -75,7 +79,7 @@ class UpgradeTests(unittest.TestCase):
             (p/'campaign-audit.json').write_text('{}')
             base=p/'Data/Levels/kcd1_rataje';base.mkdir();(base/'terrain.pak').write_bytes(b'base')
             shared=p/'Data/shared.pak';shared.write_bytes(b'shared')
-            r=dict(schema=1,owner=MOD_ID,travel_bridge={'destination':'kcd1_travel'},build_recipe=dict(version=3,status='complete',content_validation={'actors':11},streaming_validation={'ok':True},shader_validation={'installation':'mod_private_root'},steps=[{'id':s} for s in STAGE_IDS]))
+            r=dict(schema=1,owner=MOD_ID,travel_bridge={'destination':'kcd1_travel'},build_recipe=dict(version=getattr(self,'source_recipe',3),status='complete',content_validation={'actors':11},streaming_validation={'ok':True},shader_validation={'installation':'mod_private_root'},steps=[{'id':s} for s in STAGE_IDS]))
             if getattr(self,'restore_split',False):
                 from test_mesh_streaming import fixture as mesh_fixture
                 from mesh_streaming import upgrade_package

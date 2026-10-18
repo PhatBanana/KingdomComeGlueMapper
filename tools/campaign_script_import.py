@@ -1,8 +1,8 @@
 """Translate verified Lua API moves without rewriting literals or comments."""
 import re
 
-# Both shipped Utils.lua (KCD1) and ItemUtils.lua (KCD2) implement the same
-# inventory transfer, assertion, and player notification contract.
+# Ordinary inventory calls retain the source transfer and notification contract.
+# IsQuestItem handovers require campaign_quest_holders native effects instead.
 TOKENS = re.compile(r"--\[(=*)\[.*?\]\1\]|--[^\n]*|\[(=*)\[.*?\]\2\]|'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|\b(?:Utils|dc)\.[A-Za-z_]\w*", re.S)
 
 

@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -152,6 +152,13 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         proximity_changes, proximity_report = upgrade_proximity(resources, source)
         changes.update(proximity_changes)
         receipt['proximity_observers'] = dict(observers=proximity_report, runtime_verified=False)
+        resources.update(changes)
+        from campaign_quest_inventory import upgrade as upgrade_quest_inventory
+        quest_changes, quest_level, quest_report = upgrade_quest_inventory(
+            package, source, target, resources, PROJECT, OPENING, format_level_changes)
+        changes.update(quest_changes)
+        format_level_changes.update(quest_level)
+        receipt['source_quest_inventories'] = quest_report
     rewrite(package, travel, changes, lambda n: n == legacy_world)
     from world_speech_audio import upgrade as upgrade_world_speech
     speech_files, speech_report = upgrade_world_speech(package, target, notify)
