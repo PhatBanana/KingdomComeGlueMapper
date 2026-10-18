@@ -16,6 +16,10 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe9_split_is_restored_during_resume(self):
+        self.restore_split = True
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_migrates_legacy_world_without_changing_shared_assets(self):
         with tempfile.TemporaryDirectory() as directory:
             p=Path(directory)
@@ -45,11 +49,23 @@ class UpgradeTests(unittest.TestCase):
             base=p/'Data/Levels/kcd1_rataje';base.mkdir();(base/'terrain.pak').write_bytes(b'base')
             shared=p/'Data/shared.pak';shared.write_bytes(b'shared')
             r=dict(schema=1,owner=MOD_ID,travel_bridge={'destination':'kcd1_travel'},build_recipe=dict(version=3,status='complete',content_validation={'actors':11},streaming_validation={'ok':True},shader_validation={'installation':'mod_private_root'},steps=[{'id':s} for s in STAGE_IDS]))
+            if getattr(self,'restore_split',False):
+                from test_mesh_streaming import fixture as mesh_fixture
+                from mesh_streaming import upgrade_package
+                from mesh_lod_metadata import normalize
+                archive('Data/kingdomcomegluemapper_world_000.pak',{'glueveg/tree.cgf':normalize(mesh_fixture())})
+                upgrade_package(p)
+                r['build_recipe']['version']=9
             r['files']={f.relative_to(p).as_posix():digest(f) for f in p.rglob('*') if f.is_file()}
             (p/RECEIPT).write_text(json.dumps(r))
             eligible(r)
             with patch('setup_gameplay.validate',return_value={'start_policy':POLICY}):result=finalize(p)
             verify_package(p)
+            if getattr(self,'restore_split',False):
+                self.assertFalse(list((p/'Data').glob('*_meshes.pak')))
+                self.assertFalse(any(n.endswith('_meshes.pak') for n in result['files']))
+                with zipfile.ZipFile(p/'Data/kingdomcomegluemapper_world_000.pak') as z:
+                    self.assertEqual(z.read('glueveg/tree.cgf'),normalize(mesh_fixture()))
             self.assertTrue(result['single_playable_world']);self.assertFalse(base.exists())
             self.assertEqual(result['package_upgrade']['skalitz_outer_gates']['opened_leaves'],6)
             self.assertEqual(shared.read_bytes(),b'shared')

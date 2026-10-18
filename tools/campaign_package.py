@@ -19,6 +19,7 @@ from campaign_sources import opening_sources
 from upgrade_map import read, xml
 from setup_progress import progress
 from texture_streaming import generated_entries, checked_entries
+from mesh_lod_metadata import generated_entries as mesh_entries
 
 LEVEL = 'kcd1_rataje'
 LEVEL_ID = 1000
@@ -35,7 +36,7 @@ def write_asset_shards(directory, entries, max_bytes=1024 ** 3, max_entries=5000
     archive = None
     size, count = 22, 0
     try:
-        for name, payload in checked_entries(generated_entries(entries, streaming_compiler)):
+        for name, payload in checked_entries(generated_entries(mesh_entries(entries), streaming_compiler)):
             name = safe_name(name)
             cost = len(payload) + 76 + 2 * len(name.encode('utf-8'))
             if cost + 22 > max_bytes:

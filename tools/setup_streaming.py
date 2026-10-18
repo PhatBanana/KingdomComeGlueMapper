@@ -102,9 +102,24 @@ def validate(package, level='kcd1_travel', converted_data=None):
             gaps = family_gaps(index, generated_names(converted_data))
             if gaps: raise ValueError('Setup omitted generated LOD/mip siblings: '+', '.join(sorted(gaps)[:20]))
         families = texture_families(index)
+        from mesh_lod_metadata import PREFIXES as STATIC_PREFIXES
+        from mesh_streaming import validate_pair
+        from clothing_regions import read_chunks
+        mesh_families = 0
+        for name in index:
+            if not name.startswith(STATIC_PREFIXES) or not name.endswith('.cgf'):continue
+            archive, original = index[name][-1]
+            header = read(archive, original)
+            if not any(c.kind == 0x1000 and struct.unpack_from('<I',c.data)[0] & 9 == 9
+                       for c in read_chunks(header)):continue
+            if name+'m' not in index:raise ValueError('Missing geometry companion: '+name+'m')
+            archive, original = index[name+'m'][-1]
+            validate_pair(header, read(archive, original))
+            mesh_families += 1
         return dict(level=level, groups=sum(1 for _ in tree.iter('HLod')), proxies=proxies,
             detail_records=len(near)-proxies, mesh_table=len(parsed.tables['meshes']['paths']),
             referenced_resources=len(required), missing_resources=0, texture_families=families,
+            mesh_streaming_families=mesh_families,
             external_lods=sum(bool(re.search(r'_lod[1-6]\.cgf$', n)) for n in index),
             numbered_mips=sum(bool(re.search(r'\.dds\.\d+a?$', n)) for n in index),
             source_siblings_checked=converted_data is not None, runtime_verified=False)

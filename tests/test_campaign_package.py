@@ -34,7 +34,7 @@ class CampaignPackageTests(unittest.TestCase):
 
     def test_shards_respect_size_count_and_preserve_every_asset(self):
         with tempfile.TemporaryDirectory() as temporary:
-            entries = [(f'glueitems/x{i}.cgf', bytes([i]) * 100) for i in range(7)]
+            entries = [(f'glueitems/x{i}.bin', bytes([i]) * 100) for i in range(7)]
             shards, assets = write_asset_shards(temporary, entries, max_bytes=512, max_entries=2)
             self.assertEqual(len(shards), 4)
             actual = {}
@@ -117,7 +117,9 @@ class CampaignPackageTests(unittest.TestCase):
                 z.writestr('terrain/terrain.dat', b'unchanged terrain')
             asset = data / 'glueitems/old/item.cgf'
             asset.parent.mkdir(parents=True)
-            asset.write_bytes(b'geometry')
+            from test_mesh_streaming import fixture
+            from mesh_lod_metadata import normalize
+            asset.write_bytes(fixture())
             report = package_world(data, 'old_probe', output)
             self.assertEqual(report['level'], LEVEL)
             self.assertEqual(len(report['imported_assets']), 1)
@@ -126,7 +128,8 @@ class CampaignPackageTests(unittest.TestCase):
             with zipfile.ZipFile(target / 'level.pak') as z:
                 self.assertEqual(ET.fromstring(z.read('leveldata.xml')).find('LevelInfo').get('Name'), LEVEL)
             with zipfile.ZipFile(output / 'Data' / report['asset_archives'][0]) as z:
-                self.assertEqual(z.read('glueitems/old/item.cgf'), b'geometry')
+                self.assertEqual(z.read('glueitems/old/item.cgf'), normalize(fixture()))
+                self.assertNotIn('glueitems/old/item.cgfm',z.namelist())
 
 
 if __name__ == '__main__':

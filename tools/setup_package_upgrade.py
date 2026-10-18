@@ -14,7 +14,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     report.setdefault('content_validation', {})['start_policy'] = POLICY
@@ -84,6 +84,16 @@ def finalize(package):
     if intermediate.exists():
         shutil.rmtree(intermediate)
     receipt['single_playable_world'] = True
+    from mesh_streaming import restore_package
+    restored, removed_streams = restore_package(package)
+    receipt['files'].update(restored)
+    for name in removed_streams:
+        receipt['files'].pop(name, None)
+    receipt.pop('mesh_streaming', None)
+    from mesh_lod_metadata import upgrade_package
+    mesh_files, mesh_report = upgrade_package(package)
+    receipt['files'].update(mesh_files)
+    receipt['mesh_lod_metadata'] = mesh_report
     receipt['build_recipe']['content_validation'] = validate(package)
     receipt['build_recipe']['version'] = VERSION
     receipt['package_upgrade'] = dict(version=2, registered_smart_areas=added,
