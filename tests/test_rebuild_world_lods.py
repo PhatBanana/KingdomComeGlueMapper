@@ -9,6 +9,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from rebuild_world_lods import build
 from texture_streaming import split_generated, validate_family
 from test_texture_streaming import texture
+from test_mesh_lod_metadata import fixture
+from clothing_regions import Chunk, read_chunks, write_chunks
+
+
+def model(material):
+    # The package pipeline now validates and normalizes compiled geometry.
+    return write_chunks(read_chunks(fixture()) +
+                        [Chunk(0x1014, 0x800, 5, material + b'\0')], {})
 
 
 class WorldLods(unittest.TestCase):
@@ -22,9 +30,9 @@ class WorldLods(unittest.TestCase):
             self.assertEqual(set(family), {'', '.1'})
             for name, blob in {
                 'house.cgf': b'old base',
-                'house_lod1.cgf': b'gluebuild/current.mtl',
+                'house_lod1.cgf': model(b'gluebuild/current.mtl'),
                 'house_lod1.cgfm': b'stream',
-                'house_lod2.cgf': b'gluebuild/lod.mtl',
+                'house_lod2.cgf': model(b'gluebuild/lod.mtl'),
                 'lod.mtl': b'gluebuild/lod.dds',
                 'lod.dds': family[''], 'lod.dds.1': family['.1'],
                 'current.mtl': b'gluebuild/deleted.dds',
