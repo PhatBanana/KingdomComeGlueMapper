@@ -16,6 +16,11 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe32_retires_obsolete_source_ambience_on_resume(self):
+        self.source_recipe = 32
+        self.retire_ambience = True
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_current_recipe_can_resume_without_reencoding_lod(self):
         self.repeat_resume = True
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -111,6 +116,15 @@ class UpgradeTests(unittest.TestCase):
             player+=Path('tools/region_travel_horse_recovery.lua').read_bytes()
             archive('Data/gluemappertravel.pak',{PROJECT:ET.tostring(graph),'Scripts/Entities/actor/player.lua':player,'keep':b'unchanged'})
             archive('Data/Levels/kcd1_travel/level.pak',{'objects_mission0.xml':b'<Objects><Entity EntityClass="SmartAreaShape" EntityGuid="0000000a-0000-0000"/></Objects>', 'whdata_0':b'<Root><AI><SmartAreaManager version="2"><SmartAreas/></SmartAreaManager></AI></Root>'})
+            if getattr(self, 'retire_ambience', False):
+                from test_environment_audio_upgrade import fixture as audio_fixture
+                from setup_package_upgrade import rewrite
+                mission, sources = audio_fixture()
+                root = ET.fromstring(mission)
+                ET.SubElement(root, 'Entity', EntityClass='SmartAreaShape', EntityGuid='0000000a-0000-0000')
+                rewrite(p, 'Data/Levels/kcd1_travel/level.pak', {'objects_mission0.xml': ET.tostring(root)})
+                archive('Data/Levels/rataje/level.pak', {'objects_mission0.xml':
+                    b'<Objects>' + b''.join(ET.tostring(e) for e in sources.values()) + b'</Objects>'})
             from test_campaign_quest_people import model, QUEST as marker_quest, SID
             from setup_gameplay import QUEST_PATH, QUEST as quest_name
             marker_model = model(); marker_model['quest'] = quest_name
@@ -166,6 +180,12 @@ class UpgradeTests(unittest.TestCase):
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
                     self.assertIn(b'Marker=', z.read(QUEST_PATH))
             verify_package(p)
+            if getattr(self, 'retire_ambience', False):
+                self.assertEqual(result['ambient_audio_upgrade']['removed_emitters'], ['gm_environment_1'])
+                with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
+                    upgraded = ET.fromstring(z.read('objects_mission0.xml'))
+                self.assertIsNone(upgraded.find("Entity[@Name='gm_environment_1']"))
+                self.assertIsNotNone(upgraded.find("Entity[@Name='gm_environment_2']"))
             self.assertEqual(result['build_recipe']['streaming_validation']['vegetation_grid_version'], 1)
             self.assertEqual(result['build_recipe']['streaming_validation']['lod_ratio_version'], 1)
             if getattr(self,'restore_split',False):

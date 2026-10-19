@@ -1,6 +1,6 @@
-# Windows setup — 0.3.4
+# Windows setup — 0.3.8
 
-Download `KingdomComeGlueMapper-Setup-0.3.4-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.4). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface.
+Download `KingdomComeGlueMapper-Setup-0.3.8-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.8). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface.
 
 **KCD1 Map requires the official KCD2 Modding Tools from Steam before building, installing an existing package, or resuming installation.** Setup detects the tools and offers Browse, Recheck, and Install through Steam. It uses your installed tools to compile shaders; Warhorse's tools are not bundled. Fishing alone does not require them.
 
@@ -54,7 +54,7 @@ End-to-end timing for recipe 3, including its additional gameplay and shader sta
 
 For a failure in optional baking, a completed map package from the current recipe is reused. A completed movie or selected bake is skipped when its package receipt confirms completion. Compatible completed bake tiles are verified and reused. Missing or damaged tiles are rebuilt. Interrupted scene planning restarts that planning phase.
 
-**Packages from older setup recipes must be rebuilt with 0.3.4.** Resume and installation reject receipts missing the current gameplay, streaming, or shader validations. The setup does not silently treat an older hash-valid package as a complete current build.
+**Completed packages from recipes 3–32 can be upgraded through Resume failed setup.** Select the original job folder containing `job.json`; a completed job is accepted too. Setup verifies the original package and stages the migration before replacing it. Direct installation requires the current recipe and does not perform migration. Incomplete world conversion may still need rebuilding.
 
 If map conversion failed before a complete package existed, the map phase restarts. Resume does not checkpoint every individual world-converter stage. Partial outputs remain for diagnosis. Modified or incomplete packages are rejected rather than treated as successful.
 
@@ -71,7 +71,7 @@ If the old map contains an embedded fishing test, standalone fishing installatio
 
 ## Install existing packages
 
-Choose **Install existing packages** and select the job's parent `package` folder, which contains `map` and/or `fishing`. The selected packages must match their receipts and the map must have completed recipe 3. The official Modding Tools are required for map installation even when compilation was already completed. This operation does not rerun conversion or change bake settings.
+Choose **Install existing packages** and select the job's parent `package` folder, which contains `map` and/or `fishing`. The selected packages must match their receipts and the map must have completed the current recipe, 33. Use **Resume failed setup** first for older packages. The official Modding Tools are required for map installation even when compilation was already completed. Direct installation does not rerun conversion or change bake settings.
 
 ## Logs and reporting problems
 
@@ -91,7 +91,7 @@ Existing build folders, unsuccessful attempts, and backups from earlier versions
 
 ## Build from source
 
-The current setup can resume completed recipe 3 through 16 packages into recipe 17 without
+The current setup can resume completed recipe 3 through 32 packages into recipe 33 without
 repeating world conversion. It finishes or reuses the existing `kcd1_travel`
 bake checkpoints first, then updates the campaign start guard, removes the old
 horse-recovery hook, reconciles smart-area registrations, and removes compiled
@@ -186,3 +186,18 @@ See [launcher implementation details](setup-launcher.md) and [region travel](reg
 Recipe 18 also migrates supported source objective-update handlers so parent objectives and their map markers follow the original quest lifecycle.
 
 Recipe 19 imports the source guard supply conversations and their actor/inventory dependencies, including authored Skalitz opening placements. Existing packages receive these through the same builders during upgrade. Original cinematic movement choreography remains outside this bounded conversion.
+
+Recipes 30–33 include retail-compatible opening initialization, corrected KCD1-to-KCD2
+LOD ratio encoding in both instances and vegetation groups, native vegetation grid
+metadata, and retirement of obsolete ambient-audio substitutions. The LOD stage
+records hashes to prevent double conversion on resume. The audio migration uses
+original source control names, preserves legitimate village loops and surviving
+entity identities, and removes obsolete references from shared audio boundaries.
+Lighting data and geometry are retained. These migrations do not repair already
+consumed quest events or rewrite saved games.
+
+When a fresh shader build is on a different drive from the game, setup now uses
+directory junctions for the read-only Data and Localization inputs. Shader sources
+and compiler output remain in the private build folder. An existing compiler folder
+that already contains copied files is retained; this change does not reclaim it
+automatically. See the [0.3.8 release notes](releases/v0.3.8.md).

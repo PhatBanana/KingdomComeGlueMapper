@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -203,15 +203,19 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     if format_level_changes:
         rewrite(package, level, format_level_changes)
     with zipfile.ZipFile(package/level) as z:
-        metadata, added = reconcile(read(z, 'whdata_0'), read(z, 'objects_mission0.xml'))
+        from world_environment import retire_converted_audio
+        mission, audio_report = retire_converted_audio(read(z, 'objects_mission0.xml'), source)
+        receipt['ambient_audio_upgrade'] = audio_report
+        metadata, added = reconcile(read(z, 'whdata_0'), mission)
         from area_geometry_contract import normalize
-        missions = [read(z, n) for n in z.namelist() if n.lower() == 'objects_mission0.xml'
+        missions = [mission if n.lower() == 'objects_mission0.xml' else read(z, n)
+                    for n in z.namelist() if n.lower() == 'objects_mission0.xml'
                     or n.lower().startswith('layers/') and n.lower().endswith('.xml')]
         geometry, removed = normalize(read(z, 'triggerareas.fubar'), missions)
         normalize(geometry, missions, validate_only=True)
         from skalitz_outer_gates import normalize as correct_gates
         gates, gate_report = correct_gates({n:read(z,n) for n in ('terrain/hlods.dat','terrain/hlods.xml')})
-    rewrite(package, level, {'whdata_0': metadata, 'triggerareas.fubar': geometry, **gates})
+    rewrite(package, level, {'objects_mission0.xml': mission, 'whdata_0': metadata, 'triggerareas.fubar': geometry, **gates})
     runtime = f'Data/{MOD_ID}.pak'
     table = f'Libs/Tables/level__{MOD_ID}.xml'
     with zipfile.ZipFile(package/runtime) as z:

@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.7'
+APP_VERSION = '0.3.8'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64

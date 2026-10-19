@@ -243,3 +243,67 @@ def build(mission, source, target, guid, aliases=None):
     effects, controls = native_catalog(target)
     return convert(mission, entities, active, effects, controls, guid,
                    native_aliases() if aliases is None else aliases)
+
+
+def retire_converted_audio(mission, source=None, *, entities=None):
+    """Apply the current source-control retirement policy to an older mission.
+
+    Resolve ownership through the converter's source-ID names. Never infer a
+    retirement from a native trigger name: legitimate loops use the same names
+    as obsolete substitutions. Keep surviving identities and transforms intact.
+    """
+    root = ET.fromstring(mission)
+    candidates = [e for e in root if e.get('Name', '').startswith('gm_environment_')
+                  and e.get('EntityClass') in {'AudioAreaAmbience', 'AudioAreaRandom', 'AudioTriggerSpot'}]
+    report = dict(version=1, cleared_controls=[], removed_emitters=[], removed_boundaries=[],
+                  runtime_verified=False)
+    if not candidates:
+        return mission, report
+    if entities is None:
+        if source is None:
+            raise ValueError('KCD1 source folder required to upgrade imported ambient audio')
+        entities, _ = inventory(source)
+    removed = set()
+    actions = ('audioTriggerPlayTrigger', 'audioTriggerPlayTriggerName', 'audioEnvironmentEnvironment')
+    for entity in candidates:
+        source_id = entity.get('Name')[len('gm_environment_'):]
+        original = entities.get(source_id)
+        if original is None or original.get('EntityClass') not in CLASSES:
+            raise ValueError('Missing source ambient entity: ' + source_id)
+        before, after = original.find('Properties'), entity.find('Properties')
+        if before is None or after is None:
+            raise ValueError('Missing ambient properties: ' + source_id)
+        changed = False
+        for attribute in actions:
+            name = before.get(attribute, '')
+            if name.lower() in RETIRED.get(control_type(attribute), set()) and after.get(attribute):
+                after.set(attribute, '')
+                report['cleared_controls'].append(dict(source_id=source_id, attribute=attribute, source=name))
+                changed = True
+        if changed and not any(after.get(a) for a in actions):
+            if not entity.get('EntityId'):
+                raise ValueError('Missing converted ambient identity: ' + source_id)
+            removed.add(entity.get('EntityId'))
+            report['removed_emitters'].append(entity.get('Name'))
+            root.remove(entity)
+    # Shared boundaries keep their other emitters. Only converter-owned, newly
+    # empty boundaries are removed; foreign references cause a safe failure.
+    for entity in list(root):
+        refs = entity.find('Area/Entities')
+        if refs is None or not any(r.get('Id') in removed for r in refs):
+            continue
+        if not entity.get('Name', '').startswith('gm_environment_area_'):
+            raise ValueError('Foreign area references retired ambient audio')
+        for ref in list(refs):
+            if ref.get('Id') in removed:
+                refs.remove(ref)
+        if not len(refs):
+            removed.add(entity.get('EntityId'))
+            report['removed_boundaries'].append(entity.get('Name'))
+            root.remove(entity)
+    for entity in root:
+        for path, attr in (('Area/Entities/Entity', 'Id'), ('EntityLinks/Link', 'TargetId'),
+                           ('FlowGraph/Nodes/Node/Inputs', 'entityId')):
+            if any(n.get(attr) in removed for n in entity.findall(path)):
+                raise ValueError('Retained entity references retired ambient audio')
+    return (xml(root) if report['cleared_controls'] else mission), report
