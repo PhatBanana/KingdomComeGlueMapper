@@ -71,7 +71,7 @@ def hierarchy(leaves, name='world', fanout=16):
     return Group(name,'Cluster',center,radius,children=children)
 
 
-def world_hierarchy(leaves, cell_size=64):
+def world_hierarchy(leaves, cell_size=64, *, height=None):
     """Native topology: Main layer and a separate three-tier vegetation grid.
 
     KCD2 indexes vegetation switching distances by hierarchy tier. Arbitrarily
@@ -79,21 +79,35 @@ def world_hierarchy(leaves, cell_size=64):
     Intermediate vegetation tiers have no proxy until a coarser source exists.
     """
     from collections import defaultdict
+    from dataclasses import replace
+    from hlod_spatial_metadata import instance_cells, grid_metadata
+    if height is not None and cell_size != 64:
+        raise ValueError('Native vegetation metadata requires 64m cells')
     vegetation=defaultdict(lambda: defaultdict(list)); brushes=[]
     for leaf in leaves:
         if leaf.kind != 'Vegetation':
             brushes.append(leaf);continue
-        x,y=(math.floor(leaf.center[i]/cell_size) for i in range(2))
+        if height is not None:
+            cells = instance_cells(leaf.records)
+            center, radius = grid_metadata(cells, 4, height)
+            leaf = replace(leaf, center=center, radius=radius)
+            x, y = next(iter(cells))
+        else:
+            x,y=(math.floor(leaf.center[i]/cell_size) for i in range(2))
         vegetation[(x//16,y//16)][(x//4,y//4)].append(leaf)
     root=Group('root','Cluster',(2048,2048,128),8000)
     main=Group('Main','Layer',(2048,2048,128),8000,children=brushes)
-    veg=Group('vegetation','Vegetation',(2048,2048,128),8000)
+    veg=Group('vegetation','Vegetation',(2048,2048,height(2048,2048) if height else 128),8000)
     root.children=[main,veg]
     for outer,quarters in sorted(vegetation.items()):
         region=Group('vegetation_'+'_'.join(map(str,outer)),'Vegetation',
                      ((outer[0]+.5)*cell_size*16,(outer[1]+.5)*cell_size*16,128),cell_size*16/math.sqrt(2))
+        if height is not None:
+            region.center = (*region.center[:2], height(*region.center[:2]))
         for quarter,items in sorted(quarters.items()):
             center=((quarter[0]+.5)*cell_size*4,(quarter[1]+.5)*cell_size*4,128)
+            if height is not None:
+                center = (*center[:2], height(*center[:2]))
             region.children.append(Group('vegetation_cell_'+'_'.join(map(str,quarter)),
                                          'Vegetation',center,cell_size*4/math.sqrt(2),children=items))
         veg.children.append(region)

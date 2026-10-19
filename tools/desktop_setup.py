@@ -32,7 +32,8 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'setup_package_upgrade', 'setup_tavern_upgrade', 'campaign_merchant_work',
               'setup_merchant_upgrade', 'source_merchant_upgrade', 'character_station_work',
               'campaign_dialogue_requests', 'campaign_script_import', 'item_icons', 'item_icon_atlas',
-              'smart_area_registration', 'area_geometry_contract')
+              'smart_area_registration', 'area_geometry_contract',
+              'hlod_spatial_metadata', 'lod_ratio_metadata')
 
 
 class Cancelled(Exception):

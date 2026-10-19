@@ -65,6 +65,8 @@ def texture_families(index):
 
 def validate(package, level='kcd1_travel', converted_data=None):
     package = Path(package)
+    from lod_ratio_metadata import upgrade_package as validate_lod_ratios
+    _, ratio_report = validate_lod_ratios(package, level, validate_only=True)
     with ExitStack() as stack:
         index = {}
         for path in sorted((package/'Data').glob('*.pak')):
@@ -94,6 +96,9 @@ def validate(package, level='kcd1_travel', converted_data=None):
         with zipfile.ZipFile(package/'Data/Levels'/level/'terrain.pak') as z:
             terrain = read(z, 'terrain/terrain.dat')
         parsed = parse(terrain)
+        from hlod_spatial_metadata import normalize as validate_spatial_metadata
+        from region_travel_ground import Heightfield
+        _, spatial = validate_spatial_metadata(tree, blob, Heightfield(terrain), validate_only=True)
         required = references(terrain)
         missing = sorted(n for n in required if n not in index and n+'.cgf' not in index and n+'.mtl' not in index)
         if missing: raise ValueError('Packaged terrain references missing assets: '+', '.join(missing[:20]))
@@ -120,6 +125,8 @@ def validate(package, level='kcd1_travel', converted_data=None):
             detail_records=len(near)-proxies, mesh_table=len(parsed.tables['meshes']['paths']),
             referenced_resources=len(required), missing_resources=0, texture_families=families,
             mesh_streaming_families=mesh_families,
+            vegetation_grid_version=spatial['version'],
+            lod_ratio_version=ratio_report['version'],
             external_lods=sum(bool(re.search(r'_lod[1-6]\.cgf$', n)) for n in index),
             numbered_mips=sum(bool(re.search(r'\.dds\.\d+a?$', n)) for n in index),
             source_siblings_checked=converted_data is not None, runtime_verified=False)

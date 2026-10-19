@@ -45,6 +45,8 @@ def read_brush(data, offset, mesh_paths, material_paths):
 
 
 def convert_brush(data, offset, mesh, material):
+    # Intermediate record: lod_ratio_metadata finalizes the source LOD byte
+    # after all world stages, so cached and newly imported records cannot mix.
     old = data[offset:offset + 100]
     if len(old) != 100 or struct.unpack_from("<I", old)[0] != 1:
         raise ValueError("Invalid source brush")

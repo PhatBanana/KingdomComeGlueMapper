@@ -16,6 +16,34 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_current_recipe_can_resume_without_reencoding_lod(self):
+        self.repeat_resume = True
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
+    def test_rewrite_preserves_terrain_above_zip_directory_limit(self):
+        from setup_package_upgrade import rewrite
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with zipfile.ZipFile(root/'terrain.pak', 'w') as z:
+                z.writestr('terrain/terrain.dat', b'old metadata')
+                for index in range(65535):
+                    z.writestr(f'terrain/tile{index}', b'unchanged')
+            rewrite(root, 'terrain.pak', {'terrain/terrain.dat': b'new metadata'})
+            with zipfile.ZipFile(root/'terrain.pak') as z:
+                self.assertEqual(len(z.infolist()), 65536)
+                self.assertEqual(z.read('terrain/terrain.dat'), b'new metadata')
+                self.assertTrue(all(z.read(f'terrain/tile{i}') == b'unchanged'
+                                    for i in range(65535)))
+                self.assertIsNone(z.testzip())
+
+    def test_recipe31_migrates_spatial_metadata(self):
+        self.source_recipe = 31
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
+    def test_recipe30_migrates_lod_metadata(self):
+        self.source_recipe = 30
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe29_migrates_debug_initializer_with_native_abi(self):
         self.source_recipe = 29
         self.retail_initializers = True
@@ -97,6 +125,8 @@ class UpgradeTests(unittest.TestCase):
                 z.writestr('triggerareas.fubar',write_areas([],1))
                 from test_skalitz_outer_gates import fixture
                 for name,data in fixture().items():z.writestr(name,data)
+            from test_lod_ratio_metadata import fixture as lod_fixture
+            archive('Data/Levels/kcd1_travel/terrain.pak', {'terrain/terrain.dat': lod_fixture()[0]})
             table=f'Libs/Tables/level__{MOD_ID}.xml'
             archive(f'Data/{MOD_ID}.pak',{table:b'<Root><Levels><LevelData LevelId="2" LevelName="trosecko"/><LevelData LevelId="1000" LevelName="kcd1_rataje"/><LevelData LevelId="1001" LevelName="kcd1_travel"/></Levels></Root>'})
             (p/'mod.manifest').write_text(f'<Mod><info><modid>{MOD_ID}</modid></info></Mod>')
@@ -118,6 +148,12 @@ class UpgradeTests(unittest.TestCase):
             with patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
                 with patch('campaign_menu_stage.add_to_package'):
                     result=finalize(p, source=p, target=p/'native' if getattr(self, 'retail_initializers', False) else None)
+                    if getattr(self, 'repeat_resume', False):
+                        with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
+                            before_lod = z.read('terrain/hlods.dat')
+                        result = finalize(p, source=p)
+                        with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
+                            self.assertEqual(z.read('terrain/hlods.dat'), before_lod)
             if getattr(self, 'retail_initializers', False):
                 self.assertEqual(result['retail_initialization_upgrade']['nodes'], ['gm_source_baseline_stat_strength'])
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
@@ -130,13 +166,16 @@ class UpgradeTests(unittest.TestCase):
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
                     self.assertIn(b'Marker=', z.read(QUEST_PATH))
             verify_package(p)
+            self.assertEqual(result['build_recipe']['streaming_validation']['vegetation_grid_version'], 1)
+            self.assertEqual(result['build_recipe']['streaming_validation']['lod_ratio_version'], 1)
             if getattr(self,'restore_split',False):
                 self.assertFalse(list((p/'Data').glob('*_meshes.pak')))
                 self.assertFalse(any(n.endswith('_meshes.pak') for n in result['files']))
                 with zipfile.ZipFile(p/'Data/kingdomcomegluemapper_world_000.pak') as z:
                     self.assertEqual(z.read('glueveg/tree.cgf'),normalize(mesh_fixture()))
             self.assertTrue(result['single_playable_world']);self.assertFalse(base.exists())
-            self.assertEqual(result['package_upgrade']['skalitz_outer_gates']['opened_leaves'],6)
+            self.assertEqual(result['package_upgrade']['skalitz_outer_gates']['opened_leaves'],
+                             0 if getattr(self, 'repeat_resume', False) else 6)
             self.assertEqual(shared.read_bytes(),shared_before)
             with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
                 validate_start_policy(z.read(PROJECT),OPENING)

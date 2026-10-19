@@ -142,7 +142,11 @@ def build(library, level, output, native_level, compiler=None, source_level="rat
             center=tuple((a+b)/2 for a,b in zip(low,high));radius=max(math.dist(center,c)+s for c,s in bs)
             leaves.append(Group('remaining_'+'_'.join(map(str,key)),'Vegetation' if key[0]==2 else 'Cluster',center,radius,rs))
         if Counter(r for g in leaves for r in g.records)!=Counter(near):raise ValueError('Near records changed/lost/duplicated')
-        tree,hlods,summary=serialize(world_hierarchy(leaves));report.update(summary)
+        from region_travel_ground import Heightfield
+        from hlod_spatial_metadata import normalize as native_grid
+        height = Heightfield(target.data)
+        tree,hlods,summary=serialize(world_hierarchy(leaves, height=height));report.update(summary)
+        _, report['vegetation_grid'] = native_grid(tree, hlods, height, validate_only=True)
         mesh_start=target.tables['meshes']['offset']-4;material_start=target.tables['materials']['offset']-4
         terrain=bytearray(target.data[:mesh_start]+resource_table(meshes)+target.data[material_start:])
         struct.pack_into('<I',terrain,4,len(terrain));parsed=parse(bytes(terrain))

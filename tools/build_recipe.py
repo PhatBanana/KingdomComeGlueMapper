@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 30
+VERSION = 32
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -176,6 +176,14 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
         pending.write_text(json.dumps(receipt, indent=2))
         pending.replace(package/RECEIPT)
     report['content_validation'] = validate_gameplay(package)
+    from hlod_spatial_metadata import upgrade_package as upgrade_spatial_metadata
+    spatial_files, spatial_report = upgrade_spatial_metadata(package)
+    receipt['files'].update(spatial_files)
+    receipt['vegetation_spatial_metadata'] = spatial_report
+    from lod_ratio_metadata import upgrade_package as upgrade_lod_ratios
+    ratio_files, ratio_report = upgrade_lod_ratios(package)
+    receipt['files'].update(ratio_files)
+    receipt['lod_ratio_metadata'] = ratio_report
     report['streaming_validation'] = validate_streaming(package, converted_data=converted_data)
     if cancelled(): raise InterruptedError('Build cancelled before shader compilation')
     notify('Compile native retail shader archives', total-2, total, '')

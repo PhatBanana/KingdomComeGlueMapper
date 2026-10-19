@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -35,7 +35,10 @@ def eligible(receipt):
 def rewrite(package, relative, replacements, remove=lambda name: False):
     path = package/relative
     pending = path.with_suffix('.upgrade-pending')
-    with zipfile.ZipFile(path) as source, zipfile.ZipFile(pending, 'x', zipfile.ZIP_STORED, allowZip64=False) as out:
+    # Baked terrain archives already exceed ZIP's 65,535-entry directory limit.
+    # ZIP64 is required for their directory, even when every member is small.
+    # Python only emits the extension when needed; ordinary PAKs stay unchanged.
+    with zipfile.ZipFile(path) as source, zipfile.ZipFile(pending, 'x', zipfile.ZIP_STORED, allowZip64=True) as out:
         for entry in source.infolist():
             if not remove(entry.filename):
                 out.writestr(entry, replacements.get(entry.filename, read(source, entry.filename)))
@@ -239,6 +242,16 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     mesh_files, mesh_report = upgrade_package(package)
     receipt['files'].update(mesh_files)
     receipt['mesh_lod_metadata'] = mesh_report
+    from hlod_spatial_metadata import upgrade_package as upgrade_spatial_metadata
+    spatial_files, spatial_report = upgrade_spatial_metadata(package)
+    receipt['files'].update(spatial_files)
+    receipt['vegetation_spatial_metadata'] = spatial_report
+    receipt['build_recipe']['streaming_validation']['vegetation_grid_version'] = spatial_report['version']
+    from lod_ratio_metadata import upgrade_package as upgrade_lod_ratios
+    ratio_files, ratio_report = upgrade_lod_ratios(package)
+    receipt['files'].update(ratio_files)
+    receipt['lod_ratio_metadata'] = ratio_report
+    receipt['build_recipe']['streaming_validation']['lod_ratio_version'] = ratio_report['version']
     from setup_actor_materials import upgrade as upgrade_materials
     actor_files, actor_removed, actor_report = upgrade_materials(package, target, notify, cancelled)
     receipt['files'].update(actor_files)

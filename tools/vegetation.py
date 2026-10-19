@@ -96,6 +96,8 @@ def verify_target_hlods(data):
 def convert_instance(data, offset, group):
     # Source: 32-bit render flags, transform, angles, trailing opaque word.
     # Target: 64-bit render flags, transform and angles; no trailing word.
+    # LOD bytes remain source-encoded in intermediate stages. The shared final
+    # lod_ratio_metadata stage converts them once, including cached/resumed data.
     original = data[offset:offset+64]
     if len(original) != 64 or struct.unpack_from("<I", original)[0] != 2:
         raise ValueError("Invalid source vegetation record")

@@ -67,6 +67,10 @@ class RecipeTests(unittest.TestCase):
             stack.enter_context(patch('setup_gameplay.steps', side_effect=gameplay))
             content = stack.enter_context(patch('setup_gameplay.validate', return_value={'actors':11, 'start_policy': POLICY}))
             streaming = stack.enter_context(patch('setup_streaming.validate', return_value={'proxies':1}))
+            spatial = stack.enter_context(patch('hlod_spatial_metadata.upgrade_package',
+                return_value=({}, {'version': 1, 'changed_nodes': 0})))
+            ratios = stack.enter_context(patch('lod_ratio_metadata.upgrade_package',
+                return_value=({}, {'version': 1})))
             stack.enter_context(patch('setup_shaders.tool_root'))
             def shaders(target, output, *args):
                 from shader_fixture import package_shaders
@@ -80,6 +84,8 @@ class RecipeTests(unittest.TestCase):
                     run(root/'source',root/'target',package,root/'work')
                 self.assertEqual(verify(package)['build_recipe']['status'], 'building')
                 content.assert_not_called(); streaming.assert_not_called(); menu.assert_not_called()
+                spatial.assert_not_called()
+                ratios.assert_not_called()
             else:
                 report = run(root/'source',root/'target',package,root/'work')
                 self.assertEqual(seen[-len(STAGE_IDS):], list(STAGE_IDS))
@@ -93,6 +99,8 @@ class RecipeTests(unittest.TestCase):
                 self.assertEqual(report['shader_validation']['launcher'], 'setup')
                 self.assertFalse((root/'work/shaders/package/Engine/Shaders.pak').exists())
                 content.assert_called_once_with(package); streaming.assert_called_once_with(package, converted_data=None)
+                spatial.assert_called_once_with(package)
+                ratios.assert_called_once_with(package)
                 menu.assert_called_once_with(root/'target',package)
 
     def test_stages_consume_previous_output_before_validating_and_registering_menu(self):

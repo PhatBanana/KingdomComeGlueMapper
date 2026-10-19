@@ -9,7 +9,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from game_paths import GameLibrary
 from steam_installations import discover, read_vdf
-from desktop_setup import Cancelled, EventLog, conversion_plan, install_transaction, preflight, worker
+from desktop_setup import Cancelled, CONVERTERS, EventLog, conversion_plan, install_transaction, preflight, worker
 from setup_campaign import MOD_ID, RECEIPT, verify_package
 from campaign_start_policy import POLICY
 from build_recipe import VERSION as RECIPE_VERSION
@@ -44,6 +44,10 @@ class DesktopSetupTests(unittest.TestCase):
         with self.assertRaises(ValueError): GameLibrary(config)
 
     def test_conversion_plan_has_no_external_editor_or_npc_dependency(self):
+        # These finalizers must also be hidden imports and part of the frozen
+        # setup self-test, not only available from a source checkout.
+        self.assertIn('hlod_spatial_metadata', CONVERTERS)
+        self.assertIn('lod_ratio_metadata', CONVERTERS)
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')
         self.assertEqual(len(plan), 13)
         self.assertIn('--merged', plan[1][2]); self.assertIn('--character-visuals', plan[-3][2])
