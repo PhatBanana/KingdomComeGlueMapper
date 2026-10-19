@@ -86,6 +86,13 @@ class EnvironmentTests(unittest.TestCase):
         self.assertIsNone(entity.find('Properties').get('fMinDelay'))
         self.assertTrue(report['records'][0]['loop_substitution'])
 
+    def test_village_one_shot_is_retired_not_doubled_as_village_loop(self):
+        from environment_audio import aliases
+        data,report=self.convert('''<Objects><Entity EntityId="1" EntityClass="AudioAreaRandom"><Properties audioTriggerPlayTrigger="a_o_village_oneshot" fMinDelay="9" fMaxDelay="24"/></Entity></Objects>''',
+                                 aliases=aliases())
+        self.assertEqual(len(ET.fromstring(data)),1)
+        self.assertEqual(report['retired'], {'no_native_ambient_action':1})
+
     def test_missing_native_control_is_reported_not_silently_emitted(self):
         data,report=self.convert('''<Objects><Entity EntityId="1" EntityClass="AudioTriggerSpot"><Properties audioTriggerPlayTriggerName="missing"/></Entity></Objects>''')
         self.assertEqual(len(ET.fromstring(data)),1)
