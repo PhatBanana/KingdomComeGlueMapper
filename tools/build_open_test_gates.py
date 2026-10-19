@@ -93,7 +93,18 @@ def resolve_models(files, meshes, asset, original):
     palisade=gate.get('Geometry')
     for target,source in ((grate,'objects/buildings/castles/castle_talmberk/castle_talmberk_grate.cgf'),
                           (palisade,'objects/buildings/wall_wooden/talmberk_palisade_gate.cga')):
-        if signature(asset(target))!=signature(original(source)):
+        actual=signature(asset(target))
+        reviewed=original(source)
+        matches=actual==signature(reviewed)
+        if not matches and source.endswith('.cgf'):
+            # Packaging calculates missing face-area metadata. Compare against
+            # that exact source conversion, never mask arbitrary header changes.
+            from mesh_lod_metadata import normalize
+            try:
+                matches=actual==signature(normalize(reviewed))
+            except (ValueError, KeyError, struct.error):
+                matches=False
+        if not matches:
             raise ValueError('Gate geometry differs from its reviewed source: '+source)
     return grate,palisade
 

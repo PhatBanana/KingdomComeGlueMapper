@@ -27,6 +27,33 @@ class OpenGateTests(unittest.TestCase):
     def test_wrong_mesh_rejected(self):
         with self.assertRaisesRegex(ValueError,'Expected two original'):open_gates(self.fixture(),['other.cgf'])
 
+    def test_normalized_gate_metadata_and_material_rename_accepted(self):
+        from test_mesh_lod_metadata import fixture
+        from clothing_regions import Chunk,read_chunks,write_chunks
+        from mesh_lod_metadata import normalize
+        source=write_chunks(read_chunks(fixture())+[Chunk(0x1014,0x802,9,b'original material')],{})
+        converted=write_chunks(read_chunks(normalize(source)),{9:b'converted material'})
+        original=lambda n:source
+        assets=lambda n:converted if n.endswith('.cgf') else source
+        self.assertEqual(resolve_models(self.fixture(),['new/grate.cgf'],assets,original)[0],'new/grate.cgf')
+
+    def test_unreviewed_metadata_and_geometry_changes_rejected(self):
+        from test_mesh_lod_metadata import fixture
+        from clothing_regions import read_chunks,write_chunks
+        from mesh_lod_metadata import normalize
+        source=fixture(); chunks=read_chunks(normalize(source))
+        # Area, unrelated flags, bounds, vertices, and collision data must still match.
+        for chunk_id,offset in ((1,136),(1,0),(1,112),(2,24)):
+            with self.subTest(chunk_id=chunk_id,offset=offset):
+                data=bytearray(next(c.data for c in chunks if c.id==chunk_id));data[offset]^=1
+                modified=write_chunks(chunks,{chunk_id:bytes(data)})
+                with self.assertRaisesRegex(ValueError,'geometry differs'):
+                    resolve_models(self.fixture(),['new/grate.cgf'],lambda n:modified,lambda n:source)
+        from clothing_regions import Chunk
+        modified=write_chunks(chunks+[Chunk(0x1018,0x800,10,b'changed collision')],{})
+        with self.assertRaisesRegex(ValueError,'geometry differs'):
+            resolve_models(self.fixture(),['new/grate.cgf'],lambda n:modified,lambda n:source)
+
     def test_rebuilt_model_names_are_verified_by_geometry(self):
         from clothing_regions import Chunk,write_chunks
         def mesh(value):return write_chunks([Chunk(0x1000,0x800,1,value)],{})
