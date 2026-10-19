@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.11'
+APP_VERSION = '0.3.14'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -154,6 +154,8 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
     package, target = Path(package).resolve(), Path(target).resolve()
     # Package bytes are hashed while staging below, so the package is read only once.
     receipt = verify_package(package, hashes=False)
+    from setup_pak_limits import validate as validate_pak_limits
+    validate_pak_limits(package)
     from build_recipe import require_current
     require_current(receipt)
     if receipt.get('kind') != 'retail-campaign-package':

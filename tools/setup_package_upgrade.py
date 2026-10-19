@@ -267,6 +267,9 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     receipt['files'].update(icon_files)
     if icon_report: receipt['source_item_icons'] = icon_report
     receipt['build_recipe']['content_validation'] = validate(package)
+    from setup_pak_limits import split_assets, validate as validate_pak_limits
+    receipt['files'].update(split_assets(package))
+    validate_pak_limits(package)
     receipt['build_recipe']['version'] = VERSION
     migrate_step_ids(receipt['build_recipe'])
     receipt['package_upgrade'] = dict(version=2, registered_smart_areas=added,

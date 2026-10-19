@@ -42,7 +42,11 @@ class SpeechTests(unittest.TestCase):
             pak(package/'Localization/English.pak',{DEPOT:index,'dialog/custom/keep.ogg':b'OggSkeep'})
             source='dialog/open_world/hello/'+stem+'.ogg'
             pak(target/'Localization/English.pak',{source:b'OggSoriginal'})
-            changed,report=upgrade(package,target)
+            progress=[]
+            def notify(label, current, total, detail=''):
+                progress.append((label,current,total,detail))
+            changed,report=upgrade(package,target,notify)
+            self.assertEqual([(p[1],p[2]) for p in progress],[(0,1),(1,1)])
             self.assertEqual(report['changed'],1)
             self.assertIn('Localization/English.pak',changed)
             with zipfile.ZipFile(package/'Localization/English.pak') as z:

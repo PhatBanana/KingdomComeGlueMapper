@@ -90,15 +90,16 @@ def upgrade(package, target, notify=lambda *a: None):
         report = dict(source_scope=native, destination_scope=destination, responses=len(responses),
                       recordings=len(selected), bytes=total, changed=len(changed), runtime_verified=False)
         if not changed: return {}, report
-        notify('Relocating native nearby speech recordings')
+        notify('Relocating native nearby speech recordings', 0, len(changed), '')
         try:
             with zipfile.ZipFile(pending, 'x', zipfile.ZIP_STORED) as out:
                 for info in current.infolist():
                     if info.filename.lower() not in changed: out.writestr(info, read(current,info.filename))
-                for dest, source in sorted(changed.items()):
+                for index, (dest, source) in enumerate(sorted(changed.items()), 1):
                     # Preserve filename case: the native dubbing hash is case sensitive.
                     original = recordings.members[source][0][2].filename.rsplit('/',1)[-1]
                     out.writestr(dest.rsplit('/',1)[0]+'/'+original, recordings.extract(source))
+                    notify('Relocating native nearby speech recordings', index, len(changed), dest)
             with zipfile.ZipFile(pending) as check:
                 if check.testzip() is not None: raise ValueError('Invalid relocated speech archive')
                 actual = {i.filename.lower():(i.CRC,i.file_size) for i in check.infolist()}

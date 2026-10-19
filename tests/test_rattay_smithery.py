@@ -10,6 +10,40 @@ from vegetation import verify_target_hlods
 
 
 class SmitheryTests(unittest.TestCase):
+    def test_source_identity_accepts_only_exact_metadata_conversion(self):
+        import tempfile, zipfile
+        from unittest.mock import patch
+        from test_mesh_lod_metadata import fixture
+        from clothing_regions import read_chunks,write_chunks
+        from mesh_lod_metadata import normalize
+        from build_rattay_smithery import resolve_brushes
+        data,hierarchy,meshes,_=self.fixture()
+        files={'terrain/hlods.dat':data,'terrain/hlods.xml':hierarchy}
+        chunks=read_chunks(fixture())
+        originals={}
+        for i,name in enumerate(meshes[:3]):
+            header=bytearray(chunks[0].data)
+            struct.pack_into('<f',header,112,float(i))
+            originals[name]=write_chunks(chunks,{1:bytes(header)})
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'Data').mkdir()
+            for corrupt in (False, True):
+                with self.subTest(corrupt=corrupt):
+                    with zipfile.ZipFile(root/'Data/test.pak','w') as z:
+                        for i,(name,blob) in enumerate(originals.items()):
+                            converted=normalize(blob)
+                            if corrupt and i==0:
+                                c=read_chunks(converted);h=bytearray(c[0].data)
+                                struct.pack_into('<f',h,136,123)
+                                converted=write_chunks(c,{1:bytes(h)})
+                            z.writestr(name,converted)
+                    with patch('build_open_test_gates.source_geometry',return_value=originals):
+                        if corrupt:
+                            with self.assertRaisesRegex(ValueError,'Missing original'):
+                                resolve_brushes(files,meshes,root,root)
+                        else:
+                            self.assertEqual(resolve_brushes(files,meshes,root,root),set(meshes[:3]))
+
     def fixture(self):
         meshes=sorted(BRUSHES)+['unrelated.cgf']
         blocks=[]

@@ -193,14 +193,22 @@ def resolve_brushes(files, meshes, mod, source):
             if len(row)!=104:continue
             point=tuple(struct.unpack_from('<f',row,i)[0] for i in (56,72,88))
             if any(math.dist(point,s[4])<4 for s in STATIONS):nearby.add(meshes[struct.unpack_from('<H',row,40)[0]].lower())
-    expected={signature(blob) for blob in source_geometry(source,models).values()}
+    from mesh_lod_metadata import normalize
+    # Material paths may change and packaging computes missing mesh face areas.
+    # Match exact reviewed variants, retaining one identity per source model.
+    variants={}
+    expected=set()
+    for name,blob in source_geometry(source,models).items():
+        expected.add(name)
+        variants[signature(blob)]=name
+        variants[signature(normalize(blob))]=name
     found={};matched=set()
     for path in sorted((mod/'Data').glob('*.pak')):
         with zipfile.ZipFile(path) as archive:
             for name in archive.namelist():
                 if name.lower() not in nearby:continue
                 value=signature(read(archive,name))
-                if value in expected:found[name.lower()]=value;matched.add(value)
+                if value in variants:found[name.lower()]=value;matched.add(variants[value])
     if matched!=expected:raise ValueError('Missing original Rattay equipment geometry')
     return set(found)
 
