@@ -16,16 +16,23 @@ from world_item_documents import DocumentImageAdapter
 from upgrade_map import read
 
 
-def build(source, target, mod, output, identifiers, *, asset_namespace='containeritems', origin='container_loot', reuse_output=False):
-    source, target, mod, output = map(Path, (source, target, mod, output))
-    if output.exists() and not reuse_output: raise FileExistsError('Choose a fresh dependency output')
-    output.mkdir(parents=True,exist_ok=reuse_output)
+def item_patches(mod):
+    """Read effective item extensions already staged in a package."""
     patches = []
-    for path in sorted((mod/'Data').glob('*.pak')):
+    for path in sorted((Path(mod)/'Data').glob('*.pak')):
         with zipfile.ZipFile(path) as archive:
             for name in archive.namelist():
                 if re.fullmatch(r'libs/tables/item/item(?:__[^/]+)?\.xml', name, re.I):
                     patches.append(read(archive, name))
+    return patches
+
+
+def build(source, target, mod, output, identifiers, *, asset_namespace='containeritems', origin='container_loot', reuse_output=False,
+          extra_item_patches=()):
+    source, target, mod, output = map(Path, (source, target, mod, output))
+    if output.exists() and not reuse_output: raise FileExistsError('Choose a fresh dependency output')
+    output.mkdir(parents=True,exist_ok=reuse_output)
+    patches = item_patches(mod) + list(extra_item_patches)
     native = native_items(target, patches)
     with ExitStack() as stack:
         reader = stack.enter_context(RetailSourceReader(source))

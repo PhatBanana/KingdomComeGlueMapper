@@ -51,7 +51,7 @@ def bind_storage(files, merchant, source, namespace, model):
 
 
 def build(source,target,baseline,stage,person,namespace,entry,level):
-    from region_travel_services import resolve_merchant,shop_resources
+    from region_travel_services import resolve_merchant,import_shop_resources
     from campaign_sources import RetailSourceReader
     from campaign_dependency_adapters import SourceTables
     from character_schedule import plan
@@ -75,7 +75,10 @@ def build(source,target,baseline,stage,person,namespace,entry,level):
             with zipfile.ZipFile(p) as z:
                 assets.update(n.replace('\\','/').lower() for n in z.namelist())
                 patches.extend(read(z,n) for n in z.namelist() if n.lower().startswith('libs/tables/item/item__') and n.endswith('.xml'))
-    stock_files,stock=shop_resources(merchant,target,namespace,patches)
+    stock_files,stock_strings,stock=import_shop_resources(merchant,source,target,namespace,
+        baseline,stage.parent/(namespace+'-stock-items'),extra_item_patches=patches)
+    resources.update(stock_files)
+    patches.extend(b for n,b in stock_files.items() if n.lower().startswith('libs/tables/item/item__'))
     with RetailSourceReader(source) as reader,zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as z:
         tables=SourceTables(source,reader)
         schedule=plan(merchant,tables)
@@ -111,6 +114,14 @@ def build(source,target,baseline,stage,person,namespace,entry,level):
         runtime_verified=False,quest_policy='Existing source inventory objective; no scripted grants or completion')
     resources['Libs/GlueMapper/'+namespace+'.json']=json.dumps(report,indent=2).encode()
     rewrite(stage,travel,resources);rewrite(stage,lp,files)
+    if stock_strings:
+        from build_english_audio_test import merge_audio_strings
+        localization = 'Localization/English_xml.pak'
+        with zipfile.ZipFile(stage/localization) as archive:
+            item_strings = read(archive,'text_ui_items.xml')
+        for blob in stock_strings:
+            item_strings = merge_audio_strings(item_strings,blob)
+        rewrite(stage,localization,{'text_ui_items.xml':item_strings})
     return report
 
 

@@ -72,6 +72,44 @@ def resolve_merchant(source, name):
     return person
 
 
+def import_shop_resources(merchant, source, target, namespace, package, output, *,
+                          extra_item_patches=(), reuse_output=False):
+    """Resolve all authored stock before creating the native shop preset.
+
+    Clean travel builds have no converted pickup/container items yet. Existing
+    merchant upgrades can already contain those definitions. Both paths use the
+    same dependency importer and return its assets and localization for packing.
+    Missing dependencies must fail conversion, never remove a stock entry.
+    """
+    from container_items import build as import_items, item_patches
+    output = Path(output)
+    extra_item_patches = list(extra_item_patches)
+    dependencies = import_items(source, target, package, output, list(merchant['stock']),
+        asset_namespace=namespace, origin='source merchant stock', reuse_output=reuse_output,
+        extra_item_patches=extra_item_patches)
+    if dependencies['unresolved_items']:
+        raise ValueError('Unresolved source merchant stock: ' + ', '.join(dependencies['unresolved_items']))
+    files, strings = {}, []
+    for path in sorted((output/'converted').rglob('*')):
+        if not path.is_file():
+            continue
+        name = path.relative_to(output/'converted').as_posix()
+        payload = path.read_bytes()
+        if name.lower().startswith('localization/english/'):
+            strings.append(payload)
+        elif name.lower().startswith('localization/'):
+            raise ValueError('Unsupported merchant item localization: ' + name)
+        else:
+            files[name] = payload
+    patches = item_patches(package) + extra_item_patches
+    patches.extend(payload for name, payload in files.items()
+        if re.fullmatch(r'libs/tables/item/item(?:__[^/]+)?\.xml', name, re.I))
+    stock_files, report = shop_resources(merchant, target, namespace, patches)
+    files.update(stock_files)
+    report['item_dependencies'] = dependencies
+    return files, strings, report
+
+
 def shop_resources(merchant, target, namespace, item_patches=()):
     """Keep shared item identities; never redefine KCD2 items or other shops."""
     from world_item_definitions import native_items, native_item_registry
@@ -105,5 +143,5 @@ def shop_resources(merchant, target, namespace, item_patches=()):
     return {'Libs/Tables/shop/shop__' + namespace + '.xml': xml(root),
             'Libs/Tables/item/InventoryPreset__' + namespace + '_stock.xml': xml(preset_root)}, dict(
         shop_id=shop_id, shop_name=name, source_shop=merchant['shop'], stock=merchant['stock'],
-        native_items=definitions, item_definitions='Existing native IDs; native item prices and effects retained',
+        native_items=definitions, item_definitions='Native or dependency-converted items; source stock and quantities retained',
         stock_types=len(definitions), runtime_verified=False)

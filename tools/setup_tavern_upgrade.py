@@ -13,8 +13,8 @@ MARKER='Libs/GlueMapper/source_tavern.json'
 def build(source,target,package,work,model_path,person,namespace,entry,level,project):
     from build_actor_dialogues_test import build as build_dialogues
     from build_recipe import apply_overlay
-    from region_travel_services import resolve_merchant,shop_resources
-    from container_items import build as import_items
+    from region_travel_services import resolve_merchant,import_shop_resources
+    from container_items import item_patches
     from setup_package_upgrade import rewrite
     from build_english_audio_test import merge_audio_strings
     from character_schedule import plan
@@ -45,19 +45,9 @@ def build(source,target,package,work,model_path,person,namespace,entry,level,pro
     work.mkdir(parents=True,exist_ok=True)
     merchant=resolve_merchant(source,person);merchant['target']=target
     dep=work/'dependencies'
-    item_report=import_items(source,target,package,dep,list(merchant['stock']),asset_namespace=namespace,origin='source merchant stock',reuse_output=dep.exists())
-    if item_report['unresolved_items']:raise ValueError('Unresolved source merchant stock')
-    patches=[];item_files={};strings=[]
-    for p in (dep/'converted').rglob('*'):
-        if not p.is_file():continue
-        n=p.relative_to(dep/'converted').as_posix();b=p.read_bytes()
-        if n.lower().startswith('localization/'):strings.append(b)
-        else:item_files[n]=b
-    for p in (package/'Data').glob('*.pak'):
-        with zipfile.ZipFile(p) as z:
-            patches.extend(read(z,n) for n in z.namelist() if n.lower().startswith('libs/tables/item/item__') and n.endswith('.xml'))
+    item_files,strings,stock=import_shop_resources(merchant,source,target,namespace,package,dep,reuse_output=dep.exists())
+    patches=item_patches(package)
     patches.extend(b for n,b in item_files.items() if n.lower().startswith('libs/tables/item/item__'))
-    stock_files,stock=shop_resources(merchant,target,namespace,patches)
     out=work/'dialogues'
     if (out/'report.json').exists():
         from setup_campaign import digest
@@ -86,7 +76,7 @@ def build(source,target,package,work,model_path,person,namespace,entry,level,pro
     files,resources,service=register(files,resources,entry,merchant,stock,namespace)
     resources.update(arrival_resources());routes,_=route_resources(source,target);resources.update(routes)
     with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as z:files,_=seating_animations.install(files,z)
-    resources.update(item_files);resources.update(stock_files)
+    resources.update(item_files)
     resources=trade(resources,entry,person,namespace)
     for n in ('tables/ai/scheduler.xml',seating_animations.HELPERS,seating_animations.ANIMATIONS):
         resources['Mods/kingdomcomegluemapper/'+lp.rsplit('/',1)[0]+'/'+n]=files[n]

@@ -31,7 +31,7 @@ from character_person_world import register_person_world
 from region_travel_entry import register_entry
 from region_travel_map import resources as map_resources
 from region_travel_locations import resources as location_resources, merge_missing_strings
-from region_travel_services import resolve_merchant, shop_resources
+from region_travel_services import resolve_merchant, import_shop_resources
 from character_person_appearance import build_appearance
 from region_travel_merchant import actor_resources, register_world
 from region_travel_visit import attach as attach_visit
@@ -245,7 +245,8 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
     namespace='gluemapper_rattay'
     print('Importing original Rattay upper-gate innkeeper and stock',flush=True)
     merchant=resolve_merchant(source,'rato_innkeeper1')
-    merchant_files,shop_report=shop_resources(merchant,target,namespace)
+    merchant_files,merchant_item_strings,shop_report=import_shop_resources(
+        merchant,source,target,namespace,package,output/'merchant-item-conversion')
     character_directory=output/'merchant-character'
     character_report=build_appearance(source,target,merchant,namespace,character_directory)
     merchant_files.update(actor_resources(target,merchant,character_report,namespace))
@@ -574,6 +575,8 @@ def build(source, target, world, output, *, modid=MOD, test_person=None,
                 texts[name]=merge_missing_strings(base,blob)
         for name,blob in world_item_strings.items():
             texts[name]=merge_localization(texts.get(name,b'<Table/>'),blob)
+        for blob in merchant_item_strings:
+            texts['text_ui_items.xml']=merge_localization(texts['text_ui_items.xml'],blob)
         for name,blob in texts.items(): z.writestr(name,blob)
     report={'schema':1,'mod':modid,'level':LEVEL,'level_id':LEVEL_ID,'departure':evidence,'stations':stations,
         'person_world':person_world_report,'test_person':clone_report,'test_bandit':bandit_report,
