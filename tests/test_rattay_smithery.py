@@ -51,5 +51,34 @@ class SmitheryTests(unittest.TestCase):
         self.assertEqual(len(removed),6)
         self.assertEqual(verify_target_hlods(result),{1:2})
 
+    def test_packaged_equipment_with_normalized_metadata_is_found(self):
+        import tempfile,zipfile
+        from unittest import mock
+        from test_mesh_lod_metadata import fixture
+        from clothing_regions import Chunk,read_chunks,write_chunks
+        from mesh_lod_metadata import normalize
+        from build_rattay_smithery import resolve_brushes
+        models=('objects/props/blacksmith_tools/anvil_01.cgf',
+                'objects/props/blacksmith_tools/water_container.cgf',
+                'objects/props/wooden_bins/barrels/barrel_02/barrel_02_metal_pieces.cgf')
+        sources={m:write_chunks(read_chunks(fixture())+[Chunk(0x1018,0x800,10,m.encode())],{}) for m in models}
+        meshes=['new/anvil.cgf','new/water.cgf','new/barrel.cgf','unrelated.cgf']
+        data,hierarchy,_,_=self.fixture()
+        with tempfile.TemporaryDirectory() as t:
+            (Path(t)/'Data').mkdir()
+            with zipfile.ZipFile(Path(t)/'Data/level.pak','w') as z:
+                for name,model in zip(meshes,models):z.writestr(name,normalize(sources[model]))
+                z.writestr('unrelated.cgf',write_chunks([Chunk(0x1000,0x800,1,b'other')],{}))
+            files={'terrain/hlods.dat':data,'terrain/hlods.xml':hierarchy}
+            with mock.patch('build_open_test_gates.source_geometry',lambda source,names:dict(sources)):
+                self.assertEqual(resolve_brushes(files,meshes,Path(t),None),set(meshes[:3]))
+            with zipfile.ZipFile(Path(t)/'Data/level.pak','w') as z:
+                for name,model in zip(meshes,models):
+                    chunks=read_chunks(normalize(sources[model]));body=bytearray(next(c.data for c in chunks if c.id==2));body[24]^=1
+                    z.writestr(name,write_chunks(chunks,{2:bytes(body)}))
+            with mock.patch('build_open_test_gates.source_geometry',lambda source,names:dict(sources)):
+                with self.assertRaisesRegex(ValueError,'Missing original Rattay equipment geometry'):
+                    resolve_brushes(files,meshes,Path(t),None)
+
 
 if __name__=='__main__':unittest.main()

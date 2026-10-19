@@ -193,15 +193,26 @@ def resolve_brushes(files, meshes, mod, source):
             if len(row)!=104:continue
             point=tuple(struct.unpack_from('<f',row,i)[0] for i in (56,72,88))
             if any(math.dist(point,s[4])<4 for s in STATIONS):nearby.add(meshes[struct.unpack_from('<H',row,40)[0]].lower())
-    expected={signature(blob) for blob in source_geometry(source,models).values()}
+    from mesh_lod_metadata import normalize
+    expected={}
+    for model,blob in source_geometry(source,models).items():
+        # Packaging calculates missing face-area metadata; accept that exact
+        # conversion of the source as well, as the gate recipe does.
+        accepted={signature(blob)}
+        try:
+            accepted.add(signature(normalize(blob)))
+        except (ValueError, KeyError, struct.error):
+            pass
+        expected[model]=accepted
     found={};matched=set()
     for path in sorted((mod/'Data').glob('*.pak')):
         with zipfile.ZipFile(path) as archive:
             for name in archive.namelist():
                 if name.lower() not in nearby:continue
                 value=signature(read(archive,name))
-                if value in expected:found[name.lower()]=value;matched.add(value)
-    if matched!=expected:raise ValueError('Missing original Rattay equipment geometry')
+                for model,accepted in expected.items():
+                    if value in accepted:found[name.lower()]=value;matched.add(model)
+    if matched!=set(expected):raise ValueError('Missing original Rattay equipment geometry')
     return set(found)
 
 
