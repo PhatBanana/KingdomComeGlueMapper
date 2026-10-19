@@ -29,7 +29,10 @@ LEVEL_FILES = ('objects_mission0.xml', 'whdata_0', 'waitinglinks.xml', 'triggera
 
 def rewrite(source, target, replacements):
     target.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(source) as original, zipfile.ZipFile(target, 'x', zipfile.ZIP_STORED, allowZip64=False) as dest:
+    # Travel and baked-level builders can already produce ZIP64 archives.
+    # Recipe rewrites must retain that capacity as assets and entries grow.
+    # Small archives still use ordinary ZIP headers.
+    with zipfile.ZipFile(source) as original, zipfile.ZipFile(target, 'x', zipfile.ZIP_STORED, allowZip64=True) as dest:
         existing = set()
         for info in original.infolist():
             if info.filename in existing: raise ValueError('Duplicate archive path: '+info.filename)

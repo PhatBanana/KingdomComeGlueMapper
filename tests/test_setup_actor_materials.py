@@ -33,7 +33,10 @@ class ActorMigrationTests(unittest.TestCase):
                 (output/'objects/new.dds').write_bytes(b'new texture')
                 return [dict(source_shader='illum')]
             with patch('audit_character_bodies.Assets'), patch('character_native_materials.convert_character_materials', side_effect=convert) as converter:
-                changed, removed, report = upgrade(package, root)
+                # The travel archive may already require ZIP64 before migration.
+                with patch.object(zipfile, 'ZIP_FILECOUNT_LIMIT', 3):
+                    changed, removed, report = upgrade(package, root)
+                self.assertIn(b'PK\x06\x06', travel.read_bytes())
                 self.assertEqual(len(report['actors']), 1)
                 self.assertEqual(linked.read_bytes(), original)
                 self.assertEqual(removed, [])

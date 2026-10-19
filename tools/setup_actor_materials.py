@@ -72,10 +72,8 @@ def upgrade(package, target, notify=lambda *a: None, cancelled=lambda: False):
                 reports.append(dict(namespace=namespace, materials=len(report), archives=len(shards)))
     if replacements:
         pending = travel.with_suffix('.materials-pending')
-        with zipfile.ZipFile(travel) as source, zipfile.ZipFile(pending, 'x', zipfile.ZIP_STORED, allowZip64=False) as out:
-            for entry in source.namelist():
-                out.writestr(entry, replacements.pop(entry) if entry in replacements else read(source, entry))
-            for name, payload in replacements.items(): out.writestr(name, payload)
+        from build_horse_trader_test import rewrite
+        rewrite(travel, pending, replacements)
         with zipfile.ZipFile(pending) as check:
             if check.testzip() is not None: raise ValueError('Invalid upgraded actor tables')
         pending.replace(travel)
