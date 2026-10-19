@@ -176,13 +176,8 @@ def build(library, mod, output):
 
 def resolve_brushes(files, meshes, mod, source):
     """Find the three original equipment meshes regardless of build numbering."""
-    from build_open_test_gates import source_geometry
-    import hashlib
-    from clothing_regions import read_chunks
+    from build_open_test_gates import source_geometry, geometry_signature, reviewed_signatures
     from spatial_hlod import records
-    def signature(blob):
-        return hashlib.sha256(b''.join(struct.pack('<HHI',c.kind,c.version,c.id)+c.data
-            for c in read_chunks(blob) if c.kind!=0x1014)).digest()
     models=('objects/props/blacksmith_tools/anvil_01.cgf',
             'objects/props/blacksmith_tools/water_container.cgf',
             'objects/props/wooden_bins/barrels/barrel_02/barrel_02_metal_pieces.cgf')
@@ -193,15 +188,16 @@ def resolve_brushes(files, meshes, mod, source):
             if len(row)!=104:continue
             point=tuple(struct.unpack_from('<f',row,i)[0] for i in (56,72,88))
             if any(math.dist(point,s[4])<4 for s in STATIONS):nearby.add(meshes[struct.unpack_from('<H',row,40)[0]].lower())
-    expected={signature(blob) for blob in source_geometry(source,models).values()}
+    expected={model:reviewed_signatures(blob) for model,blob in source_geometry(source,models).items()}
     found={};matched=set()
     for path in sorted((mod/'Data').glob('*.pak')):
         with zipfile.ZipFile(path) as archive:
             for name in archive.namelist():
                 if name.lower() not in nearby:continue
-                value=signature(read(archive,name))
-                if value in expected:found[name.lower()]=value;matched.add(value)
-    if matched!=expected:raise ValueError('Missing original Rattay equipment geometry')
+                value=geometry_signature(read(archive,name))
+                for model,signatures in expected.items():
+                    if value in signatures:found[name.lower()]=value;matched.add(model)
+    if matched!=set(expected):raise ValueError('Missing original Rattay equipment geometry')
     return set(found)
 
 
