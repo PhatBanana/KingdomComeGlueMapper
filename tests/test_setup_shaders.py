@@ -2,6 +2,7 @@ import sys
 import io
 import json
 from contextlib import redirect_stdout
+import os
 from pathlib import Path
 import tempfile
 import unittest
@@ -109,6 +110,35 @@ class ShaderSetupTests(unittest.TestCase):
             self.assertFalse((engine/'Shaders.pak').exists())  # rebuilt from extracted sources, never linked
             self.assertEqual((target/'Engine/Engine.pak').read_bytes(), b'Engine/Engine.pak')
             self.assertEqual((compiler/'Data/a.pak').read_bytes(), b'Data/a.pak')
+
+    @unittest.skipUnless(os.name == 'nt', 'directory junctions are Windows-only')
+    def test_prepare_junctions_game_library_across_volumes(self):
+        import shutil
+        import zipfile
+        from setup_shaders import prepare, is_junction, ILLUM_REPAIRS
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t); target = root/'game'; sdk = root/'KCD2Mod'
+            for name in ('Data/a.pak', 'Localization/b.pak', 'Engine/Engine.pak'):
+                (target/name).parent.mkdir(parents=True, exist_ok=True); (target/name).write_bytes(name.encode())
+            sources = {'Illum.cfx': b'\n'.join(pair[0] for pair in ILLUM_REPAIRS), **{n: p[0] for n, p in REPAIRS.items()}}
+            with zipfile.ZipFile(target/'Engine/Shaders.pak', 'w') as z:
+                for name, blob in sources.items(): z.writestr('Shaders/HWScripts/CryFX/'+name, blob)
+            for name in ('Bin/x.dll', 'Tools/ShaderCacheGen/ShaderCacheGen.exe', 'Tools/rc/rc.exe',
+                         'Tools/modding/USER_ShaderCacheGen/seed.txt'):
+                (sdk/name).parent.mkdir(parents=True, exist_ok=True); (sdk/name).write_bytes(b'tool')
+            # Game and build on different volumes: one junction each, no per-file copies.
+            with patch('setup_shaders.tool_root', return_value=sdk), \
+                 patch('setup_shaders.same_volume', return_value=False), \
+                 patch('setup_shaders.shutil.copy2', wraps=shutil.copy2) as copies:
+                compiler, _ = prepare(target, root/'build')
+                prepare(target, root/'build')  # resuming an existing job keeps the junctions
+            for name in ('Data', 'Localization'):
+                self.assertTrue(is_junction(compiler/name))
+            self.assertEqual((compiler/'Data/a.pak').read_bytes(), b'Data/a.pak')
+            self.assertFalse([c for c in copies.call_args_list if Path(c.args[0]).is_relative_to(target/'Data')])
+            # Removing the build must never reach through the junction into the game.
+            shutil.rmtree(root/'build')
+            self.assertEqual((target/'Data/a.pak').read_bytes(), b'Data/a.pak')
 
     def test_tampered_package_does_not_change_game(self):
         with tempfile.TemporaryDirectory() as t:
