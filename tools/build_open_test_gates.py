@@ -70,13 +70,24 @@ def open_gates(files, meshes, grate_mesh='gluebuild/setup_buildings/mesh1197.cgf
                        testing_only=True,runtime_passage_verified=False)
 
 
+def geometry_signature(blob):
+    from clothing_regions import read_chunks
+    return hashlib.sha256(b''.join(struct.pack('<HHI',c.kind,c.version,c.id)+c.data
+        for c in read_chunks(blob) if c.kind!=0x1014)).digest()
+
+
+def reviewed_signatures(blob):
+    """Packaging normalizes static mesh LOD metadata; accept either form of a source mesh."""
+    from mesh_lod_metadata import normalize
+    result={geometry_signature(blob)}
+    try:result.add(geometry_signature(normalize(blob)))
+    except ValueError:pass
+    return result
+
+
 def resolve_models(files, meshes, asset, original):
     """Generated mesh numbers vary; require the original geometry at each site."""
-    from clothing_regions import read_chunks
     from spatial_hlod import records
-    def signature(blob):
-        return hashlib.sha256(b''.join(struct.pack('<HHI',c.kind,c.version,c.id)+c.data
-            for c in read_chunks(blob) if c.kind!=0x1014)).digest()
     candidates=set()
     data=files['terrain/hlods.dat']
     for group in ET.fromstring(files['terrain/hlods.xml']).iter('HLod'):
@@ -91,16 +102,10 @@ def resolve_models(files, meshes, asset, original):
     gate=ET.fromstring(files['objects_mission0.xml']).find(".//Entity[@Name='glue_item_124019']")
     if gate is None:raise ValueError('Missing Talburg gate source identity')
     palisade=gate.get('Geometry')
-    from mesh_lod_metadata import normalize
     for target,source in ((grate,'objects/buildings/castles/castle_talmberk/castle_talmberk_grate.cgf'),
                           (palisade,'objects/buildings/wall_wooden/talmberk_palisade_gate.cga')):
-        # Packaging normalizes static mesh LOD metadata; accept that form too.
-        reviewed,actual=original(source),signature(asset(target))
-        if actual!=signature(reviewed):
-            try:normalized=signature(normalize(reviewed))
-            except ValueError:normalized=None
-            if actual!=normalized:
-                raise ValueError('Gate geometry differs from its reviewed source: '+source)
+        if geometry_signature(asset(target)) not in reviewed_signatures(original(source)):
+            raise ValueError('Gate geometry differs from its reviewed source: '+source)
     return grate,palisade
 
 
