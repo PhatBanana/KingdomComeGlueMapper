@@ -16,6 +16,10 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe34_adds_animals_through_shared_finalization(self):
+        self.source_recipe = 34
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe32_retires_obsolete_source_ambience_on_resume(self):
         self.source_recipe = 32
         self.retire_ambience = True
@@ -159,7 +163,8 @@ class UpgradeTests(unittest.TestCase):
             r['files']={f.relative_to(p).as_posix():digest(f) for f in p.rglob('*') if f.is_file()}
             (p/RECEIPT).write_text(json.dumps(r))
             eligible(r)
-            with patch('static_navigation_profiles.upgrade', return_value=({}, {'version': 1})) as navigation_upgrade, patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
+            animal_report = {'version': 2, 'scheduler_validation': True, 'pending': []}
+            with patch('setup_animal_population.upgrade', return_value=({}, animal_report)) as animal_upgrade, patch('static_navigation_profiles.upgrade', return_value=({}, {'version': 1})) as navigation_upgrade, patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
                 with patch('campaign_menu_stage.add_to_package'):
                     result=finalize(p, source=p, target=p/'native' if getattr(self, 'retail_initializers', False) else None)
                     if getattr(self, 'repeat_resume', False):
@@ -171,6 +176,8 @@ class UpgradeTests(unittest.TestCase):
                 from setup_gameplay import STATIC_WORLD_PROFILES
                 self.assertEqual(navigation_upgrade.call_args.args[3], STATIC_WORLD_PROFILES)
                 self.assertEqual(result['static_navigation_profiles']['version'], 1)
+                self.assertEqual(animal_upgrade.call_args.args[:4], navigation_upgrade.call_args.args[:4])
+                self.assertEqual(result['animal_population'], animal_report)
             if getattr(self, 'retail_initializers', False):
                 self.assertEqual(result['retail_initialization_upgrade']['nodes'], ['gm_source_baseline_stat_strength'])
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:

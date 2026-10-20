@@ -23,7 +23,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -35,6 +35,10 @@ def eligible(receipt):
     from static_navigation_profiles import VERSION as NAVIGATION_VERSION
     candidate['static_navigation_profiles'] = dict(version=NAVIGATION_VERSION,
         mode='materialized_static_profiles', profiles=[dict(profile=p) for p in STATIC_WORLD_PROFILES])
+    from animal_population import VERSION as ANIMAL_VERSION
+    from setup_animal_population import MODE as ANIMAL_MODE
+    candidate['animal_population'] = dict(version=ANIMAL_VERSION, mode=ANIMAL_MODE,
+        profiles=list(STATIC_WORLD_PROFILES), scheduler_validation=True)
     require_current(candidate)
 
 
@@ -232,6 +236,11 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         package, source, target, STATIC_WORLD_PROFILES)
     receipt['files'].update(navigation_files)
     receipt['static_navigation_profiles'] = navigation_report
+    from setup_animal_population import upgrade as upgrade_animals
+    animal_files, animal_report = upgrade_animals(
+        package, source, target, STATIC_WORLD_PROFILES, notify, cancelled)
+    receipt['files'].update(animal_files)
+    receipt['animal_population'] = animal_report
     runtime = f'Data/{MOD_ID}.pak'
     table = f'Libs/Tables/level__{MOD_ID}.xml'
     with zipfile.ZipFile(package/runtime) as z:

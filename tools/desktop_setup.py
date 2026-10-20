@@ -33,7 +33,9 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'setup_merchant_upgrade', 'source_merchant_upgrade', 'character_station_work',
               'campaign_dialogue_requests', 'campaign_script_import', 'item_icons', 'item_icon_atlas',
               'smart_area_registration', 'area_geometry_contract',
-              'hlod_spatial_metadata', 'lod_ratio_metadata')
+              'hlod_spatial_metadata', 'lod_ratio_metadata', 'setup_animal_population',
+              'build_animal_population_upgrade', 'animal_population',
+              'animal_population_sources', 'animal_native_templates')
 
 
 class Cancelled(Exception):

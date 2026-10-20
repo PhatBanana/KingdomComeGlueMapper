@@ -48,6 +48,9 @@ class DesktopSetupTests(unittest.TestCase):
         # setup self-test, not only available from a source checkout.
         self.assertIn('hlod_spatial_metadata', CONVERTERS)
         self.assertIn('lod_ratio_metadata', CONVERTERS)
+        for module in ('setup_animal_population', 'build_animal_population_upgrade',
+                       'animal_population', 'animal_population_sources', 'animal_native_templates'):
+            self.assertIn(module, CONVERTERS)
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')
         self.assertEqual(len(plan), 13)
         self.assertIn('--merged', plan[1][2]); self.assertIn('--character-visuals', plan[-3][2])
@@ -70,6 +73,8 @@ class DesktopSetupTests(unittest.TestCase):
                                                     content_validation={'actors': 11, 'start_policy': POLICY}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'}),
                                                 static_navigation_profiles={'version':1, 'mode':'materialized_static_profiles',
                                                     'profiles':[{'profile':p} for p in STATIC_WORLD_PROFILES]},
+                                                animal_population={'version':2, 'mode':'supported_native_ambient',
+                                                    'profiles':list(STATIC_WORLD_PROFILES), 'scheduler_validation':True},
                                                 files={n: hashlib.sha256(d).hexdigest() for n, d in files.items()})))
         return path
 

@@ -3,6 +3,11 @@
 The converter uses KCD2 animal souls, models, animations and brains. It does not
 replace native character assets or import KCD1 animal rigs.
 
+The extension for livestock, placed dogs/horses and chicken/fish flocks
+is described in [animal-population-upgrader.md](animal-population-upgrader.md).
+Recipe 35 includes its supported ambient contracts in clean setup and resume,
+after the wildlife baseline described below.
+
 `tools/wildlife.py` is called by the normal `region_travel.py` world build and by
 `tools/build_wildlife_probe.py` for isolated staging. The latter defaults to one
 site; `--limit 0` stages all supported sites. Install only while the game is closed.

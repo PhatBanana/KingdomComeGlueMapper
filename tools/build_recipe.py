@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 34
+VERSION = 35
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -40,6 +40,13 @@ def require_current(receipt):
                 or navigation.get('mode') != 'materialized_static_profiles'
                 or [p.get('profile') for p in navigation.get('profiles', [])] != list(STATIC_WORLD_PROFILES)):
             raise ValueError('This package needs static-world navigation conversion before installation. Resume with the current setup.')
+        from animal_population import VERSION as ANIMAL_VERSION
+        from setup_animal_population import MODE as ANIMAL_MODE
+        animals = receipt.get('animal_population', {})
+        if (animals.get('version') != ANIMAL_VERSION or animals.get('mode') != ANIMAL_MODE
+                or animals.get('profiles') != list(STATIC_WORLD_PROFILES)
+                or animals.get('scheduler_validation') is not True):
+            raise ValueError('This package needs native animal scheduler conversion before installation. Resume with the current setup.')
     if report['shader_validation'].get('installation') != 'mod_private_root':
         raise ValueError('This package has no mod-contained shader launcher. Rebuild with the current setup.')
     from setup_gameplay import STAGE_IDS

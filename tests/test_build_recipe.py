@@ -27,10 +27,13 @@ class RecipeTests(unittest.TestCase):
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 require_current({'build_recipe': dict(report, **{field: value})})
 
-    def exercise_recipe(self, fail=False):
+    def exercise_recipe(self, fail=False, travel=False):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             root = Path(directory); package = root/'package'; package.mkdir()
-            (package/RECEIPT).write_text(json.dumps({'files': {}}))
+            receipt = {'files': {}}
+            if travel:
+                receipt['travel_bridge'] = {'destination': 'kcd1_travel'}
+            (package/RECEIPT).write_text(json.dumps(receipt))
             (package/'chain').write_text('base')
             seen = []
             def verify(path, **kwargs):
@@ -79,6 +82,7 @@ class RecipeTests(unittest.TestCase):
                 return {'compiled': True}
             stack.enter_context(patch('setup_shaders.build', side_effect=shaders))
             menu = stack.enter_context(patch('campaign_menu_stage.add_to_package'))
+            finalize = stack.enter_context(patch('setup_package_upgrade.finalize'))
             if fail:
                 with self.assertRaisesRegex(ValueError, 'source dependency'):
                     run(root/'source',root/'target',package,root/'work')
@@ -89,7 +93,14 @@ class RecipeTests(unittest.TestCase):
             else:
                 report = run(root/'source',root/'target',package,root/'work')
                 self.assertEqual(seen[-len(STAGE_IDS):], list(STAGE_IDS))
-                require_current(verify(package))
+                if travel:
+                    finalize.assert_called_once_with(package, source=root/'source', target=root/'target',
+                        notify=unittest.mock.ANY, cancelled=unittest.mock.ANY)
+                    # A crash before finalization cannot masquerade as installable.
+                    with self.assertRaises(ValueError): require_current(verify(package))
+                else:
+                    finalize.assert_not_called()
+                    require_current(verify(package))
                 self.assertEqual(report['status'],'complete')
                 self.assertEqual(report['shader_validation']['installation'],'mod_private_root')
                 self.assertFalse((package/'Engine').exists())
@@ -105,6 +116,9 @@ class RecipeTests(unittest.TestCase):
 
     def test_stages_consume_previous_output_before_validating_and_registering_menu(self):
         self.exercise_recipe()
+
+    def test_clean_world_uses_same_finalizer_as_resumed_packages(self):
+        self.exercise_recipe(travel=True)
 
     def test_failed_campaign_stage_never_produces_complete_receipt_or_menu(self):
         self.exercise_recipe(fail=True)
@@ -162,6 +176,19 @@ class RecipeTests(unittest.TestCase):
         self.assertNotIn('static_navigation_profiles', receipt)
         receipt['static_navigation_profiles'] = dict(version=1, mode='materialized_static_profiles',
             profiles=[dict(profile=p) for p in STATIC_WORLD_PROFILES])
+        with self.assertRaisesRegex(ValueError, 'animal scheduler conversion'): require_current(receipt)
+        eligible(receipt)
+        self.assertNotIn('animal_population', receipt)
+        from animal_population import VERSION as ANIMAL_VERSION
+        from setup_animal_population import MODE
+        animals = dict(version=ANIMAL_VERSION, mode=MODE,
+            profiles=list(STATIC_WORLD_PROFILES), scheduler_validation=True)
+        for field, value in (('version', ANIMAL_VERSION-1), ('mode', 'unverified'),
+                             ('profiles', []), ('scheduler_validation', False)):
+            receipt['animal_population'] = dict(animals, **{field:value})
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'animal scheduler conversion'):
+                require_current(receipt)
+        receipt['animal_population'] = animals
         require_current(receipt)
         receipt['static_navigation_profiles']['profiles'] = []
         with self.assertRaisesRegex(ValueError, 'navigation conversion'): require_current(receipt)

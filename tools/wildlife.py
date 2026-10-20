@@ -163,6 +163,8 @@ def apply(files, sites, templates):
         keys = sorted(template['keys'])
         identities = {k: native_guid(int.from_bytes(hashlib.sha256(
             ('wildlife/' + site['guid'] + '/' + k).encode()).digest()[:8], 'little')) for k in keys}
+        if site.get('actor'):
+            identities[template['root']] = native_guid(int(site['guid'], 16))
         if occupied.intersection(identities.values()):
             raise ValueError('Wildlife site already installed: ' + site['name'])
         occupied.update(identities.values())
@@ -176,6 +178,10 @@ def apply(files, sites, templates):
             for attr in ('Prefab', 'EditorLayer', 'ParentId', 'Rotate', 'Scale'):
                 entity.attrib.pop(attr, None)
             entity.set('Name', 'gm_wildlife_' + site['guid'] + '_' + ('spawn' if key == template['root'] else key))
+            if site.get('actor') and key == template['root']:
+                entity.set('Name', site['name'])
+                entity.set('Rotate', site.get('rotation') or '1,0,0,0')
+                entity.set('Scale', site.get('scale') or '1,1,1')
             entity.set('EntityGuid', identities[key]);entity.set('EntityId', ids[key])
             entity.set('Pos', f'{x},{y},{z}')
             old_links = entity.find('EntityLinks')
@@ -190,7 +196,7 @@ def apply(files, sites, templates):
                     definition = link.get('Name')
                     ET.SubElement(new_links, 'Link', Name=definition, TargetId=ids[target], TargetGuid=identities[target])
                     links.append((identities[key], identities[target], definition))
-            if key == template['root']:
+            if key == template['root'] and not site.get('actor'):
                 props = entity.find('Properties')
                 props.set('AnimalCount', str(site['count']))
                 props.set('RespawnDays', format(site['respawn_days'], '.9g'))
@@ -214,8 +220,9 @@ def apply(files, sites, templates):
         if 'area' in site:
             points, area_height = site['area']['points'], site['area']['height']
         shapes['areas'].append(TriggerArea(guid_value(identities[template['area']]), area_height, points))
-        report.append(dict(**site, spawn_name='gm_wildlife_' + site['guid'] + '_spawn',
+        report.append(dict(**site, spawn_name=site['name'] if site.get('actor') else 'gm_wildlife_' + site['guid'] + '_spawn',
                            native_template_guid=template['root'], entities=len(keys),
+                           native_template_world=template.get('world', 'trosecko'),
                            activity_rows=len(template['rows']), runtime_verified=False,
                            habitat='original dynamic-area polygon' if 'area' in site else 'source spawn radius'))
     files['objects_mission0.xml'] = xml(mission)
