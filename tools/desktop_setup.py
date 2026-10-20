@@ -129,6 +129,11 @@ def lighting_cache(build):
     return Path(build).resolve().parents[1] / 'lighting-cache' / code
 
 
+def shader_cache(build):
+    """Compiled shader packages shared by runs in one workspace, keyed by their signed inputs."""
+    return Path(build).resolve().parents[1] / 'shader-cache'
+
+
 def conversion_plan(library, build):
     data = Path(build) / 'Data'
     common = ['--library', str(library)]
@@ -348,6 +353,7 @@ def worker(config_path):
                 paths.write_text(json.dumps(dict(schema=1, kcd1=config['kcd1'], kcd2=config['kcd2'], build=str(build))), encoding='utf-8')
                 plan = conversion_plan(paths, build)
                 os.environ['GLUEMAPPER_LIGHTING_CACHE'] = str(lighting_cache(build))
+                os.environ['GLUEMAPPER_SHADER_CACHE'] = str(shader_cache(build))
                 total = len(plan) + 3 + (config['action'] == 'build_install')
                 for index, (label, module, args) in enumerate(plan):
                     if cancel(): raise Cancelled('Cancelled after the previous conversion stage')

@@ -160,7 +160,8 @@ def prepare(target, output):
             path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(blob)
     if len(changes) != 3: raise ValueError('Required native shader sources absent')
     signature = dict(source=digest(target/'Engine/Shaders.pak'),
-        compiler=digest(sdk/'Tools/ShaderCacheGen/ShaderCacheGen.exe'), changes=changes)
+        compiler=digest(sdk/'Tools/ShaderCacheGen/ShaderCacheGen.exe'), changes=changes,
+        tools={name: digest(sdk/name) for name in TOOL_FILES[1:] if (sdk/name).is_file()})
     (output/'inputs.json').write_text(json.dumps(signature, indent=2))
     return root, signature
 
@@ -230,9 +231,28 @@ def run_command(command, root, log, cancelled, notify, *, compiler_log=None):
     if code: raise ValueError(f'Native shader tool failed ({code}); see {log}')
 
 
+def cache_entry(signature):
+    """Compiled packages are a pure function of the signed inputs, so setup can keep them
+    across jobs (GLUEMAPPER_SHADER_CACHE). Recompiling ~15k shaders takes ~16 minutes."""
+    cache = os.environ.get('GLUEMAPPER_SHADER_CACHE')
+    if not cache: return None
+    key = hashlib.sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()[:16]
+    return Path(cache)/key
+
+
 def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
     output = Path(output)
     root, signature = prepare(target, output)
+    entry = cache_entry(signature)
+    if entry is not None and (entry/'shader-build.json').is_file():
+        try:
+            validate(entry)
+        except (ValueError, KeyError, OSError, zipfile.BadZipFile) as error:
+            print(f'Compiled shader cache entry {entry.name} rejected ({error}); compiling.', flush=True)
+        else:
+            print(f'Reusing compiled shaders from cache entry {entry.name}', flush=True)
+            shutil.copytree(entry, output/'package')
+            return validate(output/'package')
     run_command([str(root/'Tools/ShaderCacheGen/ShaderCacheGen.exe'), '/PrecacheShaderList'],
                 root, output/'compile.log', cancelled, notify, compiler_log=root/'shadercachegen.log')
     log = (root/'shadercachegen.log').read_text(errors='replace')
@@ -249,7 +269,13 @@ def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
             if not archive.namelist(): raise ValueError('Empty native shader archive: '+name)
         report['files']['Engine/'+name] = digest(path)
     (output/'package/shader-build.json').write_text(json.dumps(report, indent=2))
-    return validate(output/'package')
+    result = validate(output/'package')
+    if entry is not None and not entry.exists():
+        staging = entry.with_name(entry.name+'.partial')
+        shutil.rmtree(staging, ignore_errors=True)
+        shutil.copytree(output/'package', staging)
+        staging.replace(entry)
+    return result
 
 
 def compilation_result(log):
