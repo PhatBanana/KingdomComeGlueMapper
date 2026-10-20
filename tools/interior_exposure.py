@@ -1,4 +1,5 @@
 """Allow native eye adaptation to reach the KCD1 baked interior exposure range."""
+import copy
 import math
 import xml.etree.ElementTree as ET
 
@@ -42,3 +43,39 @@ def convert(blob, minimum_ev=4.0):
     if not count:
         raise ValueError('No EV Min variables found')
     return xml(root), {'minimum_ev_cap': minimum_ev, 'exposure_profiles': count}
+
+
+def _minimums(root):
+    tod = root.find('TimeOfDay')
+    if tod is None:
+        raise ValueError('Missing TimeOfDay settings')
+    return [variable for variable in tod.iter('Variable') if variable.get('Name') == 'EV Min']
+
+
+def _shape(element):
+    """An element without its trailing whitespace, for comparison."""
+    element = copy.deepcopy(element)
+    element.tail = None
+    return ET.tostring(element)
+
+
+def restore(blob, native):
+    """Undo convert() once a lighting bake lights the interiors itself.
+
+    Only a mission whose EV Min variables are exactly convert(native)'s is
+    changed; each is replaced by the native variable, keeping this file's
+    layout. Anything else is returned unchanged, so a level that was not
+    capped from this native mission is never given its exposure.
+    """
+    root = ET.fromstring(blob)
+    ours = _minimums(root)
+    expected = _minimums(ET.fromstring(convert(native)[0]))
+    if [_shape(v) for v in ours] != [_shape(v) for v in expected]:
+        return blob, {'restored_exposure_profiles': 0}
+    parents = {child: parent for parent in root.iter() for child in parent}
+    for variable, original in zip(ours, _minimums(ET.fromstring(native))):
+        replacement = copy.deepcopy(original)
+        replacement.tail = variable.tail
+        parent = parents[variable]
+        parent[list(parent).index(variable)] = replacement
+    return xml(root), {'restored_exposure_profiles': len(ours)}
