@@ -40,6 +40,18 @@ class ShaderSetupTests(unittest.TestCase):
             finally:
                 events.stream.close(); events.text.close()
 
+    def test_quiet_run_keeps_compiler_output_in_the_log_files_only(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t); native = root/'shadercachegen.log'
+            script = "from pathlib import Path; Path('shadercachegen.log').write_text('Compiling shader 1\\n'); print('tool stdout')"
+            captured = io.StringIO()
+            with redirect_stdout(captured):
+                run_command([sys.executable, '-c', script], root, root/'compile.log', lambda: False,
+                            lambda *args: None, compiler_log=native, live_output=False)
+            self.assertEqual(captured.getvalue(), '')
+            self.assertIn('Compiling shader 1', native.read_text())
+            self.assertIn('tool stdout', (root/'compile.log').read_text())
+
     def test_live_log_partial_utf8_and_truncation(self):
         with tempfile.TemporaryDirectory() as t:
             path = Path(t)/'native.log'; live = _LiveLog(path)

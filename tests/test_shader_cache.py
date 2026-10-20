@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from unittest.mock import patch
 
@@ -25,7 +27,7 @@ class ShaderCacheTests(unittest.TestCase):
         root = Path(output)/'compiler'; root.mkdir(parents=True, exist_ok=True)
         return root, dict(self.signature)
 
-    def fake_run(self, command, root, log, cancelled, notify, *, compiler_log=None):
+    def fake_run(self, command, root, log, cancelled, notify, *, compiler_log=None, live_output=True):
         if compiler_log is not None:
             self.compiles += 1
             compiler_log.write_text('Combinations: (Material: 1, Processed: 1; Compiled: 1; Removed: 0)')
@@ -41,6 +43,39 @@ class ShaderCacheTests(unittest.TestCase):
              patch.dict(os.environ, environment):
             if not cache: os.environ.pop('GLUEMAPPER_SHADER_CACHE', None)
             return setup_shaders.build(self.base/'target', self.base/name)
+
+    def test_background_build_compiles_beside_other_work_and_stops_on_demand(self):
+        environment = {'GLUEMAPPER_SHADER_CACHE': str(self.base/'cache')}
+        with patch.object(setup_shaders, 'prepare', self.fake_prepare), \
+             patch.object(setup_shaders, 'run_command', self.fake_run), patch.dict(os.environ, environment):
+            background = setup_shaders.BackgroundBuild(self.base/'target', self.base/'background')
+            labels = []
+            result = background.wait(lambda label, *args: labels.append(label))
+            self.assertTrue(result['compiled']); self.assertEqual(self.compiles, 1)
+            self.assertTrue((self.base/'background/package/shader-build.json').is_file())
+            self.assertTrue(set(labels) <= {'Compile native shaders'})
+            background.check()
+        # A compiler failure is reported at check() and at wait().
+        with patch.object(setup_shaders, 'build', side_effect=ValueError('compiler broke')):
+            failed = setup_shaders.BackgroundBuild(self.base/'target', self.base/'failed')
+            failed.thread.join()
+        with self.assertRaisesRegex(ValueError, 'compiler broke'): failed.check()
+        with self.assertRaisesRegex(ValueError, 'compiler broke'): failed.wait()
+        # stop() ends a compile that is no longer wanted; a cancelled compile is not a failure.
+        started = threading.Event()
+        def slow(target, output, notify=None, cancelled=None, **kwargs):
+            started.set()
+            while not cancelled(): time.sleep(0.01)
+            raise InterruptedError('Shader build cancelled')
+        with patch.object(setup_shaders, 'build', side_effect=slow):
+            running = setup_shaders.BackgroundBuild(self.base/'target', self.base/'slow')
+            self.assertTrue(started.wait(5)); running.stop()
+            self.assertFalse(running.thread.is_alive()); running.check()
+            started.clear()
+            recipe_cancelled = setup_shaders.BackgroundBuild(self.base/'target', self.base/'cancelled')
+            self.assertTrue(started.wait(5))
+            with self.assertRaises(InterruptedError): recipe_cancelled.wait(cancelled=lambda: True)
+            self.assertFalse(recipe_cancelled.thread.is_alive())
 
     def test_identical_inputs_reuse_the_compiled_package(self):
         self.build('first')

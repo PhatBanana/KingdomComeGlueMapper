@@ -326,6 +326,7 @@ def worker(config_path):
     setup_progress.sink = events.progress
     cancel = lambda: (job / 'cancel.requested').exists()
     original_cwd, original_argv = Path.cwd(), sys.argv[:]
+    shaders = None
     try:
         events.emit('log', message=preflight(config))
         os.chdir(job)
@@ -358,6 +359,10 @@ def worker(config_path):
                 plan = conversion_plan(paths, build)
                 os.environ['GLUEMAPPER_LIGHTING_CACHE'] = str(lighting_cache(build))
                 os.environ['GLUEMAPPER_SHADER_CACHE'] = str(shader_cache(build))
+                # The shader compiler reads only the installed games, so it runs
+                # beside the conversion and the recipe joins it at its shader step.
+                from setup_shaders import BackgroundBuild
+                shaders = BackgroundBuild(config['kcd2'], job / 'shaders', cancel)
                 total = len(plan) + 3 + (config['action'] == 'build_install')
                 for index, (label, module, args) in enumerate(plan):
                     if cancel(): raise Cancelled('Cancelled after the previous conversion stage')
@@ -380,7 +385,7 @@ def worker(config_path):
                 package = combine(base, destination/MOD_ID, config['kcd2'], job/'package')
                 from build_recipe import run as run_recipe
                 run_recipe(config['kcd1'], config['kcd2'], package, job/'gameplay-recipe', events.progress, cancel,
-                           converted_data=job/'conversion/Data')
+                           converted_data=job/'conversion/Data', shaders=shaders)
             else:
                 package = Path(config['package']).resolve()
                 total = 1
@@ -398,6 +403,7 @@ def worker(config_path):
     except BaseException as error:
         events.emit('error', message=str(error), traceback=traceback.format_exc()); return 1
     finally:
+        if shaders is not None: shaders.stop()  # never leave ShaderCacheGen running after the job
         if original_sdk is None:os.environ.pop('KCD2_MOD_TOOLS',None)
         else:os.environ['KCD2_MOD_TOOLS']=original_sdk
         output.flush(); events.stream.close(); events.text.close()
