@@ -4,7 +4,7 @@ import xml.etree.ElementTree as E
 
 from campaign_quest_graph import emit_quest, xml
 
-PREFIXES = ('advance_', 'ready_', 'exclusive_cancel_', 'exclusive_ready_')
+PREFIXES = ('advance_', 'ready_', 'exclusive_cancel_', 'exclusive_ready_', 'quest_end_')
 
 
 def refresh(blob, model):

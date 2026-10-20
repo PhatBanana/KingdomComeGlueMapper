@@ -28,6 +28,60 @@ def model():
 
 
 class QuestGraphTests(unittest.TestCase):
+    def test_source_end_completes_only_active_quest_after_its_predecessor(self):
+        files, report = emit_project([model()], 'Example')
+        root = E.fromstring(files['Example/arbitrary_quest.xml'])
+        nodes = root.find('./Skald/Quest/Nodes')
+        gate = nodes.find("If[@Name='advance_2']")
+        self.assertIsNotNone(gate)
+        self.assertEqual([e.get('From') for e in gate.findall("Edge[@To='Exec']")],
+                         ['quest_end_2_queued.OnFinished'])
+        timer = nodes.find("Timer[@Name='quest_end_2_queued']")
+        self.assertEqual([e.get('From') for e in timer.findall("Edge[@To='SetRunning']")],
+                         ['objective_6.OnCompleted'])
+        condition = gate.find("Edge[@To='Condition']").get('From')
+        conjunction = next(n for n in nodes if n.get('Name') == condition.split('.')[0])
+        self.assertEqual({e.get('From') for e in conjunction.findall('Edge')},
+                         {'objective_6.Completed', 'quest_progress.Active'})
+        self.assertIsNotNone(nodes.find("State[@Name='quest_progress']/Edge[@From='advance_2.True'][@To='SetDone']"))
+        self.assertEqual(report['quests'][0]['converted_quest_end']['join'], 'all')
+
+    def test_begin_to_end_has_no_synchronous_state_feedback(self):
+        m = model()
+        m['tables']['quest_transition']['rows'] = [dict(
+            quest_id='42', from_objective_id='1', to_objective_id='2', enabled='True')]
+        files, _ = emit_project([m], 'Example')
+        nodes = E.fromstring(files['Example/arbitrary_quest.xml']).find('./Skald/Quest/Nodes')
+        # Follow execution edges until an asynchronous Timer boundary. No path
+        # from OnActive may synchronously write back into quest_progress.
+        pending, visited = ['quest_progress.OnActive'], set()
+        while pending:
+            event = pending.pop()
+            if event in visited: continue
+            visited.add(event)
+            for node in nodes:
+                for e in node.findall('Edge'):
+                    if e.get('From') != event: continue
+                    if node.tag == 'Timer': continue
+                    self.assertNotEqual(node.get('Name'), 'quest_progress')
+                    if node.tag == 'If' and e.get('To') == 'Exec':
+                        pending.extend(node.get('Name') + '.' + v for v in ('True', 'False'))
+        timer = nodes.find("Timer[@Name='quest_end_2_queued']")
+        self.assertIsNotNone(timer.find("Edge[@From='quest_progress.OnActive'][@To='SetRunning']"))
+        self.assertEqual({e.get('From') for e in timer.findall("Edge[@To='SetStopped']")},
+                         {'quest_progress.OnDone', 'quest_progress.OnFailed', 'quest_progress.OnNone'})
+        self.assertEqual(timer.find("Constant[@Name='Duration']").get('Value'), '0s')
+
+    def test_disabled_source_end_does_not_complete_quest(self):
+        m = model()
+        for row in m['tables']['quest_transition']['rows']:
+            if row['to_objective_id'] == '2': row['enabled'] = 'False'
+        for edge in m['graph']['edges']:
+            if edge['nodeIn'] == '2': edge['enabled'] = '0'
+        files, report = emit_project([m], 'Example')
+        self.assertIsNone(E.fromstring(files['Example/arbitrary_quest.xml']).find(".//If[@Name='advance_2']"))
+        self.assertNotIn('converted_quest_end', report['quests'][0])
+
     def test_source_objective_predicate_rechecks_at_start_and_dependency_change(self):
         m = model()
         m['tables']['quest_objective']['rows'][1]['condition'] = "IsObjectiveCompleted('arbitrary_quest','second')"

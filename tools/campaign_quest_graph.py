@@ -247,16 +247,34 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
         if r['enabled'] == 'True': incoming[r['to_objective_id']].append(r['from_objective_id'])
     cancellation_pairs = set()
     for target, predecessors in incoming.items():
-        if target == end:
-            report['unsupported'].append(dict(kind='quest_end_policy', predecessors=predecessors))
-            continue
         exclusive = [p for p in predecessors if p != begin and by_id[p]['is_exclusive'] == 'True']
         if exclusive and len(exclusive) != len(predecessors):
             report['unsupported'].append(dict(kind='mixed_exclusive_transition',
-                objective=by_id[target]['objective_name'], predecessors=predecessors))
+                objective='Quest:End' if target == end else by_id[target]['objective_name'], predecessors=predecessors))
             continue
         terms = [('quest_progress.Active' if p == begin else 'objective_' + p + '.Completed') for p in predecessors]
         prerequisite = (any_of if exclusive else all_of)(nodes, 'ready_' + target + '_predecessors', terms)
+        if target == end:
+            # The source end node uses the same incoming-edge join policy as
+            # other destinations. Do not complete on an arbitrary exercise or
+            # on cancellation: only the enabled source path reaching Quest:End.
+            condition = all_of(nodes, 'ready_' + target, [prerequisite, 'quest_progress.Active'])
+            gate = ET.SubElement(nodes, 'If', Name='advance_' + target)
+            edge(gate, condition, 'Condition')
+            # Begin -> End otherwise feeds quest_progress.OnActive back into
+            # the same State synchronously. Use the same deferred boundary as
+            # automatic objective completion, and recheck the join on delivery.
+            queued = ET.SubElement(nodes, 'Timer', Name='quest_end_' + target + '_queued')
+            constant(queued, 'Duration', '0s'); constant(queued, 'TimeType', 'GameTime')
+            for p in predecessors:
+                edge(queued, 'quest_progress.OnActive' if p == begin else 'objective_' + p + '.OnCompleted', 'SetRunning')
+            for status in ('Done', 'Failed', 'None'):
+                edge(queued, 'quest_progress.On' + status, 'SetStopped')
+            edge(gate, queued.get('Name') + '.OnFinished', 'Exec')
+            edge(progress, gate.get('Name') + '.True', 'SetDone')
+            cancellation_pairs.update((winner, other) for winner in exclusive for other in exclusive if winner != other)
+            report['converted_quest_end'] = dict(predecessors=predecessors, join='any' if exclusive else 'all')
+            continue
         restartable = any_of(nodes, 'ready_' + target + '_restartable',
             ['objective_' + target + '.Unchanged', 'objective_' + target + '.Canceled'])
         condition = all_of(nodes, 'ready_' + target, [prerequisite, restartable])

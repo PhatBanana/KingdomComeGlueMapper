@@ -61,6 +61,7 @@ class RefreshTests(unittest.TestCase):
         old, _ = emit_project([source], 'Example')
         root = ET.fromstring(old['Example/arbitrary_quest.xml'])
         nodes = root.find('./Skald/Quest/Nodes')
+        ending = ET.canonicalize(ET.tostring(nodes.find("Timer[@Name='quest_end_2_queued']")), strip_text=True)
         ET.SubElement(nodes, 'Trace', Name='preserved_reward_binding')
         source['tables']['quest_objective']['rows'][0].update(condition='1', autocomplete_timeout_str='4m #GT')
         updated, report = objective_timers(ET.tostring(root), source)
@@ -68,7 +69,8 @@ class RefreshTests(unittest.TestCase):
         self.assertEqual(updated, repeated)
         result = ET.fromstring(updated)
         self.assertIsNotNone(result.find(".//Trace[@Name='preserved_reward_binding']"))
-        self.assertEqual(result.find(".//Timer/Constant[@Name='Duration']").get('Value'), '4m')
+        self.assertEqual(ET.canonicalize(ET.tostring(result.find(".//Timer[@Name='quest_end_2_queued']")), strip_text=True), ending)
+        self.assertEqual(result.find(".//Timer[@Name='complete_3_queued']/Constant[@Name='Duration']").get('Value'), '4m')
         self.assertIn(dict(objective='3', duration='4m'), report['timers'])
 
     def test_dialogue_refresh_only_changes_source_terminal_end_policy(self):
