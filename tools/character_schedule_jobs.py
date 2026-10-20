@@ -38,6 +38,12 @@ It does not represent the other housework activities as converted.
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
+            if entry.get('market_work'):
+                from character_market_jobs import bind as bind_market, ACTIVITY
+                job, item_report = bind_market(mission, scheduler, person, entry, target)
+                renamed[job.get('EntityGuid')] = ACTIVITY
+                report.append(item_report)
+                continue
             if entry.get('station_work'):
                 from character_station_work import resources
                 template,_ = resources(entry['station_work'])

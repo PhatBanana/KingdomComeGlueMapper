@@ -43,6 +43,10 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None):
     mission = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
     for entry in schedule['resolved']:
         behavior = entry['behavior']
+        from character_market_jobs import supports as market_supports, resolve as market_resolve
+        if market_supports(entry):
+            result.append(market_resolve(entry, archive))
+            continue
         if entry.get('target_kind') == 'quest_controller':
             if source is None or reader is None:
                 raise ValueError('Controller work requires its effective source behavior')

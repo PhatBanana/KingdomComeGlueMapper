@@ -37,7 +37,9 @@ def merge_audio_strings(native, additions):
             # Separate items can share a source label in the same batch.
             # Deduplicate identical rows without accepting conflicting text.
             known[key]=row
-    return merge_localization(native,xml(incoming))
+    # An already-upgraded population has no new labels. Preserve the original
+    # bytes instead of adding a blank row separator on every repeat upgrade.
+    return merge_localization(native,xml(incoming)) if len(incoming) else native
 
 
 def bind_introduction(blob, catalog):

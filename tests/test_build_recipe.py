@@ -189,6 +189,18 @@ class RecipeTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'animal scheduler conversion'):
                 require_current(receipt)
         receipt['animal_population'] = animals
+        with self.assertRaisesRegex(ValueError, 'population conversion'): require_current(receipt)
+        eligible(receipt)
+        self.assertNotIn('profile_population', receipt)
+        from setup_profile_population import VERSION as POPULATION_VERSION, MODE as POPULATION_MODE
+        population = dict(version=POPULATION_VERSION, mode=POPULATION_MODE,
+            profiles=list(STATIC_WORLD_PROFILES), scheduler_validation=True)
+        for field, value in (('version', 0), ('mode', 'unverified'),
+                             ('profiles', []), ('scheduler_validation', False)):
+            receipt['profile_population'] = dict(population, **{field:value})
+            with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'population conversion'):
+                require_current(receipt)
+        receipt['profile_population'] = population
         require_current(receipt)
         receipt['static_navigation_profiles']['profiles'] = []
         with self.assertRaisesRegex(ValueError, 'navigation conversion'): require_current(receipt)

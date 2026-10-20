@@ -125,6 +125,37 @@ def import_source_voices(resources, native, source_rows, prefixes):
     return resources, xml(root)
 
 
+CHARACTER_REQUIRED = ('age', 'body_type', 'gender', 'unique_assets')
+
+
+def generic_character_template(archive, characters, soul):
+    """Use shipped generic voice metadata when KCD1 has no Skald biography.
+
+    This supplies the database reader's required classification, not an actor
+    appearance or an invented source biography. The converted soul still owns
+    its body, head and equipment. Reject unknown archetypes instead of silently
+    assigning a male identity to a female, child or animal.
+    """
+    archetypes = ET.fromstring(read(archive, 'Libs/Tables/rpg/soul_archetype.xml'))
+    matches = [a for a in archetypes.iter('soul_archetype')
+               if a.get('soul_archetype_id') == soul.get('soul_archetype_id')]
+    if len(matches) != 1 or matches[0].get('soul_archetype_name') not in ('NPC', 'NPC_Female'):
+        raise ValueError('No generic voice character contract for imported soul archetype')
+    genders = ET.fromstring(read(archive, 'Libs/Tables/rpg/gender.xml'))
+    names = [g.get('gender_name') for g in genders.iter('gender')
+             if g.get('gender_id') == matches[0].get('gender_id')]
+    if len(names) != 1 or names[0] not in ('male', 'female'):
+        raise ValueError('No generic voice character contract for imported soul gender')
+    prefix = 'char_GENERIC_' + {'male': 'MAN', 'female': 'WOMAN'}[names[0]] + '_COMMONER_'
+    candidates = sorted((c for c in characters.iter('skald_character')
+                         if c.get('skald_character_name', '').startswith(prefix)
+                         and all(k in c.attrib for k in CHARACTER_REQUIRED)
+                         and not c.get('unique_assets')), key=lambda c: c.get('skald_character_name'))
+    if not candidates:
+        raise ValueError('Missing complete native generic voice character template: ' + prefix)
+    return candidates[0]
+
+
 def bind_soul_voice(resources,target,modid,soul_name,voice_name,role_name,ui_name):
     """Give an imported soul its own Skald identity, without reusing native NPC IDs."""
     resources=dict(resources)
@@ -144,12 +175,19 @@ def bind_soul_voice(resources,target,modid,soul_name,voice_name,role_name,ui_nam
         voice_id=matches_voice[0].get('voice_id')
         native=ET.fromstring(read(archive,'Libs/Tables/skald/skald_character.xml'))
         template=next((c for c in native.iter('skald_character') if c.get('voice_id')==voice_id),None)
+        policy = 'native_voice_character'
         if template is None:
             current_name = matches[0][2].get('skald_character_name')
             existing = [c for n,b in resources.items() if n.startswith('Libs/Tables/skald/skald_character__')
                         for c in ET.fromstring(b).iter('skald_character') if c.get('skald_character_name') == current_name]
             if len(existing) > 1: raise ValueError('Ambiguous imported character identity')
-            template = existing[0] if existing else ET.Element('skald_character')
+            template = existing[0] if existing else None
+            policy = 'retained_imported_character'
+            if template is None or not all(k in template.attrib for k in CHARACTER_REQUIRED):
+                template = generic_character_template(archive, native, matches[0][2])
+                policy = 'native_generic_classification_no_source_biography'
+        if not all(k in template.attrib for k in CHARACTER_REQUIRED):
+            raise ValueError('Incomplete native voice character template')
     path,root,soul=matches[0]
     identity='gm_voice_'+soul_name
     soul.set('skald_character_name',identity)
@@ -167,4 +205,5 @@ def bind_soul_voice(resources,target,modid,soul_name,voice_name,role_name,ui_nam
                  ui_name_string_name=ui_name,skald_character_full_name_string_name=ui_name)
     ET.SubElement(container,'skald_character',attrs)
     resources[table_path]=xml(chars)
-    return resources,dict(soul=soul_name,character=identity,voice_id=int(voice_id),voice=voice_name)
+    return resources,dict(soul=soul_name,character=identity,voice_id=int(voice_id),voice=voice_name,
+                          character_template=template.get('skald_character_name'),classification_policy=policy)

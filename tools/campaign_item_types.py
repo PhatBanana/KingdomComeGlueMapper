@@ -8,7 +8,7 @@ from upgrade_map import read
 def native_tool_types(target):
     result = {}
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
-        for name in ('npc_tool_type', 'npc_tool_subtype'):
+        for name in ('npc_tool_type', 'npc_tool_subtype', 'ointment_item_type', 'ointment_item_subtype'):
             root = ET.fromstring(read(archive, 'Libs/Tables/item/' + name + '.xml'))
             result[name] = [dict(row.attrib) for row in root.iter(name)]
         root = ET.fromstring(read(archive, 'Libs/Tables/item/ItemManipulationType.xml'))

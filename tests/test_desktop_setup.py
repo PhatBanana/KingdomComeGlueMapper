@@ -49,7 +49,9 @@ class DesktopSetupTests(unittest.TestCase):
         self.assertIn('hlod_spatial_metadata', CONVERTERS)
         self.assertIn('lod_ratio_metadata', CONVERTERS)
         for module in ('setup_animal_population', 'build_animal_population_upgrade',
-                       'animal_population', 'animal_population_sources', 'animal_native_templates'):
+                       'animal_population', 'animal_population_sources', 'animal_native_templates',
+                       'setup_profile_population', 'build_profile_population_upgrade',
+                       'profile_population_upgrade', 'character_market_jobs'):
             self.assertIn(module, CONVERTERS)
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')
         self.assertEqual(len(plan), 13)
@@ -74,6 +76,8 @@ class DesktopSetupTests(unittest.TestCase):
                                                 static_navigation_profiles={'version':1, 'mode':'materialized_static_profiles',
                                                     'profiles':[{'profile':p} for p in STATIC_WORLD_PROFILES]},
                                                 animal_population={'version':2, 'mode':'supported_native_ambient',
+                                                    'profiles':list(STATIC_WORLD_PROFILES), 'scheduler_validation':True},
+                                                profile_population={'version':1, 'mode':'selected_static_profiles',
                                                     'profiles':list(STATIC_WORLD_PROFILES), 'scheduler_validation':True},
                                                 files={n: hashlib.sha256(d).hexdigest() for n, d in files.items()})))
         return path

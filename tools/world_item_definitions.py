@@ -55,9 +55,10 @@ class WorldItemAdapter(ItemAdapter):
     """
     CATEGORIES = {**ItemAdapter.CATEGORIES, 'food':'Food','melee_weapon':'MeleeWeapon',
                   'missile_weapon':'MissileWeapon','ammo':'Ammo','document':'Document','potion':'Food',
-                  'armor':'Armor','helmet':'Helmet','die':'Die'}
+                  'armor':'Armor','helmet':'Helmet','die':'Die','ointment_item':'Ointment'}
     FIELDS = {**ItemAdapter.FIELDS,
         'consumable_item':{}, 'potion':{}, 'die':{},
+        'ointment_item':dict(efficiency='Efficiency'),
         'armor':dict(max_status='MaxStatus',noise='Noise',str_req='StrReq',stab_def='DefenseStab',slash_def='DefenseSlash',smash_def='DefenseSmash'),
         'equippable_item':dict(charisma='Charisma',social_class_id='SocialClassId',wealth_level='WealthLevel',
                                visibility='Visibility',conspicuousness='Conspicuousness'),
@@ -82,6 +83,20 @@ class WorldItemAdapter(ItemAdapter):
     def plan(self,identity):
         plan=super().plan(identity)
         rows=plan.source['rows'];category=plan.source['category']
+        if category == 'ointment_item':
+            from campaign_item_types import resolve
+            mappings = []
+            for table, field in (('ointment_item_type', 'Type'), ('ointment_item_subtype', 'SubType')):
+                value = rows[category].get(table+'_id')
+                if not value: continue
+                if self.native_tool_types is None:
+                    raise ValueError('Native ointment type tables are required for conversion')
+                native_id, evidence = resolve(self.tables.get('item/'+table)['rows'],
+                    self.native_tool_types.get(table, []), table, value)
+                mappings.append(dict(field=field, value=native_id, evidence=evidence))
+            if not any(m['field']=='Type' for m in mappings):
+                raise ValueError('Missing source ointment type')
+            plan.source['ointment_types'] = mappings
         if category in ('armor','helmet'):
             plan.dependencies.append(('clothing',identity))
             part=self.tables.row('item/clothing','clothing_id',rows['armor']['clothing_id'])
@@ -115,6 +130,10 @@ class WorldItemAdapter(ItemAdapter):
             # Book is the shipped KCD2 entity script, not a KCD1 script port.
             rows['pickable_item']['entity_script']=''
         candidates=[r for r in self.native.values() if r.tag==self.CATEGORIES.get(category) and r.get('IconId')]
+        if category == 'ointment_item':
+            types = {m['field']: m['value'] for m in plan.source['ointment_types']}
+            candidates = [r for r in candidates if usable_native_item(r)
+                          and all(r.get(k) == v for k,v in types.items())]
         if candidates:
             source_name=rows['player_item'].get('ui_name','').lower()
             source_info=rows['player_item'].get('ui_info','').lower()
@@ -148,6 +167,10 @@ class WorldItemAdapter(ItemAdapter):
             die=rows['die']
             row.set('SideWeights',' '.join(die.get('side_weight_'+str(i)) or '1' for i in range(1,7)))
             row.set('SideValues',' '.join(die.get('side_value_'+str(i)) or str(i-1) for i in range(1,7)))
+        if category=='ointment_item':
+            for mapping in plan.source['ointment_types']:
+                row.set(mapping['field'],mapping['value'])
+                evidence['item_type_mappings'].append(mapping['evidence'])
         if category=='document':
             row.set('EntityScript','Book')
             parts=sorted(plan.source['document_parts'],key=lambda r:int(r['part']))

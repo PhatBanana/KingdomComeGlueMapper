@@ -35,7 +35,8 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'smart_area_registration', 'area_geometry_contract',
               'hlod_spatial_metadata', 'lod_ratio_metadata', 'setup_animal_population',
               'build_animal_population_upgrade', 'animal_population',
-              'animal_population_sources', 'animal_native_templates')
+              'animal_population_sources', 'animal_native_templates', 'setup_profile_population',
+              'build_profile_population_upgrade', 'profile_population_upgrade', 'character_market_jobs')
 
 
 class Cancelled(Exception):

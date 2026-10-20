@@ -41,7 +41,8 @@ def register(files, resources, entry, merchant, stock, namespace, role='innkeepe
     arrivals=[]
     for activity in activities:
         params=activity.find('Parameters')
-        if params.get('BehaviorName')!='use':raise ValueError('Unsupported merchant work leaf')
+        if params.get('BehaviorName') not in ('use', 'seller_market'):
+            raise ValueError('Unsupported merchant work leaf')
         for begin,end in hours(merchant['shop']):
             begin=max(begin,float(params.get('TimeOfDayStart')));end=min(end,float(params.get('TimeOfDayEnd')))
             if begin>=end:continue

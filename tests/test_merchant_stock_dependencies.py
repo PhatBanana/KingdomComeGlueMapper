@@ -79,6 +79,24 @@ class MerchantStockDependenciesTests(unittest.TestCase):
         self.assertEqual(report['native_items'][NATIVE]['Price'], '7')
         self.assertEqual(report['native_items'][SOURCE]['Price'], '9')
 
+    def test_non_daily_stock_requires_explicit_native_policy(self):
+        self.merchant['shop']['restock_day_mask']='85'
+        with self.assertRaisesRegex(ValueError,'explicit target policy'):
+            self.run_import(self.emit)
+
+    def test_explicit_native_restock_uses_installed_merchant_period(self):
+        self.merchant['shop']['restock_day_mask']='9'
+        # A changed native period must be read from the target, not embedded in
+        # a settlement-specific adapter or rounded from a source weekday mask.
+        with zipfile.ZipFile(self.target/'Data/Tables.pak','w') as z:
+            z.writestr('Libs/Tables/item/item.xml',self.native_item)
+            z.writestr('Libs/Tables/shop/shop.xml','<database><Shops><ShopData shop_id="3" shop_name="common_merchant" restock_period="6"/></Shops></database>')
+        files,_,report=self.run_import(self.emit,restock_policy='native_merchant')
+        row=E.fromstring(files['Libs/Tables/shop/shop__arbitrary_merchant.xml']).find('.//ShopData')
+        self.assertEqual(row.get('restock_period'),'6')
+        self.assertEqual(report['restock']['source_day_mask'],9)
+        self.assertFalse(report['restock']['preserves_source_weekdays'])
+
     def test_existing_package_and_staged_item_rows_are_reused(self):
         with zipfile.ZipFile(self.package/'Data/previous.pak', 'w') as z:
             z.writestr(ITEM_FILE, self.converted)

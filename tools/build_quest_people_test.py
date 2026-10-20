@@ -25,26 +25,35 @@ ACTOR_PAK_LIMIT = 900 * 1024**2
 
 
 def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
-    """Pack objects/ into ZIP32 shards; return (paks, Libs/ files for resources)."""
+    """Pack and validate streamed assets, including families crossing ZIP32 shards."""
+    from texture_streaming import checked_entries, generated_entries
     libs, paks, pak = {}, [], None
-    used = 0
-    try:
+    used, count = 22, 0
+    def entries():
         for p in sorted(appearance.rglob('*')):
             if not p.is_file(): continue
             name = p.relative_to(appearance).as_posix()
             if name.startswith('Libs/'): libs[name] = p.read_bytes()
             if not name.startswith('objects/'): continue
-            size = p.stat().st_size + 2 * len(name.encode()) + 128
-            if size > limit: raise ValueError('Actor asset exceeds ZIP32 shard limit: ' + name)
-            if pak is not None and used + size > limit:
+            yield name, p.read_bytes()
+    try:
+        # Appearance conversion emits complete RGBA16F macro textures and
+        # byte-channel masks. They need the same native streaming layout as
+        # world assets, even when an actor is added after the main world build.
+        for name, blob in checked_entries(generated_entries(entries())):
+            size = len(blob) + 2 * len(name.encode('utf-8')) + 76
+            if size + 22 > limit: raise ValueError('Actor asset exceeds ZIP32 shard limit: ' + name)
+            if pak is not None and (used + size > limit or count >= 50000):
                 pak.close(); pak = None
             if pak is None:
                 suffix = '' if not paks else '_%02d' % len(paks)
                 paks.append(data_dir / (namespace + suffix + '.pak'))
                 pak = zipfile.ZipFile(paks[-1], 'x', zipfile.ZIP_STORED, allowZip64=False)
-                used = 0
-            pak.write(p, name)
-            used += size
+                used, count = 22, 0
+            item = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0))
+            item.create_system = 0
+            pak.writestr(item, blob)
+            used += size; count += 1
         if not paks:
             paks.append(data_dir / (namespace + '.pak'))
             pak = zipfile.ZipFile(paks[0], 'x', zipfile.ZIP_STORED, allowZip64=False)
@@ -61,8 +70,8 @@ def build(a):
     selected = getattr(a, 'person', [])
     if selected and (a.model or getattr(a, 'source_profile', []) or getattr(a, 'dialogue_model', [])):
         raise ValueError('Explicit actor staging must not implicitly expand quest/profile dependencies')
-    if not selected and not a.model:
-        raise ValueError('Provide a quest model or explicit source actors')
+    if not selected and not a.model and not getattr(a, 'source_profile', []):
+        raise ValueError('Provide a quest model, source profile or explicit source actors')
     model = json.loads(a.model.read_text(encoding='utf-8')) if a.model else None
     with RetailSourceReader(a.source) as reader:
         tables = SourceTables(a.source, reader)
@@ -121,6 +130,8 @@ def build(a):
         for actor in profile_actors:
             requested['profile_actor_' + actor['entity_guid']] = dict(soul_id=actor['soul_id'])
     for aid, row in requested.items():
+        if getattr(a, 'cancelled', lambda: False)():
+            raise InterruptedError('Cancelled before actor conversion')
         sid = row.get('soul_id')
         if not sid or row.get('soul_class_id') or row.get('soul_faction_id'):
             pending.append(dict(asset=aid, reason='Filtered or non-explicit soul')); continue
@@ -133,6 +144,7 @@ def build(a):
         if aid.startswith('profile_actor_') and person['actor'].get('EntityGuid', '').lower() != aid[14:].lower():
             raise ValueError('Profile actor resolved to a different source placement: ' + person['name'])
         namespace = 'gm_person_' + sid.replace('-', '')
+        getattr(a, 'notify', print)('Converting source appearance: ' + person['name'])
         appearance = a.output / 'people' / namespace
         try:
             character = build_appearance(a.source, a.target, person, namespace, appearance)

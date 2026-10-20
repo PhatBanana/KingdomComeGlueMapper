@@ -43,8 +43,8 @@ def resolve_stock(shop, defaults, overrides):
     return result
 
 
-def resolve_merchant(source, name):
-    person = resolve_person(source, name)
+def resolve_merchant(source, name, source_level='rataje'):
+    person = resolve_person(source, name, source_level)
     with RetailSourceReader(source) as reader:
         tables = SourceTables(source, reader)
         soul = person['soul']
@@ -52,7 +52,7 @@ def resolve_merchant(source, name):
         shop = tables.row('shop/shop', 'shop_id', keeper['shop_id'])
         stock = resolve_stock(shop, tables.get('shop/shop_type2item')['rows'], tables.get('shop/shop2item')['rows'])
         table_evidence = {k: v['provenance'] for k, v in tables.cache.items()}
-    with zipfile.ZipFile(Path(source) / 'Data/Levels/rataje/level.pak') as archive:
+    with zipfile.ZipFile(Path(source) / 'Data/Levels' / source_level / 'level.pak') as archive:
         mission = read(archive, 'objects_mission0.xml')
         entities = list(ET.fromstring(mission).iter('Entity'))
         actor = person['actor']
@@ -73,7 +73,7 @@ def resolve_merchant(source, name):
 
 
 def import_shop_resources(merchant, source, target, namespace, package, output, *,
-                          extra_item_patches=(), reuse_output=False):
+                          extra_item_patches=(), reuse_output=False, restock_policy='source_daily'):
     """Resolve all authored stock before creating the native shop preset.
 
     Clean travel builds have no converted pickup/container items yet. Existing
@@ -104,13 +104,13 @@ def import_shop_resources(merchant, source, target, namespace, package, output, 
     patches = item_patches(package) + extra_item_patches
     patches.extend(payload for name, payload in files.items()
         if re.fullmatch(r'libs/tables/item/item(?:__[^/]+)?\.xml', name, re.I))
-    stock_files, report = shop_resources(merchant, target, namespace, patches)
+    stock_files, report = shop_resources(merchant, target, namespace, patches, restock_policy=restock_policy)
     files.update(stock_files)
     report['item_dependencies'] = dependencies
     return files, strings, report
 
 
-def shop_resources(merchant, target, namespace, item_patches=()):
+def shop_resources(merchant, target, namespace, item_patches=(), *, restock_policy='source_daily'):
     """Keep shared item identities; never redefine KCD2 items or other shops."""
     from world_item_definitions import native_items, native_item_registry
     items = native_items(target, item_patches)
@@ -121,8 +121,21 @@ def shop_resources(merchant, target, namespace, item_patches=()):
     missing = set(merchant['stock']) - definitions.keys()
     if missing:
         raise ValueError('Stock items need native item conversion: ' + ', '.join(sorted(missing)))
-    if merchant['shop']['restock_day_mask'] != '127':
-        raise ValueError('Non-daily source restock schedule requires conversion')
+    mask = int(merchant['shop']['restock_day_mask'])
+    if not 0 < mask <= 127:
+        raise ValueError('Invalid or disabled source restock policy')
+    period = '1'
+    if restock_policy == 'native_merchant':
+        # KCD2 models replenishment as a period, not a weekday bitmask. The
+        # population upgrader explicitly selects the installed retail merchant
+        # cadence. Keep the source mask and this policy change in the receipt.
+        reference = unique((r for r in shops.findall('./Shops/ShopData')
+                            if r.get('shop_name') == 'common_merchant'), 'native merchant restock policy')
+        period = reference.get('restock_period')
+        if not period or int(period) <= 0:
+            raise ValueError('Invalid native merchant restock period')
+    elif restock_policy != 'source_daily' or mask != 127:
+        raise ValueError('Non-daily source restock schedule requires an explicit target policy')
     # Named shops avoid collisions with source or native integer IDs.
     existing = {int(e.get('shop_id')) for e in shops.findall('./Shops/ShopData')}
     shop_id = 20000 + int(merchant['shop']['shop_id'])
@@ -131,7 +144,7 @@ def shop_resources(merchant, target, namespace, item_patches=()):
     name = namespace + '_shop'
     root = ET.Element('database', name='barbora')
     record = ET.SubElement(ET.SubElement(root, 'Shops', version='5'), 'ShopData',
-        shop_id=str(shop_id), shop_name=name, restock_period='1', inventory_preset=name + '_stock')
+        shop_id=str(shop_id), shop_name=name, restock_period=period, inventory_preset=name + '_stock')
     ET.SubElement(record, 'ShopItemFilter', filter='player_item.*.*',
         price_buy_multiplier=merchant['shop']['price_buy_multiplier'] or '1',
         price_sell_multiplier=merchant['shop']['price_sell_multiplier'] or '1')
@@ -144,4 +157,6 @@ def shop_resources(merchant, target, namespace, item_patches=()):
             'Libs/Tables/item/InventoryPreset__' + namespace + '_stock.xml': xml(preset_root)}, dict(
         shop_id=shop_id, shop_name=name, source_shop=merchant['shop'], stock=merchant['stock'],
         native_items=definitions, item_definitions='Native or dependency-converted items; source stock and quantities retained',
-        stock_types=len(definitions), runtime_verified=False)
+        stock_types=len(definitions), runtime_verified=False,
+        restock=dict(policy=restock_policy, source_day_mask=mask, native_period_days=int(period),
+                     preserves_source_weekdays=restock_policy == 'source_daily'))

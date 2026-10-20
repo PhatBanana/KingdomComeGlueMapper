@@ -10,6 +10,7 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from setup_actor_materials import upgrade
+from test_texture_streaming import texture
 
 
 class ActorMigrationTests(unittest.TestCase):
@@ -30,7 +31,7 @@ class ActorMigrationTests(unittest.TestCase):
             def convert(output, component, assets, ns, sex):
                 ET.SubElement(component, 'Feature', Name='GarmentBase')
                 (output/material_table).write_bytes(b'<database/>')
-                (output/'objects/new.dds').write_bytes(b'new texture')
+                (output/'objects/new.dds').write_bytes(texture(4, 4, 10))
                 return [dict(source_shader='illum')]
             with patch('audit_character_bodies.Assets'), patch('character_native_materials.convert_character_materials', side_effect=convert) as converter:
                 # The travel archive may already require ZIP64 before migration.
@@ -44,7 +45,9 @@ class ActorMigrationTests(unittest.TestCase):
                     self.assertEqual(z.read('Quests/keep.xml'), b'unchanged quest')
                     self.assertEqual(z.read('Libs/AI/scheduler.xml'), b'unchanged AI')
                     self.assertEqual(z.read(material_table), b'<database/>')
-                with zipfile.ZipFile(actor) as z: self.assertEqual(z.read('objects/old.skin'), b'geometry')
+                with zipfile.ZipFile(actor) as z:
+                    self.assertEqual(z.read('objects/old.skin'), b'geometry')
+                    self.assertEqual(z.read('objects/new.dds'), texture(4, 4, 10))
                 hashes = {n:(package/n).read_bytes() for n in changed}
                 self.assertEqual(upgrade(package, root)[0], {})
                 self.assertEqual(converter.call_count, 1)

@@ -88,6 +88,15 @@ def map_gestures(blob, source, target, genders, allow_missing=False):
     return xml(root), report
 
 
+def appearance_resources(appearance):
+    """Use the same native DDS layout for actors embedded in opening scenes."""
+    from texture_streaming import checked_entries, generated_entries
+    entries = ((p.relative_to(appearance).as_posix(), p.read_bytes())
+               for p in sorted(appearance.rglob('*'))
+               if p.is_file() and p.relative_to(appearance).parts[0] in ('objects', 'Libs'))
+    return dict(checked_entries(generated_entries(entries)))
+
+
 def build(a):
     if a.output.exists(): raise FileExistsError('Choose a fresh output directory')
     from campaign_start_policy import validate_native
@@ -130,9 +139,7 @@ def build(a):
     modid = ET.parse(a.mod / 'mod.manifest').findtext('info/modid')
     resources, voice_receipt = bind_soul_voice(resources, a.target, modid, person['name'],
         binding['roles'][a.role]['voice_technical_name'], a.role, person['instance'].findtext('StaticData/NameStringId'))
-    for p in a.appearance.rglob('*'):
-        if p.is_file() and p.relative_to(a.appearance).parts[0] in ('objects', 'Libs'):
-            resources[p.relative_to(a.appearance).as_posix()] = p.read_bytes()
+    resources.update(appearance_resources(a.appearance))
     completion = [k for k,v in conversion['actions'].items() if v['input'] == a.completion_input]
     if len(completion) != 1: raise ValueError('Expected one completion action')
     resources[a.project_path] = attach_scene(existing_graph, graphs[project_name + '.xml'],

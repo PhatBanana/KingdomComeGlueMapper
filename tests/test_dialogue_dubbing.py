@@ -50,7 +50,7 @@ class DubbingTests(unittest.TestCase):
             root=Path(folder);(root/'Data').mkdir()
             with zipfile.ZipFile(root/'Data/Tables.pak','w') as archive:
                 archive.writestr('Libs/Tables/skald/voice.xml',b'<database><voices><voice voice_id="68" voice_technical_name="abigailRice"/></voices></database>')
-                archive.writestr('Libs/Tables/skald/skald_character.xml',b'<database><skald_characters><skald_character skald_character_name="native" voice_id="68" gender="1"/></skald_characters></database>')
+                archive.writestr('Libs/Tables/skald/skald_character.xml',b'<database><skald_characters><skald_character skald_character_name="native" voice_id="68" gender="1" age="2" body_type="0" unique_assets=""/></skald_characters></database>')
             path='Libs/Tables/rpg/soul__test.xml'
             resources={path:b'<database><souls><soul soul_name="seller"/><soul soul_name="other"/></souls></database>'}
             result,report=bind_soul_voice(resources,root,'test','seller','abigailRice','SELLER','seller_name')
@@ -60,6 +60,29 @@ class DubbingTests(unittest.TestCase):
             self.assertIsNone(souls.find(".//soul[@soul_name='other']").get('skald_character_name'))
             again,_=bind_soul_voice(result,root,'test','seller','abigailRice','SELLER','seller_name')
             self.assertEqual(result,again)
+
+    def test_source_only_voice_has_complete_native_character_metadata_for_each_sex(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder);(root/'Data').mkdir()
+            with zipfile.ZipFile(root/'Data/Tables.pak','w') as archive:
+                archive.writestr('Libs/Tables/skald/voice.xml','<database><voices/></database>')
+                archive.writestr('Libs/Tables/rpg/soul_archetype.xml','<database><soul_archetypes><soul_archetype soul_archetype_id="20" soul_archetype_name="NPC" gender_id="7"/><soul_archetype soul_archetype_id="30" soul_archetype_name="NPC_Female" gender_id="9"/></soul_archetypes></database>')
+                archive.writestr('Libs/Tables/rpg/gender.xml','<database><genders><gender gender_id="7" gender_name="male"/><gender gender_id="9" gender_name="female"/></genders></database>')
+                archive.writestr('Libs/Tables/skald/skald_character.xml','<database><skald_characters><skald_character skald_character_name="char_GENERIC_MAN_COMMONER_01" voice_id="1" gender="0" age="2" body_type="0" unique_assets=""/><skald_character skald_character_name="char_GENERIC_WOMAN_COMMONER_01" voice_id="2" gender="1" age="1" body_type="0" unique_assets=""/></skald_characters></database>')
+            for archetype,gender in [('20','0'),('30','1')]:
+                resources={'Libs/Tables/rpg/soul__test.xml':f'<database><souls><soul soul_name="imported" soul_archetype_id="{archetype}"/></souls></database>'.encode(),
+                           'Libs/Tables/skald/voice__source.xml':b'<database><voices><voice voice_id="100105" voice_technical_name="source"/></voices></database>'}
+                result,report=bind_soul_voice(resources,root,'test','imported','source','ROLE','name')
+                row=ET.fromstring(result['Libs/Tables/skald/skald_character__test.xml']).find('.//skald_character')
+                self.assertEqual(row.get('gender'),gender)
+                self.assertTrue({'age','body_type','unique_assets'}.issubset(row.attrib))
+                self.assertEqual(row.get('voice_id'),'100105')
+                self.assertEqual(report['classification_policy'],'native_generic_classification_no_source_biography')
+                again,_=bind_soul_voice(result,root,'test','imported','source','ROLE','name')
+                self.assertEqual(result,again)
+            resources['Libs/Tables/rpg/soul__test.xml']=b'<database><souls><soul soul_name="imported" soul_archetype_id="999"/></souls></database>'
+            with self.assertRaisesRegex(ValueError,'archetype'):
+                bind_soul_voice(resources,root,'test','imported','source','ROLE','name')
 
     def test_source_voice_import_is_stable_and_collision_checked(self):
         from dialogue_dubbing import import_source_voices
@@ -77,6 +100,8 @@ class DubbingTests(unittest.TestCase):
     def test_rebuilding_preserves_original_subtitles(self):
         text=b'<Table><Row><Cell>line</Cell><Cell>Hello.</Cell><Cell>Hello.</Cell></Row></Table>'
         self.assertEqual(len(ET.fromstring(merge_audio_strings(text,text))),1)
+        self.assertEqual(merge_audio_strings(text,text),text)
+        self.assertEqual(merge_audio_strings(text,b'<Table/>'),text)
         row = b'<Row><Cell>new</Cell><Cell>Item</Cell><Cell>Item</Cell></Row>'
         self.assertEqual(len(ET.fromstring(merge_audio_strings(text,b'<Table>'+row+row+b'</Table>'))),2)
         with self.assertRaises(ValueError):
