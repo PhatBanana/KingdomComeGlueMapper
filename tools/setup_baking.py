@@ -31,6 +31,8 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
     engine=Path(game)/'Engine/Engine.pak'
     if engine.exists():policy.append((str(engine),engine.stat().st_size,engine.stat().st_mtime_ns))
     signature=hashlib.sha256(json.dumps(policy,sort_keys=True).encode()).hexdigest()
+    # Tiles are keyed by their own content, so this cache spans packages and plans.
+    tile_cache=workspace/'tile-cache'
     workspace=workspace/signature
     workspace.mkdir(parents=True,exist_ok=True)
     overrides=[str(p.resolve()) for p in sorted((package/'Data').glob('*.pak'))]
@@ -69,7 +71,7 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
               'GPU failures are logged and fall back to CPU.',flush=True)
         with hybrid_environment():
             results=build(root/'scene',experimental_base_materials=True,backend='auto',workers=2,
-                          progress=progress,cancelled=cancelled)
+                          progress=progress,cancelled=cancelled,tile_cache=tile_cache)
         counts={name:sum(r.get('backend')==name for r in results) for name in ('compiled','optix')}
         print(f'Hybrid bake results: {counts["compiled"]} CPU tiles, {counts["optix"]} OptiX tiles, '
               f'{sum(bool(r.get("gpu_fallback_reason")) for r in results)} GPU fallbacks.',flush=True)
