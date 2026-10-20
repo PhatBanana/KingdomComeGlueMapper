@@ -14,6 +14,7 @@ from pathlib import Path
 import shutil
 import stat
 import subprocess
+import threading
 import time
 import zipfile
 
@@ -167,8 +168,8 @@ def prepare(target, output):
 
 class _LiveLog:
     """Read only appended bytes; partial lines stay buffered until complete."""
-    def __init__(self, path):
-        self.path, self.offset, self.pending = path, 0, b''
+    def __init__(self, path, echo=True):
+        self.path, self.offset, self.pending, self.echo = path, 0, b'', echo
 
     def drain(self, final=False):
         changed = False
@@ -185,26 +186,28 @@ class _LiveLog:
                     lines = self.pending.split(b'\n')
                     self.pending = lines.pop()
                     for line in lines:
-                        print(line.decode('utf-8', errors='replace').rstrip('\r'), flush=True)
+                        if self.echo: print(line.decode('utf-8', errors='replace').rstrip('\r'), flush=True)
                     if not final or not data:
                         break
         except FileNotFoundError:
             pass  # ShaderCacheGen creates its log after initialization.
         if final and self.pending:
-            print(self.pending.decode('utf-8', errors='replace').rstrip('\r'), flush=True)
+            if self.echo: print(self.pending.decode('utf-8', errors='replace').rstrip('\r'), flush=True)
             self.pending = b''
         return changed
 
 
-def run_command(command, root, log, cancelled, notify, *, compiler_log=None):
+def run_command(command, root, log, cancelled, notify, *, compiler_log=None, live_output=True):
+    """Run a native tool to completion; without live_output only the log files record it."""
     env = dict(os.environ, TEMP=str(root/'Temp'), TMP=str(root/'Temp'))
     (root/'Temp').mkdir(exist_ok=True)
     if compiler_log is not None:
         compiler_log.unlink(missing_ok=True)  # Never replay an earlier compilation.
-    live = _LiveLog(compiler_log or log)
+    live = _LiveLog(compiler_log or log, echo=live_output)
+    say = print if live_output else (lambda *a, **k: None)
     label = 'Compile native shaders' if compiler_log else 'Package native shaders'
     started = last_activity = time.monotonic()
-    print(f'{label}: starting; live output from {live.path}', flush=True)
+    say(f'{label}: starting; live output from {live.path}', flush=True)
     with log.open('wb') as stream:
         process = subprocess.Popen(command, cwd=root, stdout=stream, stderr=subprocess.STDOUT,
             env=env, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
@@ -220,7 +223,7 @@ def run_command(command, root, log, cancelled, notify, *, compiler_log=None):
                         raise InterruptedError('Shader build cancelled')
                     now = time.monotonic()
                     if now - last_activity >= 15:
-                        print(f'{label}: still running ({int(now - started)} s elapsed); waiting for compiler output.', flush=True)
+                        say(f'{label}: still running ({int(now - started)} s elapsed); waiting for compiler output.', flush=True)
                         last_activity = now
                     notify(label, 0, 0, f'{int(now - started)} s elapsed · {live.path.name}')
         finally:
@@ -230,17 +233,23 @@ def run_command(command, root, log, cancelled, notify, *, compiler_log=None):
     if code: raise ValueError(f'Native shader tool failed ({code}); see {log}')
 
 
-def build_uncached(target, output, notify=lambda *a: None, cancelled=lambda: False):
+def build_uncached(target, output, notify=lambda *a: None, cancelled=lambda: False, *, quiet=False):
+    """Compile and package the repaired shaders into output/package.
+
+    quiet keeps the compiler's live output in the log files only, for a build
+    that runs beside other stages (BackgroundBuild) and must not mix into them.
+    """
     output = Path(output)
     root, signature = prepare(target, output)
     run_command([str(root/'Tools/ShaderCacheGen/ShaderCacheGen.exe'), '/PrecacheShaderList'],
-                root, output/'compile.log', cancelled, notify, compiler_log=root/'shadercachegen.log')
+                root, output/'compile.log', cancelled, notify, compiler_log=root/'shadercachegen.log',
+                live_output=not quiet)
     log = (root/'shadercachegen.log').read_text(errors='replace')
     compilation = compilation_result(log)
     run_command([str(root/'Tools/rc/rc.exe'), '/jobtarget=ShadersAll',
         '/OutputPath='+str(output/'package'), '/CryPakPlatform=D3D12', '/crashOnAssert',
         '/zip_encrypt=0', '/Streaming=1', '/IsShaderDebug=0', '/p=pc', '/job=Tools/rc/RCJob_WH.xml'],
-        root, output/'pack.log', cancelled, notify)
+        root, output/'pack.log', cancelled, notify, live_output=not quiet)
     report = dict(signature, compiled=True, compilation=compilation, runtime_verified=False,
         installation='build_only', isolated_mount_verified=False, files={})
     for name in ARCHIVES:
@@ -266,10 +275,11 @@ def cache_key(target):
         engine={p.name:file_hash(p) for p in sorted((target/'Engine').glob('*.pak'))}))
 
 
-def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
+def build(target, output, notify=lambda *a: None, cancelled=lambda: False, *, quiet=False):
     from setup_build_cache import Cache, root, forced, copy_payload
-    if root() is None: return build_uncached(target, output, notify, cancelled)
+    if root() is None: return build_uncached(target, output, notify, cancelled, quiet=quiet)
     from setup_resume import job_lock
+    say = print if not quiet else (lambda *a, **k: None)
     cache = Cache(root()/'shaders')
     notify('Check shared shader cache',0,0,str(cache.folder))
     key = cache_key(target)
@@ -282,19 +292,63 @@ def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
                 saved=json.loads((hit[0]/'shader-build.json').read_text())
                 if (saved.get('source')!=digest(Path(target)/'Engine/Shaders.pak') or
                     saved.get('compiler')!=digest(tool_root(target)/'Tools/ShaderCacheGen/ShaderCacheGen.exe')):
-                    print('Imported shader sources/compiler differ from this installation; compiling current shaders.',flush=True)
+                    say('Imported shader sources/compiler differ from this installation; compiling current shaders.',flush=True)
                     hit=None
         if hit:
             validate(hit[0])
             if cancelled(): raise InterruptedError('Cancelled before reusing shaders')
             copy_payload(hit[0],Path(output)/'package')
-            print('Reusing verified native shaders from '+str(hit[1].get('source',cache.folder)),flush=True)
+            say('Reusing verified native shaders from '+str(hit[1].get('source',cache.folder)),flush=True)
             return validate(Path(output)/'package')
-        print('Building native shaders: '+('regeneration requested' if forced() else 'no matching verified cache'),flush=True)
-        result = build_uncached(target, output, notify, cancelled)
+        say('Building native shaders: '+('regeneration requested' if forced() else 'no matching verified cache'),flush=True)
+        result = build_uncached(target, output, notify, cancelled, quiet=quiet)
         package = Path(output)/'package'
         cache.publish(key,{p.relative_to(package).as_posix():p for p in package.rglob('*') if p.is_file()},result,cancelled)
         return result
+
+
+class BackgroundBuild:
+    """Compile while the earlier stages run; the recipe joins it at its shader step.
+
+    The compiler reads only the game and tool installations, so the ~16 minutes
+    it takes on a cold build can overlap the world conversion instead of
+    following it. A cache hit returns at once. stop() ends a compile the
+    worker no longer needs, so no ShaderCacheGen process outlives the job.
+    """
+    def __init__(self, target, output, cancelled=lambda: False):
+        self.target, self.output = target, Path(output)
+        self._stop, self.result, self.error = False, None, None
+        self._cancelled = lambda: self._stop or cancelled()
+        self.thread = threading.Thread(target=self._run, name='shader-build', daemon=True)
+        self.thread.start()
+
+    def _run(self):
+        try:
+            self.result = build(self.target, self.output, cancelled=self._cancelled, quiet=True)
+        except BaseException as error:
+            self.error = error
+
+    def check(self):
+        """Fail the job as soon as the compiler has failed, not at the shader step."""
+        if self.error is not None and not isinstance(self.error, InterruptedError):
+            raise self.error
+
+    def wait(self, notify=lambda *a: None, cancelled=lambda: False):
+        started = time.monotonic()
+        while self.thread.is_alive():
+            self.thread.join(1)
+            if cancelled():
+                self.stop()
+                raise InterruptedError('Shader build cancelled')
+            notify('Compile native shaders', 0, 0, f'{int(time.monotonic() - started)} s elapsed · background compile')
+        if self.error is not None:
+            raise self.error
+        print(f'Compile native shaders: finished in the background; logs in {self.output}', flush=True)
+        return self.result
+
+    def stop(self):
+        self._stop = True
+        self.thread.join()
 
 
 def compilation_result(log):

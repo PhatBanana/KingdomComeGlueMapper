@@ -123,7 +123,9 @@ def build_containers(source, target, package, output):
     rewrite(package/'Localization/English_xml.pak', overlay/'Localization/English_xml.pak', strings)
 
 
-def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda: False, *, converted_data=None):
+def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda: False, *, converted_data=None,
+        shaders=None):
+    """Apply the gameplay recipe; `shaders` is a setup_shaders.BackgroundBuild already compiling."""
     from game_paths import GameLibrary
     from build_open_test_gates import build as gates
     from build_horse_trader_test import build as horses
@@ -188,6 +190,7 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
         pending = package / (RECEIPT+'.pending')
         pending.write_text(json.dumps(receipt, indent=2))
         pending.replace(package/RECEIPT)
+        if shaders is not None: shaders.check()
     for index, (identity, label, build) in enumerate(campaign_steps, len(steps)):
         if cancelled(): raise InterruptedError('Build cancelled before ' + label)
         notify(label, index, total, '')
@@ -199,6 +202,7 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
         pending = package / (RECEIPT+'.pending')
         pending.write_text(json.dumps(receipt, indent=2))
         pending.replace(package/RECEIPT)
+        if shaders is not None: shaders.check()
     report['content_validation'] = validate_gameplay(package)
     from hlod_spatial_metadata import upgrade_package as upgrade_spatial_metadata
     spatial_files, spatial_report = upgrade_spatial_metadata(package)
@@ -211,8 +215,13 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
     report['streaming_validation'] = validate_streaming(package, converted_data=converted_data)
     if cancelled(): raise InterruptedError('Build cancelled before shader compilation')
     notify('Compile native retail shader archives', total-2, total, '')
-    build_shaders(target, work/'shaders', notify, cancelled)
-    report['shader_validation'], changed = stage_for_mod(work/'shaders/package', package, consume=True)
+    if shaders is None:
+        build_shaders(target, work/'shaders', notify, cancelled)
+        compiled = work/'shaders/package'
+    else:
+        shaders.wait(notify, cancelled)
+        compiled = shaders.output/'package'
+    report['shader_validation'], changed = stage_for_mod(compiled, package, consume=True)
     receipt['files'].update(changed)
     report['steps'].append(dict(name='Compile and package mod-contained shaders', files=changed))
     pending.write_text(json.dumps(receipt, indent=2))

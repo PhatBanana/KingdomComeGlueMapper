@@ -191,6 +191,7 @@ class DesktopSetupTests(unittest.TestCase):
                  patch('region_travel.build') as bridge, \
                  patch('travel_bridge_package.combine', return_value=job/'package') as combine, \
                  patch('build_recipe.run') as recipe, \
+                 patch('setup_shaders.BackgroundBuild') as shaders, \
                  patch('desktop_setup.install_transaction', return_value={'installed': 'target'}) as install:
                 self.assertEqual(worker(config), 0)
                 campaign.assert_called_once_with('source', 'target', job/'conversion/Data', 'setup_world', job/'world-package', start_probe=False)
@@ -198,6 +199,10 @@ class DesktopSetupTests(unittest.TestCase):
                 combine.assert_called_once_with(job/'world-package', job/'region-travel'/MOD_ID, 'target', job/'package')
                 recipe.assert_called_once()
                 self.assertEqual(recipe.call_args.args[:4], ('source', 'target', job/'package', job/'gameplay-recipe'))
+                # The shader compiler starts with the conversion and the recipe joins it.
+                shaders.assert_called_once_with('target', job/'shaders', unittest.mock.ANY)
+                self.assertIs(recipe.call_args.kwargs['shaders'], shaders.return_value)
+                shaders.return_value.stop.assert_called_once_with()
                 self.assertEqual(install.call_count, int(action=='build_install'))
             events = [json.loads(line) for line in (job/'events.jsonl').read_text().splitlines()]
             self.assertEqual(events[-1]['kind'], 'done')
@@ -210,9 +215,11 @@ class DesktopSetupTests(unittest.TestCase):
         config.write_text(json.dumps(dict(kcd1='source', kcd2='target', workspace=str(job), action='build_install')))
         with patch('desktop_setup.conversion_plan', return_value=[]), patch('desktop_setup.build_campaign'), \
              patch('region_travel.build'), patch('travel_bridge_package.combine', return_value=job/'package'), \
+             patch('setup_shaders.BackgroundBuild') as shaders, \
              patch('build_recipe.run', side_effect=ValueError('Recipe failed')), patch('desktop_setup.install_transaction') as install:
             self.assertEqual(worker(config), 1)
             install.assert_not_called()
+            shaders.return_value.stop.assert_called_once_with()  # no compiler outlives a failed job
 
     def test_incomplete_recipe_cannot_be_installed(self):
         with patch('desktop_setup.verify_package', return_value={'build_recipe': {'status': 'building'}}):

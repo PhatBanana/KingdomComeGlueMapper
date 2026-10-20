@@ -27,7 +27,7 @@ class RecipeTests(unittest.TestCase):
             with self.subTest(field=field, value=value), self.assertRaises(ValueError):
                 require_current({'build_recipe': dict(report, **{field: value})})
 
-    def exercise_recipe(self, fail=False, travel=False):
+    def exercise_recipe(self, fail=False, travel=False, background=False):
         with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
             root = Path(directory); package = root/'package'; package.mkdir()
             receipt = {'files': {}}
@@ -75,23 +75,31 @@ class RecipeTests(unittest.TestCase):
             ratios = stack.enter_context(patch('lod_ratio_metadata.upgrade_package',
                 return_value=({}, {'version': 1})))
             stack.enter_context(patch('setup_shaders.tool_root'))
-            def shaders(target, output, *args):
+            compiled = []
+            def shaders(target, output, *args, **kwargs):
                 from shader_fixture import package_shaders
+                compiled.append(Path(output))
                 (output/'package').mkdir(parents=True)
                 package_shaders(output/'package')
                 return {'compiled': True}
             stack.enter_context(patch('setup_shaders.build', side_effect=shaders))
             menu = stack.enter_context(patch('campaign_menu_stage.add_to_package'))
             finalize = stack.enter_context(patch('setup_package_upgrade.finalize'))
+            options = {}
+            if background:
+                from setup_shaders import BackgroundBuild
+                options['shaders'] = BackgroundBuild(root/'target', root/'shaders')
+                options['shaders'].thread.join()  # compiled before the recipe reaches its shader step
             if fail:
                 with self.assertRaisesRegex(ValueError, 'source dependency'):
-                    run(root/'source',root/'target',package,root/'work')
+                    run(root/'source',root/'target',package,root/'work', **options)
                 self.assertEqual(verify(package)['build_recipe']['status'], 'building')
                 content.assert_not_called(); streaming.assert_not_called(); menu.assert_not_called()
                 spatial.assert_not_called()
                 ratios.assert_not_called()
             else:
-                report = run(root/'source',root/'target',package,root/'work')
+                report = run(root/'source',root/'target',package,root/'work', **options)
+                self.assertEqual(compiled, [root/('shaders' if background else 'work/shaders')])
                 self.assertEqual(seen[-len(STAGE_IDS):], list(STAGE_IDS))
                 if travel:
                     finalize.assert_called_once_with(package, source=root/'source', target=root/'target',
@@ -108,7 +116,7 @@ class RecipeTests(unittest.TestCase):
                 self.assertFalse((package/'LaunchWithShaders.cmd').exists())
                 self.assertIn('ShaderCache/shader-build.json', verify(package)['files'])
                 self.assertEqual(report['shader_validation']['launcher'], 'setup')
-                self.assertFalse((root/'work/shaders/package/Engine/Shaders.pak').exists())
+                self.assertFalse((compiled[0]/'package/Engine/Shaders.pak').exists())  # consumed into the mod
                 content.assert_called_once_with(package); streaming.assert_called_once_with(package, converted_data=None)
                 spatial.assert_called_once_with(package)
                 ratios.assert_called_once_with(package)
@@ -122,6 +130,27 @@ class RecipeTests(unittest.TestCase):
 
     def test_failed_campaign_stage_never_produces_complete_receipt_or_menu(self):
         self.exercise_recipe(fail=True)
+
+    def test_background_shader_build_is_joined_at_the_shader_step(self):
+        self.exercise_recipe(background=True)
+
+    def test_failed_background_shader_build_fails_the_recipe_at_the_next_step(self):
+        from setup_shaders import BackgroundBuild
+        with tempfile.TemporaryDirectory() as directory, ExitStack() as stack:
+            root = Path(directory); package = root/'package'; package.mkdir()
+            (package/RECEIPT).write_text(json.dumps({'files': {}}))
+            stack.enter_context(patch('build_recipe.verify_package', side_effect=lambda p, **k: json.loads((Path(p)/RECEIPT).read_text())))
+            stack.enter_context(patch('setup_shaders.tool_root'))
+            stack.enter_context(patch('setup_shaders.build', side_effect=ValueError('Native shader tool failed (1)')))
+            def gates(mod, output, **kwargs):
+                (output/'Data').mkdir(parents=True); (output/'Data/gate').write_text('x')
+            stack.enter_context(patch('build_open_test_gates.build', side_effect=gates))
+            later = stack.enter_context(patch('build_recipe.build_containers'))
+            stack.enter_context(patch('setup_gameplay.steps', return_value=[]))
+            shaders = BackgroundBuild(root/'target', root/'shaders'); shaders.thread.join()
+            with self.assertRaisesRegex(ValueError, 'Native shader tool failed'):
+                run(root/'source', root/'target', package, root/'work', shaders=shaders)
+            later.assert_not_called()  # the compiler's failure stops the recipe after the first step, not an hour later
 
     def test_reviewed_models_include_their_lods_only(self):
         root = 'objects/buildings/houses/modular/6x15/'

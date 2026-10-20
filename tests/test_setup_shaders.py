@@ -40,6 +40,68 @@ class ShaderSetupTests(unittest.TestCase):
             finally:
                 events.stream.close(); events.text.close()
 
+    def test_quiet_run_keeps_compiler_output_in_the_log_files_only(self):
+        with tempfile.TemporaryDirectory() as t:
+            root = Path(t); native = root/'shadercachegen.log'
+            script = "from pathlib import Path; Path('shadercachegen.log').write_text('Compiling shader 1\\n'); print('tool stdout')"
+            captured = io.StringIO()
+            with redirect_stdout(captured):
+                run_command([sys.executable, '-c', script], root, root/'compile.log', lambda: False,
+                            lambda *args: None, compiler_log=native, live_output=False)
+            self.assertEqual(captured.getvalue(), '')
+            self.assertIn('Compiling shader 1', native.read_text())
+            self.assertIn('tool stdout', (root/'compile.log').read_text())
+
+    def test_background_build_compiles_beside_other_work_and_stops_on_demand(self):
+        import threading, time
+        import setup_shaders
+        compiles = []
+        with tempfile.TemporaryDirectory() as t:
+            base = Path(t); reference = base/'reference'; reference.mkdir(); package_shaders(reference)
+            signature = dict(source='a'*64, compiler='b'*64, tools={},
+                             changes=json.loads((reference/'shader-build.json').read_text())['changes'])
+            def fake_prepare(target, output):
+                root = Path(output)/'compiler'; root.mkdir(parents=True, exist_ok=True)
+                return root, dict(signature)
+            def fake_run(command, root, log, cancelled, notify, *, compiler_log=None, live_output=True):
+                if compiler_log is not None:
+                    compiles.append(live_output)
+                    compiler_log.write_text('Combinations: (Material: 1, Processed: 1; Compiled: 1; Removed: 0)')
+                else:
+                    package = Path(next(a for a in command if a.startswith('/OutputPath=')).split('=', 1)[1])
+                    package.mkdir(parents=True, exist_ok=True); package_shaders(package)
+            with patch.object(setup_shaders, 'prepare', fake_prepare), patch.object(setup_shaders, 'run_command', fake_run), \
+                 patch.dict(os.environ, {}, clear=False):
+                os.environ.pop('GLUEMAPPER_BUILD_CACHE', None)  # the uncached path; the shared cache has its own tests
+                background = setup_shaders.BackgroundBuild(base/'target', base/'background')
+                labels = []
+                result = background.wait(lambda label, *args: labels.append(label))
+                self.assertTrue(result['compiled']); self.assertEqual(compiles, [False])  # compiled once, quietly
+                self.assertTrue((base/'background/package/shader-build.json').is_file())
+                self.assertTrue(set(labels) <= {'Compile native shaders'})
+                background.check()
+            # A compiler failure is reported at check() and at wait().
+            with patch.object(setup_shaders, 'build', side_effect=ValueError('compiler broke')):
+                failed = setup_shaders.BackgroundBuild(base/'target', base/'failed')
+                failed.thread.join()
+            with self.assertRaisesRegex(ValueError, 'compiler broke'): failed.check()
+            with self.assertRaisesRegex(ValueError, 'compiler broke'): failed.wait()
+            # stop() ends a compile that is no longer wanted; a cancelled compile is not a failure.
+            started = threading.Event()
+            def slow(target, output, notify=None, cancelled=None, **kwargs):
+                started.set()
+                while not cancelled(): time.sleep(0.01)
+                raise InterruptedError('Shader build cancelled')
+            with patch.object(setup_shaders, 'build', side_effect=slow):
+                running = setup_shaders.BackgroundBuild(base/'target', base/'slow')
+                self.assertTrue(started.wait(5)); running.stop()
+                self.assertFalse(running.thread.is_alive()); running.check()
+                started.clear()
+                recipe_cancelled = setup_shaders.BackgroundBuild(base/'target', base/'cancelled')
+                self.assertTrue(started.wait(5))
+                with self.assertRaises(InterruptedError): recipe_cancelled.wait(cancelled=lambda: True)
+                self.assertFalse(recipe_cancelled.thread.is_alive())
+
     def test_live_log_partial_utf8_and_truncation(self):
         with tempfile.TemporaryDirectory() as t:
             path = Path(t)/'native.log'; live = _LiveLog(path)
