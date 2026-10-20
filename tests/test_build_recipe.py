@@ -150,5 +150,21 @@ class RecipeTests(unittest.TestCase):
                     run(root/'source', root/'target', root/'package', root/'other')
                 self.assertFalse((root/'other').exists())
 
+    def test_failed_navigation_finalization_cannot_be_installed_as_current(self):
+        from setup_gameplay import STATIC_WORLD_PROFILES
+        from setup_package_upgrade import eligible
+        receipt = dict(travel_bridge={'destination':'kcd1_travel'}, single_playable_world=True,
+            build_recipe=dict(version=VERSION, status='complete',
+                content_validation={'start_policy':POLICY}, streaming_validation={'ok':True},
+                shader_validation={'installation':'mod_private_root'}, steps=[{'id':s} for s in STAGE_IDS]))
+        with self.assertRaisesRegex(ValueError, 'navigation conversion'): require_current(receipt)
+        eligible(receipt)  # recoverable by resume, but it must run the adapter
+        self.assertNotIn('static_navigation_profiles', receipt)
+        receipt['static_navigation_profiles'] = dict(version=1, mode='materialized_static_profiles',
+            profiles=[dict(profile=p) for p in STATIC_WORLD_PROFILES])
+        require_current(receipt)
+        receipt['static_navigation_profiles']['profiles'] = []
+        with self.assertRaisesRegex(ValueError, 'navigation conversion'): require_current(receipt)
+
 
 if __name__ == '__main__': unittest.main()

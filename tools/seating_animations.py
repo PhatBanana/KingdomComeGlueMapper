@@ -9,6 +9,22 @@ HELPERS = 'smartobjecthelpersetanimations.xml'
 ANIMATIONS = 'tables/ai/smartobjectanimations.xml'
 
 
+def collection_hash(collection):
+    """Resolve the local animation collection, independently of world baking."""
+    variants = collection.findall('SmartObjectHelperSetAnimationCollection')
+    if len(variants) != 1:
+        raise ValueError('Ambiguous native animation collection: ' + str(collection.get('HelperSetName')))
+    value = variants[0].get('HashValue', '')
+    if not value.isdecimal() or not 0 < int(value) < 2**64:
+        raise ValueError('Invalid native animation collection hash: ' + str(collection.get('HelperSetName')))
+    return value
+
+
+def converted_door(entity):
+    return (entity.get('EntityClass') == 'AnimDoor'
+            and entity.get('Name', '').startswith(('gm_door_', 'gm_rental_')))
+
+
 def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collections=()):
     result = dict(files)
     helpers = ET.fromstring(files.get(HELPERS, b'<SmartObjectAnimationCollections/>'))
@@ -24,7 +40,7 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
                  and e.find('Properties') is not None and e.find('Properties').get('soclass_SmartObjectHelpers'))
              or (e.get('EntityClass') == 'ItemSlot' and e.get('Name', '').startswith('gm_job_item_')
                  and e.find('Properties') is not None and e.find('Properties').get('soclass_SmartObjectHelpers'))
-             or (e.get('EntityClass') == 'AnimDoor' and e.get('Name', '').startswith('gm_door_'))]
+             or converted_door(e)]
     # Native guard points are DetailMovementSmartObjects without helper sets;
     # their unstance supplies the movement itself. Do not invent a helper row.
     seats = [e for e in seats if e.find('Properties') is not None
@@ -47,18 +63,16 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
     for seat in seats:
         # Trosky baked navigation/physics results and projected targets cannot
         # be reused at KCD1 coordinates. Request native runtime validation.
-        collection_hash = '0'
-        if seat.get('Name','').startswith(('gm_schedule_','gm_job_item_')):
+        animation_hash = '0'
+        if converted_door(seat) or seat.get('Name','').startswith(('gm_schedule_','gm_job_item_')):
             family=seat.find('Properties').get('soclass_SmartObjectHelpers')
-            collections=available[family].findall('SmartObjectHelperSetAnimationCollection')
-            if len(collections)!=1 or not collections[0].get('HashValue'):
-                raise ValueError('Ambiguous native job animation collection: '+family)
             # This hash selects the local animation/start-transform collection;
             # zero leaves native unstances without a move target when runtime
             # preparation is disabled. The entity world transform below is new.
-            collection_hash=collections[0].get('HashValue')
+            # Doors need this reference too; it is not a foreign world bake.
+            animation_hash=collection_hash(available[family])
         row = ET.SubElement(rows, 'SmartObjectAnimations', EntityGuid=str(guid_value(seat.get('EntityGuid'))),
-                            Hash=collection_hash, AllowRuntimeAnimValidationFallback='true')
+                            Hash=animation_hash, AllowRuntimeAnimValidationFallback='true')
         ET.SubElement(row, 'SmartObjectTransform', Position=seat.get('Pos'), Rotation=seat.get('Rotate', '1,0,0,0'))
     result[HELPERS] = ET.tostring(helpers, encoding='utf-8', xml_declaration=True)
     result[ANIMATIONS] = ET.tostring(table, encoding='utf-8', xml_declaration=True)

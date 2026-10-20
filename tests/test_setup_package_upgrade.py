@@ -159,7 +159,7 @@ class UpgradeTests(unittest.TestCase):
             r['files']={f.relative_to(p).as_posix():digest(f) for f in p.rglob('*') if f.is_file()}
             (p/RECEIPT).write_text(json.dumps(r))
             eligible(r)
-            with patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
+            with patch('static_navigation_profiles.upgrade', return_value=({}, {'version': 1})) as navigation_upgrade, patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
                 with patch('campaign_menu_stage.add_to_package'):
                     result=finalize(p, source=p, target=p/'native' if getattr(self, 'retail_initializers', False) else None)
                     if getattr(self, 'repeat_resume', False):
@@ -168,6 +168,9 @@ class UpgradeTests(unittest.TestCase):
                         result = finalize(p, source=p)
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             self.assertEqual(z.read('terrain/hlods.dat'), before_lod)
+                from setup_gameplay import STATIC_WORLD_PROFILES
+                self.assertEqual(navigation_upgrade.call_args.args[3], STATIC_WORLD_PROFILES)
+                self.assertEqual(result['static_navigation_profiles']['version'], 1)
             if getattr(self, 'retail_initializers', False):
                 self.assertEqual(result['retail_initialization_upgrade']['nodes'], ['gm_source_baseline_stat_strength'])
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:

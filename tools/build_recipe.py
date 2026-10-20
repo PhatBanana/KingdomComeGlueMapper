@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 33
+VERSION = 34
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -32,6 +32,14 @@ def require_current(receipt):
         raise ValueError('This package has no existing-player campaign protection. Rebuild with the current setup.')
     if receipt.get('travel_bridge') and not receipt.get('single_playable_world'):
         raise ValueError('This package requires the single-world resume migration before installation.')
+    if receipt.get('travel_bridge'):
+        from setup_gameplay import STATIC_WORLD_PROFILES
+        from static_navigation_profiles import VERSION as NAVIGATION_VERSION
+        navigation = receipt.get('static_navigation_profiles', {})
+        if (navigation.get('version') != NAVIGATION_VERSION
+                or navigation.get('mode') != 'materialized_static_profiles'
+                or [p.get('profile') for p in navigation.get('profiles', [])] != list(STATIC_WORLD_PROFILES)):
+            raise ValueError('This package needs static-world navigation conversion before installation. Resume with the current setup.')
     if report['shader_validation'].get('installation') != 'mod_private_root':
         raise ValueError('This package has no mod-contained shader launcher. Rebuild with the current setup.')
     from setup_gameplay import STAGE_IDS

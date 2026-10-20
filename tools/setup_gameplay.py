@@ -19,6 +19,9 @@ ENTRY = 'Quests/GlueTravel/entry/kcd1_travel.xml'
 QUEST = 'q_skalitz'
 QUEST_PATH = 'Quests/GlueTravel/gm_imported_scene/q_skalitz.xml'
 OPENING = 'gm_kcd1_character_creation'
+# Always-resident source layout used by this shipped slice. Population and
+# navigation must use the same explicit selection after geometry is flattened.
+STATIC_WORLD_PROFILES = ('q_skalitz_normal',)
 PEOPLE = ('ska_motherOfHenry', 'ska_fatherOfHenry', 'ska_blanka', 'ska_fricek',
           'ska_kunes', 'ska_matus', 'ska_matej', 'ska_sarka', 'ska_woman5',
           'ska_guard2', 'vra_vanek')
@@ -282,7 +285,7 @@ def facials(source, target, package, output):
 def systems(source, target, package, output):
     from build_profile_systems import build
     result = build(SimpleNamespace(source=source, target=target, mod=package, output=output,
-        source_level='rataje', level=LEVEL, profile=['q_skalitz_normal'],
+        source_level='rataje', level=LEVEL, profile=list(STATIC_WORLD_PROFILES),
         person=[p for p in PEOPLE if p != 'vra_vanek'], package=True))
     if result['schedule_errors'] or result['person_contract_errors'] or result['registered_souls'] != len(PEOPLE)-1:
         raise ValueError('Incomplete source actor services: ' + str(output/'systems.json'))

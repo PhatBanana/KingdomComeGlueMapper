@@ -23,12 +23,18 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
     report.setdefault('content_validation', {})['start_policy'] = POLICY
     candidate['single_playable_world'] = True
+    # Eligibility describes work this migration can perform, not proof it has
+    # already run. The real receipt is written only after conversion succeeds.
+    from setup_gameplay import STATIC_WORLD_PROFILES
+    from static_navigation_profiles import VERSION as NAVIGATION_VERSION
+    candidate['static_navigation_profiles'] = dict(version=NAVIGATION_VERSION,
+        mode='materialized_static_profiles', profiles=[dict(profile=p) for p in STATIC_WORLD_PROFILES])
     require_current(candidate)
 
 
@@ -216,6 +222,16 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         from skalitz_outer_gates import normalize as correct_gates
         gates, gate_report = correct_gates({n:read(z,n) for n in ('terrain/hlods.dat','terrain/hlods.xml')})
     rewrite(package, level, {'objects_mission0.xml': mission, 'whdata_0': metadata, 'triggerareas.fubar': geometry, **gates})
+    from door_animation_upgrade import upgrade as upgrade_door_animations
+    door_files, door_report = upgrade_door_animations(package)
+    receipt['files'].update(door_files)
+    receipt['door_animation_registration'] = door_report
+    from static_navigation_profiles import upgrade as upgrade_static_navigation
+    from setup_gameplay import STATIC_WORLD_PROFILES
+    navigation_files, navigation_report = upgrade_static_navigation(
+        package, source, target, STATIC_WORLD_PROFILES)
+    receipt['files'].update(navigation_files)
+    receipt['static_navigation_profiles'] = navigation_report
     runtime = f'Data/{MOD_ID}.pak'
     table = f'Libs/Tables/level__{MOD_ID}.xml'
     with zipfile.ZipFile(package/runtime) as z:

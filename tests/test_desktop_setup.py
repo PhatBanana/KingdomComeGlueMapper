@@ -13,7 +13,7 @@ from desktop_setup import Cancelled, CONVERTERS, EventLog, conversion_plan, inst
 from setup_campaign import MOD_ID, RECEIPT, verify_package
 from campaign_start_policy import POLICY
 from build_recipe import VERSION as RECIPE_VERSION
-from setup_gameplay import STAGE_IDS
+from setup_gameplay import STAGE_IDS, STATIC_WORLD_PROFILES
 
 
 class DesktopSetupTests(unittest.TestCase):
@@ -68,6 +68,8 @@ class DesktopSetupTests(unittest.TestCase):
                                                 build_recipe=dict(version=RECIPE_VERSION, status='complete',
                                                     steps=[{'id': identity} for identity in STAGE_IDS],
                                                     content_validation={'actors': 11, 'start_policy': POLICY}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'}),
+                                                static_navigation_profiles={'version':1, 'mode':'materialized_static_profiles',
+                                                    'profiles':[{'profile':p} for p in STATIC_WORLD_PROFILES]},
                                                 files={n: hashlib.sha256(d).hexdigest() for n, d in files.items()})))
         return path
 
