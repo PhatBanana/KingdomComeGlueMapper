@@ -10,8 +10,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import shutil
 import time
 import xml.etree.ElementTree as ET
+import zipfile
 
 import numpy as np
 
@@ -58,7 +60,62 @@ def tile_signature(version,asset_digest,plan,job,samples,experimental_base_mater
     return hashlib.sha256(json.dumps([version,asset_digest,plan['source_packages'],plan.get('vegetation'),job,samples,experimental_base_materials,backend,gpu_config]).encode()).hexdigest()
 
 
-def build(scene, *, only_origin=None, samples=2, experimental_base_materials=False, backend='compiled', output=None,workers=1,start_index=1,progress=None,cancelled=lambda:False):
+def tile_content_key(version,job,records,vegetation,plan,samples,experimental_base_materials,backend,gpu_config):
+    """Key a tile by what it rasterizes, not by which packages it came from.
+
+    Mesh cache keys are content digests, so an unchanged tile keeps its key when
+    unrelated parts of the world or package change. Record order does not matter.
+    Materials and textures are checked separately against the entry's recorded
+    dependencies (tile_dependencies), so the archive paths of a job are not keyed.
+    """
+    placements=sorted(json.dumps(records[i],sort_keys=True) for i in job['placements'])
+    instances=[]
+    if job.get('vegetation'):
+        matrices,groups=vegetation
+        instances=sorted(json.dumps([plan['vegetation']['groups'][str(int(groups[i]))]['cache_key'],
+                                     np.asarray(matrices[i]).tolist()]) for i in job['vegetation'])
+    return hashlib.sha256(json.dumps([version,job['origin'],placements,instances,samples,
+                                      experimental_base_materials,backend,gpu_config]).encode()).hexdigest()
+
+
+class AssetFingerprints:
+    """CRC and size of resolved asset entries, independent of where the archives live."""
+    def __init__(self,assets):
+        self.assets=assets;self.memo={};self.chunks=None
+
+    def numbered(self,name):
+        if self.chunks is None:
+            self.chunks={}
+            for key in self.assets.entries:
+                base,_,suffix=key.rpartition('.')
+                if suffix.isdigit() and base.endswith('.dds'):self.chunks.setdefault(base,[]).append(key)
+        return self.chunks.get(name,[])
+
+    def __call__(self,key):
+        if key not in self.memo:
+            entry=self.assets.entries.get(key)
+            if entry is None:self.memo[key]=None
+            else:
+                with zipfile.ZipFile(entry[0]) as archive:info=archive.getinfo(entry[1])
+                self.memo[key]=[info.CRC,info.file_size]
+        return self.memo[key]
+
+
+def tile_dependencies(identities,roots,fingerprint):
+    """Material and diffuse texture entries a tile read, as {asset: [crc, size]}."""
+    keys=set()
+    for name,subset in identities:
+        keys.add((name if name.endswith('.mtl') else name+'.mtl').replace('\\','/').lower())
+        root=roots[name];subs=root.find('SubMaterials')
+        element=list(subs)[subset] if subs is not None else root
+        texture=element.find("Textures/Texture[@Map='Diffuse']")
+        if texture is not None:
+            texture_name=texture.get('File','').replace('\\','/').lower()
+            keys.add(texture_name);keys.update(fingerprint.numbered(texture_name))
+    return {key:fingerprint(key) for key in sorted(keys)}
+
+
+def build(scene, *, only_origin=None, samples=2, experimental_base_materials=False, backend='compiled', output=None,workers=1,start_index=1,progress=None,cancelled=lambda:False,tile_cache=None):
     if os.environ.get('GLUEMAPPER_OPTIX_TRIANGLES')=='1' and output is None:
         raise ValueError('Experimental hardware triangles require an isolated --output directory; boundary parity is not established')
     scene=Path(scene); plan=json.loads((scene/'plan.json').read_text())
@@ -83,6 +140,7 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
     results=[]; version=code_digest();asset_digest=assets.catalog_digest()
     if plan.get('asset_catalog_digest')!=asset_digest:
         raise ValueError('Asset catalog changed or was not fingerprinted; regenerate scene and landscape plan')
+    fingerprint=AssetFingerprints(assets)
     for number,job in enumerate(jobs):
         if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
         if progress:progress('Bake lighting tiles',number,len(jobs),'Preparing tile '+str(number+1))
@@ -102,6 +160,27 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
                         results.append(old);print(f'Tile {number+1}/{len(jobs)} {stem}: verified existing',flush=True);continue
             except (OSError,ValueError,KeyError):
                 print(f'Tile {number+1}/{len(jobs)} {stem}: incomplete checkpoint; rebuilding',flush=True)
+        content=None
+        if tile_cache is not None:
+            content=tile_content_key(version,job,records,vegetation,plan,samples,experimental_base_materials,backend,gpu_config)
+            cached=Path(tile_cache)/content
+            try:
+                old=json.loads((cached/'report.json').read_text())
+                changed=[key for key,value in old['dependencies'].items() if fingerprint(key)!=value]
+                if changed:raise ValueError('assets changed: '+', '.join(changed[:3]))
+                idx=(cached/'tile.idx').read_bytes();vox=(cached/'tile.vox').read_bytes()
+                validate_pair(idx,vox)
+                if old.get('status')!='built' or hashlib.sha256(idx+vox).hexdigest()!=old['sha256']:raise ValueError('Cached tile digest mismatch')
+            except FileNotFoundError:
+                pass
+            except (OSError,ValueError,KeyError) as error:
+                print(f'Tile {number+1}/{len(jobs)} {stem}: cached tile rejected ({error}); rebuilding',flush=True)
+            else:
+                for suffix,blob in (('.idx',idx),('.vox',vox)):
+                    temporary=destination/(stem+suffix+'.tmp');temporary.write_bytes(blob);temporary.replace(destination/(stem+suffix))
+                audit=dict(old,tile=stem,origin=origin,signature=digest,content_key=content,reused_from_cache=True)
+                temporary=report_path.with_suffix('.json.tmp');temporary.write_text(json.dumps(audit,indent=2)+'\n');temporary.replace(report_path)
+                results.append(audit);print(f'Tile {number+1}/{len(jobs)} {stem}: reused from tile cache',flush=True);continue
         audit={'tile':stem,'origin':origin,'signature':digest,'status':'failed','placements':len(job['placements']),'requested_backend':backend,'workers':workers}
         audit['gpu_config']=gpu_config
         try:
@@ -169,6 +248,14 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
                 temporary=destination/(stem+suffix+'.tmp');temporary.write_bytes(blob);temporary.replace(destination/(stem+suffix))
             audit.update(status='built',triangles=len(triangles),materials=material_audit,validation=validation,
                          empty=not validation['blocks'],sha256=hashlib.sha256(idx+vox).hexdigest())
+            if content is not None:
+                audit['content_key']=content;audit['dependencies']=tile_dependencies(mapping,roots,fingerprint)
+                entry=Path(tile_cache)/content;staging=entry.with_name(content+'.partial')
+                shutil.rmtree(staging,ignore_errors=True);staging.mkdir(parents=True)
+                (staging/'tile.idx').write_bytes(idx);(staging/'tile.vox').write_bytes(vox)
+                (staging/'report.json').write_text(json.dumps(audit,indent=2)+'\n')
+                # An existing entry here was rejected above (or raced); replace it.
+                shutil.rmtree(entry,ignore_errors=True);staging.replace(entry)
         except (ValueError,KeyError,FileNotFoundError,RuntimeError,MemoryError) as e:
             audit['error']=str(e)
         audit['seconds']=round(time.time()-start,3)
