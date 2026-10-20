@@ -7,7 +7,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from water_volumes import water_record, read_water, convert_water, append_water
+from water_volumes import water_record, read_water, convert_water, append_water, place_records
 from build_water_probe import translate_features, global_environment_probe
 from build_water_surface_probe import suppress_surfaces
 
@@ -128,7 +128,33 @@ class WaterTests(unittest.TestCase):
         volumes, counts = read_water(restored)
         self.assertEqual(counts, {23:1, 9:1})
         self.assertEqual(volumes[0]["material"], -1)
-        self.assertEqual(output[332:404], merged)
+        # Native kind order puts water ahead of the merged record it shares a node with.
+        self.assertEqual(output[-len(merged):], merged)
+
+    def test_records_go_to_the_deepest_containing_node(self):
+        merged = struct.pack("<I", 23) + bytes(68)
+        source = source_water()
+        inside = convert_water(source, {"offset":0, "size":len(source)}, -1, struct.pack("<2f",1000,1000))
+        outside = bytearray(inside)
+        struct.pack_into("<6f", outside, 4, 60, 20, 25, 70, 22, 31)  # straddles the child's edge
+        child = struct.pack("<HBB6fI", 8, 0, 0, 0,0,0,64,64,64, len(merged)) + merged
+        root = struct.pack("<HBB6fI", 8, 1, 0, 0,0,0,4096,4096,4096, 0)
+        base = SimpleNamespace(data=root + child, tree_offset=0, version=29)
+        placed = place_records(base, [inside, bytes(outside)])
+        self.assertEqual(placed, struct.pack("<HBB6fI", 8, 1, 0, 0,0,0,4096,4096,4096, len(outside)) + outside
+                         + struct.pack("<HBB6fI", 8, 0, 0, 0,0,0,64,64,64, len(inside) + len(merged)) + inside + merged)
+        self.assertEqual(read_water(SimpleNamespace(data=placed, tree_offset=0, version=29))[1], {9: 2, 23: 1})
+
+    def test_placement_without_records_is_verbatim_and_rejects_bad_bounds(self):
+        merged = struct.pack("<I", 23) + bytes(68)
+        data = (struct.pack("<HBB6fI", 8, 1, 0, 0,0,0,4096,4096,4096, 0)
+                + struct.pack("<HBB6fI", 8, 0, 0, 0,0,0,64,64,64, len(merged)) + merged)
+        base = SimpleNamespace(data=data, tree_offset=0, version=29)
+        self.assertEqual(place_records(base, []), data)
+        bad = bytearray(source_water())
+        struct.pack_into("<f", bad, 4, float("nan"))
+        with self.assertRaises(ValueError):
+            place_records(base, [bytes(bad)])
 
 
 if __name__ == "__main__":
