@@ -9,6 +9,27 @@ from setup_campaign import RECEIPT,digest,verify_package
 
 PRESETS={'none':'No Baking','buildings':'Buildings','all':'All (Forest)'}
 
+def restore_baked_exposure(level_pak,native_pak):
+    """Give a baked level native eye adaptation again (#27).
+
+    The map stage caps EV Min because unbaked interiors are dark; once the bake
+    lights them, the cap leaves menus and daylight pale. The archive is rewritten
+    to a new file, so a hardlinked input package is never modified.
+    """
+    from interior_exposure import restore
+    from setup_package_upgrade import rewrite
+    from upgrade_map import read
+    import zipfile
+    name='mission_mission0.xml'
+    if not level_pak.is_file() or not native_pak.is_file():return {'restored_exposure_profiles':0}
+    with zipfile.ZipFile(level_pak) as archive:
+        if name not in archive.namelist():return {'restored_exposure_profiles':0}
+        blob=read(archive,name)
+    with zipfile.ZipFile(native_pak) as archive:native=read(archive,name)
+    restored,report=restore(blob,native)
+    if report['restored_exposure_profiles']:rewrite(level_pak.parent,level_pak.name,{name:restored})
+    return report
+
 def bake_package(package,game,workspace,preset,progress,cancelled):
     from setup_build_cache import root, Cache
     from setup_resume import job_lock
@@ -129,6 +150,8 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
         for source in files.iterdir():
             target=level/source.name
             target.unlink(missing_ok=True);shutil.copy2(source,target)
+        exposure=restore_baked_exposure(level/'level.pak',Path(game)/'Data/Levels/trosecko/level.pak')
+        next(r for r in reports if r['level']==name)['exposure']=exposure
     receipt['baking']=dict(preset=preset,experimental=True,runtime_verified=False,levels=reports)
     receipt['files']={p.relative_to(replacement).as_posix():digest(p) for p in sorted(replacement.rglob('*')) if p.is_file() and p.name!=RECEIPT}
     (replacement/RECEIPT).unlink()

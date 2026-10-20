@@ -246,6 +246,13 @@ limits already below 4. EV Max, exposure compensation, sun intensity,
 light/probe strengths, materials and voxel GI remain unchanged. The main
 region builder applies this only to the imported level, not native Trosky.
 
+The cap compensates for unbaked interiors. When the optional lighting bake
+completes, `setup_baking` restores the native `EV Min` variables in each baked
+level (`interior_exposure.restore`), because with baked interiors the cap left
+the inventory, map and journal screens pale and some daylight views
+overexposed (#27). The restore only acts on a mission whose `EV Min` records
+are exactly the cap of the native Trosky mission; anything else is unchanged.
+
 The installed development level has 33 corrected exposure variable records;
 all 1,011 unrelated archive entries were preserved. After a fresh launch,
 the room reached final EV 4.9 with measured EV 2.2, demonstrating that the
