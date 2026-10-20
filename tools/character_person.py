@@ -63,6 +63,40 @@ def resolve_link_targets(archive, actor, entities, provenance):
     return [*entities, *(found[key] for key in sorted(found))]
 
 
+def world_entity(archive, entity, entities, provenance=None):
+    """Detach an authored entity only after resolving its complete parent chain.
+
+    Job holders are published without their source prefab parents. Their Pos
+    and Rotate must therefore be world transforms, including cross-layer parents.
+    Keep unparented values verbatim and never mutate the source graph.
+    """
+    from entity_visuals import world_transform
+    provenance = provenance if provenance is not None else {}
+    known = list(entities)
+    if not any(e.get('EntityId') == entity.get('EntityId') for e in known):
+        known.append(entity)
+    cursor, seen = entity, set()
+    while cursor.get('ParentId'):
+        identity = cursor.get('EntityId')
+        if identity in seen:
+            raise ValueError('Parent cycle in source activity placement')
+        seen.add(identity)
+        request = ET.Element('Entity')
+        ET.SubElement(ET.SubElement(request, 'EntityLinks'), 'Link',
+                      TargetId=cursor.get('ParentId'))
+        known = resolve_link_targets(archive, request, known, provenance)
+        cursor = unique((e for e in known if e.get('EntityId') == cursor.get('ParentId')),
+                        'source placement parent')
+    pos, rot, scale = world_transform(entity, {e.get('EntityId'): e for e in known})
+    result = copy.deepcopy(entity)
+    if entity.get('ParentId'):
+        for field, values in (('Pos', pos), ('Rotate', rot), ('Scale', scale)):
+            result.set(field, ','.join(format(v, '.10g') for v in values))
+    for field in ('ParentId', 'ParentGuid'):
+        result.attrib.pop(field, None)
+    return result
+
+
 def resolve_person(source, name, level='rataje', *, include_ai=True):
     with RetailSourceReader(source) as reader:
         tables = SourceTables(source, reader)

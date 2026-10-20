@@ -151,8 +151,13 @@ def convert_character_materials(output, components, assets, namespace, sex, bake
                 if not any(f.get('Name') == 'GarmentBase' for f in features):
                     ET.SubElement(features, 'Feature', Name='GarmentBase', Material=feature_name)
                 model = output / folder / element.get('Model')
-                if model not in meshes:
-                    model.write_bytes(native_vertex_features(model.read_bytes())); meshes.add(model)
+                from character_lods import source_lods
+                family = [model, *(output / n for n in source_lods(
+                    {p.relative_to(output).as_posix(): p for p in model.parent.glob('*.skin')},
+                    model.relative_to(output).as_posix()).values())]
+                for member in family:
+                    if member not in meshes:
+                        member.write_bytes(native_vertex_features(member.read_bytes())); meshes.add(member)
     path = output / ('Libs/Tables/Character/ClothingMaterial__' + namespace + '.xml')
     path.write_bytes(xml(feature_root))
     return report

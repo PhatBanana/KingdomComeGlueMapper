@@ -9,7 +9,7 @@ import re
 import uuid
 import xml.etree.ElementTree as E
 from campaign_bindings import parse_link_labels
-from character_person import resolve_link_targets
+from character_person import resolve_link_targets, world_entity
 from upgrade_map import read, xml
 
 
@@ -72,7 +72,7 @@ def resolve(entry, archive, source, reader):
     points = [e for e in entities if e.get('EntityId') == links[0]['TargetId']]
     if len(points) != 1 or points[0].get('EntityClass') != 'TagPoint':
         raise ValueError('Station destination must be an authored TagPoint')
-    return dict(entry, arrival=dict(points[0].attrib), station_work=contract)
+    return dict(entry, arrival=dict(world_entity(archive, points[0], entities).attrib), station_work=contract)
 
 
 def resources(contract):

@@ -299,6 +299,10 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     icon_files, icon_report = upgrade_item_icons(package, source)
     receipt['files'].update(icon_files)
     if icon_report: receipt['source_item_icons'] = icon_report
+    from localization_registry import repair_package as repair_localization
+    localization_files, localization_report = repair_localization(package)
+    receipt['files'].update(localization_files)
+    if localization_report: receipt['localization_registry'] = localization_report
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))

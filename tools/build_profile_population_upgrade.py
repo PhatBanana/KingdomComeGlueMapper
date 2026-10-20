@@ -64,8 +64,8 @@ def refresh_receipt(package, report):
 
 def upgrade_work(source, target, package, source_level, level, people, new_people, merchants, tables, reader):
     from character_schedule import plan
-    from character_schedule_world import resolve_arrivals, bind_arrivals, arrival_resources
-    from character_schedule_jobs import bind_jobs
+    from character_schedule_world import resolve_arrivals, bind_arrivals, arrival_resources, baseline_schedule_names
+    from character_schedule_jobs import bind_jobs, population_work_supports, job_resources
     from world_item_definitions import native_items, native_item_registry
     from container_items import item_patches
     from setup_package_upgrade import rewrite
@@ -74,14 +74,41 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
         files={n:read(archive,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml','ubernav.tmm')}
     items=native_item_registry(native_items(target,item_patches(package)))
     converted=[];pending=[]
-    supported={('final/sa_home.xml','housework'),('final/sa_garrison.xml','Guard')}
+    # New actors and previously imported pending people use the same path.
+    # Never reset an existing quest, service or successfully converted job.
+    eligible=baseline_schedule_names(files,set(people)-set(merchants))
+    missing=set(new_people)-set(merchants)-eligible
+    if missing:
+        raise ValueError('New population actors lack an owned idle schedule: '+', '.join(sorted(missing)))
     with zipfile.ZipFile(source/'Data/Levels'/source_level/'level.pak') as archive:
-        for name in sorted(set(new_people)-set(merchants)):
+        # Older packages incorrectly selected the female housework branch for
+        # every actor. Repair only importer-owned route jobs, preserving the
+        # already compiled schedule and unrelated quest/service activities.
+        from character_sweeping_routes import TEMPLATE as sweeping_template
+        from character_work_capabilities import repair_housework_bindings
+        mission = E.fromstring(files['objects_mission0.xml'])
+        owned_jobs = {e.get('Name') for e in mission if e.find('Properties') is not None
+                      and e.find('Properties').get('guidSmartObjectType') == sweeping_template}
+        for name, person in people.items():
+            actor = next((e for e in mission if e.get('Name') == name), None)
+            if actor is None or actor.get('EntityClass') != 'NPC' or not any(
+                    job.startswith('gm_schedule_' + name + '_') for job in owned_jobs):
+                continue
+            schedule = plan(person, tables)
+            housework = [e for e in schedule['resolved'] if
+                (e['behavior']['tree_file'].replace('\\', '/').lower(), e['behavior']['tree_name'])
+                == ('final/sa_home.xml', 'housework')]
+            if not housework:
+                continue
+            entries = resolve_arrivals(dict(schedule, resolved=housework), archive, person, source, reader)
+            files, repaired = repair_housework_bindings(files, {name: entries}, archive)
+            pending.extend(repaired)
+        for name in sorted(eligible):
             person=people[name];schedule=plan(person,tables)
             if schedule['pending'] or not schedule['resolved']:
                 pending.append(dict(person=name, reason='Source schedule is unresolved', schedule=schedule));continue
             kinds={(e['behavior']['tree_file'].lower(),e['behavior']['tree_name']) for e in schedule['resolved']}
-            if not kinds.issubset(supported):
+            if not all(population_work_supports(e) for e in schedule['resolved']):
                 pending.append(dict(person=name, reason='Complete native work adapter is pending', schedule=schedule));continue
             # Guards without forced workplaces need their source garrison
             # allocator; do not invent a post or send them to the area center.
@@ -94,7 +121,7 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             files=working;converted.extend(jobs)
     rewrite(package,lp,{k:v for k,v in files.items() if k!='ubernav.tmm'})
     modid=E.parse(package/'mod.manifest').findtext('info/modid')
-    resources=arrival_resources()
+    resources=job_resources(source,target,files,{})
     resources[f'Mods/{modid}/Data/Levels/{level}/tables/ai/scheduler.xml']=files['tables/ai/scheduler.xml']
     rewrite(package,travel,resources)
     return dict(converted=converted,pending=pending,complete=not pending and not any(r.get('pending') for r in converted))

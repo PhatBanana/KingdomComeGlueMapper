@@ -9,7 +9,7 @@ import xml.etree.ElementTree as E
 import zipfile
 from pathlib import Path
 
-from character_person import resolve_link_targets, unique
+from character_person import resolve_link_targets, unique, world_entity
 from upgrade_map import read
 
 SOURCE = ('final/sa_shop2.xml', 'merchant')
@@ -35,7 +35,7 @@ def resolve(entry, archive):
                    'merchant selling point entity')
     if point.get('EntityClass') != 'TagPoint':
         raise ValueError('Merchant selling point must have a converted point contract')
-    return dict(entry, arrival=dict(point.attrib), market_work=True)
+    return dict(entry, arrival=dict(world_entity(archive, point, entities).attrib), market_work=True)
 
 
 def contract(target):

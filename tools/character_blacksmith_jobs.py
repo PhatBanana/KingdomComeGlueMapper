@@ -15,7 +15,7 @@ import zipfile
 
 from campaign_entity_links import native_guid, guid_value
 from character_job_items import register_item, bind_reservation, reservation_contract
-from character_person import resolve_link_targets
+from character_person import resolve_link_targets, world_entity
 from entity_visuals import quaternion_product
 from cooking_pots import rotate
 from upgrade_map import read
@@ -102,7 +102,8 @@ def bind(mission, scheduler, entry, job, archive, target, registered):
     forge_children=children(forge);anvil_children=children(anvil)
     heating=category(forge_children,'Product');hammer=category(anvil_children,'Hammer')
     sword=category(direct,'Product');bellows=category(forge_children,'ForgeBag')
-    q,translation,errors=workstation_transform([native_links['swordHeatingSlot'],native_links['hammerSlot']], [heating,hammer])
+    contacts = [world_entity(archive, point, source) for point in (heating, hammer)]
+    q,translation,errors=workstation_transform([native_links['swordHeatingSlot'],native_links['hammerSlot']], contacts)
     transformed=pose(native,q,translation)
     for k in ('Pos','Rotate'):job.set(k,transformed.get(k))
     properties_index=list(job).index(job.find('Properties'))

@@ -27,6 +27,7 @@ from character_person import native_xml
 from character_clothing_variant import resolve_variant
 from character_source_clothing import female_role, native_role, source_item, garment_layout
 from character_native_materials import convert_character_materials
+from character_lods import source_lods, filename as lod_filename, emit_regions, validate_chain
 
 
 def keep_body_under_outfit(sex, region):
@@ -175,13 +176,29 @@ def _build_appearance(source, target, person, namespace, output):
                 discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=fitting,
                 clear_hiding=kind != 'cloth' or sex == 'female', geometry_field=geometry_field)
             blob, _ = limit_skin_influences(blob)
+            lods = {}
+            for level, lod_model in source_lods(index, model).items():
+                lower, lower_mat = bind_material(mesh(lod_model), mat, emitted, prefix + stem + '_slots')
+                if lower_mat != mat:
+                    raise ValueError('Character LOD requires another material binding: ' + lod_model)
+                lower, _ = align_internal_translation(lower)
+                lower, _ = upgrade_skin(lower, skeleton, variant=variant,
+                    discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=fitting,
+                    clear_hiding=kind != 'cloth' or sex == 'female', geometry_field=geometry_field)
+                lower, _ = limit_skin_influences(lower)
+                lods[level] = lower
+            try:
+                slots = ET.parse(emitted[mat + '.mtl']).getroot().find('SubMaterials')
+                validate_chain(blob, lods, material_slots=len(slots) if slots is not None else 1)
+            except ValueError as exc:
+                raise ValueError(f'{person["name"]}: {model}: {exc}') from exc
             emitted[prefix + stem + '.mtl'] = emitted[mat + '.mtl'].read_bytes()
             if kind == 'cloth':
                 match = re.match(r's[12]_p([1-4])_', Path(part['model']).name, re.I)
                 if not match:
                     raise ValueError('Unmapped source garment body part: ' + part['model'])
                 region = {'1': 'head', '2': 'torso', '3': 'legs', '4': 'feet'}[match[1]]
-                garments.append(dict(name=part['clothing_name'], skin=blob, region=region, part=part, stem=stem,
+                garments.append(dict(name=part['clothing_name'], skin=blob, lods=lods, region=region, part=part, stem=stem,
                     source_model=model, source_material=source_material,
                     material=ET.parse(emitted[prefix + stem + '.mtl']).getroot()))
             else:
@@ -190,6 +207,10 @@ def _build_appearance(source, target, person, namespace, output):
                 elements = ET.SubElement(node, 'Elements')
                 regions = split_skin_regions(blob, assign_body_regions(blob)) if kind == 'body' and sex == 'male' else {
                     {'body': 'torso', 'head': 'face', 'hair': 'head', 'beard': 'beard'}[kind]: blob}
+                lower_regions = {level: (split_skin_regions(lower, assign_body_regions(lower))
+                    if kind == 'body' and sex == 'male' else {next(iter(regions)): lower})
+                    for level, lower in lods.items()}
+                emit_regions(emitted, prefix + stem, regions, lower_regions)
                 for region, skin in regions.items():
                     filename = stem + '_' + region + '.skin'; emitted[prefix + filename] = skin
                     ET.SubElement(elements, 'SkinElement', EquipmentPart=region, Model=filename,
@@ -197,6 +218,7 @@ def _build_appearance(source, target, person, namespace, output):
             evidence.append(dict(kind=kind, model=model, clothing=part.get('clothing_name'), upgrade=detail,
                                  source_cdf=part.get('source_cdf'), source_cdf_provenance=part.get('source_cdf_provenance'),
                                  variant=variant_evidence,
+                                 lods=source_lods(index, model),
                                  internal_translation=internal_offset))
         if 'beard' not in appearance:
             appearance['beard'] = namespace + '_empty_beard'
@@ -217,6 +239,23 @@ def _build_appearance(source, target, person, namespace, output):
             if garment['region'] == 'torso':
                 garment['face_regions'] = assign_upper_garment_regions(blob, waist_z=waist)
         outfit = convert_fixed_outfit(garments, prefix + 'outfit_')
+        outfit_lods = {}
+        for level in sorted({level for g in garments for level in g['lods']}):
+            lower = [dict(g, skin=g['lods'].get(min(level, max(g['lods'])), g['skin'])
+                          if g['lods'] else g['skin']) for g in garments]
+            palette = canonicalize_skin_skeletons([g['skin'] for g in lower])
+            for garment, lower_blob in zip(lower, palette):
+                garment['skin'] = lower_blob
+                if garment['region'] == 'torso':
+                    garment['face_regions'] = assign_upper_garment_regions(lower_blob, waist_z=waist)
+            assembled = convert_fixed_outfit(lower, prefix + 'outfit_')
+            # Slot offsets depend on garment membership. A changed region must
+            # not silently bind another garment's material at a lower LOD.
+            if set(assembled) != set(outfit) or any(
+                    xml(assembled[r]['material']) != xml(outfit[r]['material']) for r in outfit):
+                raise ValueError('Authored outfit LOD changes region/material membership')
+            outfit_lods[level] = {r: v['skin'] for r, v in assembled.items()}
+        emit_regions(emitted, prefix + 'outfit', {r: v['skin'] for r, v in outfit.items()}, outfit_lods)
         with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
             components = ET.fromstring(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
             archetypes = ET.fromstring(read(archive, 'Libs/Tables/rpg/soul_archetype.xml'))
@@ -300,6 +339,8 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         name = namespace + '_' + stem
         node = ET.SubElement(derived, 'Clothing', Name=name, ArmorType=armor_type, ArmorArchetypeId=archetype)
         emitted[prefix + stem + '.skin'] = garment['skin']
+        for level, lower in garment['lods'].items():
+            emitted[lod_filename(prefix + stem + '.skin', level)] = lower
         ET.SubElement(ET.SubElement(node, 'Elements'), 'SkinElement', EquipmentPart=region,
             Model=stem + '.skin', Material=stem + '.mtl', BodyLayerId=str(layer),
             KeepBodyLayer='true', IsFinalLayer='false')

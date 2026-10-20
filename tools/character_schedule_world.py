@@ -7,7 +7,7 @@ import copy
 import hashlib
 import uuid
 import xml.etree.ElementTree as ET
-from character_person import resolve_link_targets
+from character_person import resolve_link_targets, world_entity
 from campaign_entity_links import native_guid, guid_value, append_links
 from character_person_activity import validate_scheduler_targets
 from character_person_world import native_wait_activity
@@ -43,6 +43,10 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None):
     mission = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
     for entry in schedule['resolved']:
         behavior = entry['behavior']
+        from character_city_work import supports as city_supports, resolve as city_resolve
+        if city_supports(entry):
+            result.append(city_resolve(entry, archive))
+            continue
         from character_market_jobs import supports as market_supports, resolve as market_resolve
         if market_supports(entry):
             result.append(market_resolve(entry, archive))
@@ -61,7 +65,8 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None):
             point = ET.fromstring(forced[0]['source_xml'])
             if point.get('EntityClass') != 'TagPoint':
                 raise ValueError('Unsupported forced guard workplace')
-            result.append(dict(entry, arrival=dict(point.attrib),
+            pose = world_entity(archive, point, mission)
+            result.append(dict(entry, arrival=dict(pose.attrib),
                 workplace_links=[dict(l.attrib) for l in point.findall('EntityLinks/Link')]))
             continue
         area = ET.Element('Entity', entry['area'])
@@ -73,8 +78,34 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None):
         targets = [e for e in resolved if e.get('EntityId') == inside[0]['TargetId']]
         if len(targets) != 1 or targets[0].get('EntityClass') != 'TagPoint':
             raise ValueError('Unsupported authored arrival target')
-        result.append(dict(entry, arrival=dict(targets[0].attrib)))
+        result.append(dict(entry, arrival=dict(world_entity(archive, targets[0], resolved).attrib)))
     return result
+
+
+def baseline_schedule_names(files, names):
+    """Select only idle schedules owned by the person importer, including old imports.
+
+    A previous pending report is not authorization to replace a live authored
+    schedule. Recheck the current actor, anchor and every compiled link.
+    """
+    mission = ET.fromstring(files['objects_mission0.xml'])
+    rows = ET.fromstring(files['tables/ai/scheduler.xml']).find('Schedulers')
+    selected = set()
+    for name in names:
+        actors = [e for e in mission if e.get('Name') == name]
+        anchors = [e for e in mission if e.get('Name') == 'gm_person_idle_' + name]
+        if len(actors) != 1 or len(anchors) != 1:
+            continue
+        identity = str(guid_value(actors[0].get('EntityGuid')))
+        schedules = [r for r in rows if r.get('EntityGuid') == identity]
+        if len(schedules) != 1:
+            continue
+        links = schedules[0].findall('Links/S_ActivityLink')
+        delegate = str(guid_value(anchors[0].get('EntityGuid')))
+        if links and all(l.get('PositioningDelegate') == delegate and l.find('Parameters') is not None
+                         and l.find('Parameters').get('BehaviorName') == 'schedulerWait' for l in links):
+            selected.add(name)
+    return selected
 
 
 def bind_arrivals(files, schedules, target):

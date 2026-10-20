@@ -335,6 +335,14 @@ def emit_project(models, project, startup_quest=None, localization=None, diagnos
         reports.append(report)
         ET.SubElement(definitions, 'Definition', File=project + '/' + name + '.xml')
         ET.SubElement(nodes, name, Name=name)
+    from campaign_linked_conditions import bind as bind_linked_conditions
+    linked_conditions = bind_linked_conditions(files, project, models, nodes)
+    for report in reports:
+        linked = [c for c in linked_conditions if c['quest'] == report['quest']]
+        report['converted_linked_conditions'] = linked
+        completed = {c['objective'] for c in linked}
+        report['unsupported'] = [r for r in report['unsupported'] if not (
+            r['kind'] == 'completion_policy' and r['objective'] in completed)]
     if startup_quest:
         # This explicitly selected startup is a development gate until the
         # original master-controller/profile/actor initialization is compiled.

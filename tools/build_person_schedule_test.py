@@ -10,7 +10,7 @@ from character_schedule import plan
 from character_schedule_world import resolve_arrivals, bind_arrivals, arrival_resources
 from build_horse_trader_test import rewrite
 from upgrade_map import read
-from character_schedule_jobs import bind_jobs
+from character_schedule_jobs import bind_jobs, job_resources
 from world_item_definitions import native_items, native_item_registry
 import seating_animations
 from character_person_activity import validate_scheduler_targets
@@ -26,7 +26,7 @@ def build(a):
             person = resolve_person(a.source, name, a.source_level)
             schedule = plan(person, tables)
             if schedule['pending']: raise ValueError('Unresolved source schedule: ' + name)
-            schedules[name] = resolve_arrivals(schedule, archive, person)
+            schedules[name] = resolve_arrivals(schedule, archive, person, a.source, reader)
     with zipfile.ZipFile(a.level_pak) as archive:
         files = {n:read(archive,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml',
                     seating_animations.HELPERS,seating_animations.ANIMATIONS)}
@@ -34,9 +34,6 @@ def build(a):
     resources=arrival_resources()
     if getattr(a,'routes',False):
         if not a.jobs:raise ValueError('--routes requires --jobs')
-        from character_sweeping_routes import resources as route_resources
-        route_files,route_contract=route_resources(a.source,a.target)
-        resources.update(route_files)
     if a.jobs_only:
         if not a.jobs:raise ValueError('--jobs-only requires --jobs')
         report=[]
@@ -48,6 +45,7 @@ def build(a):
         registered=native_item_registry(native_items(a.target,items))
         with zipfile.ZipFile(a.source/'Data/Levels'/a.source_level/'level.pak') as archive:
             files,jobs=bind_jobs(files,schedules,archive,a.target,registered,getattr(a,'routes',False))
+        resources.update(job_resources(a.source,a.target,files,schedules))
         report=dict(arrivals=report,jobs=jobs)
         with zipfile.ZipFile(a.target/'Data/Levels/trosecko/level.pak') as native:
             files,animation_report=seating_animations.install(files,native)

@@ -69,6 +69,8 @@ def quest_dependencies(model):
                 result.append(dict(quest=value, dynamic=not bool(re.fullmatch(r'[A-Za-z_]\w*', value)),
                                    site=dict(document=document, tree=tree, preorder_index=index,
                                              operation=node['op'], arguments=attrs)))
+    from campaign_quest_dependencies import objective_dependencies
+    result.extend(objective_dependencies(model))
     return result
 
 

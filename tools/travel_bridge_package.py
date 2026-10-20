@@ -161,9 +161,13 @@ def combine(base, bridge, target, output):
         receipt['travel_bridge']['water_layers'] = water_report
         receipt['travel_bridge']['roof_clipping'] = {
             key: roof_report[key] for key in ('roof_placements', 'changed_clip_count', 'linked_probe_count')}
+    from localization_registry import repair_package as repair_localization
+    localization_files, localization_report = repair_localization(output)
+    if localization_report:
+        receipt['localization_registry'] = localization_report
     # Untouched world files keep the digests verify_package(base) just checked;
     # verify_package(output) below still re-reads every file once.
-    rewritten = {*bridge_files, BRIDGE_PAK, f'Data/{MOD_ID}.pak', 'mod.manifest'}
+    rewritten = {*bridge_files, *localization_files, BRIDGE_PAK, f'Data/{MOD_ID}.pak', 'mod.manifest'}
     if roof_report is not None:
         rewritten.update(('Data/Levels/kcd1_travel/level.pak', 'roof-clip-repair.json'))
         rewritten.add('probe-activation-repair.json')

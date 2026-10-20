@@ -9,6 +9,39 @@ from character_job_items import reservation_contract, register_item, bind_reserv
 from character_person import resolve_link_targets
 from upgrade_map import read, xml
 import character_blacksmith_jobs
+import character_city_work
+
+
+def population_work_supports(entry):
+    """Adapters enabled for source-profile work, independent of actor identity."""
+    behavior = entry['behavior']
+    identity = (behavior['tree_file'].replace('\\', '/').lower(), behavior['tree_name'])
+    return (identity in {('final/sa_home.xml', 'housework'), ('final/sa_garrison.xml', 'Guard')}
+            or character_city_work.supports(entry))
+
+
+def job_resources(source, target, files, schedules):
+    """Publish the definitions used by the emitted holders, including on resume.
+
+    A compiled activity and a template GUID alone cannot execute a job. Do not
+    rely on an earlier test package already containing its behavior program.
+    """
+    from character_schedule_world import arrival_resources
+    from character_sweeping_routes import TEMPLATE, resources as sweeping_resources
+    from character_station_work import resources as station_resources
+    mission = ET.fromstring(files['objects_mission0.xml'])
+    used = {p.get('guidSmartObjectType') for p in mission.iter('Properties')}
+    resources = arrival_resources()
+    if TEMPLATE in used:
+        definitions, _ = sweeping_resources(source, target)
+        resources.update(definitions)
+    for entries in schedules.values():
+        for entry in entries:
+            if entry.get('station_work'):
+                template, definitions = station_resources(entry['station_work'])
+                if template in used:
+                    resources.update(definitions)
+    return resources
 
 
 def native_job(target, name):
@@ -34,10 +67,24 @@ It does not represent the other housework activities as converted.
     mission=ET.fromstring(files['objects_mission0.xml'])
     scheduler=ET.fromstring(files['tables/ai/scheduler.xml'])
     source_entities=list(ET.fromstring(read(archive,'objects_mission0.xml')))
-    waiting=[];report=[]; renamed={}
+    waiting=[];report=[]; renamed={};city_pools={}
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
+            if entry.get('city_work'):
+                key = (person, entry['arrival']['EntityGuid'])
+                if key in city_pools:
+                    previous, item_report = city_pools[key]
+                    if previous != entry['city_work']:
+                        raise ValueError('Different city-walk pools share one schedule anchor')
+                    item_report['intervals'].append([entry['start_minute'],entry['end_minute']])
+                    continue
+                job, links, item_report = character_city_work.bind(mission,scheduler,person,entry,target)
+                item_report['intervals'] = [item_report.pop('interval')]
+                city_pools[key] = (entry['city_work'],item_report)
+                waiting.extend(links);report.append(item_report)
+                renamed[job.get('EntityGuid')] = ''
+                continue
             if entry.get('market_work'):
                 from character_market_jobs import bind as bind_market, ACTIVITY
                 job, item_report = bind_market(mission, scheduler, person, entry, target)
@@ -87,6 +134,17 @@ It does not represent the other housework activities as converted.
                     pending=['source work program and its dependency graph require conversion'],
                     runtime_verified=False))
                 continue
+            if not bartending:
+                from character_work_capabilities import allowed_housework
+                actor = next(e for e in mission if e.get('Name') == person)
+                phases = allowed_housework(archive, actor.get('EntityClass'))
+                if 'houseSweeping' not in phases:
+                    report.append(dict(person=person, source_behavior=dict(behavior),
+                        source_area=dict(entry['area']), source_phases=phases,
+                        pending=phases, job='source_housework_pending',
+                        policy='Preserve arrival; do not assign a job excluded by the source selector',
+                        runtime_verified=False))
+                    continue
             native,contracts=native_job(target,'so_sweeping')
             area=ET.Element('Entity',entry['area']);links=ET.SubElement(area,'EntityLinks')
             for l in entry['target_links']:ET.SubElement(links,'Link',l)
@@ -125,12 +183,15 @@ It does not represent the other housework activities as converted.
     for entity in mission:
         for edge in entity.findall('EntityLinks/Link'):
             if edge.get('TargetGuid') in renamed and edge.get('Name')=='_,use':
-                edge.set('Name','_,'+renamed[edge.get('TargetGuid')])
+                activity=renamed[edge.get('TargetGuid')]
+                edge.set('Name','_'+(','+activity if activity else ''))
     authoring=ET.fromstring(files['waitinglinks.xml'])
     for record in authoring.findall('.//WaitingLink'):
         if record.get('TargetId') in renamed:
             for definition in record:
-                if definition.text=='_,use':definition.text='_,'+renamed[record.get('TargetId')]
+                if definition.text=='_,use':
+                    activity=renamed[record.get('TargetId')]
+                    definition.text='_'+(','+activity if activity else '')
     result['objects_mission0.xml']=xml(mission)
     result['tables/ai/scheduler.xml']=xml(scheduler)
     result['waitinglinks.xml']=append_links(xml(authoring),waiting,allow_untagged=True)

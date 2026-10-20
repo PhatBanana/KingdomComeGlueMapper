@@ -44,6 +44,18 @@ class SetupLaunchTests(unittest.TestCase):
             with self.assertRaises(ValueError):launch(str(self.root))
             run.assert_not_called()
 
+    @unittest.skipUnless(os.name=='nt','Windows launcher')
+    def test_diagnostics_and_prepare_use_the_same_setup_helper(self):
+        game=self.mod()
+        with patch('setup_launch.subprocess.run',return_value=Mock(returncode=0,stdout=json.dumps({'root':'private-runtime'}))) as run:
+            result=launch(str(game),development=True,prepare_only=True)
+        self.assertEqual(result['root'],'private-runtime')
+        args=run.call_args.args[0]
+        self.assertIn('-Development',args)
+        self.assertIn('-PrepareOnly',args)
+        self.assertTrue(args[args.index('-File')+1].endswith('launch_with_shaders.ps1'))
+        self.assertNotIn('KingdomCome.exe',args)
+
     def test_api_blocks_launch_during_setup_and_releases_busy_after_error(self):
         api=SetupAPI();api._process=Mock();api._process.poll.return_value=None
         with patch('setup_web.launch_map') as start:

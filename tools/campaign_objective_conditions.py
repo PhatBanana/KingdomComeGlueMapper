@@ -6,6 +6,16 @@ require their own adapters and must never be treated as unconditional success.
 import xml.etree.ElementTree as ET
 
 
+def counted_asset(row):
+    """A map-only binding has no collectable quest asset, regardless of count.
+
+    Source map markers commonly retain the authoring default count=1. Only an
+    explicit map-only record is exempt; incomplete or unknown rows stay blocked.
+    """
+    return row['count'] != '0' and not (
+        row.get('map_asset_id') and 'quest_asset_id' in row and not row['quest_asset_id'])
+
+
 def bind(nodes, model):
     from campaign_dialogue_conditions import QuestConditions
     from campaign_dialogue_effects import predicate, wire_program
@@ -25,7 +35,7 @@ def bind(nodes, model):
         if (row.get('autocomplete_timeout_str') not in ('', '-1', None)
                 or row.get('expiration_timeout_str') not in ('', '-1', None)
                 or row.get('time', '0') not in ('', '0')
-                or any(t['objective_id'] == row['objective_id'] and t['count'] != '0' for t in tracked)):
+                or any(t['objective_id'] == row['objective_id'] and counted_asset(t) for t in tracked)):
             continue
         compiler = QuestConditions([model], functions)
         try:

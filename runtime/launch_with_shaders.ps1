@@ -1,7 +1,8 @@
 # A private launch root, entirely inside Mods. Nothing is installed over retail.
 # Run the ordinary Steam shortcut to use the original Engine shaders again.
 [CmdletBinding()]
-param([Parameter(Mandatory=$true)][string]$ModDirectory, [switch]$PrepareOnly, [switch]$StartupCheck)
+param([Parameter(Mandatory=$true)][string]$ModDirectory, [switch]$PrepareOnly, [switch]$StartupCheck,
+      [switch]$Development)
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
@@ -172,6 +173,11 @@ $start.UseShellExecute = $false
 # the real game's app context; its unchanged Steam API still authenticates it.
 $start.EnvironmentVariables['SteamAppId'] = '1771300'
 $start.EnvironmentVariables['SteamGameId'] = '1771300'
+if ($Development) {
+    # Diagnostics use the identical canonical Data/Levels view as setup.
+    # Never bypass it by starting the executable from the retail root.
+    $start.Arguments = '-devmode -dev'
+}
 if ($StartupCheck) {
     # A bounded mount check, without loading a save or entering a level.
     $start.Arguments = '-unattended -no_splash +sys_intromoviesduringinit 0 +quit'
