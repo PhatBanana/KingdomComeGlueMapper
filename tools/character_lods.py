@@ -9,20 +9,41 @@ from pathlib import PurePosixPath
 from clothing_regions import Skin
 
 
+LOD_NAME = re.compile(r'(.*)_lod(0*[1-9]\d*)\.skin$')
+_FAMILIES = {}
+
+
+def lod_families(index):
+    """Every LOD skin in the index grouped by its lowercase base path.
+
+    A game asset index holds about half a million names; matching each base
+    skin's own pattern against all of them cost 50 ms per part. Large indexes
+    are mapped once (the entry keeps the index alive, so its id is not reused);
+    small per-folder dicts are mapped on the spot.
+    """
+    cached = _FAMILIES.get(id(index))
+    if cached is None or cached[0] is not index:
+        families = {}
+        for name in index:
+            match = LOD_NAME.fullmatch(name.replace('\\', '/').lower())
+            if match:
+                families.setdefault(match[1], []).append((int(match[2]), name))
+        if len(index) < 1000:
+            return families
+        cached = _FAMILIES[id(index)] = (index, families)
+    return cached[1]
+
+
 def source_lods(index, model):
     """Resolve a contiguous, case-insensitive family; never match another skin."""
     base = model.replace('\\', '/').lower()
     if not base.endswith('.skin') or re.search(r'_lod\d+\.skin$', base):
         raise ValueError('Expected a base skin for LOD discovery: ' + model)
-    pattern = re.compile(re.escape(base[:-5]) + r'_lod(0*[1-9]\d*)\.skin$')
     result = {}
-    for name in index:
-        match = pattern.fullmatch(name.replace('\\', '/').lower())
-        if match:
-            level = int(match[1])
-            if level in result:
-                raise ValueError('Ambiguous source skin LOD: ' + model)
-            result[level] = name
+    for level, name in lod_families(index).get(base[:-5], ()):
+        if level in result:
+            raise ValueError('Ambiguous source skin LOD: ' + model)
+        result[level] = name
     if result and sorted(result) != list(range(1, max(result) + 1)):
         raise ValueError('Non-contiguous source skin LODs: ' + model)
     return dict(sorted(result.items()))

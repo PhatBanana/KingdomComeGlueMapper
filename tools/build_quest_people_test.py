@@ -179,6 +179,9 @@ def build(a):
         people.append(person); registered.add(sid)
         converted.append(dict(person=person['name'], soul_id=sid, position=(placement or person['actor']).get('Pos'),
                               source_level=person['source_level'], namespace=namespace))
+    from bake_pool import release
+    from static_assets import release_library_index
+    release(); release_library_index()  # the people are converted; free the bake workers and archives
     files['objects_mission0.xml'], files['whdata_0'] = xml(mission), xml(wh)
     files, world = register_person_world(files, people, a.source, a.target)
     markers = dict(converted=[])
