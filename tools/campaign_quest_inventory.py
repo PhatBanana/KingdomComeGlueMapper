@@ -24,6 +24,36 @@ def split(inventory, quest_ids):
     return regular, rows
 
 
+def quest_item_roles(resources, soul_id):
+    """{'dc.<role>': soul id} for every role this package defines and assigns to one soul.
+
+    Converted quest scripts name item holders by the roles the package registers
+    in its own Libs/Tables/rpg/role__*.xml, so only those are candidates. A role
+    assigned to two souls stays ambiguous and is rejected. Native roles are never
+    holders and may be shared: every converted shopkeeper of one sex carries the
+    same native haggle roles (SMLOUVANI_MUZ, ...). soul_id(name) returns the soul
+    id of a registered person, or None for a name that is not a soul.
+    """
+    defined = set()
+    for path, blob in resources.items():
+        if re.fullmatch(r'Libs/Tables/rpg/role__[^/]+\.xml', path):
+            defined.update(r.get('role_name') for r in ET.fromstring(blob).iter('role'))
+    role_souls = {}
+    for path, blob in resources.items():
+        if not path.startswith('Libs/Storm/roles/') or not path.endswith('.xml'): continue
+        for rule in ET.fromstring(blob).iter('rule'):
+            selected = rule.find('selectors/hasName')
+            soul = soul_id(selected.get('name')) if selected is not None else None
+            if soul is None: continue
+            for role in rule.findall('operations/addRole'):
+                if role.get('name') not in defined: continue
+                key = 'dc.'+role.get('name')
+                if key in role_souls and role_souls[key] != soul:
+                    raise ValueError('Ambiguous quest item role: '+key)
+                role_souls[key] = soul
+    return role_souls
+
+
 def upgrade(package, source, target, resources, project, startup, level_changes=None):
     if not any(n.startswith(('Libs/Storm/equipment/gm_person_', 'Libs/Storm/equipment/gm_ska_mother')) for n in resources):
         return {}, {}, {}
@@ -76,19 +106,10 @@ def upgrade(package, source, target, resources, project, startup, level_changes=
                     source_inventory=soul['inventory_id'], items=rows)
     ordered = sorted(actors.values(), key=lambda a:a['soul'])
     from campaign_quest_holders import lower
-    role_souls = {}
-    for path, blob in resources.items():
-        if not path.startswith('Libs/Storm/roles/') or not path.endswith('.xml'): continue
-        for rule in ET.fromstring(blob).iter('rule'):
-            selected = rule.find('selectors/hasName')
-            if selected is None or selected.get('name') not in souls: continue
-            name = selected.get('name')
-            soul = effective_soul(souls[name], instances[name]) if name in instances else souls[name]
-            for role in rule.findall('operations/addRole'):
-                key = 'dc.'+role.get('name')
-                if key in role_souls and role_souls[key] != soul['soul_id']:
-                    raise ValueError('Ambiguous quest item role: '+key)
-                role_souls[key] = soul['soul_id']
+    def soul_id(name):
+        if name not in souls: return None
+        return (effective_soul(souls[name], instances[name]) if name in instances else souls[name])['soul_id']
+    role_souls = quest_item_roles(resources, soul_id)
     player = ET.fromstring(resources[project]).find(".//SoulAsset[@Name='travel_player']")
     if player is None: raise ValueError('Quest-item player holder dependency missing')
     for alias in ('player','dc.HENRY'): role_souls[alias] = player.get('SharedSoulGuids')

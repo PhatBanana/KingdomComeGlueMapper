@@ -327,6 +327,16 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     intro_files, intro_report = upgrade_introductions(package, source, target)
     receipt['files'].update(intro_files)
     receipt['quest_introductions'] = intro_report
+    # After every step that registers people and shops: give each shopkeeper the
+    # native haggle and shop-ending roles, without which a confirmed trade does nothing.
+    from shop_roles import keepers as shop_keepers, add_haggle_roles
+    with zipfile.ZipFile(package/'Data/Levels/kcd1_travel/level.pak') as level_archive:
+        people = shop_keepers(read(level_archive, 'objects_mission0.xml'))
+    with zipfile.ZipFile(package/travel) as z:
+        role_files = {n: read(z, n) for n in z.namelist() if n.lower().startswith('libs/storm/roles/')}
+    role_changes, receipt['shop_roles'] = add_haggle_roles(role_files, people)
+    if role_changes:
+        rewrite(package, travel, role_changes)
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))
