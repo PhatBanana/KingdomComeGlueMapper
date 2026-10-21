@@ -1,5 +1,6 @@
 """Tile pool settings and the dense-tile estimate that gates the heavy slots."""
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -27,13 +28,19 @@ class ParallelBakeSettingsTests(unittest.TestCase):
                 # Memory bounds the pool: a 32 GB machine with 28 GB free runs 3 processes and 1 dense tile.
                 self.assertEqual(tile_workers(2, 28 * GIB), 3)
                 self.assertEqual(tile_workers(2, 8 * GIB), 1)   # never below one process
-                self.assertEqual(tile_workers(2, None), 6)      # unknown memory: CPU rule only
+                # Without an explicit value the free memory is queried when the bake starts.
+                with patch('world_surface_tiles.available_memory', return_value=None):
+                    self.assertEqual(tile_workers(2, None), 6)  # unknown memory: CPU rule only
+                    self.assertEqual(heavy_slots(None), 2)
+                with patch('world_surface_tiles.available_memory', return_value=28 * GIB):
+                    self.assertEqual((tile_workers(2), heavy_slots()), (3, 1))
+                with patch('world_surface_tiles.available_memory', return_value=plenty):
+                    self.assertEqual((tile_workers(2), heavy_slots()), (6, 2))
             with patch('os.cpu_count', return_value=2):
                 self.assertEqual(tile_workers(2, plenty), 1)
             self.assertEqual(gpu_lanes(), 1)
             self.assertEqual(heavy_slots(plenty), 2)
             self.assertEqual(heavy_slots(28 * GIB), 1)
-            self.assertEqual(heavy_slots(None), 2)
         with patch.dict(os.environ, {'GLUEMAPPER_BAKE_TILE_WORKERS': '12', 'GLUEMAPPER_BAKE_HEAVY_TILES': '3'}):
             self.assertEqual(tile_workers(2, 8 * GIB), 12)  # explicit settings win over the estimate
             self.assertEqual(heavy_slots(8 * GIB), 3)
@@ -61,6 +68,40 @@ class ParallelBakeSettingsTests(unittest.TestCase):
             baker.vegetation = (None, np.array([0, 0]))
             self.assertEqual(_TileBaker.estimated_triangles(baker, dict(light, vegetation=[0, 1])), 100_000)
             self.assertEqual(set(baker.mesh_triangles), set(sizes))  # each header read once
+
+
+def empty_scene(root, tiles):
+    """A valid scene of empty tiles with an empty asset root, baked by the real tile code."""
+    from geometry_opacity import Assets
+    scene = Path(root) / 'scene'; (scene / 'assets').mkdir(parents=True)
+    plan = {'errors': {}, 'source_packages': {}, 'pak_root': str(scene / 'assets'), 'overrides': [],
+            'pending_categories': [], 'tiles': [{'origin': [256 * i, 0, 0], 'placements': []} for i in range(tiles)]}
+    assets = Assets(plan['pak_root'], plan['overrides']); plan['asset_catalog_digest'] = assets.catalog_digest(); assets.close()
+    (scene / 'plan.json').write_text(json.dumps(plan)); (scene / 'placements.json').write_text('{}')
+    return scene
+
+
+class ParallelBakeCancellationTests(unittest.TestCase):
+    def test_a_cancelled_parallel_bake_starts_no_tile(self):
+        from world_surface_tiles import build
+        with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, {'GLUEMAPPER_BAKE_TILE_WORKERS': '2'}):
+            scene = empty_scene(t, 2)
+            with self.assertRaises(InterruptedError):
+                build(scene, cancelled=lambda: True)
+            self.assertEqual(list((scene / 'tiles').glob('*.vox')), [])
+
+    def test_cancelling_during_a_parallel_bake_starts_no_further_tile_and_keeps_finished_ones(self):
+        from world_surface_tiles import build
+        with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, {'GLUEMAPPER_BAKE_TILE_WORKERS': '2'}):
+            scene = empty_scene(t, 6)
+            tiles = scene / 'tiles'
+            with self.assertRaises(InterruptedError):
+                build(scene, cancelled=lambda: any(tiles.glob('*.json')))  # cancel once a tile is recorded
+            finished = list(tiles.glob('*.vox'))
+            # Two processes hold one tile each, so at most the two started tiles finish.
+            self.assertGreaterEqual(len(finished), 1); self.assertLessEqual(len(finished), 2)
+            for vox in finished:
+                self.assertEqual(json.loads(vox.with_suffix('.json').read_text())['status'], 'built')
 
 
 if __name__ == '__main__':
