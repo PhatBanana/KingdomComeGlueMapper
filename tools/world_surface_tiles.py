@@ -19,6 +19,7 @@ import zipfile
 
 import numpy as np
 
+from bounded_pool import available_memory
 from geometry_opacity import Assets, transform_triangles
 from voxel_surfaces import load_surface, build_tile
 from voxel_lighting import validate_pair
@@ -68,9 +69,20 @@ def _bounded_setting(name,default,low,high):
     return int(value)
 
 
-def tile_workers(workers):
-    """Concurrent tile processes, each running `workers` brick threads (24 threads: 6 tiles x 2 bricks)."""
-    return _bounded_setting('GLUEMAPPER_BAKE_TILE_WORKERS',max(1,min(6,(os.cpu_count() or 1)//(workers+1))),1,32)
+GIB=1024**3
+# Measured on a 64 GB machine (1,220-tile buildings bake): the setup worker itself holds about
+# 10 GB during the bake, a tile process averages about 5 GB, and one preparing a dense tile
+# peaked at 17 GB. Two dense tiles at once need room for both beside the worker.
+WORKER_RESERVE=12*GIB;TILE_PROCESS=5*GIB;TWO_DENSE_TILES=40*GIB
+
+
+def tile_workers(workers,available=None):
+    """Concurrent tile processes, each running `workers` brick threads (24 threads: 6 tiles x 2 bricks),
+    limited by the memory free when the bake starts."""
+    default=max(1,min(6,(os.cpu_count() or 1)//(workers+1)))
+    free=available_memory() if available is None else available
+    if free is not None:default=max(1,min(default,int((free-WORKER_RESERVE)//TILE_PROCESS)))
+    return _bounded_setting('GLUEMAPPER_BAKE_TILE_WORKERS',default,1,32)
 
 
 def gpu_lanes():
@@ -78,10 +90,11 @@ def gpu_lanes():
     return _bounded_setting('GLUEMAPPER_GPU_LANES',1,1,4)
 
 
-def heavy_slots():
+def heavy_slots(available=None):
     """Dense tiles held in memory at once. Gathering a dense tile's triangles stages several GB,
-    so the limit covers preparation as well as rasterization."""
-    return _bounded_setting('GLUEMAPPER_BAKE_HEAVY_TILES',2,1,8)
+    so the limit covers preparation as well as rasterization; one slot unless two fit."""
+    free=available_memory() if available is None else available
+    return _bounded_setting('GLUEMAPPER_BAKE_HEAVY_TILES',2 if free is None or free>=TWO_DENSE_TILES else 1,1,8)
 
 
 HEAVY_TRIANGLES=1_000_000  # the hybrid crossover; estimates at or above it take a heavy slot

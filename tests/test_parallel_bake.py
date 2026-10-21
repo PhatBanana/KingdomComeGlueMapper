@@ -12,7 +12,7 @@ import zipfile
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from world_surface_tiles import _TileBaker, _bounded_setting, gpu_lanes, heavy_slots, tile_workers, HEAVY_TRIANGLES
+from world_surface_tiles import _TileBaker, _bounded_setting, gpu_lanes, heavy_slots, tile_workers, GIB, HEAVY_TRIANGLES
 
 
 class ParallelBakeSettingsTests(unittest.TestCase):
@@ -20,16 +20,23 @@ class ParallelBakeSettingsTests(unittest.TestCase):
         with patch.dict(os.environ, {}, clear=False):
             for name in ('GLUEMAPPER_BAKE_TILE_WORKERS', 'GLUEMAPPER_GPU_LANES', 'GLUEMAPPER_BAKE_HEAVY_TILES'):
                 os.environ.pop(name, None)
+            plenty = 60 * GIB
             with patch('os.cpu_count', return_value=24):
-                self.assertEqual(tile_workers(2), 6)   # 24 threads: 6 tiles x (2 bricks + 1)
-                self.assertEqual(tile_workers(7), 3)
+                self.assertEqual(tile_workers(2, plenty), 6)   # 24 threads: 6 tiles x (2 bricks + 1)
+                self.assertEqual(tile_workers(7, plenty), 3)
+                # Memory bounds the pool: a 32 GB machine with 28 GB free runs 3 processes and 1 dense tile.
+                self.assertEqual(tile_workers(2, 28 * GIB), 3)
+                self.assertEqual(tile_workers(2, 8 * GIB), 1)   # never below one process
+                self.assertEqual(tile_workers(2, None), 6)      # unknown memory: CPU rule only
             with patch('os.cpu_count', return_value=2):
-                self.assertEqual(tile_workers(2), 1)  # never below one process
+                self.assertEqual(tile_workers(2, plenty), 1)
             self.assertEqual(gpu_lanes(), 1)
-            self.assertEqual(heavy_slots(), 2)
+            self.assertEqual(heavy_slots(plenty), 2)
+            self.assertEqual(heavy_slots(28 * GIB), 1)
+            self.assertEqual(heavy_slots(None), 2)
         with patch.dict(os.environ, {'GLUEMAPPER_BAKE_TILE_WORKERS': '12', 'GLUEMAPPER_BAKE_HEAVY_TILES': '3'}):
-            self.assertEqual(tile_workers(2), 12)
-            self.assertEqual(heavy_slots(), 3)
+            self.assertEqual(tile_workers(2, 8 * GIB), 12)  # explicit settings win over the estimate
+            self.assertEqual(heavy_slots(8 * GIB), 3)
         for value in ('0', '33', 'six', '-1', ''):
             with patch.dict(os.environ, {'GLUEMAPPER_BAKE_TILE_WORKERS': value}), self.assertRaises(ValueError):
                 _bounded_setting('GLUEMAPPER_BAKE_TILE_WORKERS', 6, 1, 32)
