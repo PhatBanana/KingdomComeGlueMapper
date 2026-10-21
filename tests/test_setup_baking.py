@@ -1,5 +1,6 @@
 """Preset and failure boundaries: never install an incomplete optional bake."""
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -62,7 +63,13 @@ class BakeSetupTests(unittest.TestCase):
             build=stack.enter_context(patch('world_surface_tiles.build',side_effect=[InterruptedError('cancelled'),ValueError('tile error')]))
             stage=stack.enter_context(patch('stage_world_surfaces.stage'))
             for error in (InterruptedError,ValueError):
-                with self.assertRaises(error):bake_package(package,root/'game',root/'baking','all',lambda *a:None,lambda:False)
+                shared={'GLUEMAPPER_BAKE_TILE_CACHE':str(root/'shared-tiles')} if error is ValueError else {}
+                with patch.dict(os.environ,shared),self.assertRaises(error):
+                    if not shared:os.environ.pop('GLUEMAPPER_BAKE_TILE_CACHE',None)
+                    bake_package(package,root/'game',root/'baking','all',lambda *a:None,lambda:False)
+            # The tile cache sits beside the bake workspace unless the worker shares it per workspace.
+            self.assertEqual(build.call_args_list[0].kwargs['tile_cache'],root/'baking/tile-cache')
+            self.assertEqual(build.call_args_list[1].kwargs['tile_cache'],root/'shared-tiles')
             self.assertEqual(plan.call_count,1)
             self.assertEqual(plan.call_args.args[0],level)
             self.assertEqual(build.call_count,2)

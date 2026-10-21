@@ -194,6 +194,8 @@ def _worker(path):
                     update_private_package(package/'map',lambda staged:build_opening(staged,c['kcd1'],c['kcd2'],c['converter'],job/'opening-movie',events.progress,cancel),cancel)
                 if c.get('baking','none')!='none' and (saved or {}).get('baking',{}).get('preset')!=c['baking']:
                     events.emit('stage',index=0,total=len(c['mods']),label='KCD1 Map · '+PRESETS[c['baking']]+' lighting bake')
+                    # Baked tiles are keyed by content: share them between this workspace's jobs.
+                    if c.get('workspace'):os.environ.setdefault('GLUEMAPPER_BAKE_TILE_CACHE',str(Path(c['workspace']).resolve()/'tile-cache'))
                     output=legacy.LogWriter(events)
                     with redirect_stdout(output),redirect_stderr(output):
                         bake_package(package/'map',c['kcd2'],root/'baking',c['baking'],events.progress,cancel)

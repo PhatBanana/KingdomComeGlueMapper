@@ -52,8 +52,9 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
     engine=Path(game)/'Engine/Engine.pak'
     if engine.exists():policy.append((str(engine),engine.stat().st_size,engine.stat().st_mtime_ns))
     signature=hashlib.sha256(json.dumps(policy,sort_keys=True).encode()).hexdigest()
-    # Tiles are keyed by their own content, so this cache spans packages and plans.
-    tile_cache=workspace/'tile-cache'
+    # Tiles are keyed by their own content, so this cache spans packages and plans;
+    # the worker points it at the workspace so it also spans jobs.
+    tile_cache=Path(os.environ.get('GLUEMAPPER_BAKE_TILE_CACHE') or workspace/'tile-cache')
     workspace=workspace/signature
     workspace.mkdir(parents=True,exist_ok=True)
     overrides=[str(p.resolve()) for p in sorted((package/'Data').glob('*.pak'))]
