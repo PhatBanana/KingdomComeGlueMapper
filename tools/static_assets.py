@@ -1,5 +1,7 @@
 """Isolated CGF/material/texture packaging shared by static-object probes."""
 from pathlib import Path, PurePosixPath
+import atexit
+from contextlib import ExitStack
 import copy
 import os
 import shutil
@@ -125,7 +127,17 @@ def install_staged(emitted, root, namespace):
                 shutil.copyfileobj(inp, out)
 
 
-def asset_pack(stack, library, prefix, cache_dir=None):
+_LIBRARIES = {}
+
+
+def library_index(stack, library):
+    """Shader feature maps, the asset name index and texture families of a game library.
+
+    All three depend only on the installed archives. Reading the ~75 archive
+    directories (about half a million names) took 4 s, once per converted NPC;
+    the result is kept per process until release_library_index() or exit, with
+    the archives open for its readers.
+    """
     shader_maps = []
     for game in ("KingdomComeDeliverance", "KingdomComeDeliverance2"):
         features = {}
@@ -151,13 +163,40 @@ def asset_pack(stack, library, prefix, cache_dir=None):
         name = entry.filename.replace('\\','/').lower()
         if name.endswith(('.cgf','.mtl')) or '.dds' in name:
             index['%level%/'+name] = (level_archive,entry)
+    return shader_maps, index, texture_families(index)
+
+
+def library_key(library):
+    """A plain path is resolved here; a GameLibrary (not path-like) carries its resolved root."""
+    if isinstance(library, (str, os.PathLike)):
+        return Path(library).resolve()
+    return Path(library.root).resolve()
+
+
+def shared_library_index(library):
+    key = library_key(library)
+    if key not in _LIBRARIES:
+        if not _LIBRARIES:
+            atexit.register(release_library_index)
+        stack = ExitStack()
+        _LIBRARIES[key] = (stack, *library_index(stack, library))
+    return _LIBRARIES[key][1:]
+
+
+def release_library_index():
+    """Close the shared archives, e.g. once a batch of conversions is done."""
+    while _LIBRARIES:
+        _LIBRARIES.popitem()[1][0].close()
+
+
+def asset_pack(stack, library, prefix, cache_dir=None):
+    shader_maps, index, families = shared_library_index(library)
 
     def asset_read(name):
         archive,entry = index[name]
         return read(archive,entry.filename)
 
     emitted = StagedAssets(cache_dir) if cache_dir is not None else {}
-    families = texture_families(index)
     texture_names = {}
     material_names = {}
     converted_geometry = {}

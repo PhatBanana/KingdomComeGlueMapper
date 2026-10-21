@@ -7,7 +7,24 @@ from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from static_assets import StagedAssets, convert_material_features, install_staged, preserve_legacy_decal_shadows
+from types import SimpleNamespace
+from static_assets import (StagedAssets, convert_material_features, install_staged, preserve_legacy_decal_shadows,
+                           library_key, release_library_index, _LIBRARIES)
+
+
+class LibraryIndexTests(unittest.TestCase):
+    def test_plain_paths_and_game_libraries_share_one_key(self):
+        root = Path(__file__).resolve().parent
+        self.assertEqual(library_key(str(root)), root)
+        self.assertEqual(library_key(root / '..' / root.name), root)
+        # Probe builders pass a game_paths.GameLibrary, which carries its resolved root.
+        self.assertEqual(library_key(SimpleNamespace(root=root)), root)
+
+    def test_release_closes_and_forgets_every_shared_index(self):
+        closed = []
+        _LIBRARIES[Path('x')] = (SimpleNamespace(close=lambda: closed.append('x')), None, None, None)
+        release_library_index()
+        self.assertEqual((closed, _LIBRARIES), (['x'], {}))
 
 
 class StaticMaterialTests(unittest.TestCase):
