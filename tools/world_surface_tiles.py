@@ -289,18 +289,30 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
     else:
         # Tiles are independent: each process keeps its own caches. Dense tiles take a
         # heavy slot for their whole lifetime (bounding memory) and a GPU lane to rasterize.
+        if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
         context=multiprocessing.get_context('spawn')
         lanes=context.BoundedSemaphore(gpu_lanes());heavy=context.BoundedSemaphore(heavy_slots())
         print(f'Baking {len(jobs)} tiles in {processes} processes ({workers} brick threads each, '
               f'{heavy_slots()} dense tile(s) in memory, {gpu_lanes()} GPU lane(s))',flush=True)
         with ProcessPoolExecutor(max_workers=processes,mp_context=context,initializer=_start_baker,initargs=(arguments,lanes,heavy)) as pool:
-            pending={pool.submit(_bake_in_worker,(number,len(jobs),job)):number for number,job in enumerate(jobs)}
+            # Submit one tile per process and refill as tiles finish, checking for
+            # cancellation before each start, so a cancelled bake starts no new tile
+            # and shutdown only waits for the tiles already running.
+            queued=iter(enumerate(jobs));pending={}
+            def refill():
+                while len(pending)<processes:
+                    if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
+                    item=next(queued,None)
+                    if item is None:return
+                    number,job=item;pending[pool.submit(_bake_in_worker,(number,len(jobs),job))]=number
             try:
+                refill()
                 while pending:
                     done,_=wait(pending,timeout=1,return_when=FIRST_COMPLETED)
                     for future in done:record(pending.pop(future),future.result())
                     if pending and cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
                     if progress:progress('Bake lighting tiles',len(finished),len(jobs),f'{len(finished)} of {len(jobs)} tiles')
+                    refill()
             except BaseException:
                 for future in pending:future.cancel()
                 raise
