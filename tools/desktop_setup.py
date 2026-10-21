@@ -38,7 +38,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'build_animal_population_upgrade', 'animal_population',
               'animal_population_sources', 'animal_native_templates', 'setup_profile_population',
               'build_profile_population_upgrade', 'profile_population_upgrade', 'character_market_jobs',
-              'character_city_work', 'character_seated_work', 'character_shop_guard_work',
+              'character_city_work', 'character_city_benches', 'character_seated_work', 'character_shop_guard_work',
               'setup_quest_starts', 'campaign_quest_start_placement')
 
 

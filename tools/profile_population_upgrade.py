@@ -123,8 +123,10 @@ def validate_services(package, target, shops, level, *, require_storage=()):
 def retain_work(previous, current, people):
     """A repeat upgrade must not turn unresolved legacy jobs into success."""
     selected=set(people)
-    updated={r['person'] for key in ('converted','pending') for r in current[key]}
-    result={key:[r for r in previous.get(key,[]) if r['person'] in selected and r['person'] not in updated]+current[key]
+    updated={r['person'] for key in ('converted','pending') for r in current[key] if not r.get('extension_only')}
+    extensions={(r['person'], r['job']) for r in current['converted'] if r.get('extension_only')}
+    result={key:[r for r in previous.get(key,[]) if r['person'] in selected and r['person'] not in updated
+                 and (key != 'converted' or (r['person'],r.get('job')) not in extensions)]+current[key]
             for key in ('converted','pending')}
     result['complete']=not result['pending'] and not any(r.get('pending') for r in result['converted'])
     return result

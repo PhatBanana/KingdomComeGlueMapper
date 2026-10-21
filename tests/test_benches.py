@@ -27,7 +27,8 @@ class BenchTests(unittest.TestCase):
             E.SubElement(links, 'Link', Name='oppositeNeighbor', TargetId='999')
             trigger = E.SubElement(native, 'Entity', EntityId=target, EntityClass='ActionTrigger', Pos='0,0,0.45')
             E.SubElement(E.SubElement(trigger, 'Properties'), 'Click', UseMessage='@ui_use_sit')
-            E.SubElement(animations, 'Collection', HelperSetName=family)
+            collection = E.SubElement(animations, 'Collection', HelperSetName=family)
+            E.SubElement(collection, 'SmartObjectHelperSetAnimationCollection', HashValue=str(700+i))
         files = {'objects_mission0.xml': b'<Objects><Entity Name="original_bench_geometry" EntityId="1"/></Objects>',
                  'tables/ai/smartobjectanimations.xml': b'<database><SmartObjectAnimationss version="1"><SmartObjectAnimations EntityGuid="999" Hash="123"/></SmartObjectAnimationss></database>'}
         with archive({'objects_mission0.xml': source}) as src, archive({'objects_mission0.xml': E.tostring(native),
@@ -77,6 +78,9 @@ class BenchTests(unittest.TestCase):
             if seat.get('EntityClass') != 'StanceSmartObject': continue
             row = table.find(f"SmartObjectAnimationss/SmartObjectAnimations[@EntityGuid='{guid_value(seat.get('EntityGuid'))}']")
             self.assertEqual(row.get('AllowRuntimeAnimValidationFallback'), 'true')
+            family = seat.find('Properties').get('soclass_SmartObjectHelpers')
+            collection = helpers.find(f"Collection[@HelperSetName='{family}']/SmartObjectHelperSetAnimationCollection")
+            self.assertEqual(row.get('Hash'), collection.get('HashValue'))
             self.assertEqual(row.find('SmartObjectTransform').get('Position'), seat.get('Pos'))
             self.assertIsNone(row.find('Animations')) # No Trosky baked positions or DropReasons.
 

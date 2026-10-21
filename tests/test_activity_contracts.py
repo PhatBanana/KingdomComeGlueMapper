@@ -13,6 +13,38 @@ from lean_alignment import align
 
 
 class ActivityContractTests(unittest.TestCase):
+    def test_existing_seats_replace_zero_hash_without_copying_world_bake(self):
+        for prefix in ('gm_bench_', 'gm_chair_'):
+            with self.subTest(prefix=prefix):
+                identity = guid('test/' + prefix)
+                files = {'objects_mission0.xml': f'''<Objects><Entity Name="{prefix}arbitrary"
+                  EntityClass="StanceSmartObject" EntityGuid="{identity}" Pos="10,20,30" Rotate="0,0,0,1">
+                  <Properties soclass_SmartObjectHelpers="Sit_1Place_Bench_Low"/></Entity></Objects>'''.encode(),
+                  ANIMATIONS: f'''<database><SmartObjectAnimationss>
+                  <SmartObjectAnimations EntityGuid="{guid_value(identity)}" Hash="0"/>
+                  <SmartObjectAnimations EntityGuid="999" Hash="777"/>
+                  </SmartObjectAnimationss></database>'''.encode()}
+                collection = '''<SmartObjectAnimationCollections><Collection HelperSetName="Sit_1Place_Bench_Low">
+                  <SmartObjectHelperSetAnimationCollection HashValue="12345"><AnimationsMap/>
+                  </SmartObjectHelperSetAnimationCollection></Collection></SmartObjectAnimationCollections>'''
+                with archive({HELPERS: collection.encode()}) as native:
+                    result, _ = install(files, native)
+                    again, _ = install(result, native)
+                self.assertEqual(result, again)
+                self.assertEqual(result['objects_mission0.xml'], files['objects_mission0.xml'])
+                rows = ET.fromstring(result[ANIMATIONS])
+                row = rows.find(f".//SmartObjectAnimations[@EntityGuid='{guid_value(identity)}']")
+                self.assertEqual(row.get('Hash'), '12345')
+                self.assertEqual(row.get('AllowRuntimeAnimValidationFallback'), 'true')
+                self.assertEqual(row.find('SmartObjectTransform').attrib,
+                                 dict(Position='10,20,30', Rotation='0,0,0,1'))
+                self.assertIsNone(row.find('Animations'))
+                self.assertEqual(rows.find(".//SmartObjectAnimations[@EntityGuid='999']").get('Hash'), '777')
+                for invalid in (collection.replace('12345', '0'),
+                                collection.replace('</Collection>', '<SmartObjectHelperSetAnimationCollection HashValue="456"/></Collection>')):
+                    with archive({HELPERS: invalid.encode()}) as native:
+                        with self.assertRaises(ValueError): install(files, native)
+
     def test_native_job_resolves_local_collection_at_new_world_transform(self):
         identity=guid('test/anonymous-job')
         files={'objects_mission0.xml':f'''<Objects><Entity Name="gm_schedule_any_actor"

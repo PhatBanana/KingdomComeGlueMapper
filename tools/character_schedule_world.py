@@ -53,7 +53,7 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None, t
             continue
         from character_city_work import supports as city_supports, resolve as city_resolve
         if city_supports(entry):
-            result.append(city_resolve(entry, archive))
+            result.append(city_resolve(entry, archive, source, reader))
             continue
         from character_market_jobs import supports as market_supports, resolve as market_resolve
         if market_supports(entry):

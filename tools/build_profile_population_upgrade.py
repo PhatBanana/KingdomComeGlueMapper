@@ -119,6 +119,22 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             working,_=bind_arrivals(files,{name:entries},target)
             working,jobs=bind_jobs(working,{name:entries},archive,target,items,convert_routes=True)
             files=working;converted.extend(jobs)
+        # Earlier recipes already converted city walking. Extend only those
+        # verified owned pools; do not reset actors or their quest activities.
+        from character_city_work import supports as city_supports, extend_existing
+        owned_city_hubs = {e.get('Name') for e in E.fromstring(files['objects_mission0.xml'])
+            if e.get('EntityClass') == 'SchedulerHub'}
+        for name in sorted(set(people)-eligible-set(merchants)):
+            if not any(n.startswith('gm_schedule_'+name+'_') for n in owned_city_hubs):
+                continue
+            person = people[name]
+            schedule = plan(person, tables)
+            city = [e for e in schedule['resolved'] if city_supports(e)]
+            if schedule['pending'] or not city:
+                continue
+            entries = resolve_arrivals(dict(schedule, resolved=city), archive, person, source, reader, target)
+            files, extended = extend_existing(files, {name: entries}, target)
+            converted.extend(extended)
     import seating_animations
     with zipfile.ZipFile(package/lp) as archive:
         for name in (seating_animations.HELPERS, seating_animations.ANIMATIONS):

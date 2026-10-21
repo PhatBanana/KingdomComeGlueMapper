@@ -1,6 +1,6 @@
 """Source town-walking destinations as native, interruptible KCD2 activities.
 
-This converts the walking phase, not the source bench/shop/weather controller.
+This converts walking and authored bench choices, not shop/weather controllers.
 Authored destinations form a shared resource pool; each NPC retains its source
 clock. KCD2 owns pathfinding, arrival, waiting and occupancy at each point.
 """
@@ -13,6 +13,7 @@ import zipfile
 from campaign_entity_links import guid_value, native_guid
 from character_person import resolve_link_targets, unique, world_entity
 from upgrade_map import read
+import character_city_benches as benches
 
 SOURCE = ('final/sa_city.xml', 'CityWalk')
 TABLE = 'Libs/Tables/ai/smartEntity/SmartEntity__so_citywalk_point.xml'
@@ -24,7 +25,7 @@ def supports(entry):
     return (behavior['tree_file'].replace('\\', '/').lower(), behavior['tree_name']) == SOURCE
 
 
-def resolve(entry, archive):
+def resolve(entry, archive, source=None, reader=None):
     """Match CityWalk's one-hop point query; look targets are not destinations."""
     area = E.Element('Entity', entry['area'])
     links = E.SubElement(area, 'EntityLinks')
@@ -38,6 +39,7 @@ def resolve(entry, archive):
                    'source city-walk start point')
     if start.get('EntityClass') != 'TagPoint':
         raise ValueError('Source city-walk start must be a TagPoint')
+    seats = benches.resolve(start, entities, archive, source, reader)
     # Resolve only the walking query's edges. Other branches are recorded, not
     # mistaken for destinations or pulled in as dependencies of this phase.
     query = E.Element('Entity', start.attrib)
@@ -70,7 +72,8 @@ def resolve(entry, archive):
         result.append(pose)
     if len(result) < 2:
         raise ValueError('Source city-walk pool needs at least two authored destinations')
-    return dict(entry, arrival=result[0], city_work=dict(points=result, excluded_links=skipped))
+    return dict(entry, arrival=result[0], city_work=dict(points=result, benches=seats,
+        benches_resolved=source is not None and reader is not None, excluded_links=skipped))
 
 
 def native_contract(target):
@@ -117,7 +120,7 @@ def native_contract(target):
     raise ValueError('Missing unrestricted native city-walk scheduler contract')
 
 
-def bind(mission, scheduler, person, entry, target):
+def bind(mission, scheduler, person, entry, target, *, extend=False):
     """Replace one owned arrival leaf with a pool of native work destinations."""
     props, activity, terminal = native_contract(target)
     job = unique((e for e in mission if e.get('Name') ==
@@ -125,20 +128,51 @@ def bind(mission, scheduler, person, entry, target):
     rows = scheduler.find('Schedulers')
     hub_id = str(guid_value(job.get('EntityGuid')))
     hub = unique((r for r in rows if r.get('EntityGuid') == hub_id), 'city-walk scheduler hub')
-    if len(hub):
+    if len(hub) and not extend:
         raise ValueError('City-walk arrival already has scheduler dependencies')
     incoming = [l for r in rows for l in r.findall('Links/S_ActivityLink') if l.get('TargetGuid') == hub_id]
-    if not incoming or any(l.find('Parameters').get('BehaviorName') != 'use' for l in incoming):
+    if not incoming or any(l.find('Parameters').get('BehaviorName') != (None if extend else 'use') for l in incoming):
         raise ValueError('City-walk pool requires an importer-owned arrival activity')
+    seats, seat_activity = benches.prepare(mission, entry, target)
+    seat_links = benches.choices(seats, seat_activity, incoming)
+    expected_walk = []
+    for pose in entry['city_work']['points']:
+        guid = native_guid(int.from_bytes(hashlib.sha256(
+            ('work/citywalk/' + pose['EntityGuid'].lower()).encode()).digest()[:8], 'little'))
+        for source_link in incoming:
+            link = copy.deepcopy(activity)
+            link.set('TargetGuid', str(guid_value(guid)))
+            for field in ('TimeOfDayStart', 'TimeOfDayEnd'):
+                link.find('Parameters').set(field, source_link.find('Parameters').get(field))
+            expected_walk.append(link)
+    if extend:
+        actor = unique((e for e in mission if e.get('Name') == person), 'city-walk actor')
+        owners = [r for r in rows if any(l in incoming for l in r.findall('Links/S_ActivityLink'))]
+        expected_id = native_guid(int.from_bytes(hashlib.sha256(('schedule-arrival/' + actor.get('EntityGuid') +
+            '/' + entry['arrival']['EntityGuid']).encode()).digest()[:8], 'little'))
+        actual = {benches.signature(l) for l in hub.findall('Links/S_ActivityLink')}
+        walking = {benches.signature(l) for l in expected_walk}
+        allowed = walking | {benches.signature(l) for l in seat_links}
+        allowed_targets = {l.get('TargetGuid') for l in expected_walk + seat_links}
+        static = job.findall('EntityLinks/Link')
+        if (job.get('EntityClass') != 'SchedulerHub' or job.get('EntityGuid') != expected_id
+                or len(owners) != 1 or owners[0].get('EntityGuid') != str(guid_value(actor.get('EntityGuid')))
+                or hub.tag != 'C_SmartHub' or [c.tag for c in hub] != ['Links']
+                or not walking <= actual or not actual <= allowed
+                or any(l.get('Name') != '_,use' or str(guid_value(l.get('TargetGuid'))) not in allowed_targets
+                       for l in static)):
+            raise ValueError('Cannot extend modified or non-owned city-walk schedule')
     # The hub dispatches; only leaves execute a behavior. Retain the actor's
     # interval on the incoming edge and on each alternative for midnight wraps.
-    job.set('EntityClass', 'SchedulerHub')
-    job.remove(job.find('Properties'))
-    E.SubElement(job, 'Properties', bSaved_by_game='0')
-    hub.set('Position', job.get('Pos'))
-    for link in incoming:
-        link.find('Parameters').attrib.pop('BehaviorName')
-    links = E.SubElement(hub, 'Links')
+    if not extend:
+        job.set('EntityClass', 'SchedulerHub')
+        job.remove(job.find('Properties'))
+        E.SubElement(job, 'Properties', bSaved_by_game='0')
+        hub.set('Position', job.get('Pos'))
+        for link in incoming:
+            link.find('Parameters').attrib.pop('BehaviorName')
+        E.SubElement(hub, 'Links')
+    links = hub.find('Links')
     waiting = []
     destinations = []
     for pose in entry['city_work']['points']:
@@ -171,17 +205,60 @@ def bind(mission, scheduler, person, entry, target):
             link.set('TargetGuid', point_id)
             for field in ('TimeOfDayStart', 'TimeOfDayEnd'):
                 link.find('Parameters').set(field, source_link.find('Parameters').get(field))
-            if not any(E.tostring(old) == E.tostring(link) for old in links):
+            if not any(benches.signature(old) == benches.signature(link) for old in links):
                 links.append(link)
-        E.SubElement(job.find('EntityLinks') if job.find('EntityLinks') is not None
-                     else E.SubElement(job, 'EntityLinks'), 'Link',
-                     Name='_,use', TargetId=point.get('EntityId'), TargetGuid=guid)
+        edges = job.find('EntityLinks')
+        if edges is None:
+            edges = E.SubElement(job, 'EntityLinks')
+        if not any(e.get('TargetGuid') == guid and e.get('Name') == '_,use' for e in edges):
+            E.SubElement(edges, 'Link', Name='_,use', TargetId=point.get('EntityId'), TargetGuid=guid)
         waiting.append((job.get('EntityGuid'), guid, '_,use'))
         destinations.append(dict(source=pose, target_guid=guid))
+    waiting.extend(benches.attach(job, hub, rows, seats, seat_links))
     return job, waiting, dict(person=person, job='native_city_walk', destinations=destinations,
+        benches=[dict(name=s.get('Name'), guid=s.get('EntityGuid'), position=s.get('Pos')) for s in seats],
         source_behavior=entry['behavior'], source_area=entry['area'],
         interval=[entry['start_minute'], entry['end_minute']],
         excluded_links=entry['city_work']['excluded_links'],
-        pending=['bench visits', 'shop browsing', 'weather shelter', 'source look-target selection'],
-        policy='Native scheduler selects authored walking destinations; native use owns movement and waiting',
+        pending=([] if entry['city_work'].get('benches_resolved') else ['bench visits']) +
+            ['shop browsing', 'weather shelter', 'source look-target selection', 'source branch selection probabilities'],
+        policy='Native scheduler chooses authored walks or shared seats; native use owns movement, sitting and completion',
         runtime_verified=False)
+
+
+def extend_existing(files, schedules, target):
+    """Add benches only to structurally verified importer-owned walking pools."""
+    from campaign_entity_links import append_links
+    from upgrade_map import xml
+    mission = E.fromstring(files['objects_mission0.xml'])
+    scheduler = E.fromstring(files['tables/ai/scheduler.xml'])
+    waiting, reports, seen = [], [], {}
+    for person, entries in schedules.items():
+        for entry in entries:
+            if not entry.get('city_work'):
+                continue
+            name = 'gm_schedule_'+person+'_'+entry['arrival']['EntityId']
+            if name in seen:
+                if seen[name] != entry['city_work']:
+                    raise ValueError('Different city-walk pools share one schedule anchor')
+                continue
+            seen[name] = entry['city_work']
+            job = next((e for e in mission if e.get('Name') == name), None)
+            if job is None or job.get('EntityClass') != 'SchedulerHub':
+                continue
+            hub_id = str(guid_value(job.get('EntityGuid')))
+            incoming = [l for l in scheduler.findall('.//S_ActivityLink') if l.get('TargetGuid') == hub_id]
+            actual_clock = {(int(l.find('Parameters').get('TimeOfDayStart')),
+                             int(l.find('Parameters').get('TimeOfDayEnd'))) for l in incoming}
+            source_clock = {(e['start_minute'], e['end_minute']) for e in entries
+                if e.get('city_work') and e['arrival']['EntityId'] == entry['arrival']['EntityId']}
+            if actual_clock != source_clock:
+                raise ValueError('Existing city-walk clock differs from source schedule')
+            _, links, report = bind(mission, scheduler, person, entry, target, extend=True)
+            report['intervals'] = [[e['start_minute'], e['end_minute']] for e in entries
+                if e.get('city_work') and e['arrival']['EntityId'] == entry['arrival']['EntityId']]
+            report.pop('interval')
+            report['extension_only'] = True
+            waiting.extend(links); reports.append(report)
+    return dict(files, **{'objects_mission0.xml': xml(mission), 'tables/ai/scheduler.xml': xml(scheduler),
+        'waitinglinks.xml': append_links(files['waitinglinks.xml'], waiting)}), reports

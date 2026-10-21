@@ -39,7 +39,7 @@ class ChairTests(unittest.TestCase):
                      b'<Entity Name="glue_item_1" Geometry="converted.cgf" Material="original.mtl"/>'
                      b'<Entity Name="glue_item_3" Geometry="decorative.cgf"/></Objects>'}
         with archive({'objects_mission0.xml': SOURCE}) as source, archive({'objects_mission0.xml': native(),
-                'smartobjecthelpersetanimations.xml': b'<SmartObjectAnimationCollections><Collection HelperSetName="Sit_1Place_Chair_Low"/></SmartObjectAnimationCollections>'}) as donor:
+                'smartobjecthelpersetanimations.xml': b'<SmartObjectAnimationCollections><Collection HelperSetName="Sit_1Place_Chair_Low"><SmartObjectHelperSetAnimationCollection HashValue="12345"/></Collection></SmartObjectAnimationCollections>'}) as donor:
             return convert(files, source, donor, guid, incremental=incremental)
 
     def test_full_native_contract_with_no_external_links(self):
