@@ -97,7 +97,7 @@ def pool_self_test(destination=None):
     from character_native_materials import bake_float_dds
     from desktop_setup import lighting_cache
     with tempfile.TemporaryDirectory(prefix='gluemapper-pools-') as temporary:
-        cache = lighting_cache(Path(temporary) / 'job' / 'conversion')
+        cache = lighting_cache(Path(temporary))
         if len(cache.name) != 16: raise RuntimeError('Lighting cache signature unavailable')
         if not all(ordered_map(importable, POOL_TARGETS, workers=2)):
             raise RuntimeError('Worker pool targets unavailable in child processes')

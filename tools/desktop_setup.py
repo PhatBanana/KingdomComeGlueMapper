@@ -123,19 +123,31 @@ def travel_world(config):
     return Path(config['kcd2']).resolve() / 'Mods' / MOD_ID / 'Data/Levels/kcd1_rataje'
 
 
-def lighting_cache(build):
+def cache_root(config, build):
+    """The workspace that holds caches shared by all of its jobs.
+
+    Deriving it from the build folder put the caches inside each job once
+    setup_mods nested the map job (workspace/job/map-job/conversion), so no
+    build ever reused another's cubemaps or shaders.
+    """
+    if config.get('workspace'):
+        return Path(config['workspace']).resolve()
+    return Path(build).resolve().parents[1]
+
+
+def lighting_cache(workspace):
     """Probe conversions shared by runs in one workspace, keyed by the converter's code.
 
     Cubemaps entries are keyed by their input textures only, so the folder name
     includes a hash of lighting_cubemaps.py: a changed converter starts afresh.
     """
     code = hashlib.sha256(Path(__file__).with_name('lighting_cubemaps.py').read_bytes()).hexdigest()[:16]
-    return Path(build).resolve().parents[1] / 'lighting-cache' / code
+    return Path(workspace).resolve() / 'lighting-cache' / code
 
 
-def shader_cache(build):
+def shader_cache(workspace):
     """Compiled shader packages shared by runs in one workspace, keyed by their signed inputs."""
-    return Path(build).resolve().parents[1] / 'shader-cache'
+    return Path(workspace).resolve() / 'shader-cache'
 
 
 def conversion_plan(library, build):
@@ -357,8 +369,9 @@ def worker(config_path):
                 paths = job / 'game-paths.json'
                 paths.write_text(json.dumps(dict(schema=1, kcd1=config['kcd1'], kcd2=config['kcd2'], build=str(build))), encoding='utf-8')
                 plan = conversion_plan(paths, build)
-                os.environ['GLUEMAPPER_LIGHTING_CACHE'] = str(lighting_cache(build))
-                os.environ['GLUEMAPPER_SHADER_CACHE'] = str(shader_cache(build))
+                caches = cache_root(config, build)
+                os.environ['GLUEMAPPER_LIGHTING_CACHE'] = str(lighting_cache(caches))
+                os.environ['GLUEMAPPER_SHADER_CACHE'] = str(shader_cache(caches))
                 # The shader compiler reads only the installed games, so it runs
                 # beside the conversion and the recipe joins it at its shader step.
                 from setup_shaders import BackgroundBuild

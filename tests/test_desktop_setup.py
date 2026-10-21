@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -9,7 +10,8 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from game_paths import GameLibrary
 from steam_installations import discover, read_vdf
-from desktop_setup import Cancelled, CONVERTERS, EventLog, conversion_plan, install_transaction, preflight, worker
+from desktop_setup import (Cancelled, CONVERTERS, EventLog, cache_root, conversion_plan, install_transaction,
+                           lighting_cache, preflight, shader_cache, worker)
 from setup_campaign import MOD_ID, RECEIPT, verify_package
 from campaign_start_policy import POLICY
 from build_recipe import VERSION as RECIPE_VERSION
@@ -203,9 +205,22 @@ class DesktopSetupTests(unittest.TestCase):
                 self.assertIs(recipe.call_args.kwargs['shaders'], shaders.return_value)
                 shaders.return_value.stop.assert_called_once_with()
                 self.assertEqual(install.call_count, int(action=='build_install'))
+                # Caches are keyed by the configured workspace, which here is the job folder.
+                self.assertEqual(Path(os.environ['GLUEMAPPER_SHADER_CACHE']), job/'shader-cache')
+                self.assertEqual(Path(os.environ['GLUEMAPPER_LIGHTING_CACHE']).parent, job/'lighting-cache')
             events = [json.loads(line) for line in (job/'events.jsonl').read_text().splitlines()]
             self.assertEqual(events[-1]['kind'], 'done')
             self.assertIn('Trosky', events[-1]['message'])
+
+    def test_caches_are_shared_by_every_job_of_a_workspace(self):
+        workspace = self.root/'builds'
+        # The setup app nests each build as workspace/<job>/map-job/conversion.
+        for build in (workspace/'20261020-abc/map-job/conversion', workspace/'other/conversion'):
+            self.assertEqual(cache_root({'workspace': str(workspace)}, build), workspace.resolve())
+        self.assertEqual(cache_root({}, workspace/'job/conversion'), workspace.resolve())  # without a workspace, as before
+        self.assertEqual(shader_cache(workspace), workspace.resolve()/'shader-cache')
+        cache = lighting_cache(workspace)
+        self.assertEqual(cache.parent, workspace.resolve()/'lighting-cache'); self.assertEqual(len(cache.name), 16)
 
     @patch('desktop_setup.preflight', return_value='ready')
     def test_recipe_failure_blocks_installation(self, *_):
