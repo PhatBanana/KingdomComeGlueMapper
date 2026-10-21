@@ -131,8 +131,19 @@ def bake_macro_diffuse(diffuse, material, specular=None):
     return pixels.astype(np.float16)
 
 
-def write_float_dds(path, pixels):
-    """Write a standard DX10 RGBA16_FLOAT DDS with a complete mip chain."""
+# A 4096 RGBA16F level is a single 134 MB stream piece; the largest piece in
+# retail KCD2 is 64 MB. Those textures crash retail 1.5.6 with
+# "MEM_VALIDATE: Increase the page size!" when the NPC wearing them is drawn
+# up close (the Skalitz gate guards' dialogue). 2048 is a 32 MB piece.
+MAX_FLOAT_SIZE = 2048
+
+
+def write_float_dds(path, pixels, max_size=MAX_FLOAT_SIZE):
+    """Write a standard DX10 RGBA16_FLOAT DDS with a complete mip chain.
+
+    Levels larger than max_size are left out, so the file starts at the first
+    mip that fits; the remaining levels are the same bytes as in the full chain.
+    """
     pixels = np.asarray(pixels, dtype=np.float16)
     if pixels.ndim != 3 or pixels.shape[2] != 4 or not np.isfinite(pixels).all():
         raise ValueError('Expected finite H x W x RGBA pixels')
@@ -144,6 +155,9 @@ def write_float_dds(path, pixels):
         h,w = max(1,previous.shape[0]//2),max(1,previous.shape[1]//2)
         channels = [np.asarray(Image.fromarray(previous[..., c]).resize((w,h),Image.Resampling.BOX)) for c in range(4)]
         levels.append(np.stack(channels,axis=-1).astype(np.float16))
+    while len(levels) > 1 and max(levels[0].shape[:2]) > max_size:
+        levels.pop(0)
+    height, width = levels[0].shape[:2]
     header = bytearray(148)
     header[:4] = b'DDS '
     struct.pack_into('<7I',header,4,124,0x2100F,height,width,width*8,0,len(levels))
