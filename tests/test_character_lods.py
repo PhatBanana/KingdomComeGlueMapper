@@ -22,6 +22,17 @@ class CharacterLodTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 source_lods(dict.fromkeys(names), 'x.skin')
 
+    def test_large_index_families_are_mapped_once_per_index(self):
+        from character_lods import lod_families
+        index = dict.fromkeys([f'objects/filler{i}.cgf' for i in range(1500)] +
+                              ['objects/Body_LOD1.skin', 'objects\\body_lod2.skin', 'objects/body_lod1_lod2.skin',
+                               'objects/arm_lod01.skin'])
+        self.assertEqual(source_lods(index, 'objects/body.skin'), {1: 'objects/Body_LOD1.skin', 2: 'objects\\body_lod2.skin'})
+        self.assertEqual(source_lods(index, 'objects/arm.skin'), {1: 'objects/arm_lod01.skin'})
+        self.assertIs(lod_families(index), lod_families(index))  # memoized for the same index object
+        self.assertIsNot(lod_families(index), lod_families(dict(index)))  # another index is mapped on its own
+        with self.assertRaises(ValueError): source_lods(index, 'objects/body_lod1.skin')
+
     def test_base_and_lower_geometry_keep_their_own_payloads(self):
         blob, _ = sample_skin()
         lower = split_skin_regions(blob, ['keep', 'drop', 'drop', 'drop'])['keep']
