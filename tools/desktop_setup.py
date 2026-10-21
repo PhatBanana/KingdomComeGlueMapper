@@ -153,7 +153,8 @@ def conversion_plan(library, build):
         ('Remaining foliage and instanced props', 'complete_instances', common + ['--base-level', 'setup_props', '--level', 'setup_instances', '--original-report', str(data / 'Levels/setup_vegetation/vegetation-report.json')]),
         ('Roads and ground decals', 'build_landscape_surface_probe', common + ['--base-level', 'setup_instances', '--level', 'setup_roads', '--all']),
         ('Landscape rocks and riverbeds', 'build_buildings_probe', common + ['--base-level', 'setup_roads', '--level', 'setup_landscape', '--all', '--landscape-designers-only']),
-        ('Doors and additional object visuals', 'build_entity_probe', common + ['--base-level', 'setup_landscape', '--level', 'setup_world', '--character-visuals']),
+        ('Designer collision and barrier volumes', 'build_buildings_probe', common + ['--base-level', 'setup_landscape', '--level', 'setup_designer', '--all', '--designer-collision']),
+        ('Doors and additional object visuals', 'build_entity_probe', common + ['--base-level', 'setup_designer', '--level', 'setup_world', '--character-visuals']),
         ('Tree material compatibility', 'repair_tree_materials', ['--data', str(data), '--backup', str(Path(build).parent / 'tree-material-backup'), '--apply']),
         ('Spatial groups and distant proxies', 'prepare_spatial_hlod', common + ['--level', 'setup_world']),
     ]

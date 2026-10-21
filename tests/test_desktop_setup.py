@@ -54,8 +54,11 @@ class DesktopSetupTests(unittest.TestCase):
                        'profile_population_upgrade', 'character_market_jobs'):
             self.assertIn(module, CONVERTERS)
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')
-        self.assertEqual(len(plan), 13)
+        self.assertEqual(len(plan), 14)
         self.assertIn('--merged', plan[1][2]); self.assertIn('--character-visuals', plan[-3][2])
+        self.assertEqual(plan[-4][1], 'build_buildings_probe')
+        self.assertIn('--designer-collision', plan[-4][2])
+        self.assertIn('setup_landscape', plan[-4][2])
         self.assertEqual(plan[-2][1], 'repair_tree_materials')
         self.assertEqual(plan[-1][1], 'prepare_spatial_hlod')
         self.assertTrue(all('--library' not in args or str(self.root / 'paths.json') in args for _, _, args in plan))

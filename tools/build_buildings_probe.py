@@ -11,7 +11,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
-from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer
+from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer, is_collision_designer
 from compiled_terrain import parse
 from static_assets import character_definition, asset_pack, install_staged
 from upgrade_map import read, xml
@@ -30,9 +30,10 @@ def main():
     parser.add_argument("--streams-only", action="store_true", help="Append stream and waterfall meshes to an existing building level")
     parser.add_argument("--props-only", action="store_true", help="Append remaining static props and initial-state visual item entities")
     parser.add_argument('--landscape-designers-only', action='store_true', help='Append only audited rock, canal-ground and riverbed level-local designer brushes')
+    parser.add_argument('--designer-collision', action='store_true', help='Append level-local designer collision and barrier volumes with their authored surface types')
     parser.add_argument("--retry-report", type=Path, help="Retry only unavailable brushes from a previous props report")
     args = parser.parse_args()
-    if sum((args.streams_only, args.props_only, args.landscape_designers_only)) > 1:
+    if sum((args.streams_only, args.props_only, args.landscape_designers_only, args.designer_collision)) > 1:
         parser.error("Choose one append mode")
     if args.retry_report and not args.props_only:
         parser.error('Retry reports require --props-only')
@@ -77,6 +78,9 @@ def main():
             if args.landscape_designers_only:
                 mat = source.tables['materials']['paths'][record['material']] if record['material'] >= 0 else ''
                 matches = is_landscape_designer(record['path'], mat)
+            if args.designer_collision:
+                mat = source.tables['materials']['paths'][record['material']] if record['material'] >= 0 else ''
+                matches = is_collision_designer(record['path'], mat)
             if ((args.all or (x-734.9)**2+(y-3421.4)**2 < args.radius**2) and matches):
                 if record["layer"] in allowed:
                     selected.append(record)
@@ -141,7 +145,7 @@ def main():
         print(f"Packaged {len(packaged_entities)} visible entity furnishings/items", flush=True)
         with zipfile.ZipFile(base / "terrain.pak") as archive:
             base_meshes = list(parse(archive.read("terrain/terrain.dat")).tables["meshes"]["paths"])
-        if base_meshes and not (args.streams_only or args.props_only or args.landscape_designers_only):
+        if base_meshes and not (args.streams_only or args.props_only or args.landscape_designers_only or args.designer_collision):
             raise ValueError("Base mesh table is not empty")
         meshes = list(base_meshes)
         mesh_map = {}
@@ -202,7 +206,7 @@ def main():
                 z = sum(r["position"][2] for r in records) / len(records)
                 ET.SubElement(hlod, "HLod", DataOffset=str(offset), DataSize=str(len(payload)+4),
                               ProxyIndex="-1", Type="Cluster", Pos=f"{x*64+32},{y*64+32},{z}",
-                              Radius="400", NearestObserverDistance="0", Name=f"{'streams' if args.streams_only else 'buildings'}_{x}_{y}")
+                              Radius="400", NearestObserverDistance="0", Name=f"{'streams' if args.streams_only else 'designer' if args.designer_collision else 'buildings'}_{x}_{y}")
             after = verify_target_hlods(hlod_data)
             if after.get(1,0)-before.get(1,0) != len(selected) or after.get(2) != before.get(2):
                 raise ValueError("HLOD placement count changed unexpectedly")
@@ -239,12 +243,17 @@ def main():
         report["entity_exclusions"] = entity_exclusions
         report["unavailable_brushes"] = unavailable
         report["props_only"] = args.props_only
+        report["designer_collision"] = args.designer_collision
         if args.props_only:
             report['limitations'] = ['Visual props and furnishings only; original interaction and quest scripts excluded',
                                      'Shared and initial-state layers only; unresolved resources and parent references reported',
                                      'Level-local designer/helper geometry excluded after visible blocker regression',
                                      'Source geometry retained; collision and LOD behavior need runtime validation']
-        report_name = "props" if args.props_only else "streams" if args.streams_only else "buildings"
+        if args.designer_collision:
+            report['limitations'] = ['Collision and barrier volumes only; original quest layer switching not implemented',
+                                     'Authored surface types are retained through the converted material; blocking must be verified in game',
+                                     'Visible designer solids and editor helper brushes are excluded']
+        report_name = "props" if args.props_only else "designer-collision" if args.designer_collision else "streams" if args.streams_only else "buildings"
         (destination/(report_name+"-report.json")).write_text(json.dumps(report,indent=2),encoding="utf-8")
         Path("reports").mkdir(exist_ok=True)
         Path("reports/"+report_name+"-probe.json").write_text(json.dumps(report,indent=2),encoding="utf-8")
