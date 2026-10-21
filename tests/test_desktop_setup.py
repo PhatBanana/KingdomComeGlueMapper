@@ -52,7 +52,7 @@ class DesktopSetupTests(unittest.TestCase):
                        'animal_population', 'animal_population_sources', 'animal_native_templates',
                        'setup_profile_population', 'build_profile_population_upgrade',
                        'profile_population_upgrade', 'character_market_jobs', 'character_seated_work',
-                       'character_shop_guard_work', 'character_city_benches'):
+                       'character_shop_guard_work', 'character_city_benches', 'character_fence_work'):
             self.assertIn(module, CONVERTERS)
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')
         self.assertEqual(len(plan), 14)
