@@ -22,6 +22,9 @@ class SetupPopulationTests(unittest.TestCase):
             (package/RECEIPT).write_bytes(receipt)
             def build(source, target, baseline, output, profiles, **kwargs):
                 from build_profile_population_upgrade import clone_missing
+                from filesystem_paths import staging_self_test
+                output.mkdir(parents=True)
+                self.assertGreater(staging_self_test(output)['path_length'], 260)
                 self.assertEqual(profiles, ['any_source_profile'])
                 self.assertFalse(kwargs['update_receipt'])
                 staged = output/'package'; clone_missing(baseline, staged)

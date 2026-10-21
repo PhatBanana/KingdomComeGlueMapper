@@ -7,11 +7,13 @@ import subprocess
 from setup_campaign import MOD_ID, runtime_directory
 
 
-def installed_mod(target):
+def installed_mod(target, mod_id=MOD_ID):
     if not isinstance(target, str) or not target.strip():
         raise ValueError('Choose your KCD2 installation in setup first.')
     game = Path(target).resolve()
-    mod = game/'Mods'/MOD_ID
+    if mod_id not in (MOD_ID, 'gluemapperkcdmp'):
+        raise ValueError('Unknown shader runtime mod.')
+    mod = game/'Mods'/mod_id
     if mod.resolve() != mod or not (mod/'mod.manifest').is_file():
         raise ValueError('Install KCD1 Map in the selected game before launching it.')
     if not (mod/'ShaderCache/shader-build.json').is_file():
@@ -19,7 +21,7 @@ def installed_mod(target):
     return mod
 
 
-def launch(target, *, development=False, prepare_only=False):
+def launch(target, *, development=False, prepare_only=False, mod_id=MOD_ID):
     """Internal helper stays bundled with setup, never exposed as a mod shortcut.
 
     The helper validates archive hashes, source version and running processes
@@ -27,7 +29,9 @@ def launch(target, *, development=False, prepare_only=False):
     with Steam authentication, returning a PID rather than claiming game readiness.
     """
     if os.name != 'nt': raise ValueError('Launching KCD2 requires Windows.')
-    mod = installed_mod(target)
+    mod = installed_mod(target, mod_id)
+    if mod_id == MOD_ID and (Path(target)/'.gluemapper-kcdmp/active.json').exists():
+        raise ValueError('Restore single-player from KCD1:MP before launching KCD1 Map.')
     helper = runtime_directory()/'launch_with_shaders.ps1'
     powershell = Path(os.environ['WINDIR'])/'System32/WindowsPowerShell/v1.0/powershell.exe'
     args = [str(powershell), '-NoLogo', '-NoProfile', '-NonInteractive',

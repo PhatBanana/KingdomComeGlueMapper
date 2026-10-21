@@ -37,6 +37,9 @@ def main():
                '--exclude-module', 'lupa','--exclude-module','playwright']
     for resource in ('fishing_game.lua','fishing_runtime.lua','fishing_visuals.lua','fishing_interaction.lua'):
         command.extend(['--add-data',f'{repo / "tools" / resource}:tools'])
+    for resource in ('templates','evidence','LICENSE'):
+        destination='kcdmp_map_project' if resource=='LICENSE' else 'kcdmp_map_project/'+resource
+        command.extend(['--add-data',f'{repo / "tools/kcdmp_map_project" / resource}:{destination}'])
     command.extend(['--add-data', f'{optix_license}:third_party/OptiX'])
     for resource in GPU_FILES:
         command.extend(['--add-binary' if resource.endswith('.dll') else '--add-data',

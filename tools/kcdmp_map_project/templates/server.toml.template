@@ -1,0 +1,84 @@
+# KCD:MP 0.44.0 map-only configuration.
+# Start from the server directory with --config "server.kcd1-map-only.toml".
+# Every key below is present in the supplied 0.44.0 server.toml.example.
+
+[server]
+name = "GlueMapper KCD1 map-only test"
+description = "Converted kcd1_travel scenery and multiplayer player-spawn test."
+port = 7777
+max_players = 4
+password = ""
+level = "kcd1_travel"
+log_file = "server.kcd1-map-only.log"
+http_status = true
+
+[gamemode]
+script = "gamemodes/kcd1_map_only.lua"
+watch = false
+
+[client]
+scripts = ""
+ui = ""
+sounds = ""
+console = false
+
+[world]
+time = "12:00"
+time_ratio = 0.0
+max_entities = 32
+# This is KCD:MP's placement/removal overlay, not the converted terrain/assets.
+# A fresh level-specific folder has no edits until someone creates them.
+map = "data/maps/kcd1_travel"
+
+[containers]
+loot = "empty"
+restock = "never"
+world_items = false
+persist = false
+
+[validation]
+# Leave these disabled for the first load. Only enable exports made for this
+# exact converted map; native klaster/trosecko/kutnohorsko files are unsuitable.
+heightmap = ""
+navmesh = ""
+collision = ""
+# heightmap = "data/heightmaps/kcd1_travel.hmap"
+# navmesh = "data/navmesh/kcd1_travel.knav"
+# collision = "data/collision/kcd1_travel.kcol"
+line_of_sight = false
+no_clip = false
+strict = false
+
+[master]
+url = ""
+# Empty URL stops public announcements. It is not a loopback-only bind.
+
+[commands]
+builtin = true
+public = ["help", "pos", "players", "uptime"]
+
+[mods]
+policy = "allow_list"
+allowed = ["gluemapperkcdmp"]
+refused = []
+
+[combat]
+pvp = false
+respawn_seconds = 3
+loot_bodies = "none"
+fall_damage = 0.0
+tables = ""
+
+[carts]
+enabled = false
+routes = ""
+
+[spawn]
+x = @@SPAWN_X@@
+y = @@SPAWN_Y@@
+z = @@SPAWN_Z@@
+yaw = @@SPAWN_YAW@@
+items = []
+stat_level = 0
+clothing_preset = ""
+weapon_preset = ""

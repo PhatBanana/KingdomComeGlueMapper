@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 
 from setup_campaign import RECEIPT
+from filesystem_paths import filesystem_path
 
 VERSION = 1
 MODE = 'selected_static_profiles'
@@ -21,7 +22,10 @@ def upgrade(package, source, target, profiles, notify=lambda *a: None, cancelled
     if source is None or target is None:
         raise ValueError('Both source games are required for profile population conversion')
     if cancelled(): raise InterruptedError('Cancelled before profile population conversion')
-    package = Path(package).resolve()
+    # Actor folders repeat their namespace in the output and virtual asset
+    # path. Use extended paths for the whole stage, including temp cleanup,
+    # rather than depending on a machine-wide Windows registry setting.
+    package = filesystem_path(package)
     notify('Import source-profile people and shops', 0, 1, ', '.join(profiles))
     with tempfile.TemporaryDirectory(prefix='profile-population-', dir=package.parent) as temporary:
         work = Path(temporary)

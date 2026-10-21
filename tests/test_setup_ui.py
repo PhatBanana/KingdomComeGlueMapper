@@ -136,5 +136,53 @@ class SetupUITests(unittest.TestCase):
         page.locator('#cache-fresh').click()
         page.wait_for_function("window.choice===''")
 
+    def test_multiplayer_settings_reuse_existing_map_and_reach_native_api(self):
+        page=self.page
+        page.locator('.mod-title[data-details="mp"]').click()
+        page.locator('#mp-manage').click()
+        self.assertEqual(page.evaluate('config.mods'),['mp'])
+        self.assertTrue(page.locator('#mod-tools-panel').is_hidden())
+        page.evaluate("api.mp_profile_info=async()=>({ok:true,config:{}});api.mp_sources=async()=>[{path:'D:/BuildKCDMod/finished/package/map',label:'Finished build'}];api.multiplayer=async(op,c)=>{window.testCalls.push([op,c]);return {ok:true,message:'Operation requested'}}")
+        page.locator('#mp-find-sources').click()
+        page.locator('#mp-sources').select_option(label='Finished build')
+        self.assertEqual(page.locator('#mp_source').input_value(),'D:/BuildKCDMod/finished/package/map')
+        page.locator('#mp_client').fill('C:/Downloads/client')
+        page.locator('#mp_server').fill('C:/Downloads/server')
+        page.locator('#mp_server_name').fill('KCD1:MP Friends')
+        page.locator('#mp_port').fill('8123')
+        page.locator('#mp_max_players').fill('8')
+        page.locator('#mp_host').fill('friends.test:8123')
+        page.locator('#mp_pvp').check()
+        page.locator('#mp_profile').fill('D:/BuildKCDMod/mp/profile.json')
+        for op in ('save','activate','server','client','offline','stop_server','restore'):
+            page.locator('[data-mp="'+op+'"]').click()
+            page.wait_for_function('(op)=>window.testCalls.some(x=>x[0]===op)',arg=op)
+        calls=page.evaluate('window.testCalls')
+        self.assertEqual(calls[-1][1]['mp_port'],8123)
+        self.assertTrue(calls[-1][1]['mp_pvp'])
+        page.locator('#wizard-next').click()
+        self.assertTrue(page.locator('[data-pane="3"]').is_visible())
+        self.assertIn('KCD1:MP Friends',page.locator('#wizard-review').inner_text())
+        page.locator('#wizard-next').click()
+        page.wait_for_selector('#confirm[open]')
+        self.assertIn('friends.test:8123',page.locator('#review-content').inner_text())
+
+    def test_multiplayer_layout_and_selection_are_independent(self):
+        page=self.page
+        page.locator('.mod-title[data-details="mp"]').click();page.locator('#mp-manage').click()
+        for width,height in ((1280,900),(980,720)):
+            page.set_viewport_size({'width':width,'height':height})
+            page.locator('#mp-panel').scroll_into_view_if_needed()
+            self.assertTrue(page.evaluate('document.documentElement.scrollWidth===window.innerWidth'))
+        page.set_viewport_size({'width':1280,'height':900})
+        page.locator('#mp_client').scroll_into_view_if_needed()
+        output=Path(__file__).resolve().parents[1]/'outputs/multiplayer-setup'
+        output.mkdir(parents=True,exist_ok=True)
+        page.screenshot(path=str(output/'settings.png'))
+        page.locator('#mp_profile').scroll_into_view_if_needed()
+        page.screenshot(path=str(output/'launch-controls.png'))
+        page.evaluate("toggleMod('fishing')")
+        self.assertNotIn('mp',page.evaluate('config.mods'))
+
 
 if __name__=='__main__':unittest.main()

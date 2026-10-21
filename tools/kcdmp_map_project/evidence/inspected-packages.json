@@ -1,0 +1,62 @@
+{
+  "KcdMp-0.44.0-win-x64.zip": {
+    "bytes": 169526323,
+    "sha256": "97fcd1926e8c20b78fbd76344f4e21b88ebcc6befccda2afaa32fde236a8a823",
+    "entries": 46,
+    "binaries": {
+      "KcdMp_client.dll": {
+        "bytes": 14582208,
+        "sha256": "af571d1971fe3ea8cc76a3dd4f5f4c34127e9b6c87596f7195c4226c160a7fd6"
+      },
+      "KcdMp_launcher.exe": {
+        "bytes": 3340736,
+        "sha256": "2183021b4e79b203c11c49fa3f64b35cdea840b85c2dbb18d155f05f912acb9c"
+      }
+    },
+    "supported_builds": [
+      {
+        "id": "msstore-1.5.6-74126a4c",
+        "store": "msstore",
+        "game_version": "1.5.6",
+        "supported": true,
+        "whgame": {
+          "sha256": "74126a4c88e819a2a2d046a2011f69ede0335833fef25c28b660ef953abb2e8d",
+          "size": 89993216,
+          "timestamp": 1782128507,
+          "size_of_image": 96411648,
+          "pdb_guid": "1BE3EC0F2EED4095A3A779B272F03C93",
+          "pdb_age": 2
+        }
+      },
+      {
+        "id": "steam-1.5.6-bdf8f9e4",
+        "store": "steam",
+        "game_version": "1.5.6",
+        "supported": true,
+        "whgame": {
+          "sha256": "bdf8f9e4a11257a72b64c84700e284c29e4c4ccaf5b8d4bfa7d0b2a7294479f7",
+          "size": 89180672,
+          "timestamp": 1781861920,
+          "size_of_image": 95604736,
+          "pdb_guid": "DB30851BBFFE461C97B63848A30E9325",
+          "pdb_age": 3
+        }
+      }
+    ]
+  },
+  "KcdMp-server-0.44.0.zip": {
+    "bytes": 10315726,
+    "sha256": "1b74278eb949d4247be5ef6f5c777a03006f9abb5534503dd15b9b795a574e85",
+    "entries": 257,
+    "binaries": {
+      "windows/KcdMp.Api.dll": {
+        "bytes": 267688,
+        "sha256": "3948bab0c27a3de59c4fdefaad17d9b615b2c3a7e0875ea950a2e5df98eb7f7e"
+      },
+      "windows/KcdMp.Server.dll": {
+        "bytes": 3241896,
+        "sha256": "21b09dacc50933cf58f5e1c9708e12e31fb0a9ab645bceefae5725d66ad279d6"
+      }
+    }
+  }
+}

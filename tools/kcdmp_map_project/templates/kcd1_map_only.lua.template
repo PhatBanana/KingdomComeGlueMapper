@@ -1,0 +1,78 @@
+-- GlueMapper map-only test mode for the supplied KCD:MP 0.44.0 server.
+-- The builder replaces these four numbers with the converted map's spawn.
+-- Server-side only: no campaign scripts, NPC spawners or inventory grants.
+
+local SPAWN = {
+    x = @@SPAWN_X@@,
+    y = @@SPAWN_Y@@,
+    z = @@SPAWN_Z@@,
+    yaw = @@SPAWN_YAW@@,
+}
+
+local function describe_position(pid)
+    if not IsPlayerInWorld(pid) then
+        SendClientMessage(pid, COLOR_SERVER, "The map is still loading.")
+        return
+    end
+    local x, y, z = GetPlayerPos(pid)
+    SendClientMessage(pid, COLOR_SERVER, string.format(
+        "%s | x %.3f, y %.3f, z %.3f, yaw %.1f",
+        GetLevel(), x, y, z, GetPlayerYaw(pid)))
+end
+
+function OnGameModeInit()
+    SetGameModeText("GlueMapper map-only")
+    -- Must be set before clients join. It does not disable arbitrary mod Lua;
+    -- the builder separately removes GlueMapper campaign/runtime entrypoints.
+    SetStoryQuests(false)
+    Log(string.format(
+        "GlueMapper map-only: %s, spawn %.3f %.3f %.3f yaw %.1f",
+        GetLevel(), SPAWN.x, SPAWN.y, SPAWN.z, SPAWN.yaw))
+end
+
+function OnPlayerConnect(pid)
+    SendClientMessage(pid, COLOR_SERVER,
+        "Loading the converted KCD1 map. /where shows coordinates; /spawn returns to the start.")
+end
+
+function OnPlayerRequestSpawn(pid)
+    -- This callback runs after the client's level is ready.
+    -- An explicit point avoids KCD:MP's native-level default positions.
+    SetSpawnInfo(pid, SPAWN.x, SPAWN.y, SPAWN.z, SPAWN.yaw)
+    return true
+end
+
+function OnPlayerSpawn(pid)
+    local x, y, z = GetPlayerPos(pid)
+    Log(string.format("%s spawned on %s at %.3f %.3f %.3f",
+        GetPlayerName(pid), GetLevel(), x, y, z))
+    SendClientMessage(pid, COLOR_SERVER,
+        "Map-only test ready. Campaign, quests and NPC simulation are outside this test.")
+end
+
+function OnPlayerCommandText(pid, cmd, args)
+    cmd = cmd:lower()
+    if cmd == "where" then
+        describe_position(pid)
+        return true
+    elseif cmd == "spawn" then
+        if not IsPlayerInWorld(pid) then
+            SendClientMessage(pid, COLOR_SERVER, "Wait for the map to finish loading.")
+        elseif IsPlayerDead(pid) then
+            SpawnPlayer(pid)
+        else
+            -- Uses KCD:MP's teleport API, which also updates server movement state.
+            SetPlayerPos(pid, SPAWN.x, SPAWN.y, SPAWN.z, SPAWN.yaw)
+        end
+        return true
+    elseif cmd == "help" then
+        SendClientMessage(pid, COLOR_SERVER,
+            "Map-only: /where prints coordinates; /spawn returns you to the configured start.")
+        return false
+    end
+    return false
+end
+
+function OnPlayerText(pid, text, channel)
+    return true
+end

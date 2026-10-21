@@ -29,6 +29,7 @@ def planned_steps(config):
             if config.get('baking','none')!='none':labels.append('KCD1 Map · '+PRESETS[config['baking']]+' lighting bake')
         if config['action']!='build_only':labels.append('Install and verify KCD1 Map' if config['action']!='install' else 'Install verified mod')
     if 'fishing' in config['mods']:labels.append('KCD2 Fishing')
+    if 'mp' in config['mods']:labels.append('KCD1:MP')
     return labels
 
 
@@ -50,6 +51,7 @@ class SetupAPI:
     def __init__(self):
         self._window=None;self._process=None;self._job=None;self._lock=threading.Lock()
         self._offsets={};self._terminal=False;self._launching=False
+        self._mp_server=None
         self._settings=Path(os.environ.get('LOCALAPPDATA',Path.home()))/'KingdomComeGlueMapper'/'setup-settings.json'
 
     def state(self):
@@ -57,9 +59,28 @@ class SetupAPI:
         defaults=dict(kcd1=next(iter(found['kcd1']),''),kcd2=next(iter(found['kcd2']),''),
             mod_tools=next(iter(found.get('mod_tools',[])),''),
             workspace=str(self._settings.parent/'builds'),package='',action='build_install',mods=['map'],baking='none',cutscenes='none',converter='',rebuild_cache=False)
+        from setup_multiplayer import DEFAULTS
+        defaults.update(DEFAULTS)
         try:defaults.update({k:v for k,v in json.loads(self._settings.read_text()).items() if k in defaults})
         except (OSError,ValueError,TypeError):pass
         defaults['rebuild_cache']=False  # A regeneration request applies to one new build.
+        try:
+            profiles=json.loads(self._settings.with_name('mp-profiles.json').read_text())
+            defaults['mp_profile']=profiles.get(str(Path(defaults['kcd2']).resolve()),defaults['mp_profile'])
+        except (OSError,ValueError):pass
+        if defaults['mp_profile']:
+            try:
+                from kcdmp_map_project.kcdmp_bridge.profile import read_profile
+                profile_path=Path(defaults['mp_profile'])
+                p=read_profile(profile_path/'profile.json' if profile_path.is_dir() else profile_path)
+                if Path(p['game'])==Path(defaults['kcd2']).resolve():
+                    defaults.update({k:v for k,v in p.get('setup_settings',{}).items() if k in DEFAULTS and k!='mp_profile'})
+                    for key,kind in (('mp_client','client'),('mp_server','server')):
+                        if not Path(defaults[key]).is_dir():defaults[key]=p[kind]
+            except (OSError,ValueError,KeyError):pass
+        downloads=Path.home()/'Downloads'
+        for key,folder in (('mp_client','KcdMp-0.44.0-win-x64'),('mp_server','KcdMp-server-0.44.0')):
+            if not defaults[key] and (downloads/folder).is_dir():defaults[key]=str(downloads/folder)
         installed=[]
         for item in CATALOG:
             if (Path(defaults['kcd2'])/'Mods'/item['modid']/'mod.manifest').is_file():installed.append(item['id'])
@@ -120,10 +141,72 @@ class SetupAPI:
         except (OSError,ValueError) as e:return dict(ok=False,error=str(e))
 
     def browse(self,field):
-        if field not in ('kcd1','kcd2','mod_tools','workspace','package') or self._busy():return None
+        if field not in ('kcd1','kcd2','mod_tools','workspace','package','mp_source','mp_client','mp_server','mp_profile') or self._busy():return None
         import webview
         result=self._window.create_file_dialog(webview.FileDialog.FOLDER)
         return result[0] if result else None
+
+    def mp_sources(self,workspace,target):
+        from setup_multiplayer import sources
+        return sources(workspace,target)
+
+    def mp_profile_info(self,path,target):
+        from kcdmp_map_project.kcdmp_bridge.profile import read_profile
+        try:
+            selected=Path(path)
+            if selected.is_dir():selected/='profile.json'
+            p=read_profile(selected)
+            if Path(p['game'])!=Path(target).resolve():raise ValueError('Profile belongs to a different KCD2 installation.')
+            return dict(ok=True,config=dict(p.get('setup_settings',{}),mp_profile=str(selected),mp_client=p['client'],mp_server=p['server']))
+        except (OSError,ValueError,KeyError) as e:return dict(ok=False,error=str(e))
+
+    def _remember_mp(self,target,path):
+        location=self._settings.with_name('mp-profiles.json')
+        try: profiles=json.loads(location.read_text())
+        except (OSError,ValueError):profiles={}
+        profiles[str(Path(target).resolve())]=path
+        from kcdmp_map_project.kcdmp_bridge.profile import atomic_json
+        atomic_json(location,profiles)
+
+    def multiplayer(self,operation,raw):
+        from setup_multiplayer import settings, configure, start_process
+        from kcdmp_map_project.kcdmp_bridge import profile as bridge
+        with self._lock:
+            if self._busy():return dict(ok=False,error='Wait for setup to finish.')
+            self._launching=True
+        try:
+            if operation=='restore':
+                bridge.restore_game(Path(raw['kcd2']).resolve())
+                return dict(ok=True,message='Previous single-player mod order restored.')
+            if operation=='stop_server':
+                if self._mp_server is None or self._mp_server.poll() is not None:
+                    raise ValueError('No server started by this setup window is running.')
+                self._mp_server.terminate();self._mp_server.wait(timeout=15);self._mp_server=None
+                return dict(ok=True,message='KCD1:MP server stopped.')
+            if operation not in ('save','activate','server','client','offline'):
+                raise ValueError('Unknown multiplayer operation.')
+            c=settings(raw);path=Path(c['mp_profile'])
+            if path.is_dir():path/='profile.json'
+            p=bridge.read_profile(path)
+            if Path(p['game'])!=Path(raw['kcd2']).resolve():
+                raise ValueError('The selected profile belongs to a different KCD2 installation.')
+            if operation in ('save','server'):
+                if self._mp_server is not None and self._mp_server.poll() is None:
+                    raise ValueError('Stop the server before changing its settings or starting it again.')
+                configure(p,c)
+            else:
+                p.update(name=c['mp_player'],host=c['mp_host'],token=c['mp_password'])
+            self._remember_mp(p['game'],str(path))
+            if operation=='save':return dict(ok=True,message='Server and client settings saved. Restart the server to apply changes.')
+            if operation=='activate':
+                bridge.activate(p);return dict(ok=True,message='KCD1:MP active. Previous mod order saved.')
+            process,logfile=start_process(p,operation)
+            if operation=='server':self._mp_server=process
+            return dict(ok=True,message=f'KCD1:MP {operation} started (PID {process.pid}). Log: {logfile}. This does not confirm an in-game connection.',pid=process.pid)
+        except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError) as e:
+            return dict(ok=False,error=str(e))
+        finally:
+            with self._lock:self._launching=False
 
     def detect(self):
         found,warnings=discover();return dict(found=found,warnings=warnings)
@@ -192,6 +275,9 @@ class SetupAPI:
                                 e['mod']='map'
                                 if e['kind'] in ('done','error','cancelled'):e['kind']='log'
                             elif e['kind'] in ('done','error','cancelled'):self._terminal=True
+                            if e.get('mp_profile'):
+                                p=json.loads(Path(e['mp_profile']).read_text())
+                                self._remember_mp(p['game'],e['mp_profile'])
                             events.append(e)
                         self._offsets[str(p)]=stream.tell()
                 if self._process and not self._busy() and not self._terminal:
@@ -256,6 +342,9 @@ def launch():
     def closing():
         if api._busy():
             api._window.evaluate_js("window.showNotice('Setup is running. Cancel safely from Activity before closing.','error')")
+            return False
+        if api._mp_server is not None and api._mp_server.poll() is None:
+            api._window.evaluate_js("window.showNotice('Stop the hosted server in Multiplayer settings before closing setup.','error')")
             return False
     api._window.events.closing+=closing
     webview.start(gui='edgechromium',debug=False)

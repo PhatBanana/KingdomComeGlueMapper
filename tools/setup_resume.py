@@ -128,4 +128,11 @@ def preflight(config):
     if legacy.free_space(workspace)<required:raise ValueError(f'Resuming needs {required/legacy.GIB:.1f} GiB free for remaining work and staging.')
     if 'fishing' in config['mods']:
         fish=dict(config,mods=['fishing']);fresh_preflight(fish)
+    if 'mp' in config['mods']:
+        from setup_multiplayer import preflight as mp_preflight
+        mp=dict(config,mods=['mp'])
+        if (root/'package/mp/profile.json').is_file():
+            mp.update(action='install',package=str(root/'package'))
+        elif not mp.get('mp_source'):mp['mp_source']=str(root/'package/map')
+        mp_preflight(mp)
     return dict(ok=True,config=config,messages=['Verified completed KCD1 Map. Resume will reuse it and retry unfinished optional stages.'])

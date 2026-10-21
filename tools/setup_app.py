@@ -50,6 +50,11 @@ def self_test(destination):
     if len(code_digest())!=64:raise RuntimeError('Bake source signatures unavailable')
     import setup_resume
     import setup_launch
+    from setup_multiplayer import settings
+    from kcdmp_map_project.kcdmp_bridge.builder import evidence, PROJECT_ROOT
+    settings({})
+    if not evidence() or not (PROJECT_ROOT/'templates/server.toml.template').is_file():
+        raise RuntimeError('Missing KCD1:MP resources')
     import setup_baking
     from setup_bake_cache import SOURCES
     for resource in (*SOURCES,'setup_shaders.py','fix_illum_shader.py'):
@@ -73,9 +78,12 @@ def self_test(destination):
     if Image.open(stream).getpixel((0, 0)) != (255, 255, 255, 255):
         raise RuntimeError('Bundled image codec failed')
     pools = pool_self_test()
+    from filesystem_paths import staging_self_test
+    paths = staging_self_test()
     result = {'version': APP_VERSION, 'frozen': bool(getattr(sys, 'frozen', False)),
               'tk': tkinter.Tcl().eval('info patchlevel'), 'converter_modules': len(CONVERTERS),
               'runtime_files': len(RUNTIME_FILES), 'web_ui': True, 'hybrid_bake': gpu_test, 'worker_pools': pools,
+              'staging_paths': paths,
               'status': 'passed'}
     Path(destination).write_text(json.dumps(result, indent=2), encoding='utf-8')
 

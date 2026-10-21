@@ -1,6 +1,6 @@
-# Windows setup — 0.3.8
+# Windows setup — 0.3.15
 
-Download `KingdomComeGlueMapper-Setup-0.3.8-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.8). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface.
+Download `KingdomComeGlueMapper-Setup-0.3.15-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.15). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface. See the [release notes](releases/v0.3.15.md) for validation and limits.
 
 **KCD1 Map requires the official KCD2 Modding Tools from Steam before building, installing an existing package, or resuming installation.** Setup detects the tools and offers Browse, Recheck, and Install through Steam. It uses your installed tools to compile shaders; Warhorse's tools are not bundled. Fishing alone does not require them.
 
@@ -14,6 +14,7 @@ Compiled shader archives stay under the mod's `ShaderCache` folder. **Launch mod
 | --- | --- | --- | --- |
 | KCD1 Map | 0.2.0-alpha.4 | KCD1, KCD2 1.5.6, and official KCD2 Modding Tools | Converted Rattay region, coach travel, supported interactions and services, plus the bounded Skalitz opening/gameplay recipe. |
 | KCD2 Fishing | 0.3.0 | KCD2 1.5.6 | Standalone fishing in Trosky and Kuttenberg; also includes converted-map water when built with KCD1 Map. |
+| KCD1:MP | 0.1.0 | Completed KCD1 Map, Steam KCD2 1.5.6, KCD:MP 0.44.0 client/server | Separate experimental scenery export with server settings and launch controls. See the [multiplayer guide](kcd1-mp-setup.md). |
 
 The setup version and mod package versions are separate. KCD1 Map does not convert a complete playable campaign or KCD1 saves. Standalone fishing's native-region runtime validation remains pending.
 

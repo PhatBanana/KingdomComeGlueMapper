@@ -16,13 +16,16 @@ from setup_cutscenes import build as build_opening, check_tools
 
 CATALOG=[
     dict(id='map',name='KCD1 Map',requirements='KCD1 + KCD2 + KCD2 Modding Tools',version='0.2.0-alpha.4',modid='kingdomcomegluemapper'),
+    dict(id='mp',name='KCD1:MP',requirements='Completed KCD1 Map + KCD:MP 0.44.0',version='0.1.0',modid='gluemapperkcdmp'),
     dict(id='fishing',name='KCD2 Fishing',requirements='KCD2 only',version='0.3.0',modid=MOD_ID)]
 
 
 def checked_config(raw):
     mods=raw.get('mods',[])
-    if not isinstance(mods,list) or not mods or len(set(mods))!=len(mods) or any(m not in ('map','fishing') for m in mods):
-        raise ValueError('Select KCD1 Map, KCD2 Fishing, or both.')
+    if not isinstance(mods,list) or not mods or len(set(mods))!=len(mods) or any(m not in ('map','fishing','mp') for m in mods):
+        raise ValueError('Select KCD1 Map, KCD1:MP or KCD2 Fishing.')
+    if 'mp' in mods and 'fishing' in mods:
+        raise ValueError('Build KCD1:MP separately from Fishing; its multiplayer profile enables only the map.')
     if raw.get('action') not in ('build_install','build_only','install'):raise ValueError('Choose a setup operation.')
     for key in ('kcd2','workspace'):
         if not isinstance(raw.get(key),str) or not raw[key].strip():raise ValueError('Choose '+key+' folder.')
@@ -47,6 +50,9 @@ def checked_config(raw):
     config['converter']=raw.get('converter','')
     if not isinstance(config['converter'],str):raise ValueError('Invalid converter path.')
     if 'map' not in mods or config['action']=='install':config['cutscenes']='none'
+    if 'mp' in mods:
+        from setup_multiplayer import settings
+        config.update(settings(raw))
     return config
 
 
@@ -69,6 +75,11 @@ def preflight(raw):
     c=checked_config(raw);target=Path(c['kcd2']).resolve();workspace=Path(c['workspace']).resolve()
     if workspace.is_relative_to(target) or target.is_relative_to(workspace):raise ValueError('Choose a build folder outside the game.')
     messages=[]
+    if c['action']!='build_only' and (target/'.gluemapper-kcdmp/active.json').exists():
+        raise ValueError('Restore single-player from KCD1:MP before changing installed mods.')
+    if 'mp' in c['mods']:
+        from setup_multiplayer import preflight as mp_preflight
+        messages.append(mp_preflight(c))
     if 'map' in c['mods']:
         mc=dict(c)
         if c['action']=='install':mc['package']=str(Path(c['package'])/'map')
@@ -231,9 +242,15 @@ def _worker(path):
                     if (package/'fishing').exists():(package/'fishing').rename(job/'incomplete-fishing')
                     fishwork.rename(package/'fishing')
             if c['action']!='build_only':install_fishing(package/'fishing',c['kcd2'],events.progress,cancel)
+        mp_profile=None
+        if 'mp' in c['mods']:
+            from setup_multiplayer import run
+            events.emit('stage',index=c['mods'].index('mp'),total=len(c['mods']),label='KCD1:MP')
+            mp_profile=run(c,package,lambda message:events.emit('log',message=message),cancel)
         message='Selected packages are ready.' if c['action']=='build_only' else 'Selected mods installed.'
         if 'map' in c['mods'] and c['action']!='build_only':message+=' Use Launch mod in the Library to play with its shaders.'
-        events.emit('done',message=message,package=str(package));return 0
+        if mp_profile:message+=' Manage KCD1:MP from its Library settings. Runtime playtest still required.'
+        events.emit('done',message=message,package=str(package),mp_profile=mp_profile);return 0
     except (legacy.Cancelled,InterruptedError) as e:events.emit('cancelled',message=str(e));return 2
     except BaseException as e:events.emit('error',message=str(e),traceback=traceback.format_exc());return 1
     finally:
