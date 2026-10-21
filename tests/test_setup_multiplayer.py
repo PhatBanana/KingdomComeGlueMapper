@@ -112,6 +112,34 @@ class MultiplayerSetupTests(unittest.TestCase):
         event=json.loads((job/'events.jsonl').read_text().splitlines()[-1])
         self.assertEqual(event['kind'],'done');self.assertTrue(event['mp_profile'].endswith('profile.json'))
 
+    def test_export_upgrades_only_private_snapshot_before_validation(self):
+        import zipfile
+        from test_terrain_object_tree import terrain, decal
+        from terrain_surface_placement import MARKER
+        source=self.root/'source';source.mkdir()
+        (source/'mod.manifest').write_text('source')
+        p=self.profile()
+        c=checked_config(self.config(mp_source=str(source)))
+        messages=[]
+        def build(options, progress, *, upgrade_level):
+            mod=self.root/'private-mod';level=mod/'Data/Levels/kcd1_travel';level.mkdir(parents=True)
+            with zipfile.ZipFile(level/'terrain.pak','w') as z:
+                z.writestr('terrain/terrain.dat',terrain(decal()))
+                z.writestr('baked-lighting',b'keep')
+            report=upgrade_level(mod,'kcd1_travel')
+            self.assertEqual(report['after']['root_records'],0)
+            with zipfile.ZipFile(level/'terrain.pak') as z:
+                self.assertIn(MARKER,z.namelist())
+                self.assertEqual(z.read('baked-lighting'),b'keep')
+            p['mod']=str(mod)
+            return p
+        with patch('setup_campaign.verify_package'),patch.object(mp,'validate_shaders'), \
+             patch.object(mp.builder,'build',side_effect=build),patch.object(mp.bridge,'check_mod') as verify:
+            mp.run(c,self.root/'package',messages.append,lambda:False)
+        verify.assert_called_once_with(Path(p['mod']),full=True)
+        self.assertEqual(list(source.iterdir()),[source/'mod.manifest'])
+        self.assertTrue(any('surface-tree' in m for m in messages))
+
     def test_api_blocks_launch_and_does_not_stop_unowned_server(self):
         api=SetupAPI();api._process=Mock();api._process.poll.return_value=None
         with patch.object(mp,'start_process') as start:

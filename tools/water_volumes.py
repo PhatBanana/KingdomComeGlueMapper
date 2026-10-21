@@ -114,6 +114,16 @@ def convert_water(data, record, material, auxiliary_tail):
     return output
 
 
+# Public compatibility entry point used by the surface builders.
+from terrain_object_tree import KIND_ORDER as NATIVE_KIND_ORDER
+
+
+def place_records(terrain, records):
+    """Insert converted surfaces using KCD2's centre, size and distance rules."""
+    from terrain_object_tree import place
+    return place(terrain, records)
+
+
 def append_water(terrain, records, material_paths):
     table = terrain.tables["materials"]
     if table["paths"]:
@@ -126,11 +136,6 @@ def append_water(terrain, records, material_paths):
             raise ValueError("Material path too long")
         names.extend(encoded.ljust(256, b"\0"))
     nodes = terrain.data[table["offset"]:terrain.tree_offset]
-    root = bytearray(terrain.data[terrain.tree_offset:terrain.tree_offset + 32])
-    old_size = struct.unpack_from("<I", root, 28)[0]
-    payload = b"".join(records)
-    struct.pack_into("<I", root, 28, old_size + len(payload))
-    tree = terrain.data[terrain.tree_offset + 32:]
-    output = bytearray(prefix + names + nodes + root + tree[:old_size] + payload + tree[old_size:])
+    output = bytearray(prefix + names + nodes + place_records(terrain, records))
     struct.pack_into("<I", output, 4, len(output))
     return bytes(output)

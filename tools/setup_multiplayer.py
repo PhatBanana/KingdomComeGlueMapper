@@ -159,7 +159,11 @@ def run(config, package, notify, cancelled):
         def progress(message):
             if cancelled(): raise InterruptedError('Cancelled KCD1:MP export; source map retained.')
             notify(message)
-        p=builder.build(options(config,output,source),progress)
+        def upgrade_level(mod, level):
+            from terrain_surface_placement import upgrade_package
+            progress('Applying KCD2 surface-tree placement to the multiplayer snapshot...')
+            return upgrade_package(mod, level)[1]
+        p=builder.build(options(config,output,source),progress,upgrade_level=upgrade_level)
         bridge.check_mod(Path(p['mod']),full=True)
     configure(p,config)
     if cancelled(): raise InterruptedError('Cancelled before multiplayer activation.')

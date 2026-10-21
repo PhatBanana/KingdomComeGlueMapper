@@ -7,7 +7,7 @@ import unittest
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-from water_volumes import water_record, read_water, convert_water, append_water
+from water_volumes import water_record, read_water, convert_water, append_water, place_records
 from build_water_probe import translate_features, global_environment_probe
 from build_water_surface_probe import suppress_surfaces
 
@@ -128,7 +128,19 @@ class WaterTests(unittest.TestCase):
         volumes, counts = read_water(restored)
         self.assertEqual(counts, {23:1, 9:1})
         self.assertEqual(volumes[0]["material"], -1)
-        self.assertEqual(output[332:404], merged)
+        # Existing merged ownership survives while water receives native child nodes.
+        self.assertEqual(output[332:332+len(merged)], merged)
+
+    def test_placement_without_records_is_verbatim_and_rejects_bad_bounds(self):
+        merged = struct.pack("<I", 23) + bytes(68)
+        data = (struct.pack("<HBB6fI", 8, 1, 0, 0,0,0,4096,4096,4096, 0)
+                + struct.pack("<HBB6fI", 8, 0, 0, 0,0,0,2048,2048,2048, len(merged)) + merged)
+        base = SimpleNamespace(data=data, tree_offset=0, version=29)
+        self.assertEqual(place_records(base, []), data)
+        bad = bytearray(source_water())
+        struct.pack_into("<f", bad, 4, float("nan"))
+        with self.assertRaises(ValueError):
+            place_records(base, [bytes(bad)])
 
 
 if __name__ == "__main__":

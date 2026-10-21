@@ -197,6 +197,20 @@ class BuildIntegrationTests(unittest.TestCase):
         self.assertFalse((Path(p['output'])/'bridge_tool').exists())
         self.assertFalse(list(Path(p['output']).glob('*.cmd')))
 
+    def test_setup_level_upgrade_precedes_receipt_hashes_and_preserves_source(self):
+        before=file_snapshot(self.source)
+        def upgrade(mod, level):
+            self.assertEqual(level,builder.LEVEL)
+            path=mod/'Data/Levels'/level/'terrain.pak'
+            with zipfile.ZipFile(path,'a') as archive:
+                archive.writestr('terrain/test-placement-marker',b'upgraded')
+            return {'version':1}
+        with self.mock_external_checks():
+            profile=builder.build(self.options(standalone=False),progress=lambda _:None,upgrade_level=upgrade)
+        report=check_mod(Path(profile['mod']),full=True)
+        self.assertEqual(report['level_package']['surface_placement'],{'version':1})
+        self.assertEqual(file_snapshot(self.source),before)
+
     def test_build_filters_campaign_and_preserves_rendering_payloads(self):
         before = file_snapshot(self.game)
         options = self.options(spawn=(100.25, 200.5, 30.125), yaw=271.25)

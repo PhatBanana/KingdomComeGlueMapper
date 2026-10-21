@@ -2,6 +2,8 @@
 import math
 import struct
 
+from water_volumes import place_records
+
 
 def expand_tangents(payload):
     """Decode the signed XY/LSB format used by KCD1 Common.cfi.
@@ -60,7 +62,7 @@ def convert_surface(record, material):
 
 
 def append_surfaces(terrain, records, materials):
-    """Extend the material table and root payload, preserving all existing IDs."""
+    """Extend the material table and place records in the object tree, preserving all existing IDs."""
     if terrain.version != 29:
         raise ValueError("Expected target terrain")
     table = terrain.tables['materials']
@@ -74,11 +76,6 @@ def append_surfaces(terrain, records, materials):
             raise ValueError("Invalid material path")
         prefix.extend(encoded.ljust(256, b'\0'))
     prefix.extend(terrain.data[table_end:terrain.tree_offset])
-    root = bytearray(terrain.data[terrain.tree_offset:terrain.tree_offset+32])
-    size = struct.unpack_from('<I', root, 28)[0]
-    payload = b''.join(records)
-    struct.pack_into('<I', root, 28, size+len(payload))
-    tree = terrain.data[terrain.tree_offset+32:]
-    output = prefix + root + tree[:size] + payload + tree[size:]
+    output = prefix + place_records(terrain, records)
     struct.pack_into('<I', output, 4, len(output))
     return bytes(output)

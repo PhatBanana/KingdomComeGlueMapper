@@ -27,7 +27,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -46,6 +46,8 @@ def eligible(receipt):
     from setup_profile_population import VERSION as POPULATION_VERSION, MODE as POPULATION_MODE
     candidate['profile_population'] = dict(version=POPULATION_VERSION, mode=POPULATION_MODE,
         profiles=list(STATIC_WORLD_PROFILES), scheduler_validation=True)
+    from terrain_object_tree import VERSION as PLACEMENT_VERSION
+    candidate['surface_placement'] = dict(version=PLACEMENT_VERSION)
     require_current(candidate)
 
 
@@ -293,6 +295,11 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     receipt['files'].update(ratio_files)
     receipt['lod_ratio_metadata'] = ratio_report
     receipt['build_recipe']['streaming_validation']['lod_ratio_version'] = ratio_report['version']
+    from terrain_surface_placement import upgrade_package as upgrade_surface_placement
+    notify('Applying KCD2 surface-tree placement')
+    placement_files, placement_report = upgrade_surface_placement(package)
+    receipt['files'].update(placement_files)
+    receipt['surface_placement'] = placement_report
     from setup_actor_materials import upgrade as upgrade_materials
     actor_files, actor_removed, actor_report = upgrade_materials(package, target, notify, cancelled)
     receipt['files'].update(actor_files)
