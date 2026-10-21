@@ -6,15 +6,20 @@ never silently replaced with white surfaces or empty voxel files.
 """
 import argparse
 from collections import OrderedDict
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from contextlib import nullcontext
 import hashlib
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import time
 import xml.etree.ElementTree as ET
+import zipfile
 
 import numpy as np
 
+from bounded_pool import available_memory
 from geometry_opacity import Assets, transform_triangles
 from voxel_surfaces import load_surface, build_tile
 from voxel_lighting import validate_pair
@@ -58,34 +63,82 @@ def tile_signature(version,asset_digest,plan,job,samples,experimental_base_mater
     return hashlib.sha256(json.dumps([version,asset_digest,plan['source_packages'],plan.get('vegetation'),job,samples,experimental_base_materials,backend,gpu_config]).encode()).hexdigest()
 
 
-def build(scene, *, only_origin=None, samples=2, experimental_base_materials=False, backend='compiled', output=None,workers=1,start_index=1,progress=None,cancelled=lambda:False):
-    if os.environ.get('GLUEMAPPER_OPTIX_TRIANGLES')=='1' and output is None:
-        raise ValueError('Experimental hardware triangles require an isolated --output directory; boundary parity is not established')
-    scene=Path(scene); plan=json.loads((scene/'plan.json').read_text())
-    if plan['errors']:
-        details='; '.join(f'{name}: {reason}' for name,reason in list(plan['errors'].items())[:3])
-        raise ValueError(f"Resolve scene geometry errors before baking: {details}. See {scene/'plan.json'}")
-    for name,digest in plan['source_packages'].items():
-        if hashlib.sha256(Path(name).read_bytes()).hexdigest()!=digest:raise ValueError('Scene packages changed; regenerate plan')
-    records=json.loads((scene/'placements.json').read_text())
-    assets=Assets(plan['pak_root'],plan['overrides']); texture_cache=TextureCache(); roots={};mesh_cache=MeshCache()
-    destination=Path(output) if output is not None else scene/'tiles';destination.mkdir(parents=True,exist_ok=True)
-    vegetation=None
-    if plan.get('vegetation'):
-        path=scene/'vegetation.npz'
-        if hashlib.sha256(path.read_bytes()).hexdigest()!=plan['vegetation']['sha256']:raise ValueError('Vegetation placement data changed')
-        with np.load(path) as data:vegetation=(data['transforms'],data['groups'])
-    jobs=plan['tiles']
-    if not 1<=start_index<=len(jobs):raise ValueError('Start index outside scene plan')
-    jobs=jobs[start_index-1:]
-    if only_origin is not None:jobs=[j for j in jobs if j['origin']==list(only_origin)]
-    if not jobs:raise ValueError('No tiles selected')
-    results=[]; version=code_digest();asset_digest=assets.catalog_digest()
-    if plan.get('asset_catalog_digest')!=asset_digest:
-        raise ValueError('Asset catalog changed or was not fingerprinted; regenerate scene and landscape plan')
-    for number,job in enumerate(jobs):
-        if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
-        if progress:progress('Bake lighting tiles',number,len(jobs),'Preparing tile '+str(number+1))
+def _bounded_setting(name,default,low,high):
+    value=os.environ.get(name,str(default))
+    if not value.isdigit() or not low<=int(value)<=high:raise ValueError(f'{name} must be {low}..{high}')
+    return int(value)
+
+
+GIB=1024**3
+# Measured on a 64 GB machine (1,220-tile buildings bake): the setup worker itself holds about
+# 10 GB during the bake, a tile process averages about 5 GB, and one preparing a dense tile
+# peaked at 17 GB. Two dense tiles at once need room for both beside the worker.
+WORKER_RESERVE=12*GIB;TILE_PROCESS=5*GIB;TWO_DENSE_TILES=40*GIB
+
+
+def tile_workers(workers,available=None):
+    """Concurrent tile processes, each running `workers` brick threads (24 threads: 6 tiles x 2 bricks),
+    limited by the memory free when the bake starts."""
+    default=max(1,min(6,(os.cpu_count() or 1)//(workers+1)))
+    free=available_memory() if available is None else available
+    if free is not None:default=max(1,min(default,int((free-WORKER_RESERVE)//TILE_PROCESS)))
+    return _bounded_setting('GLUEMAPPER_BAKE_TILE_WORKERS',default,1,32)
+
+
+def gpu_lanes():
+    """Tiles rasterized on the GPU at the same time."""
+    return _bounded_setting('GLUEMAPPER_GPU_LANES',1,1,4)
+
+
+def heavy_slots(available=None):
+    """Dense tiles held in memory at once. Gathering a dense tile's triangles stages several GB,
+    so the limit covers preparation as well as rasterization; one slot unless two fit."""
+    free=available_memory() if available is None else available
+    return _bounded_setting('GLUEMAPPER_BAKE_HEAVY_TILES',2 if free is None or free>=TWO_DENSE_TILES else 1,1,8)
+
+
+HEAVY_TRIANGLES=1_000_000  # the hybrid crossover; estimates at or above it take a heavy slot
+
+
+class _TileBaker:
+    """Per-process baking state. Decoded meshes, materials and textures are caches only, so a tile's
+    bytes do not depend on which process bakes it or what it baked before."""
+    def __init__(self,scene,output,samples,experimental_base_materials,backend,workers,lanes=None,heavy=None):
+        self.scene=Path(scene);self.plan=json.loads((self.scene/'plan.json').read_text())
+        self.records=json.loads((self.scene/'placements.json').read_text())
+        self.assets=Assets(self.plan['pak_root'],self.plan['overrides']);self.texture_cache=TextureCache();self.roots={};self.mesh_cache=MeshCache()
+        self.destination=Path(output) if output is not None else self.scene/'tiles'
+        self.vegetation=None
+        if self.plan.get('vegetation'):  # digest verified once by build()
+            with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(data['transforms'],data['groups'])
+        self.version=code_digest();self.asset_digest=self.assets.catalog_digest()
+        self.samples=samples;self.experimental_base_materials=experimental_base_materials;self.backend=backend
+        self.workers=workers;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles={}
+
+    def estimated_triangles(self,job):
+        """Upper bound on a tile's triangles (whole meshes, before clipping), read from array headers only."""
+        def count(key):
+            if key not in self.mesh_triangles:
+                with zipfile.ZipFile(self.scene/'meshes'/(key+'.npz')) as archive,archive.open('triangles.npy') as member:
+                    version=np.lib.format.read_magic(member)
+                    header=np.lib.format.read_array_header_1_0 if version==(1,0) else np.lib.format.read_array_header_2_0
+                    self.mesh_triangles[key]=int(header(member)[0][0])
+            return self.mesh_triangles[key]
+        total=sum(count(self.records[record_id]['cache_key']) for record_id in job['placements'])
+        if self.vegetation is not None:
+            groups=self.plan['vegetation']['groups']
+            total+=sum(count(groups[str(int(self.vegetation[1][record_id]))]['cache_key']) for record_id in job.get('vegetation',[]))
+        return total
+
+    def bake(self,number,total,job):
+        if self.heavy is None or self.estimated_triangles(job)<HEAVY_TRIANGLES:return self._bake(number,total,job)
+        with self.heavy:return self._bake(number,total,job)
+
+    def _bake(self,number,total,job):
+        scene,plan,records,assets=self.scene,self.plan,self.records,self.assets
+        texture_cache,roots,mesh_cache,destination,vegetation=self.texture_cache,self.roots,self.mesh_cache,self.destination,self.vegetation
+        version,asset_digest=self.version,self.asset_digest
+        samples,experimental_base_materials,backend,workers=self.samples,self.experimental_base_materials,self.backend,self.workers
         origin=job['origin'];stem='_'.join(f'{v:04d}' for v in [*(x+128 for x in origin),256])
         report_path=destination/(stem+'.json'); start=time.time()
         # Include the scene bytes, placement IDs and conversion policy in each
@@ -99,9 +152,9 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
                     idx=(destination/(stem+'.idx')).read_bytes();vox=(destination/(stem+'.vox')).read_bytes()
                     validate_pair(idx,vox)
                     if hashlib.sha256(idx+vox).hexdigest()==old['sha256']:
-                        results.append(old);print(f'Tile {number+1}/{len(jobs)} {stem}: verified existing',flush=True);continue
+                        print(f'Tile {number+1}/{total} {stem}: verified existing',flush=True);return old
             except (OSError,ValueError,KeyError):
-                print(f'Tile {number+1}/{len(jobs)} {stem}: incomplete checkpoint; rebuilding',flush=True)
+                print(f'Tile {number+1}/{total} {stem}: incomplete checkpoint; rebuilding',flush=True)
         audit={'tile':stem,'origin':origin,'signature':digest,'status':'failed','placements':len(job['placements']),'requested_backend':backend,'workers':workers}
         audit['gpu_config']=gpu_config
         try:
@@ -152,7 +205,8 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
             selected=('optix' if len(triangles)>=1_000_000 else 'compiled') if backend=='auto' else backend
             fallback=None
             try:
-                idx,vox,validation=build_tile(triangles,uvs,ids,materials,origin,samples=samples,backend=selected,allow_empty=True,workers=workers if selected=='compiled' else 1)
+                with self.lanes if self.lanes is not None and selected=='optix' else nullcontext():
+                    idx,vox,validation=build_tile(triangles,uvs,ids,materials,origin,samples=samples,backend=selected,allow_empty=True,workers=workers if selected=='compiled' else 1)
             except (RuntimeError,MemoryError,OSError) as error:
                 if backend!='auto' or selected!='optix':raise
                 fallback=f'{type(error).__name__}: {error}'
@@ -173,22 +227,87 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
             audit['error']=str(e)
         audit['seconds']=round(time.time()-start,3)
         temporary=report_path.with_suffix('.json.tmp');temporary.write_text(json.dumps(audit,indent=2)+'\n');temporary.replace(report_path)
-        results.append(audit)
-        summary={'status':('incomplete category coverage; not installable' if plan['pending_categories'] else 'experimental complete-category bake; validation required'),
-                 'pending_categories':plan['pending_categories'],'selected_tiles':len(jobs),
-                 'start_index':start_index,'total_scene_tiles':len(plan['tiles']),
-                 'processed_tiles':len(results),'built':sum(r['status']=='built' for r in results),
-                 'failed':[{'tile':r['tile'],'error':r['error']} for r in results if r['status']!='built']}
-        ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary,indent=2)+'\n')
-        print(f'Tile {number+1}/{len(jobs)} {stem}: {audit["status"]} ({audit["seconds"]}s) '+audit.get('error',''),flush=True)
-    summary={'status':('incomplete category coverage; not installable' if plan['pending_categories'] else 'experimental complete-category bake; validation required'),
-             'pending_categories':plan['pending_categories'],'selected_tiles':len(jobs),'start_index':start_index,
-             'total_scene_tiles':len(plan['tiles']),'processed_tiles':len(results),'built':sum(r['status']=='built' for r in results),
-             'failed':[{'tile':r['tile'],'error':r.get('error','Unknown failure')} for r in results if r['status']!='built']}
-    ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary,indent=2)+'\n')
+        print(f'Tile {number+1}/{total} {stem}: {audit["status"]} ({audit["seconds"]}s) '+audit.get('error',''),flush=True)
+        return audit
+
+
+_BAKER=None
+
+
+def _start_baker(arguments,lanes,heavy):
+    global _BAKER
+    _BAKER=_TileBaker(*arguments,lanes=lanes,heavy=heavy)
+
+
+def _bake_in_worker(task):
+    number,total,job=task
+    return _BAKER.bake(number,total,job)
+
+
+def build(scene, *, only_origin=None, samples=2, experimental_base_materials=False, backend='compiled', output=None,workers=1,start_index=1,progress=None,cancelled=lambda:False):
+    if os.environ.get('GLUEMAPPER_OPTIX_TRIANGLES')=='1' and output is None:
+        raise ValueError('Experimental hardware triangles require an isolated --output directory; boundary parity is not established')
+    scene=Path(scene); plan=json.loads((scene/'plan.json').read_text())
+    if plan['errors']:
+        details='; '.join(f'{name}: {reason}' for name,reason in list(plan['errors'].items())[:3])
+        raise ValueError(f"Resolve scene geometry errors before baking: {details}. See {scene/'plan.json'}")
+    for name,digest in plan['source_packages'].items():
+        if hashlib.sha256(Path(name).read_bytes()).hexdigest()!=digest:raise ValueError('Scene packages changed; regenerate plan')
+    assets=Assets(plan['pak_root'],plan['overrides'])
+    destination=Path(output) if output is not None else scene/'tiles';destination.mkdir(parents=True,exist_ok=True)
+    if plan.get('vegetation'):
+        path=scene/'vegetation.npz'
+        if hashlib.sha256(path.read_bytes()).hexdigest()!=plan['vegetation']['sha256']:raise ValueError('Vegetation placement data changed')
+    jobs=plan['tiles']
+    if not 1<=start_index<=len(jobs):raise ValueError('Start index outside scene plan')
+    jobs=jobs[start_index-1:]
+    if only_origin is not None:jobs=[j for j in jobs if j['origin']==list(only_origin)]
+    if not jobs:raise ValueError('No tiles selected')
+    if plan.get('asset_catalog_digest')!=assets.catalog_digest():
+        raise ValueError('Asset catalog changed or was not fingerprinted; regenerate scene and landscape plan')
+    arguments=(scene,output,samples,experimental_base_materials,backend,workers)
+    finished={}
+
+    def summary():
+        done=[finished[n] for n in sorted(finished)]
+        return done,{'status':('incomplete category coverage; not installable' if plan['pending_categories'] else 'experimental complete-category bake; validation required'),
+                     'pending_categories':plan['pending_categories'],'selected_tiles':len(jobs),'start_index':start_index,
+                     'total_scene_tiles':len(plan['tiles']),'processed_tiles':len(done),'built':sum(r['status']=='built' for r in done),
+                     'failed':[{'tile':r['tile'],'error':r.get('error','Unknown failure')} for r in done if r['status']!='built']}
+
+    def record(number,audit):
+        finished[number]=audit
+        ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary()[1],indent=2)+'\n')
+
+    processes=tile_workers(workers) if len(jobs)>1 else 1
+    if processes==1:
+        baker=_TileBaker(*arguments)
+        for number,job in enumerate(jobs):
+            if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
+            if progress:progress('Bake lighting tiles',number,len(jobs),'Preparing tile '+str(number+1))
+            record(number,baker.bake(number,len(jobs),job))
+    else:
+        # Tiles are independent: each process keeps its own caches. Dense tiles take a
+        # heavy slot for their whole lifetime (bounding memory) and a GPU lane to rasterize.
+        context=multiprocessing.get_context('spawn')
+        lanes=context.BoundedSemaphore(gpu_lanes());heavy=context.BoundedSemaphore(heavy_slots())
+        print(f'Baking {len(jobs)} tiles in {processes} processes ({workers} brick threads each, '
+              f'{heavy_slots()} dense tile(s) in memory, {gpu_lanes()} GPU lane(s))',flush=True)
+        with ProcessPoolExecutor(max_workers=processes,mp_context=context,initializer=_start_baker,initargs=(arguments,lanes,heavy)) as pool:
+            pending={pool.submit(_bake_in_worker,(number,len(jobs),job)):number for number,job in enumerate(jobs)}
+            try:
+                while pending:
+                    done,_=wait(pending,timeout=1,return_when=FIRST_COMPLETED)
+                    for future in done:record(pending.pop(future),future.result())
+                    if pending and cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
+                    if progress:progress('Bake lighting tiles',len(finished),len(jobs),f'{len(finished)} of {len(jobs)} tiles')
+            except BaseException:
+                for future in pending:future.cancel()
+                raise
+    results,final=summary()
+    ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(final,indent=2)+'\n')
     if progress:progress('Bake lighting tiles',len(jobs),len(jobs),'All tile results recorded')
     return results
-
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
