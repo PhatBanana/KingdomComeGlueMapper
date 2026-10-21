@@ -1,6 +1,7 @@
 """Source-person appearance import using the existing male/female skin upgrader."""
 from contextlib import ExitStack
 import copy
+import os
 from pathlib import Path
 import re
 import struct
@@ -28,6 +29,26 @@ from character_clothing_variant import resolve_variant
 from character_source_clothing import female_role, native_role, source_item, garment_layout
 from character_native_materials import convert_character_materials
 from character_lods import source_lods, filename as lod_filename, emit_regions, validate_chain
+from bake_pool import Bakes
+
+
+def write_staged(output, files):
+    """Place a conversion's files; staged textures are linked rather than copied.
+
+    The staging cache is a per-person temporary folder on the same volume and is
+    discarded afterwards, so a link costs one directory entry instead of a
+    scanned read and write per texture. Materials and meshes are rewritten in
+    place by the material conversion, so they are always real copies.
+    """
+    for name, data in files.items():
+        dest = Path(output) / name; dest.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(data, Path) and '.dds' in name.lower():
+            try:
+                os.link(data, dest)
+                continue
+            except OSError:
+                pass
+        dest.write_bytes(data.read_bytes() if isinstance(data, Path) else data)
 
 
 def keep_body_under_outfit(sex, region):
@@ -295,16 +316,17 @@ def _build_appearance(source, target, person, namespace, output):
             'clothing_preset', clothing_preset_id=str(uuid.uuid5(uuid.NAMESPACE_URL, item_id)),
             clothing_preset_name=namespace + '_outfit', gender=sex.title(), prefers_hood_on='false')
         ET.SubElement(ET.SubElement(clothing_preset, 'Items'), 'Guid').text = item_id
-        for name, data in {**emitted, 'Libs/Tables/Character/CharacterComponent__' + namespace + '.xml': xml(document),
+        write_staged(output, {**emitted, 'Libs/Tables/Character/CharacterComponent__' + namespace + '.xml': xml(document),
             'Libs/Tables/item/item__' + namespace + '.xml': xml(item_root),
             'Libs/Tables/item/clothing_preset__' + namespace + '.xml': xml(clothing_root),
-            'Libs/Tables/item/InventoryPreset__' + namespace + '_clothes.xml': xml(preset_root)}.items():
-            dest = output / name; dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data.read_bytes() if isinstance(data, Path) else data)
+            'Libs/Tables/item/InventoryPreset__' + namespace + '_clothes.xml': xml(preset_root)})
         # Same native clothing shader/vertex-feature upgrade as female garments:
         # the fixed outfit otherwise keeps legacy Illum colourisation (issue #1).
+        # The float bakes run in worker processes; nothing below reads them until wait().
+        bakes = Bakes()
         material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
-                                                      native, namespace, sex)
+                                                      native, namespace, sex, bakes)
+        bakes.wait()
         (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender=sex,
                 archetype=native_soul_archetype(archetypes, sex.title()), parts=evidence, rig=rig,
@@ -371,11 +393,11 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         'Libs/Tables/item/InventoryPreset__' + namespace + '_clothes.xml': xml(preset_root),
         'Localization/English/text_ui_items.xml': xml(localization),
     }
-    for name, data in {**emitted, **additions}.items():
-        dest = output / name; dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_bytes(data.read_bytes() if isinstance(data, Path) else data)
+    write_staged(output, {**emitted, **additions})
+    bakes = Bakes()
     material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
-                                                  native, namespace, 'female')
+                                                  native, namespace, 'female', bakes)
+    bakes.wait()
     from clothing_coverage import register_coverage
     coverage = register_coverage(output, document.find('CharacterComponents/Component'), garments, tables, namespace)
     (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
