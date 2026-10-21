@@ -256,6 +256,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertIsNotNone(upgraded.find("Entity[@Name='gm_environment_2']"))
             self.assertEqual(result['build_recipe']['streaming_validation']['vegetation_grid_version'], 1)
             self.assertEqual(result['build_recipe']['streaming_validation']['lod_ratio_version'], 1)
+            # The fixture has no converted global probe; the step must still run and report it.
+            self.assertEqual(result['global_probe_fog']['probes'], [])
             if getattr(self,'restore_split',False):
                 self.assertFalse(list((p/'Data').glob('*_meshes.pak')))
                 self.assertFalse(any(n.endswith('_meshes.pak') for n in result['files']))

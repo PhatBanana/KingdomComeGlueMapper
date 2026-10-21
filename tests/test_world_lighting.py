@@ -10,6 +10,7 @@ import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from lighting_cubemaps import time_bracket, float_dds, float_mips, atlas_mips, standard_cube, cry_cube_members
 from world_lighting import defaults, overlay, bounds, reflex_times, shadow_spec, probe_lighting_environment, native_probe_areas
+from world_lighting import global_probe_fog, disable_global_probe_fog
 
 
 class LightingTests(unittest.TestCase):
@@ -23,6 +24,29 @@ class LightingTests(unittest.TestCase):
         native_probe_areas(p,native,linked=True)
         self.assertEqual(p.find('Options').get('bDeferredClipBounds'),'1')
         self.assertEqual(p.find('Options').get('bAffectsThisAreaOnly'),'0')
+
+    def test_global_probe_leaves_volumetric_fog(self):
+        p=E.fromstring('<Properties BoxSizeX="99999"><Options bVolumetricFog="1" SortPriority="3"/></Properties>')
+        self.assertEqual(global_probe_fog(p),'1')
+        self.assertEqual(p.find('Options').attrib,{'bVolumetricFog':'0','SortPriority':'3'})
+        default=E.fromstring('<Properties BoxSizeX="99999"/>')  # unauthored: the engine default is 1
+        self.assertIsNone(global_probe_fog(default))
+        self.assertEqual(default.find('Options').get('bVolumetricFog'),'0')
+
+    def test_only_the_packaged_global_probe_leaves_volumetric_fog_once(self):
+        mission=(b'<Objects>'
+                 b'<Entity Name="gm_lighting_26965" EntityClass="EnvironmentLight" PerInstanceStreamable="0"><Properties BoxSizeX="99999">'
+                 b'<Options bVolumetricFog="1"/></Properties></Entity>'
+                 b'<Entity Name="gm_lighting_7" EntityClass="EnvironmentLight" PerInstanceStreamable="1"><Properties><Options bVolumetricFog="1"/></Properties></Entity>'
+                 b'<Entity Name="Env_Probe_UI_01" EntityClass="EnvironmentLight" PerInstanceStreamable="0"><Properties><Options bVolumetricFog="1"/></Properties></Entity>'
+                 b'<Entity Name="gm_lighting_9" EntityClass="Light" PerInstanceStreamable="0"><Properties><Options bVolumetricFog="1"/></Properties></Entity>'
+                 b'</Objects>')
+        result,report=disable_global_probe_fog(mission)
+        fog={e.get('Name'):e.find('Properties/Options').get('bVolumetricFog') for e in E.fromstring(result)}
+        # Local converted probes keep the default like Trosky's; native entities and other classes are untouched.
+        self.assertEqual(fog,{'gm_lighting_26965':'0','gm_lighting_7':'1','Env_Probe_UI_01':'1','gm_lighting_9':'1'})
+        self.assertEqual(report['probes'],['gm_lighting_26965'])
+        self.assertEqual(disable_global_probe_fog(result),(result,dict(report,probes=[])))
 
     def test_probe_only_world_does_not_enable_empty_voxel_gi(self):
         original=b'<Mission><Environment><Total_Illumination_v2 Active="1" IntegrationMode="1"/><Fog value="kept"/></Environment><TimeOfDay value="kept"/></Mission>'
