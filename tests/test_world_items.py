@@ -27,6 +27,26 @@ class MaterialStagingTests(unittest.TestCase):
         self.assertEqual(set(selected),set(files)|{'shared/cloth.dds','shared/cloth.dds.1','shared/cloth.dds.1a'})
         self.assertEqual(selected['shared/cloth.dds.1a'],b'alpha')
         self.assertIn('prior/outfit.skin',shared)
+        # Dotted directories, backslashes and case follow the texture reference; a longer extension does not.
+        shared={'v1.0\\Cloth.DDS':b'base','v1.0/cloth.dds.2':b'mip','v1.0/cloth.ddsx':b'no','v1/cloth.dds':b'no'}
+        files={'current/source.mtl':b'<Material><Textures><Texture File="v1.0/cloth.dds"/></Textures></Material>'}
+        self.assertEqual(set(material_inputs(shared,files)),set(files)|{'v1.0\\Cloth.DDS','v1.0/cloth.dds.2'})
+
+    def test_outputs_move_into_the_staged_cache_instead_of_being_read_back(self):
+        from world_item_clothing import retain_material_file, converted_files
+        from static_assets import StagedAssets
+        class Assets: pass
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);cache=root/'asset-cache';cache.mkdir();work=root/'work/objects';work.mkdir(parents=True)
+            (work/'out.dds').write_bytes(b'baked');(work/'other.txt').write_bytes(b'x')
+            staged=Assets();staged.emitted=StagedAssets(cache)
+            payload=retain_material_file(staged,'objects/out.dds',work/'out.dds')
+            self.assertIsInstance(payload,Path);self.assertEqual(payload.read_bytes(),b'baked')
+            self.assertFalse((work/'out.dds').exists());self.assertEqual(staged.emitted['objects/out.dds'],payload)
+            self.assertEqual([r for r,_ in converted_files(root/'work')],['objects/other.txt'])
+            plain=Assets();plain.emitted={}
+            self.assertEqual(retain_material_file(plain,'objects/other.txt',work/'other.txt'),b'x')
+            self.assertEqual(plain.emitted,{'objects/other.txt':b'x'})
 
 
 def entity(identity='1', cls='PickableItem', **props):
