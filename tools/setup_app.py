@@ -89,7 +89,7 @@ def self_test(destination):
 
 
 # Module-level functions the setup worker runs in process pools.
-POOL_TARGETS = ('world_voxels:_tile', 'build_world_containers:_model_assets',
+POOL_TARGETS = ('world_voxels:_tile', 'build_world_containers:_model_assets', 'world_surface_tiles:_bake_in_worker',
                 'character_native_materials:bake_float_dds')
 
 
