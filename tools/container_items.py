@@ -1,6 +1,7 @@
 """Import all container loot dependencies using the world-item converters."""
 from contextlib import ExitStack
 import json
+import os
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -70,6 +71,14 @@ def build(source, target, mod, output, identifiers, *, asset_namespace='containe
         for name, payload in importer.files.items():
             destination = output/'converted'/name
             destination.parent.mkdir(parents=True, exist_ok=True)
+            if isinstance(payload, Path):
+                # Staged files live beside this folder: link them rather than
+                # reading and writing thousands of textures a second time.
+                try:
+                    os.link(payload, destination)
+                    continue
+                except OSError:
+                    pass
             destination.write_bytes(payload.read_bytes() if isinstance(payload, Path) else payload)
         if report['unresolved_items']:
             raise ValueError(str(len(report['unresolved_items']))+' loot item dependencies need conversion; see report.json')

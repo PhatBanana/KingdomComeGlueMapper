@@ -32,8 +32,24 @@ def female_role(part):
     return roles[region]
 
 
+_ROLES = {}
+
+
 def native_role(components, items, armor_type):
-    """Resolve inherited archetype and a complete item template by clothing role."""
+    """Resolve inherited archetype and a complete item template by clothing role.
+
+    Both trees are native tables read once per import and never edited, so the
+    result is memoized: the walk over every component took 30 ms per wearable
+    item. The entry keeps the trees alive, so their ids cannot be reused.
+    """
+    key = (id(components), id(items), armor_type)
+    cached = _ROLES.get(key)
+    if cached is None or cached[0] is not components or cached[1] is not items:
+        cached = _ROLES[key] = (components, items, _native_role(components, items, armor_type))
+    return cached[2]
+
+
+def _native_role(components, items, armor_type):
     parents = {c: p for p in components.iter() for c in p}
     candidates = [n for n in components.iter('Clothing')
                   if n.get('Name') == armor_type and n.get('ArmorType') == armor_type]
