@@ -98,6 +98,7 @@ The executable and self-test report are written to `outputs/release`. Build its 
 - [x] Compensate the KCD1/KCD2 animation time-base difference for `Waterfall` shader materials.
 - [x] Convert interior probes, reflex lights, clipping associations and opacity voxels for basic GI.
 - [x] Register imported map imagery, detail layers and location information.
+- [x] Convert authored designer collision and barrier volumes with their KCD1 surface types, for the initial-world layers.
 - [ ] Finish shallow mud-puddle surface appearance over imported ground.
 - [ ] Complete broad roof/interior lighting, probe-boundary and material-fidelity validation.
 - [ ] Validate collision, LOD transitions, streaming and traversal across the entire map.

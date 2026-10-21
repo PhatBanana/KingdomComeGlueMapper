@@ -16,10 +16,36 @@ LANDSCAPE_DESIGNER_MATERIALS = {
     'materials/terrain/river/river_bottom_03_for_designer_box',
 }
 
+# KCD1 sandbox designer volumes whose whole purpose is blocking or guiding
+# movement. KCD2 ships the same materials under identical paths with matching
+# SurfaceTypes (mat_level_barrier, mat_player_only, mat_horse_only,
+# mat_deep_water_barrier, mat_barrier_navignore, mat_nodraw_designer, ...), and
+# native trosecko places its own collision volumes as plain HLOD brush records
+# carrying these materials, so a converted record with the material baked into
+# the mesh keeps the authored surface-type semantics.
+COLLISION_PROXY_MATERIALS = {
+    'materials/special/collision_proxy_horseonly',
+    'materials/special/collision_proxy_material',
+    'materials/special/collision_proxy_player_only',
+    'materials/special/collision_proxy_deep_water_barrier',
+    'materials/special/collision_proxy_level_barrier',
+    'materials/special/collision_proxy_material_navignore',
+    'materials/special/collision_proxy_material_puddle',
+    'materials/special/collision_proxy_return_to_skalice_barrier',
+    'materials/special/collision_proxy_counterfeiters_barrier',
+    'materials/special/collision_proxy_entitiesonly',
+}
+
 
 def is_landscape_designer(path, material):
     return (path.replace('\\', '/').lower().startswith('%level%/brush/designer_')
             and material.replace('\\', '/').lower().removesuffix('.mtl') in LANDSCAPE_DESIGNER_MATERIALS)
+
+
+def is_collision_designer(path, material):
+    """Designer volume with an authored collision/barrier surface type."""
+    return (path.replace('\\', '/').lower().startswith('%level%/brush/designer_')
+            and material.replace('\\', '/').lower().removesuffix('.mtl') in COLLISION_PROXY_MATERIALS)
 
 
 def is_uberlod_proxy(path):
