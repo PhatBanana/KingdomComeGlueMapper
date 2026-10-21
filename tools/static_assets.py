@@ -166,8 +166,15 @@ def library_index(stack, library):
     return shader_maps, index, texture_families(index)
 
 
+def library_key(library):
+    """A plain path is resolved here; a GameLibrary (not path-like) carries its resolved root."""
+    if isinstance(library, (str, os.PathLike)):
+        return Path(library).resolve()
+    return Path(library.root).resolve()
+
+
 def shared_library_index(library):
-    key = Path(library).resolve()
+    key = library_key(library)
     if key not in _LIBRARIES:
         if not _LIBRARIES:
             atexit.register(release_library_index)
