@@ -45,6 +45,9 @@ def main():
     # The setup's lighting cache folder is keyed by lighting_cubemaps.py.
     for resource in ('lighting_cubemaps.py','world_surface_scene.py','world_surface_landscape.py','stage_world_surfaces.py','world_surface_tiles.py','voxel_surfaces.py','voxel_raster_fast.py','voxel_raster_cuda.py','voxel_raster_cuda.cu','voxel_optix_shared.h','voxel_optix_device.cu','voxel_optix_host.h','geometry_opacity.py','world_surface_coverage.py'):
         command.extend(['--add-data',f'{repo / "tools" / resource}:.'])
+    from setup_bake_cache import SOURCES
+    for resource in (*SOURCES,'setup_shaders.py','fix_illum_shader.py'):
+        command.extend(['--add-data',f'{repo / "tools" / resource}:.'])
     command.extend(['--hidden-import','voxel_raster_fast','--collect-all','numba','--collect-all','llvmlite'])
     for module in CONVERTERS: command.extend(['--hidden-import', module])
     command.append(str(repo / 'tools/setup_app.py'))

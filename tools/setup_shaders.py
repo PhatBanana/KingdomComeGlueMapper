@@ -230,7 +230,7 @@ def run_command(command, root, log, cancelled, notify, *, compiler_log=None):
     if code: raise ValueError(f'Native shader tool failed ({code}); see {log}')
 
 
-def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
+def build_uncached(target, output, notify=lambda *a: None, cancelled=lambda: False):
     output = Path(output)
     root, signature = prepare(target, output)
     run_command([str(root/'Tools/ShaderCacheGen/ShaderCacheGen.exe'), '/PrecacheShaderList'],
@@ -250,6 +250,51 @@ def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
         report['files']['Engine/'+name] = digest(path)
     (output/'package/shader-build.json').write_text(json.dumps(report, indent=2))
     return validate(output/'package')
+
+
+def cache_key(target):
+    from setup_build_cache import fingerprint, file_hash
+    target = Path(target); sdk = tool_root(target)
+    # Include tool binaries/dependencies and seed/configuration inputs, not the
+    # gameplay package or dated job path. Tool/game updates invalidate reuse.
+    paths = {sdk/n for n in TOOL_FILES}
+    for folder in ('Bin', 'Tools/ShaderCacheGen', 'Tools/rc', 'Tools/modding/USER_ShaderCacheGen'):
+        paths.update(p for p in (sdk/folder).rglob('*') if p.is_file())
+    return fingerprint(dict(version=1, config=CONFIG,
+        repairs={n:file_hash(Path(__file__).with_name(n)) for n in ('setup_shaders.py','fix_illum_shader.py')},
+        tools={p.relative_to(sdk).as_posix():file_hash(p) for p in sorted(paths)},
+        engine={p.name:file_hash(p) for p in sorted((target/'Engine').glob('*.pak'))}))
+
+
+def build(target, output, notify=lambda *a: None, cancelled=lambda: False):
+    from setup_build_cache import Cache, root, forced, copy_payload
+    if root() is None: return build_uncached(target, output, notify, cancelled)
+    from setup_resume import job_lock
+    cache = Cache(root()/'shaders')
+    notify('Check shared shader cache',0,0,str(cache.folder))
+    key = cache_key(target)
+    with job_lock(cache.folder):
+        hit = None if forced() else cache.lookup(key)
+        if not hit and not forced():
+            from setup_cache_import import approved
+            hit=approved('shaders')
+            if hit:
+                saved=json.loads((hit[0]/'shader-build.json').read_text())
+                if (saved.get('source')!=digest(Path(target)/'Engine/Shaders.pak') or
+                    saved.get('compiler')!=digest(tool_root(target)/'Tools/ShaderCacheGen/ShaderCacheGen.exe')):
+                    print('Imported shader sources/compiler differ from this installation; compiling current shaders.',flush=True)
+                    hit=None
+        if hit:
+            validate(hit[0])
+            if cancelled(): raise InterruptedError('Cancelled before reusing shaders')
+            copy_payload(hit[0],Path(output)/'package')
+            print('Reusing verified native shaders from '+str(hit[1].get('source',cache.folder)),flush=True)
+            return validate(Path(output)/'package')
+        print('Building native shaders: '+('regeneration requested' if forced() else 'no matching verified cache'),flush=True)
+        result = build_uncached(target, output, notify, cancelled)
+        package = Path(output)/'package'
+        cache.publish(key,{p.relative_to(package).as_posix():p for p in package.rglob('*') if p.is_file()},result,cancelled)
+        return result
 
 
 def compilation_result(log):

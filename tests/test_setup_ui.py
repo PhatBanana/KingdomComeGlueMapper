@@ -91,6 +91,8 @@ class SetupUITests(unittest.TestCase):
         page.evaluate('window.toolsPresent=true')
         page.locator('#wizard-next').click()
         page.wait_for_selector('[data-pane="1"]',state='visible')
+        self.assertFalse(page.locator('#rebuild-cache').is_checked())
+        page.locator('#rebuild-cache').check()
         page.locator('input[name=baking][value=all]').check()
         page.locator('#wizard-next').click()
         page.wait_for_selector('[data-pane="2"]',state='visible')
@@ -100,6 +102,12 @@ class SetupUITests(unittest.TestCase):
         page.locator('#wizard-next').click()
         page.wait_for_selector('#confirm[open]')
         self.assertIn('All (Forest)',page.locator('#review-content').inner_text())
+        self.assertIn('Rebuild lighting and shaders',page.locator('#review-content').inner_text())
+        self.assertTrue(page.evaluate('collect().rebuild_cache'))
+        page.evaluate("api.start=async c=>{window.testCalls.push(c);return {ok:true,job:'test',steps:[]}}")
+        page.locator('#start').click()
+        page.wait_for_function("window.testCalls.some(c=>c?.rebuild_cache===true)")
+        self.assertFalse(page.locator('#rebuild-cache').is_checked())
 
     def test_installed_mod_launch_handles_success_and_failure(self):
         page=self.page
@@ -114,6 +122,19 @@ class SetupUITests(unittest.TestCase):
         self.assertTrue(page.locator('#launch-mod').is_enabled())
         self.settings()
         self.assertTrue(page.locator('#notice').is_hidden())
+
+    def test_imported_cache_requires_choice_and_rebuild_clears_selection(self):
+        page=self.page
+        page.evaluate("api.cache_candidates=async()=>[{id:'a'.repeat(64),source:'D:/BuildKCDMod/old',preset:'all',shaders:true}]")
+        page.evaluate("window.choice=undefined;void chooseImportedCache({mods:['map'],workspace:'builds',baking:'all',action:'build_only'}).then(x=>window.choice=x)")
+        page.wait_for_selector('#cache-choice[open]')
+        self.assertIn('D:/BuildKCDMod/old',page.locator('#cache-source').inner_text())
+        page.locator('#cache-use').click()
+        page.wait_for_function("window.choice==='a'.repeat(64)")
+        page.evaluate("window.choice=undefined;void chooseImportedCache({mods:['map'],workspace:'builds',baking:'all',action:'build_only'}).then(x=>window.choice=x)")
+        page.wait_for_selector('#cache-choice[open]')
+        page.locator('#cache-fresh').click()
+        page.wait_for_function("window.choice===''")
 
 
 if __name__=='__main__':unittest.main()

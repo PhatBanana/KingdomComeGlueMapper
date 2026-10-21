@@ -51,7 +51,8 @@ def self_test(destination):
     import setup_resume
     import setup_launch
     import setup_baking
-    for resource in ('world_surface_scene.py','world_surface_landscape.py','stage_world_surfaces.py'):
+    from setup_bake_cache import SOURCES
+    for resource in (*SOURCES,'setup_shaders.py','fix_illum_shader.py'):
         if not Path(setup_baking.__file__).with_name(resource).is_file():raise RuntimeError('Missing resume signature source: '+resource)
     # Compile a real small raster job to check frozen Numba and LLVM support.
     from voxel_surfaces import build_tile,Surface

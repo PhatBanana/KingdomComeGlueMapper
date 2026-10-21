@@ -36,7 +36,36 @@ The setup version and mod package versions are separate. KCD1 Map does not conve
 | Buildings | Structures, static props, ground and roads; forest instances excluded from this pass. | 30 GiB |
 | All (Forest) | Buildings coverage plus eligible trees and foliage. | 60 GiB |
 
-All modes include visible buildings and vegetation. Optional surface baking prepares data for indirect illumination; the separate shader compilation stage runs for every fresh KCD1 Map build, including No Baking. Setup does not clear retail shader caches. The surface bake uses two compiled CPU workers for tiles below one million triangles, persistent OptiX for dense tiles, and 64-brick GPU batches with CPU preparation/encoding overlap. GPU failures fall back to CPU with the reason recorded. Baking remains experimental, including approximations for layered materials and foliage.
+All modes include visible buildings and vegetation. Optional surface baking prepares data for indirect illumination; the separate shader stage compiles or reuses matching verified shaders for fresh KCD1 Map builds, including No Baking. Setup does not clear retail shader caches. The surface bake uses two compiled CPU workers for tiles below one million triangles, persistent OptiX for dense tiles, and 64-brick GPU batches with CPU preparation/encoding overlap. GPU failures fall back to CPU with the reason recorded. Baking remains experimental, including approximations for layered materials and foliage.
+
+### Shared build cache (current source)
+
+Setup keeps reusable outputs under the selected build folder, separate from dated jobs:
+
+```text
+D:\BuildKCDMod\cache\cubemaps\   Converted HDR probes
+D:\BuildKCDMod\cache\lighting\   Completed surface-bake shards
+D:\BuildKCDMod\cache\shaders\    Compiled native shader packages
+D:\BuildKCDMod\<dated-job>\       This build's packages, logs and resume checkpoints
+```
+
+Reuse is automatic. Select **Rebuild lighting and shaders for this build** on the Lighting screen to bypass reuse for a new build. This checkbox resets after starting a build and when reopening setup. Buildings and All (Forest) use separate cache entries; changing back can reuse the earlier matching result. No Baking skips surface baking while retaining the other entries. Installing an existing package uses its recorded outputs. Resuming a completed bake does not regenerate it.
+
+Lighting reuse checks the preset, terrain, brush/vegetation placements, effective asset catalog (including meshes, materials and textures), conversion code and bake settings. Shader reuse checks native Engine archives, tool binaries, seed/configuration files and repair code. A changed input or damaged cached output causes a rebuild. Completed lighting and shader entries carry output SHA-256 hashes and are published only after successful completion; cancellation leaves the previous complete entry available.
+
+Only baked voxel shards are reused from the lighting cache. Setup applies the lighting configuration to the **new** world archives, retaining that build's quests, NPCs, schedules and other world content. Packages receive independent copies of cached outputs. Cache entries occupy additional disk space; they can be removed when no build is running, at the cost of rebuilding those outputs next time. Dated jobs retain their own resume checkpoints.
+
+To populate the cache from a completed older build, select **Import cache from older build…** on the Lighting screen and choose its dated folder. Setup verifies the saved lighting shard hashes and compiled shader package, then copies them into `cache/imported`. It does not copy old world archives, quests or NPC data. Incomplete or changed outputs are rejected, and the source build remains untouched.
+
+Older outputs lack the new input fingerprint. At build review, setup therefore asks **Use imported outputs** or **Build current outputs** and shows the source folder. This is a choice for that build, not a permanent compatibility claim: the old lighting may differ if geometry or materials have changed. Only the matching lighting preset is offered; shaders with a different native source or compiler are rebuilt. Outputs with a current matching fingerprint take precedence. Selecting **Rebuild lighting and shaders** bypasses both kinds of cache. Importing by itself does not authorize use or launch a build.
+
+The same function is available to scripts:
+
+```powershell
+.venv\Scripts\python.exe tools/setup_cache_import.py --build D:\BuildKCDMod\20261020-042542-d3827be8 --workspace D:\BuildKCDMod
+```
+
+Automated fixture tests cover import, explicit selection, reuse, invalidation, cancellation and preservation of new gameplay data. A full-map cache-hit timing comparison has not yet been run.
 
 The bundled GPU binary currently targets `sm_120` (the tested development GPU). Other architectures or unsupported drivers use the CPU fallback; broader GPU compatibility has not been validated. The executable includes the GPU DLL, PTX, integrity metadata and OptiX license. Users do not need the CUDA toolkit to run setup.
 

@@ -31,6 +31,15 @@ def checked_config(raw):
     config['mod_tools']=raw.get('mod_tools','')
     if not isinstance(config['mod_tools'],str):raise ValueError('Invalid Modding Tools folder.')
     config['baking']=raw.get('baking','none')
+    config['rebuild_cache']=raw.get('rebuild_cache',False)
+    config['imported_cache']=raw.get('imported_cache','')
+    if (not isinstance(config['imported_cache'],str) or
+            (config['imported_cache'] and (len(config['imported_cache'])!=64 or
+             any(c not in '0123456789abcdef' for c in config['imported_cache'])))):
+        raise ValueError('Invalid imported cache selection.')
+    if raw.get('rebuild_cache') or 'map' not in mods or config['action']=='install':config['imported_cache']=''
+    if not isinstance(config['rebuild_cache'],bool):raise ValueError('Invalid rebuild cache option.')
+    if 'map' not in mods or config['action']=='install':config['rebuild_cache']=False
     if config['baking'] not in PRESETS:raise ValueError('Choose No Baking, Buildings or All (Forest).')
     if 'map' not in mods or config['action']=='install':config['baking']='none'
     config['cutscenes']=raw.get('cutscenes','none')
@@ -137,7 +146,8 @@ def worker(path):
     raw=json.loads(path.read_text())
     root=Path(raw.get("resume_from",path.parent)).resolve()
     try:
-        with job_lock(root):return _worker(path)
+        from setup_build_cache import environment
+        with job_lock(root), environment(raw):return _worker(path)
     except (OSError,ValueError) as e:
         events=legacy.EventLog(path.parent/"events.jsonl")
         events.emit("error",message=str(e));events.stream.close();events.text.close()

@@ -130,6 +130,11 @@ def lighting_cache(build):
     includes a hash of lighting_cubemaps.py: a changed converter starts afresh.
     """
     code = hashlib.sha256(Path(__file__).with_name('lighting_cubemaps.py').read_bytes()).hexdigest()[:16]
+    from setup_build_cache import root, forced
+    if root() is not None:
+        # Forced runs get a separate scratch cache; ordinary runs share inputs.
+        if forced(): return Path(build).parent/'lighting-cache-rebuilt'/code
+        return root()/'cubemaps'/code
     return Path(build).resolve().parents[1] / 'lighting-cache' / code
 
 
@@ -324,7 +329,8 @@ def worker(config_path):
     try:
         events.emit('log', message=preflight(config))
         os.chdir(job)
-        with redirect_stdout(output), redirect_stderr(output):
+        from setup_build_cache import environment
+        with redirect_stdout(output), redirect_stderr(output), environment(config):
             if config['action'] == 'build_travel':
                 from region_travel import build
                 from travel_bridge_package import combine

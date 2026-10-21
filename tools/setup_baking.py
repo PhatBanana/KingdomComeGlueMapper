@@ -10,6 +10,16 @@ from setup_campaign import RECEIPT,digest,verify_package
 PRESETS={'none':'No Baking','buildings':'Buildings','all':'All (Forest)'}
 
 def bake_package(package,game,workspace,preset,progress,cancelled):
+    from setup_build_cache import root, Cache
+    from setup_resume import job_lock
+    if root() is None or preset == 'none':
+        return _bake_package(package,game,workspace,preset,progress,cancelled)
+    cache = Cache(root()/'lighting')
+    with job_lock(cache.folder):
+        return _bake_package(package,game,workspace,preset,progress,cancelled,cache)
+
+
+def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
     if preset not in PRESETS:raise ValueError('Unknown baking preset')
     if preset=='none':return
     from world_surface_scene import plan
@@ -46,7 +56,30 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
     for level in levels:
         if not (level/'terrain.pak').exists():continue
         if cancelled():raise InterruptedError('Cancelled before baking '+level.name)
+        cache_key = None
+        if cache is not None:
+            from setup_bake_cache import key, restore, publish
+            from setup_build_cache import forced
+            progress('Check shared lighting cache',0,0,level.name)
+            from setup_gpu import hybrid_environment
+            with hybrid_environment(): cache_key = key(level,game,overrides,preset)
+            hit = None if forced() else cache.lookup(cache_key)
+            if not hit and not forced():
+                from setup_cache_import import approved
+                hit=approved('lighting',level=level.name,preset=preset)
+            if hit:
+                output = workspace/('cached-'+uuid.uuid4().hex[:12])
+                report = restore(hit,level,output)
+                print('Reusing '+PRESETS[preset]+' lighting from '+str(report.get('imported_from',cache.folder)),flush=True)
+                staged.append((level.name,output/'packages'))
+                reports.append(dict(level=level.name,tiles=report['tiles'],limitations=report['limitations'],
+                                    imported_from=report.get('imported_from'),
+                                    vegetation_gi_upgrade=report.get('vegetation_gi_upgrade')))
+                continue
+            print('Building lighting: '+('regeneration requested' if forced() else 'no matching verified cache'),flush=True)
         levelwork=workspace/level.name;levelwork.mkdir(exist_ok=True)
+        if cache is not None and forced():
+            levelwork=levelwork/('rebuild-'+uuid.uuid4().hex[:12]);levelwork.mkdir()
         ready=levelwork/'ready.json'
         if ready.exists():
             attempt=json.loads(ready.read_text())['attempt']
@@ -77,8 +110,10 @@ def bake_package(package,game,workspace,preset,progress,cancelled):
         if cancelled():raise InterruptedError('Cancelled before staging bake')
         output=root/('staged-'+uuid.uuid4().hex[:12])
         report=stage(root/'scene',output)
+        if cache is not None: publish(cache,cache_key,output,report,cancelled)
         staged.append((level.name,output/'packages'))
-        reports.append(dict(level=level.name,tiles=report['tiles'],limitations=report['limitations']))
+        reports.append(dict(level=level.name,tiles=report['tiles'],limitations=report['limitations'],
+                            vegetation_gi_upgrade=report.get('vegetation_gi_upgrade')))
     if not reports:raise ValueError('No converted levels to bake')
     if cancelled():raise InterruptedError('Cancelled before applying complete bake')
     # Construct a replacement privately. Hardlinks are only read; every changed

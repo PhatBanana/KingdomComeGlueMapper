@@ -56,9 +56,10 @@ class SetupAPI:
         found,warnings=discover()
         defaults=dict(kcd1=next(iter(found['kcd1']),''),kcd2=next(iter(found['kcd2']),''),
             mod_tools=next(iter(found.get('mod_tools',[])),''),
-            workspace=str(self._settings.parent/'builds'),package='',action='build_install',mods=['map'],baking='none',cutscenes='none',converter='')
+            workspace=str(self._settings.parent/'builds'),package='',action='build_install',mods=['map'],baking='none',cutscenes='none',converter='',rebuild_cache=False)
         try:defaults.update({k:v for k,v in json.loads(self._settings.read_text()).items() if k in defaults})
         except (OSError,ValueError,TypeError):pass
+        defaults['rebuild_cache']=False  # A regeneration request applies to one new build.
         installed=[]
         for item in CATALOG:
             if (Path(defaults['kcd2'])/'Mods'/item['modid']/'mod.manifest').is_file():installed.append(item['id'])
@@ -142,6 +143,23 @@ class SetupAPI:
     def check(self,config):
         try:return preflight(config)
         except (OSError,ValueError,KeyError,TypeError) as e:return dict(ok=False,error=str(e))
+
+    def cache_candidates(self,workspace,preset):
+        from setup_cache_import import candidates
+        return candidates(workspace,preset)
+
+    def import_old_cache(self,workspace):
+        import webview
+        from setup_cache_import import import_build
+        with self._lock:
+            if self._busy():return dict(ok=False,error='Wait for the current setup operation to finish.')
+            selected=self._window.create_file_dialog(webview.FileDialog.FOLDER)
+            if not selected:return dict(ok=False,cancelled=True)
+            self._launching=True
+        try:return dict(ok=True,cache=import_build(selected[0],workspace))
+        except (OSError,ValueError,KeyError,TypeError) as e:return dict(ok=False,error=str(e))
+        finally:
+            with self._lock:self._launching=False
 
     def start(self,config):
         with self._lock:
