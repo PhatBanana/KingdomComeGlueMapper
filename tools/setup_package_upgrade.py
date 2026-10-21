@@ -225,6 +225,8 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         from world_environment import retire_converted_audio
         mission, audio_report = retire_converted_audio(read(z, 'objects_mission0.xml'), source)
         receipt['ambient_audio_upgrade'] = audio_report
+        from world_lighting import disable_global_probe_fog
+        mission, receipt['global_probe_fog'] = disable_global_probe_fog(mission)
         metadata, added = reconcile(read(z, 'whdata_0'), mission)
         from area_geometry_contract import normalize
         missions = [mission if n.lower() == 'objects_mission0.xml' else read(z, n)

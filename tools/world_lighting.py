@@ -125,6 +125,45 @@ def native_probe_areas(properties, native_defaults, linked=False):
     return {'source': before, 'native': {key: options.get(key) for key in before}}
 
 
+def global_probe_fog(properties):
+    """Keep the converted level-wide probe out of volumetric fog.
+
+    KCD2 draws the map, journal, inventory and trade screens as 3D scenes inside
+    the loaded level (ui/Apse2 near -3909,-3994). EnvironmentLight defaults to
+    bVolumetricFog=1 and Trosky's global_probe_trosecko keeps it, but its 5000 m
+    box ends far short of those scenes, whose own probes Warhorse sets to 0.
+    KCD1's level_global_probe is a 99999 m box, so with volumetric fog it veils
+    every menu (#27). Local probes keep the engine default, as in Trosky.
+    Returns the source value (None when it relied on the default).
+    """
+    options = properties.find('Options')
+    if options is None:
+        options = ET.SubElement(properties, 'Options')
+    before = options.get('bVolumetricFog')
+    options.set('bVolumetricFog', '0')
+    return before
+
+
+def disable_global_probe_fog(mission):
+    """Apply global_probe_fog to a converted level-wide probe already in a packaged mission.
+
+    The converter marks that probe, and only it, PerInstanceStreamable="0".
+    """
+    root = ET.fromstring(mission)
+    changed = []
+    for entity in root.iter('Entity'):
+        if (entity.get('EntityClass') != 'EnvironmentLight' or not entity.get('Name', '').startswith(PREFIX)
+                or entity.get('PerInstanceStreamable') != '0'):
+            continue
+        options = entity.find('Properties/Options')
+        if options is not None and options.get('bVolumetricFog', '1') == '0':
+            continue
+        global_probe_fog(entity.find('Properties'))
+        changed.append(entity.get('Name'))
+    report = dict(version=1, probes=changed, runtime_verified=False)
+    return (xml(root) if changed else mission), report
+
+
 def probe_lighting_environment(blob):
     """Use native baked-probe lighting until this generated world has an SVO bake.
 
@@ -260,6 +299,8 @@ def build(files, source, target, level, guid, work):
                         else:
                             record['area_conversion'] = native_probe_areas(
                                 props, schemas[kind], bool(original.findall('EntityLinks/Link')))
+                            if global_probe:
+                                record['source_volumetric_fog'] = global_probe_fog(props)
                             advanced=props.find('OptionsAdvanced');dynamic=advanced.get('bDynamic')=='1'
                             explicit=advanced.get('texture_deferred_cubemap') or props.find('Options').get('_texture_deferred_cubemap')
                             if dynamic:
