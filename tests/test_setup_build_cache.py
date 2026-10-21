@@ -81,7 +81,7 @@ class BuildCacheTests(unittest.TestCase):
         from shader_fixture import package_shaders
         with tempfile.TemporaryDirectory() as t:
             root=Path(t)
-            def compile(target,output,*args):
+            def compile(target,output,*args,**kwargs):
                 p=Path(output)/'package';p.mkdir(parents=True);package_shaders(p)
                 return validate(p)
             with environment({'workspace':t}),patch('setup_shaders.cache_key',return_value=fingerprint('shaders')),patch('setup_shaders.build_uncached',side_effect=compile) as compiler:
