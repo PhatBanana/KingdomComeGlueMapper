@@ -252,6 +252,9 @@ level (`interior_exposure.restore`), because with baked interiors the cap left
 the inventory, map and journal screens pale and some daylight views
 overexposed (#27). The restore only acts on a mission whose `EV Min` records
 are exactly the cap of the native Trosky mission; anything else is unchanged.
+Packages baked before this restore receive it once during package migration
+(`setup_package_upgrade.finalize`): a baked level without an `exposure` entry
+in its bake report is restored and recorded, so later migrations leave it alone.
 
 The installed development level has 33 corrected exposure variable records;
 all 1,011 unrelated archive entries were preserved. After a fresh launch,

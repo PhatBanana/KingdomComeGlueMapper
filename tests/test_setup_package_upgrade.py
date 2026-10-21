@@ -66,6 +66,12 @@ class UpgradeTests(unittest.TestCase):
         self.retail_initializers = True
         self.test_migrates_legacy_world_without_changing_shared_assets()
 
+    def test_baked_package_regains_native_exposure_during_migration(self):
+        self.source_recipe = 29
+        self.retail_initializers = True
+        self.baked = True
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe28_migrates_to_current_merchant_recipe(self):
         self.source_recipe = 28
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -151,6 +157,11 @@ class UpgradeTests(unittest.TestCase):
                 z.writestr('triggerareas.fubar',write_areas([],1))
                 from test_skalitz_outer_gates import fixture
                 for name,data in fixture().items():z.writestr(name,data)
+                if getattr(self, 'baked', False):
+                    from interior_exposure import convert as cap_exposure
+                    native_mission = b'<Mission><TimeOfDay><Variable Name="EV Min" Value="7"><Spline Keys="0:7:36,"/></Variable></TimeOfDay></Mission>'
+                    z.writestr('mission_mission0.xml', cap_exposure(native_mission)[0])
+                    archive('native/Data/Levels/trosecko/level.pak', {'mission_mission0.xml': native_mission})
             from test_lod_ratio_metadata import fixture as lod_fixture
             archive('Data/Levels/kcd1_travel/terrain.pak', {'terrain/terrain.dat': lod_fixture()[0]})
             table=f'Libs/Tables/level__{MOD_ID}.xml'
@@ -161,6 +172,8 @@ class UpgradeTests(unittest.TestCase):
             archive('Data/shared.pak',{'shared.bin':b'shared'})
             shared=p/'Data/shared.pak';shared_before=shared.read_bytes()
             r=dict(schema=1,owner=MOD_ID,travel_bridge={'destination':'kcd1_travel'},build_recipe=dict(version=getattr(self,'source_recipe',3),status='complete',content_validation={'actors':11},streaming_validation={'ok':True},shader_validation={'installation':'mod_private_root'},steps=[{'id':s} for s in STAGE_IDS]))
+            if getattr(self, 'baked', False):
+                r['baking'] = dict(preset='buildings', levels=[dict(level='kcd1_travel', tiles=1)])
             if getattr(self,'restore_split',False):
                 from test_mesh_streaming import fixture as mesh_fixture
                 from mesh_streaming import upgrade_package
@@ -223,6 +236,10 @@ class UpgradeTests(unittest.TestCase):
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
                     self.assertIn(b'Marker=', z.read(QUEST_PATH))
             verify_package(p)
+            if getattr(self, 'baked', False):
+                self.assertEqual(result['baking']['levels'][0]['exposure'], {'restored_exposure_profiles': 1})
+                with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
+                    self.assertIn(b'Value="7"', z.read('mission_mission0.xml'))
             if getattr(self, 'retire_ambience', False):
                 self.assertEqual(result['ambient_audio_upgrade']['removed_emitters'], ['gm_environment_1'])
                 with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:

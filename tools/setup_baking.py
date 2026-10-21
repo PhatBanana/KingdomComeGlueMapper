@@ -30,6 +30,23 @@ def restore_baked_exposure(level_pak,native_pak):
     if report['restored_exposure_profiles']:rewrite(level_pak.parent,level_pak.name,{name:restored})
     return report
 
+def upgrade_baked_exposure(package,receipt,game):
+    """Give packages baked before restore_baked_exposure their native exposure.
+
+    A level whose bake report already records its exposure is left alone, so
+    this runs once per package. Returns the rewritten archives, relative to
+    the package, for the caller to re-hash in the receipt.
+    """
+    native=Path(game)/'Data/Levels/trosecko/level.pak' if game is not None else None
+    if native is None or not native.is_file():return []
+    changed=[]
+    for report in receipt.get('baking',{}).get('levels',[]):
+        if 'exposure' in report:continue
+        relative=f"Data/Levels/{report['level']}/level.pak"
+        report['exposure']=restore_baked_exposure(Path(package)/relative,native)
+        if report['exposure']['restored_exposure_profiles']:changed.append(relative)
+    return changed
+
 def bake_package(package,game,workspace,preset,progress,cancelled):
     from setup_build_cache import root, Cache
     from setup_resume import job_lock

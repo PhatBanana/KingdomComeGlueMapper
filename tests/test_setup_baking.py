@@ -94,4 +94,25 @@ class BakeSetupTests(unittest.TestCase):
             self.assertEqual(restore_baked_exposure(root/'other.pak',root/'game/native.pak'),{'restored_exposure_profiles':0})
             self.assertEqual((root/'other.pak').read_bytes(),before)
 
+    def test_upgrade_restores_exposure_once_in_packages_baked_before_the_restore(self):
+        import zipfile
+        from interior_exposure import convert
+        from setup_baking import upgrade_baked_exposure
+        from upgrade_map import read
+        native=b'<Mission><TimeOfDay><Variable Name="EV Min" Value="7"><Spline Keys="0:7:36,"/></Variable></TimeOfDay></Mission>'
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);level=root/'package/Data/Levels/kcd1_travel';level.mkdir(parents=True)
+            (root/'game/Data/Levels/trosecko').mkdir(parents=True)
+            with zipfile.ZipFile(root/'game/Data/Levels/trosecko/level.pak','w') as z:z.writestr('mission_mission0.xml',native)
+            with zipfile.ZipFile(level/'level.pak','w') as z:z.writestr('mission_mission0.xml',convert(native)[0])
+            receipt={'baking':{'levels':[{'level':'kcd1_travel','tiles':3}]}}
+            self.assertEqual(upgrade_baked_exposure(root/'package',json.loads(json.dumps(receipt)),None),[])
+            self.assertEqual(upgrade_baked_exposure(root/'package',receipt,root/'game'),['Data/Levels/kcd1_travel/level.pak'])
+            self.assertEqual(receipt['baking']['levels'][0]['exposure'],{'restored_exposure_profiles':1})
+            with zipfile.ZipFile(level/'level.pak') as z:self.assertIn(b'Value="7"',read(z,'mission_mission0.xml'))
+            before=(level/'level.pak').read_bytes()
+            self.assertEqual(upgrade_baked_exposure(root/'package',receipt,root/'game'),[])
+            self.assertEqual((level/'level.pak').read_bytes(),before)
+            self.assertEqual(upgrade_baked_exposure(root/'package',{},root/'game'),[])
+
 if __name__=='__main__':unittest.main()
