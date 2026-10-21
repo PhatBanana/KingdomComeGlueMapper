@@ -314,7 +314,7 @@ def windows_script(output: Path, name: str, arguments: str) -> None:
     (output / name).write_bytes(text.replace("\n", "\r\n").encode("ascii"))
 
 
-def build(options: BuildOptions, progress=print) -> dict:
+def build(options: BuildOptions, progress=print, *, upgrade_level=None) -> dict:
     progress("Checking game build, source conversion and the supplied KCDMP release...")
     plan = inspect(options)
     output = Path(plan["output"])
@@ -333,6 +333,8 @@ def build(options: BuildOptions, progress=print) -> dict:
         (mod / "Data").mkdir(parents=True)
         progress("Cleaning campaign entities and retaining converted map rendering...")
         level_report = build_level(level, mod / "Data/Levels" / LEVEL, ctx)
+        if upgrade_level is not None:
+            level_report['surface_placement'] = upgrade_level(mod, LEVEL)
         reports = []
         root_paks = sorted((source / "Data").glob("*.pak"))
         for n, path in enumerate(root_paks, 1):

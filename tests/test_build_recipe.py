@@ -201,6 +201,11 @@ class RecipeTests(unittest.TestCase):
             with self.subTest(field=field), self.assertRaisesRegex(ValueError, 'population conversion'):
                 require_current(receipt)
         receipt['profile_population'] = population
+        with self.assertRaisesRegex(ValueError, 'surface placement'): require_current(receipt)
+        eligible(receipt)
+        self.assertNotIn('surface_placement', receipt)
+        from terrain_object_tree import VERSION as PLACEMENT_VERSION
+        receipt['surface_placement'] = dict(version=PLACEMENT_VERSION)
         require_current(receipt)
         receipt['static_navigation_profiles']['profiles'] = []
         with self.assertRaisesRegex(ValueError, 'navigation conversion'): require_current(receipt)
