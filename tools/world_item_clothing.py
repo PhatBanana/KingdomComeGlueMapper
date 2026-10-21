@@ -2,6 +2,7 @@
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor
 import copy
+import os
 import xml.etree.ElementTree as ET
 import zipfile
 import tempfile
@@ -31,17 +32,37 @@ def material_inputs(emitted, files):
         textures.update(t.get('File','').replace('\\','/').lower() for t in root.iter('Texture') if t.get('File'))
     for name,payload in emitted.items():
         key=name.replace('\\','/').lower()
-        if any(key==texture or key.startswith(texture+'.') for texture in textures):
+        # A family member is the texture itself or the texture with a '.N' mip suffix;
+        # test each dot-prefix against the set instead of every texture against the key.
+        if key in textures or any(key[:i] in textures for i,c in enumerate(key) if c=='.'):
             selected.setdefault(name,payload)
     return selected
 
 
 def retain_material_file(assets, name, path):
-    # DependencyImporter supports Path payloads. Keep native float-DDS outputs
-    # on disk just like the source textures, rather than retaining every
-    # outfit's expanded textures in memory until the entire loot pass finishes.
+    # DependencyImporter supports Path payloads. Keep conversion outputs on disk
+    # just like the source textures, rather than retaining every outfit's
+    # expanded textures in memory until the entire loot pass finishes. A staged
+    # cache on the same volume takes the file itself; reading it back and
+    # writing it again would cost two more scanned opens per file.
+    reserve = getattr(assets.emitted, 'reserve', None)
+    if reserve is not None:
+        staged = reserve(name)
+        try:
+            os.replace(path, staged)
+            return staged
+        except OSError:
+            pass
     assets.emitted[name] = path.read_bytes()
     return assets.emitted[name]
+
+
+def converted_files(folder):
+    """Every file under folder as (posix path relative to folder, Path), without a stat per file."""
+    for root, _, names in os.walk(folder):
+        for name in names:
+            path = Path(root)/name
+            yield path.relative_to(folder).as_posix(), path
 
 
 class ClothingAdapter:
@@ -170,22 +191,41 @@ class ClothingAdapter:
             # as fixed NPC outfits. Legacy Illum permutations are not a native
             # clothing contract, even when the item table imports successfully.
             if not horse:
-                with tempfile.TemporaryDirectory(prefix='wearable-materials-') as temporary:
+                # Work beside the staging cache: staged textures are then hard
+                # links and outputs move into the cache, instead of every file
+                # being written, read back and written again (~1 ms per open
+                # under on-access scanning, a few hundred files per item).
+                staging = getattr(a.emitted, 'directory', None)
+                with tempfile.TemporaryDirectory(prefix='wearable-materials-',
+                                                 dir=staging.parent if staging is not None else None) as temporary:
                     folder = Path(temporary)
+                    linked = {}
                     # Material textures can be shared with an earlier item in
                     # this import batch; include their already-emitted files.
                     for path, payload in material_inputs(a.emitted,files).items():
                         dest = folder/path; dest.parent.mkdir(parents=True, exist_ok=True)
+                        # The conversion only reads textures; it rewrites materials and meshes in place.
+                        if staging is not None and isinstance(payload, Path) and '.dds' in path.lower():
+                            try:
+                                os.link(payload, dest); linked[path] = dest.stat()
+                                continue
+                            except OSError:
+                                pass
                         dest.write_bytes(payload.read_bytes() if isinstance(payload, Path) else payload)
                     (folder/'Libs/Tables/Character').mkdir(parents=True,exist_ok=True)
                     baked = []
                     material_report = convert_character_materials(folder, component, self.native, name, sex,
                                                                   self.deferred_bake(folder, baked))
-                    for path in folder.rglob('*'):
-                        if path.is_file():
-                            relative = path.relative_to(folder).as_posix()
-                            if relative.startswith(prefix) or relative.startswith('Libs/Tables/Character/ClothingMaterial__'):
-                                files[relative] = retain_material_file(a,relative,path)
+                    for relative, path in converted_files(folder):
+                        if not (relative.startswith(prefix) or relative.startswith('Libs/Tables/Character/ClothingMaterial__')):
+                            continue
+                        if relative in linked:
+                            after = path.stat()
+                            if (after.st_size, after.st_mtime_ns) != (linked[relative].st_size, linked[relative].st_mtime_ns):
+                                raise RuntimeError('Wearable texture was rewritten in place: '+relative)
+                            files[relative] = a.emitted[relative]
+                        else:
+                            files[relative] = retain_material_file(a,relative,path)
                     for relative in baked:
                         if relative.startswith(prefix): files[relative] = a.emitted[relative]
         elif role not in ('HorseShoe','Ring','Necklace','Spurs'): raise ValueError('Source wearable is missing a model')

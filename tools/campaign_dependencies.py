@@ -45,11 +45,10 @@ class DependencyImporter:
             if record['status'] == 'importing':
                 record['cycle_detected'] = True
             return record.get('target')
-        matches = [value for source, value in registry.items() if source.lower() == identity]
-        if len(matches) > 1:
-            raise ValueError('Ambiguous registered dependency: ' + group + ':' + identity)
-        if matches:
-            return matches[0]
+        # Keys are stored lowercased (above and at registration), so this lookup
+        # equals the former case-insensitive scan of thousands of native items.
+        if identity in registry:
+            return registry[identity]
         record = dict(group=group, identity=identity, requested_by=[site] if site is not None else [],
                       status='importing', dependencies=[])
         self.jobs[key] = record

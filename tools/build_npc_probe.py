@@ -57,13 +57,33 @@ def resolve_parts(soul, rows):
     return parts
 
 
+_HUMAN_ASSETS = {}
+
+
+def human_assets(index):
+    """Human character asset paths by file name, built once per index.
+
+    asset_path runs once per wearable item and the index holds about half a
+    million names; scanning it each time cost 20 ms per lookup.
+    """
+    cached = _HUMAN_ASSETS.get(id(index))
+    if cached is None or cached[0] != len(index):
+        names = {}
+        for path in index:
+            if path.startswith('objects/characters/humans/'):
+                names.setdefault(path.rsplit('/', 1)[-1], []).append(path)
+        cached = _HUMAN_ASSETS[id(index)] = (len(index), names)
+    return cached[1]
+
+
 def asset_path(index, part, field, extension):
     value = part[field].replace('\\', '/').lower().removesuffix(extension)
     exact = value + extension
     if exact in index:
         return exact
-    candidates = [p for p in index if p.startswith('objects/characters/humans/')
-                  and p.endswith('/' + value + extension)]
+    # Equivalent to scanning every human path for the '/'-bounded suffix.
+    candidates = [p for p in human_assets(index).get(exact.rsplit('/', 1)[-1], ())
+                  if p.endswith('/' + value + extension)]
     preferred = [p for p in candidates if '/' + part['kind'] + '/' in p]
     candidates = preferred or candidates
     if len(candidates) != 1:
