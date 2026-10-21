@@ -125,6 +125,38 @@ def native_probe_areas(properties, native_defaults, linked=False):
     return {'source': before, 'native': {key: options.get(key) for key in before}}
 
 
+def native_probe_fog(properties):
+    """Keep converted probes out of volumetric fog, like every shipped Trosky probe.
+
+    KCD1 probes, including the 99999 m level_global_probe, carry bVolumetricFog=1.
+    KCD2's map, journal, inventory and trade screens are 3D scenes inside the
+    loaded level, so a world-sized probe that feeds volumetric fog veils every
+    menu (#27). No light or probe in retail Trosky contributes to volumetric fog.
+    """
+    options = properties.find('Options')
+    before = {key: options.get(key) for key in ('bVolumetricFog', 'bAffectsVolumetricFogOnly')}
+    for key in before:
+        options.set(key, '0')
+    return before
+
+
+def disable_probe_volumetric_fog(mission):
+    """Apply native_probe_fog to converted probes already in a packaged mission."""
+    root = ET.fromstring(mission)
+    changed = []
+    for entity in root.iter('Entity'):
+        if entity.get('EntityClass') != 'EnvironmentLight' or not entity.get('Name', '').startswith(PREFIX):
+            continue
+        options = entity.find('Properties/Options')
+        if options is None or (options.get('bVolumetricFog', '0') == '0'
+                                and options.get('bAffectsVolumetricFogOnly', '0') == '0'):
+            continue
+        native_probe_fog(entity.find('Properties'))
+        changed.append(entity.get('Name'))
+    report = dict(version=1, probes=len(changed), runtime_verified=False)
+    return (xml(root) if changed else mission), report
+
+
 def probe_lighting_environment(blob):
     """Use native baked-probe lighting until this generated world has an SVO bake.
 
@@ -260,6 +292,7 @@ def build(files, source, target, level, guid, work):
                         else:
                             record['area_conversion'] = native_probe_areas(
                                 props, schemas[kind], bool(original.findall('EntityLinks/Link')))
+                            record['source_volumetric_fog'] = native_probe_fog(props)
                             advanced=props.find('OptionsAdvanced');dynamic=advanced.get('bDynamic')=='1'
                             explicit=advanced.get('texture_deferred_cubemap') or props.find('Options').get('_texture_deferred_cubemap')
                             if dynamic:
