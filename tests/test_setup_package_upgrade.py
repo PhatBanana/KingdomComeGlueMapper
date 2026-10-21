@@ -194,7 +194,10 @@ class UpgradeTests(unittest.TestCase):
             with patch('setup_profile_population.upgrade', return_value=({}, population_report)) as population_upgrade, patch('setup_animal_population.upgrade', return_value=({}, animal_report)) as animal_upgrade, patch('static_navigation_profiles.upgrade', return_value=({}, {'version': 1})) as navigation_upgrade, patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
                 with patch('setup_quest_introductions.upgrade', return_value=({}, {'runtime_verified': False})) as intro_upgrade, patch('campaign_menu_stage.add_to_package'), patch(
                         'setup_quest_starts.SELECTIONS', (('different_quest','teacher','intro'),)):
-                    result=finalize(p, source=p, target=p/'native' if getattr(self, 'retail_initializers', False) else None)
+                    progress=[]  # the setup passes EventLog.progress(label, current, total, detail='')
+                    result=finalize(p, source=p, target=p/'native' if getattr(self, 'retail_initializers', False) else None,
+                                    notify=lambda *args: progress.append(args))
+                    self.assertTrue(progress and all(3 <= len(args) <= 4 for args in progress), progress)
                     intro_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     if getattr(self, 'repeat_resume', False):
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
