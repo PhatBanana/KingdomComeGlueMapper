@@ -62,6 +62,27 @@ class NPCEffectsTests(unittest.TestCase):
             self.assertEqual(payload[84:88],b'DX10')
             np.testing.assert_array_equal(np.frombuffer(payload[148:],dtype='<f2'),result.reshape(-1))
 
+    def test_float_textures_start_at_the_largest_mip_within_the_size_cap(self):
+        import struct
+        from npc_effects import MAX_FLOAT_SIZE
+        self.assertEqual(MAX_FLOAT_SIZE, 2048)  # 32 MB pieces; 4096 (134 MB) crashed retail
+        pixels=np.random.default_rng(3).random((8,16,4)).astype(np.float16)
+        with tempfile.TemporaryDirectory() as tmp:
+            full,capped=Path(tmp)/'full.dds',Path(tmp)/'capped.dds'
+            write_float_dds(full,pixels,max_size=16); write_float_dds(capped,pixels,max_size=8)
+            a,b=full.read_bytes(),capped.read_bytes()
+            # height, width, pitch, depth, mip count
+            self.assertEqual(struct.unpack_from('<IIIII',a,12),(8,16,128,0,5))
+            self.assertEqual(struct.unpack_from('<IIIII',b,12),(4,8,64,0,4))
+            self.assertEqual(a[32:148],b[32:148])  # the rest of the header is unchanged
+            # The capped file is the full chain without its top level: the same remaining bytes.
+            self.assertEqual(b[148:],a[148+16*8*8:])
+            write_float_dds(full,pixels)  # the default cap keeps small textures whole
+            self.assertEqual(full.read_bytes(),a)
+            # The default cap applies: a 4096-wide source starts at 2048 (one row keeps it small).
+            wide=Path(tmp)/'wide.dds'; write_float_dds(wide,np.zeros((1,4096,4),np.float16))
+            self.assertEqual(struct.unpack_from('<IIIII',wide.read_bytes(),12),(1,2048,2048*8,0,12))
+
     def test_clothing_removes_conflicting_bindings(self):
         source=ET.fromstring('<Material Shader="Illum" StringGenMask="%COLORIZING%DETAIL_MAPPING%NORMAL_MAP"><Textures><Texture Map="Bumpmap" File="normal.dds"/><Texture Map="Custom" File="old_damage.dds"/></Textures></Material>')
         ref=ET.fromstring('<Material><PublicParams BloodBreakup="0.2"/></Material>')
