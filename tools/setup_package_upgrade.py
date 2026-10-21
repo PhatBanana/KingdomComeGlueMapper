@@ -296,7 +296,7 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     receipt['lod_ratio_metadata'] = ratio_report
     receipt['build_recipe']['streaming_validation']['lod_ratio_version'] = ratio_report['version']
     from terrain_surface_placement import upgrade_package as upgrade_surface_placement
-    notify('Applying KCD2 surface-tree placement')
+    notify('Applying KCD2 surface-tree placement', 0, 0, '')  # setup progress: label, current, total, detail
     placement_files, placement_report = upgrade_surface_placement(package)
     receipt['files'].update(placement_files)
     receipt['surface_placement'] = placement_report
