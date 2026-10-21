@@ -57,23 +57,26 @@ def resolve_parts(soul, rows):
     return parts
 
 
-_HUMAN_ASSETS = {}
+_HUMAN_ASSETS = [None, 0, {}]  # the index itself, its size, file names
 
 
 def human_assets(index):
     """Human character asset paths by file name, built once per index.
 
     asset_path runs once per wearable item and the index holds about half a
-    million names; scanning it each time cost 20 ms per lookup.
+    million names; scanning it each time cost 20 ms per lookup. The cache
+    holds the index it was built from and is checked by identity, so a
+    released index whose id is reused never answers for another; only the
+    most recent index is kept.
     """
-    cached = _HUMAN_ASSETS.get(id(index))
-    if cached is None or cached[0] != len(index):
+    source, size, names = _HUMAN_ASSETS
+    if source is not index or size != len(index):
         names = {}
         for path in index:
             if path.startswith('objects/characters/humans/'):
                 names.setdefault(path.rsplit('/', 1)[-1], []).append(path)
-        cached = _HUMAN_ASSETS[id(index)] = (len(index), names)
-    return cached[1]
+        _HUMAN_ASSETS[:] = [index, len(index), names]
+    return names
 
 
 def asset_path(index, part, field, extension):

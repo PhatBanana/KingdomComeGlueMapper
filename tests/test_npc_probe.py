@@ -36,6 +36,25 @@ class NpcProbeTests(unittest.TestCase):
                                     'material', '.mtl'),
                          'objects/characters/humans/body/common.mtl')
 
+    def test_file_name_cache_never_answers_for_a_different_index_of_the_same_size(self):
+        import gc
+        from build_npc_probe import human_assets
+        old = {'objects/characters/humans/male/head/old.skin': None}
+        self.assertEqual(human_assets(old), {'old.skin': ['objects/characters/humans/male/head/old.skin']})
+        released = id(old); del old; gc.collect()
+        # Allocate one-entry indices until one reuses the released index's id
+        # (an id-keyed cache then returns the old names). A cache that keeps
+        # its index alive prevents the reuse altogether.
+        held = []
+        for _ in range(10000):
+            new = {'objects/characters/humans/female/head/new.skin': None}
+            if id(new) == released: break
+            held.append(new)
+        self.assertEqual(human_assets(new), {'new.skin': ['objects/characters/humans/female/head/new.skin']})
+        self.assertEqual(asset_path(new, {'kind': 'head', 'model': 'new'}, 'model', '.skin'),
+                         'objects/characters/humans/female/head/new.skin')
+        self.assertIs(human_assets(new), human_assets(new))  # still built once per index
+
     def test_ambiguous_asset_is_rejected(self):
         with self.assertRaises(ValueError):
             asset_path({'objects/characters/humans/head/a/shared.skin': None,
