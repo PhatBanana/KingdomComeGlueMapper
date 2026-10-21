@@ -66,6 +66,10 @@ class UpgradeTests(unittest.TestCase):
         self.retail_initializers = True
         self.test_migrates_legacy_world_without_changing_shared_assets()
 
+    def test_shopkeepers_gain_haggle_roles_during_migration(self):
+        self.shopkeeper = True
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_baked_package_regains_native_exposure_during_migration(self):
         self.source_recipe = 29
         self.retail_initializers = True
@@ -132,7 +136,11 @@ class UpgradeTests(unittest.TestCase):
                 archive('native/Data/IPL_GameData.pak', {'Libs/concept/definitions.xml': b'''<Definitions><Definition TypeName="MemberFunction"><Properties><Property Name="MethodName" Value="AdvanceToStatLevel"/><Property Name="DeclaringType" Value="wh::rpgmodule::I_Soul"/></Properties><Ports><RunTimePort Name="Level" Type="uint"/><RunTimePort Name="OnExec" Type="trigger"/></Ports></Definition></Definitions>'''})
             player=travel_player_resources(b'function Player:OnInit() end\nfunction Player:OnLoadAI() end\n')['Scripts/Entities/actor/player.lua']
             player+=Path('tools/region_travel_horse_recovery.lua').read_bytes()
-            archive('Data/gluemappertravel.pak',{PROJECT:ET.tostring(graph),'Scripts/Entities/actor/player.lua':player,'keep':b'unchanged'})
+            travel_files = {PROJECT:ET.tostring(graph),'Scripts/Entities/actor/player.lua':player,'keep':b'unchanged'}
+            if getattr(self, 'shopkeeper', False):
+                from test_shop_roles import rule
+                travel_files['Libs/Storm/roles/gm_person_collier.xml'] = rule('collier', 'gm_person_collier_role', 'gm_person_collier_roles')
+            archive('Data/gluemappertravel.pak', travel_files)
             archive('Data/Levels/kcd1_travel/level.pak',{'objects_mission0.xml':b'<Objects><Entity EntityClass="SmartAreaShape" EntityGuid="0000000a-0000-0000"/></Objects>', 'whdata_0':b'<Root><AI><SmartAreaManager version="2"><SmartAreas/></SmartAreaManager></AI></Root>'})
             if getattr(self, 'retire_ambience', False):
                 from test_environment_audio_upgrade import fixture as audio_fixture
@@ -189,6 +197,9 @@ class UpgradeTests(unittest.TestCase):
             with zipfile.ZipFile(p/level_path) as z:
                 combined = ET.fromstring(z.read('objects_mission0.xml'))
             combined.extend(ET.fromstring(start_mission()))
+            if getattr(self, 'shopkeeper', False):
+                from test_shop_roles import MISSION as shop_mission
+                combined.extend(e for e in ET.fromstring(shop_mission) if e.get('Name') in ('shop_a', 'collier'))
             rewrite(p, level_path, {'objects_mission0.xml': ET.tostring(combined)})
             source_path = p/'Data/Levels/rataje/level.pak'
             if source_path.exists():
@@ -227,6 +238,10 @@ class UpgradeTests(unittest.TestCase):
                         result = finalize(p, source=p)
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             self.assertEqual(z.read('terrain/hlods.dat'), before_lod)
+                    if getattr(self, 'shopkeeper', False):
+                        self.assertEqual(result['shop_roles']['added'], ['collier'])
+                        # The next upgrade of the same package still passes and adds nothing.
+                        self.assertEqual(finalize(p, source=p)['shop_roles']['added'], [])
                 from setup_gameplay import STATIC_WORLD_PROFILES
                 self.assertEqual(navigation_upgrade.call_args.args[3], STATIC_WORLD_PROFILES)
                 self.assertEqual(result['static_navigation_profiles']['version'], 1)
@@ -248,6 +263,11 @@ class UpgradeTests(unittest.TestCase):
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
                     self.assertIn(b'Marker=', z.read(QUEST_PATH))
             verify_package(p)
+            if getattr(self, 'shopkeeper', False):
+                self.assertEqual(result['shop_roles']['keepers'], 1)
+                with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:
+                    roles = z.read('Libs/Storm/roles/gm_person_collier.xml')
+                self.assertEqual((roles.count(b'SMLOUVANI_MUZ'), roles.count(b'addShopRoles_ending_man')), (1, 1))
             if getattr(self, 'baked', False):
                 self.assertEqual(result['baking']['levels'][0]['exposure'], {'restored_exposure_profiles': 1})
                 with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:

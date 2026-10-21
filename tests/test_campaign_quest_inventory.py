@@ -5,8 +5,41 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
-from campaign_quest_inventory import split
+from campaign_quest_inventory import split, quest_item_roles
 from container_loot import compile_inventory
+
+
+def roles_rule(person, *roles):
+    return ('<storm><rules><rule><selectors><hasName name="%s"/></selectors><operations>%s</operations></rule></rules></storm>'
+            % (person, ''.join('<addRole name="%s"/>' % r for r in roles))).encode()
+
+
+def role_table(*roles):
+    return ('<database><roles>%s</roles></database>' % ''.join('<role role_name="%s" metarole_name="NPC"/>' % r for r in roles)).encode()
+
+
+class QuestItemRoleTests(unittest.TestCase):
+    SOULS = {'collier': 'soul-collier', 'grocer': 'soul-grocer'}
+
+    def test_package_roles_resolve_to_their_single_soul(self):
+        resources = {'Libs/Tables/rpg/role__gm_debt_results.xml': role_table('gm_debt_results_470'),
+                     'Libs/Storm/roles/gm_debt_results.xml': roles_rule('collier', 'gm_debt_results_470'),
+                     'Libs/Storm/roles/world/levelSwitch.xml': roles_rule('coachman', 'GM_COACHMAN')}
+        self.assertEqual(quest_item_roles(resources, self.SOULS.get), {'dc.gm_debt_results_470': 'soul-collier'})
+
+    def test_shared_native_roles_are_not_quest_item_holders(self):
+        # Every male shopkeeper carries the native haggle roles; they must not make a second upgrade fail.
+        resources = {'Libs/Tables/rpg/role__gm_person_a.xml': role_table('gm_person_a_role'),
+                     'Libs/Storm/roles/gm_person_a.xml': roles_rule('collier', 'gm_person_a_role', 'SMLOUVANI_MUZ', 'VYJEDNAVANI_MUZ'),
+                     'Libs/Storm/roles/gm_person_b.xml': roles_rule('grocer', 'SMLOUVANI_MUZ', 'VYJEDNAVANI_MUZ')}
+        self.assertEqual(quest_item_roles(resources, self.SOULS.get), {'dc.gm_person_a_role': 'soul-collier'})
+
+    def test_package_role_on_two_souls_is_rejected(self):
+        resources = {'Libs/Tables/rpg/role__gm_x.xml': role_table('gm_x_1'),
+                     'Libs/Storm/roles/gm_x.xml': roles_rule('collier', 'gm_x_1'),
+                     'Libs/Storm/roles/gm_y.xml': roles_rule('grocer', 'gm_x_1')}
+        with self.assertRaisesRegex(ValueError, 'Ambiguous quest item role: dc.gm_x_1'):
+            quest_item_roles(resources, self.SOULS.get)
 
 
 class QuestInventoryTests(unittest.TestCase):
