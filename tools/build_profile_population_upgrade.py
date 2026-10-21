@@ -115,14 +115,22 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             if ('final/sa_garrison.xml','Guard') in kinds and not any(
                     l['label']=='garrison_forcedWorkplace' for l in person['ai']['links']):
                 pending.append(dict(person=name, reason='Source garrison assignment is pending', schedule=schedule));continue
-            entries=resolve_arrivals(schedule,archive,person,source,reader)
+            entries=resolve_arrivals(schedule,archive,person,source,reader,target)
             working,_=bind_arrivals(files,{name:entries},target)
             working,jobs=bind_jobs(working,{name:entries},archive,target,items,convert_routes=True)
             files=working;converted.extend(jobs)
+    import seating_animations
+    with zipfile.ZipFile(package/lp) as archive:
+        for name in (seating_animations.HELPERS, seating_animations.ANIMATIONS):
+            files[name] = read(archive, name)
+    with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native:
+        files, _ = seating_animations.install(files, native)
     rewrite(package,lp,{k:v for k,v in files.items() if k!='ubernav.tmm'})
     modid=E.parse(package/'mod.manifest').findtext('info/modid')
     resources=job_resources(source,target,files,{})
     resources[f'Mods/{modid}/Data/Levels/{level}/tables/ai/scheduler.xml']=files['tables/ai/scheduler.xml']
+    for name in (seating_animations.HELPERS, seating_animations.ANIMATIONS):
+        resources[f'Mods/{modid}/Data/Levels/{level}/'+name] = files[name]
     rewrite(package,travel,resources)
     return dict(converted=converted,pending=pending,complete=not pending and not any(r.get('pending') for r in converted))
 

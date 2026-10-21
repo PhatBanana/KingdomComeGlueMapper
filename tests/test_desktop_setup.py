@@ -51,7 +51,8 @@ class DesktopSetupTests(unittest.TestCase):
         for module in ('setup_animal_population', 'build_animal_population_upgrade',
                        'animal_population', 'animal_population_sources', 'animal_native_templates',
                        'setup_profile_population', 'build_profile_population_upgrade',
-                       'profile_population_upgrade', 'character_market_jobs', 'character_seated_work'):
+                       'profile_population_upgrade', 'character_market_jobs', 'character_seated_work',
+                       'character_shop_guard_work'):
             self.assertIn(module, CONVERTERS)
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')
         self.assertEqual(len(plan), 14)

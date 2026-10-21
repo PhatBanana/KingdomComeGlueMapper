@@ -11,6 +11,7 @@ from upgrade_map import read, xml
 import character_blacksmith_jobs
 import character_city_work
 import character_seated_work
+import character_shop_guard_work
 
 
 def population_work_supports(entry):
@@ -18,7 +19,8 @@ def population_work_supports(entry):
     behavior = entry['behavior']
     identity = (behavior['tree_file'].replace('\\', '/').lower(), behavior['tree_name'])
     return (identity in {('final/sa_home.xml', 'housework'), ('final/sa_garrison.xml', 'Guard')}
-            or character_city_work.supports(entry) or character_seated_work.supports(entry))
+            or character_city_work.supports(entry) or character_seated_work.supports(entry)
+            or character_shop_guard_work.supports(entry))
 
 
 def job_resources(source, target, files, schedules):
@@ -68,10 +70,24 @@ It does not represent the other housework activities as converted.
     mission=ET.fromstring(files['objects_mission0.xml'])
     scheduler=ET.fromstring(files['tables/ai/scheduler.xml'])
     source_entities=list(ET.fromstring(read(archive,'objects_mission0.xml')))
-    waiting=[];report=[]; renamed={};city_pools={};seated_pools={}
+    waiting=[];report=[]; renamed={};city_pools={};seated_pools={};guard_pools={}
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
+            if entry.get('shop_guard_work'):
+                key = (person, entry['arrival']['EntityGuid'])
+                if key in guard_pools:
+                    previous, item_report = guard_pools[key]
+                    if previous != entry['shop_guard_work']:
+                        raise ValueError('Different shop guard pools share one schedule anchor')
+                    item_report['intervals'].append([entry['start_minute'],entry['end_minute']])
+                    continue
+                job, links, item_report = character_shop_guard_work.bind(mission,scheduler,person,entry,target)
+                item_report['intervals'] = [item_report.pop('interval')]
+                guard_pools[key] = (entry['shop_guard_work'],item_report)
+                waiting.extend(links);report.append(item_report)
+                renamed[job.get('EntityGuid')] = ''
+                continue
             if entry.get('seated_work'):
                 key = (person, entry['arrival']['EntityGuid'])
                 if key in seated_pools:

@@ -26,7 +26,7 @@ def build(a):
             person = resolve_person(a.source, name, a.source_level)
             schedule = plan(person, tables)
             if schedule['pending']: raise ValueError('Unresolved source schedule: ' + name)
-            schedules[name] = resolve_arrivals(schedule, archive, person, a.source, reader)
+            schedules[name] = resolve_arrivals(schedule, archive, person, a.source, reader, a.target)
     with zipfile.ZipFile(a.level_pak) as archive:
         files = {n:read(archive,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml',
                     seating_animations.HELPERS,seating_animations.ANIMATIONS)}

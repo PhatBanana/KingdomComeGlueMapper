@@ -38,11 +38,15 @@ def arrival_resources():
             'AI/gluemapper/schedule_arrival.xml':xml(trees)}
 
 
-def resolve_arrivals(schedule, archive, person=None, source=None, reader=None):
+def resolve_arrivals(schedule, archive, person=None, source=None, reader=None, target=None):
     result = []
     mission = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
     for entry in schedule['resolved']:
         behavior = entry['behavior']
+        from character_shop_guard_work import supports as guard_supports, resolve as guard_resolve
+        if guard_supports(entry):
+            result.append(guard_resolve(entry, archive, source, reader, target))
+            continue
         from character_seated_work import supports as seated_supports, resolve as seated_resolve
         if seated_supports(entry):
             result.append(seated_resolve(entry, archive, source, reader))
