@@ -334,7 +334,10 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
         receipt['quest_markers'] = marker_report
     if 'baking' in receipt:
         receipt['baking']['levels'] = [r for r in receipt['baking'].get('levels', []) if r.get('level') == 'kcd1_travel']
-    receipt['files'] = {n:h for n,h in receipt['files'].items() if not n.startswith('Data/Levels/kcd1_rataje/')}
+    from setup_baking import upgrade_baked_exposure
+    for name in upgrade_baked_exposure(package, receipt, target):
+        receipt['files'][name] = digest(package/name)
+    receipt['files'] ={n:h for n,h in receipt['files'].items() if not n.startswith('Data/Levels/kcd1_rataje/')}
     for name in (travel, level, runtime):
         receipt['files'][name] = digest(package/name)
     pending = package/(RECEIPT+'.pending')

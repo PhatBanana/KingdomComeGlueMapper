@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from setup_mods import checked_config,worker
-from setup_baking import bake_package
+from setup_baking import bake_package,restore_baked_exposure
 from contextlib import ExitStack
 
 class BakeSetupTests(unittest.TestCase):
@@ -72,5 +72,47 @@ class BakeSetupTests(unittest.TestCase):
             stage.assert_not_called()
             self.assertEqual((level/'terrain.pak').read_bytes(),b'original terrain')
             self.assertEqual((level/'level.pak').read_bytes(),b'original level')
+
+    def test_baked_level_regains_native_exposure_without_touching_linked_input(self):
+        import os,zipfile
+        from interior_exposure import convert
+        from upgrade_map import read
+        native=b'<Mission><TimeOfDay><Variable Name="EV Min" Value="7"><Spline Keys="0:7:36,"/></Variable></TimeOfDay></Mission>'
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);(root/'game').mkdir();(root/'input').mkdir();(root/'baked').mkdir()
+            def pak(path,mission):
+                with zipfile.ZipFile(path,'w') as z:z.writestr('mission_mission0.xml',mission);z.writestr('levelinfo.xml',b'<Level/>')
+            pak(root/'game/native.pak',native);pak(root/'input/level.pak',convert(native)[0])
+            os.link(root/'input/level.pak',root/'baked/level.pak')  # the replacement package hardlinks its input
+            report=restore_baked_exposure(root/'baked/level.pak',root/'game/native.pak')
+            self.assertEqual(report,{'restored_exposure_profiles':1})
+            with zipfile.ZipFile(root/'baked/level.pak') as z:
+                self.assertIn(b'Value="7"',read(z,'mission_mission0.xml'));self.assertEqual(read(z,'levelinfo.xml'),b'<Level/>')
+            with zipfile.ZipFile(root/'input/level.pak') as z:self.assertIn(b'Value="4"',read(z,'mission_mission0.xml'))
+            # A level that was not capped from this native mission is not rewritten.
+            pak(root/'other.pak',native.replace(b'7',b'3'));before=(root/'other.pak').read_bytes()
+            self.assertEqual(restore_baked_exposure(root/'other.pak',root/'game/native.pak'),{'restored_exposure_profiles':0})
+            self.assertEqual((root/'other.pak').read_bytes(),before)
+
+    def test_upgrade_restores_exposure_once_in_packages_baked_before_the_restore(self):
+        import zipfile
+        from interior_exposure import convert
+        from setup_baking import upgrade_baked_exposure
+        from upgrade_map import read
+        native=b'<Mission><TimeOfDay><Variable Name="EV Min" Value="7"><Spline Keys="0:7:36,"/></Variable></TimeOfDay></Mission>'
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);level=root/'package/Data/Levels/kcd1_travel';level.mkdir(parents=True)
+            (root/'game/Data/Levels/trosecko').mkdir(parents=True)
+            with zipfile.ZipFile(root/'game/Data/Levels/trosecko/level.pak','w') as z:z.writestr('mission_mission0.xml',native)
+            with zipfile.ZipFile(level/'level.pak','w') as z:z.writestr('mission_mission0.xml',convert(native)[0])
+            receipt={'baking':{'levels':[{'level':'kcd1_travel','tiles':3}]}}
+            self.assertEqual(upgrade_baked_exposure(root/'package',json.loads(json.dumps(receipt)),None),[])
+            self.assertEqual(upgrade_baked_exposure(root/'package',receipt,root/'game'),['Data/Levels/kcd1_travel/level.pak'])
+            self.assertEqual(receipt['baking']['levels'][0]['exposure'],{'restored_exposure_profiles':1})
+            with zipfile.ZipFile(level/'level.pak') as z:self.assertIn(b'Value="7"',read(z,'mission_mission0.xml'))
+            before=(level/'level.pak').read_bytes()
+            self.assertEqual(upgrade_baked_exposure(root/'package',receipt,root/'game'),[])
+            self.assertEqual((level/'level.pak').read_bytes(),before)
+            self.assertEqual(upgrade_baked_exposure(root/'package',{},root/'game'),[])
 
 if __name__=='__main__':unittest.main()
