@@ -22,6 +22,60 @@ def schedule_fixture():
 
 
 class TrainingBindingsTests(unittest.TestCase):
+    def source_arrival_fixture(self):
+        host, nodes, life, quest, worker, definition = schedule_fixture()
+        root = E.fromstring(definition)
+        E.SubElement(root.find('./Skald/Quest/Ports'), 'Port', Name='arrive_Completed', Direction='Out', Type='bool')
+        schedule(nodes, life, quest, E.tostring(root), worker,
+                 dict(arrival='arrive', authorization='begin', completion='done'), ['cancel'], ['reconcile'],
+                 arrival_completion='source_objective')
+        graph = Graph(E.tostring(host))
+        graph.values.update({'quest.arrive_Started': True, 'quest.arrive_Completed': False, 'lesson.busy': True})
+        graph.fire('lesson.arrive')
+        return host, life, quest, worker, graph
+
+    def test_source_arrival_does_not_wait_for_endless_lean_to_finish(self):
+        _, life, quest, worker, graph = self.source_arrival_fixture()
+        arrived = life.find("Edge[@To='arrived']").get('From')
+        graph.fire('walker.Success')
+        self.assertNotIn(arrived, graph.events)
+        graph.values['quest.arrive_Started'] = False
+        graph.values['quest.arrive_Completed'] = True
+        graph.fire('quest.source_state_changed'); graph.fire('reconcile')
+        self.assertEqual(graph.events.count(arrived), 1)
+        running = worker.find("Edge[@To='IsActive']").get('From').removesuffix('.State')
+        self.assertTrue(graph.states[running])
+        graph.fire('lesson.prepare')
+        self.assertFalse(graph.states[running])
+        self.assertIsNone(quest.find("Edge[@To='complete_arrive']"))
+
+    def test_canceled_source_arrival_ignores_late_completion_and_failure(self):
+        _, life, _, _, graph = self.source_arrival_fixture()
+        graph.fire('cancel')
+        graph.values['quest.arrive_Completed'] = True
+        graph.fire('quest.source_state_changed'); graph.fire('walker.Fail')
+        for port in ('arrived', 'arrival_failed'):
+            self.assertNotIn(life.find("Edge[@To='"+port+"']").get('From'), graph.events)
+
+    def test_source_failure_distinguishes_walk_from_waiting_pose(self):
+        _, life, _, _, graph = self.source_arrival_fixture()
+        graph.fire('walker.Fail')
+        self.assertIn(life.find("Edge[@To='arrival_failed']").get('From'), graph.events)
+        _, life, _, _, graph = self.source_arrival_fixture()
+        graph.values['quest.arrive_Completed'] = True
+        graph.fire('quest.source_state_changed'); graph.fire('walker.Fail')
+        self.assertIn(next(e.get('From') for e in life.findall("Edge[@To='cancel']")
+                           if e.get('From').endswith('_phase.False')), graph.events)
+
+    def test_source_arrival_missing_completed_port_fails_without_mutation(self):
+        host, nodes, life, quest, worker, definition = schedule_fixture()
+        before = E.tostring(host)
+        with self.assertRaisesRegex(ValueError, 'arrive_Completed'):
+            schedule(nodes, life, quest, definition, worker,
+                     dict(arrival='arrive', authorization='begin', completion='done'), ['cancel'],
+                     arrival_completion='source_objective')
+        self.assertEqual(E.tostring(host), before)
+
     def test_arrival_cancel_cleanup_allows_retry_without_restarting_objective(self):
         host, nodes, life, quest, worker, definition = schedule_fixture()
         schedule(nodes, life, quest, definition, worker,

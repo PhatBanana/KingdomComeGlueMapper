@@ -14,6 +14,7 @@ from campaign_quest_graph import definition, identifier, edge, constant, xml
 
 SOUL = 'wh::rpgmodule::I_Soul*'
 OUTPUTS = {'phase': ('Phase', 'int'),
+           'tracker': ('Tracker', 'wh::questmodule::nodes::Tracker'),
            'phase_started': ('OnPhaseStart', 'trigger'),
            'phase_skipped': ('OnPhaseSkipped', 'trigger'),
            'success': ('OnSuccessEvent', 'trigger'),

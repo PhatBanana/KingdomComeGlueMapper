@@ -37,7 +37,7 @@ DIALOGUES = (
 )
 STAGE_IDS = ('opening', 'actors', 'initial-state', 'initial-loadout', 'quest-items',
              'schedules', 'actor-systems', 'character-props', 'dialogue-areas',
-             *(group[0] for group in DIALOGUES), 'combat', 'facials')
+             *(group[0] for group in DIALOGUES), 'quest-introductions', 'combat', 'facials')
 
 
 def publish_flat(output, mapping):
@@ -52,18 +52,18 @@ def publish_flat(output, mapping):
         source.replace(target)
 
 
-def quest_model(source, output):
+def quest_model(source, output, quest=QUEST):
     from quest_import import import_quest
     from campaign_sources import RetailSourceReader
     from campaign_ai_registration import controller_definition
     from campaign_dependency_adapters import SourceTables
     with RetailSourceReader(source) as reader:
         tables = SourceTables(source, reader)
-        definition = controller_definition(tables, tables.row('quest/quest', 'quest_name', QUEST))
+        definition = controller_definition(tables, tables.row('quest/quest', 'quest_name', quest))
         bootstrap = sorted({p['file'] for p in definition['entry_points']}) if definition else []
-        model, _ = import_quest(source, QUEST, bootstrap=bootstrap, source_reader=reader)
+        model, _ = import_quest(source, quest, bootstrap=bootstrap, source_reader=reader)
         model['controller_registration'] = definition
-        behavior = reader(source, {'controller': ('Scripts.pak', 'Libs/AI/quests/' + QUEST + '.xml')})['controller']['data']
+        behavior = reader(source, {'controller': ('Scripts.pak', 'Libs/AI/quests/' + quest + '.xml')})['controller']['data']
     output.mkdir(parents=True)
     (output / 'quest-ir.json').write_text(json.dumps(model, indent=2), encoding='utf-8')
     (output / 'behavior.xml').write_bytes(behavior)
@@ -142,8 +142,14 @@ def source_player(source, level='rataje'):
 def actors(source, target, package, output):
     from build_quest_people_test import build
     from campaign_scene_test import source_scene_positions
+    from setup_quest_starts import plans, RECORD
+    from campaign_quest_start_placement import apply, report as placement_report
     spots = source_scene_positions(source, 'rataje', QUEST, 'stribrna_skalice')
     placements = {name: spots[alias] for name, alias in SCENE_PEOPLE.items()}
+    starts = plans(source)
+    if any(r['person'] not in PEOPLE for r in starts):
+        raise ValueError('Quest start selection is outside the staged actor slice')
+    placements.update({r['person']: r['placement'] for r in starts})
     build(SimpleNamespace(source=source, target=target, mod=package, output=output,
         placements=placements, model=None, person=list(PEOPLE) + list(SCENE_PEOPLE), source_level='rataje', level=LEVEL,
         source_profile=[], dialogue_profile=[], dialogue_model=[], quest_path=None,
@@ -152,6 +158,16 @@ def actors(source, target, package, output):
     actual = {p['person'] for group in ('converted', 'existing') for p in report[group]}
     if report['pending'] or actual != set(PEOPLE) | set(SCENE_PEOPLE):
         raise ValueError('Campaign actors incomplete; see ' + str(output/'report.json'))
+    # Existing actors are intentionally reused by the actor builder. Apply the
+    # same checked start layout to those actors and their owned fallback anchor.
+    level = output/'package/Data/Levels'/LEVEL/'level.pak'
+    with zipfile.ZipFile(level) as archive:
+        mission, changes = apply(read(archive, 'objects_mission0.xml'), starts)
+    if changes:
+        from setup_package_upgrade import rewrite as rewrite_package
+        rewrite_package(output/'package', 'Data/Levels/'+LEVEL+'/level.pak',
+                        {'objects_mission0.xml': mission})
+    (output/'package'/RECORD).write_text(json.dumps(placement_report(starts), indent=2), encoding='utf-8')
 
 
 def initialization(source, target, package, output):
@@ -309,6 +325,8 @@ def steps(source, target, package, work):
         result.append((group[0], 'Source conversations: '+group[0],
                        lambda out, group=group: dialogues(source, target, package, out, model, group)))
     result += [
+        ('quest-introductions', 'Source introductory sitting and nearby speech',
+         lambda out: __import__('setup_quest_introductions').build(source, target, package, out)),
         ('combat', 'Native quest combat and aftermath', lambda out: combat(source, target, package, out, model)),
         ('facials', 'Recording-linked facial data', lambda out: facials(source, target, package, out)),
     ]
@@ -317,6 +335,8 @@ def steps(source, target, package, work):
 
 def validate(package):
     """Check emitted content, not filenames or success of the last builder."""
+    from setup_quest_introductions import validate_package
+    validate_package(package)
     with zipfile.ZipFile(package/'Data/Levels'/LEVEL/'level.pak') as z:
         mission = ET.fromstring(read(z, 'objects_mission0.xml'))
         souls = ET.fromstring(read(z, 'whdata_0'))
@@ -324,6 +344,8 @@ def validate(package):
         reconcile(read(z, 'whdata_0'), read(z, 'objects_mission0.xml'), validate_only=True)
         from character_person_activity import validate_scheduler_targets
         validate_scheduler_targets(ET.fromstring(read(z, 'tables/ai/scheduler.xml')))
+        from setup_quest_starts import validate as validate_starts, RECORD
+        validate_starts(read(z, 'objects_mission0.xml'), json.loads((package/RECORD).read_text(encoding='utf-8')))
     for name in (*PEOPLE, *SCENE_PEOPLE):
         actors = [e for e in mission.iter('Entity') if e.get('Name') == name]
         if len(actors) != 1: raise ValueError('Setup omitted or duplicated actor: ' + name)

@@ -25,6 +25,13 @@ class DubbingTests(unittest.TestCase):
         for data in (b'RIFF',ogg()[:-1],ogg()[:44]):
             with self.assertRaises(ValueError):ogg_duration(data)
 
+    def test_missing_eos_requires_explicit_native_resource_policy(self):
+        payload=bytearray(ogg())
+        last=payload.index(b'OggS',4);payload[last+5]=0
+        with self.assertRaises(ValueError):ogg_duration(payload)
+        self.assertEqual(ogg_duration(payload,allow_missing_eos=True),1.5)
+        with self.assertRaises(ValueError):ogg_duration(payload[:-1],allow_missing_eos=True)
+
     def test_native_rows_and_case_sensitive_hashes_survive_merge(self):
         with tempfile.TemporaryDirectory() as folder:
             root=Path(folder);(root/'Localization').mkdir()

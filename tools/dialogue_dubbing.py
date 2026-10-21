@@ -11,8 +11,13 @@ from upgrade_map import read, xml
 DEPOT = 'dialog/response_depot_wave_file.xml'
 
 
-def ogg_duration(data):
-    """Read duration from a single Vorbis stream's final sample granule."""
+def ogg_duration(data, *, allow_missing_eos=False):
+    """Read duration from a single Vorbis stream's final sample granule.
+
+    Native archive recordings may omit EOS. Only their relocation adapter opts
+    in, and it independently requires matching native dubbing-index duration.
+    The source recording importer remains strict by default.
+    """
     offset=0
     serial=None
     packet=bytearray()
@@ -43,7 +48,7 @@ def ogg_duration(data):
         if granule!=0xffffffffffffffff:last=granule
         eos=bool(data[offset+5]&4)
         offset=end
-    if not eos or not rate or last is None or last<=0:
+    if (not eos and not allow_missing_eos) or not rate or last is None or last<=0:
         raise ValueError('Incomplete Ogg timing')
     return last/rate
 

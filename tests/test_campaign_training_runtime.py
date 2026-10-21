@@ -70,6 +70,7 @@ class TrainingRuntimeTests(unittest.TestCase):
         g.fire('training.OnSuccessEvent'); g.fire('training.OnPhaseSkipped')
         self.assertNotIn('output.finished', g.events)
         g.fire('training.OnTutorialEnd')
+        self.assertEqual(g.events.count('output.exercises_finished'), 1)
         self.assertFalse(g.states['running']); self.assertTrue(g.states['stopping'])
         g.fire('cleanup_done')
         self.assertNotIn('output.finished', g.events)
@@ -95,6 +96,11 @@ class TrainingRuntimeTests(unittest.TestCase):
         g.fire('workers_stopped'); g.fire('cancel'); g.fire('cleanup_done')
         self.assertIn('output.canceled', g.events)
         self.assertNotIn('output.finished', g.events)
+
+    def test_cancellation_does_not_complete_native_exercise_presentation(self):
+        g = TrainingGraph(); g.run(); g.fire('cancel')
+        g.fire('training.OnTutorialEnd')
+        self.assertNotIn('output.exercises_finished', g.events)
 
     def test_instruction_is_phase_scoped_once_and_never_auto_acknowledged(self):
         g = TrainingGraph(); g.run(); g.fire('training.OnPhaseStart')

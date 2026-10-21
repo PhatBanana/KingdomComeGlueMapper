@@ -25,6 +25,8 @@ from quest_import import behavior_path, literal
 from upgrade_map import read
 from campaign_speech_messages import MESSAGE as MONOLOGUE_MESSAGE, validate_request, native_consumer
 from campaign_behavior_requests import dependencies as behavior_requests, resolve as resolve_behavior_request
+from campaign_schedule_requests import dependencies as schedule_requests, MESSAGE as SCHEDULE_MESSAGE
+from campaign_combat_automation import OPERATIONS as COMBAT_AUTOMATIONS
 
 
 # Attribute kinds come from the two shipped AI serializations. This is an
@@ -130,6 +132,7 @@ def native_catalog(game):
     entity_classes = set()
     item_properties = {'GetItemProperty': set(), 'SetItemProperty': set()}
     lua_contracts = {}
+    combat_automation = {}
     policy_values = {'area_labels': set(), 'behavior_states': set(),
                      'perceivable_states': set(), 'item_filter_parameters': set()}
     speech_consumer = False
@@ -169,6 +172,8 @@ def native_catalog(game):
                 if root is None:
                     continue
                 for node in root.iter():
+                    from campaign_combat_automation import observe as observe_combat_automation
+                    observe_combat_automation(node, combat_automation)
                     if any(re.search(r"\$__behaviors\['[A-Za-z_]\w*'\]\.count", value)
                            for value in node.attrib.values()):
                         behavior_map = True
@@ -208,6 +213,8 @@ def native_catalog(game):
     return dict(nodes={n: dict(r, attributes=sorted(r['attributes']), children=sorted(r['children']))
                        for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types),
                 native_monologue_consumer=speech_consumer, work_animations=fragment_catalog(game),
+                combat_automation={op: {field: sorted(values) for field, values in fields.items()}
+                                   for op, fields in combat_automation.items()},
                 entity_classes=sorted(entity_classes),
                 lua_contracts={op:{field:sorted(values) for field,values in fields.items()}
                                for op,fields in lua_contracts.items()},
@@ -307,7 +314,7 @@ def expression(value, catalog):
 
 
 class BehaviorCompiler:
-    def __init__(self, models, namespace, catalog, registered=None, importer=None, profile_streaming=None):
+    def __init__(self, models, namespace, catalog, registered=None, importer=None, profile_streaming=None, schedule_adapter=None, faction_adapter=None):
         self.namespace = identifier(namespace)
         self.catalog = catalog
         from campaign_lua_contracts import NativeLuaContracts
@@ -318,6 +325,10 @@ class BehaviorCompiler:
         self.profile_bridge = ProfileBridge(namespace, importer)
         self.time_bridge = TimeBridge(namespace)
         self.profile_streaming = profile_streaming
+        self.schedule_adapter = schedule_adapter
+        self.faction_adapter = faction_adapter
+        if faction_adapter is not None and faction_adapter.namespace != self.namespace:
+            raise ValueError('Faction bridge must share the compiler namespace')
         self.models = {m['quest']: m for m in models}
         self.records = {}
         self.converted = Counter()
@@ -438,7 +449,30 @@ class BehaviorCompiler:
             attrs['result'] = attrs.pop('targetVar')
             source = dict(source, attributes=attrs)
         try:
-            if op == 'ExecuteLua':
+            from campaign_temporary_factions import OPTION as FACTION_OPTION, OPERATIONS as FACTION_OPERATIONS
+            children_lowered = False
+            if self.faction_adapter is not None and op in FACTION_OPERATIONS:
+                node = self.faction_adapter.lower(source, site)
+            elif (self.faction_adapter is not None and op == 'IfCondition'
+                  and FACTION_OPTION in literal(attrs.get('condition', ''))):
+                node = self.faction_adapter.combat_guard(source, site)
+                if node is None:
+                    raise UnsupportedOperation('Unconverted temporary faction context read')
+                children_lowered = True
+            elif (self.faction_adapter is not None and op == 'ExecuteLua'
+                  and FACTION_OPTION in literal(attrs.get('code', ''))):
+                if set(attrs) != {'code'} or source['children']:
+                    raise UnsupportedOperation('Unsupported faction context statement metadata')
+                node = self.faction_adapter.lower_context(literal(attrs['code']), site)
+            elif any(FACTION_OPTION in literal(v) for v in attrs.values()):
+                raise UnsupportedOperation('Unconverted temporary faction context use')
+            elif (self.schedule_adapter is not None and op in ('InstantSendMessageToNPC', 'SendMessageToNPC')
+                    and literal(attrs.get('type', '')) == SCHEDULE_MESSAGE):
+                node = self.schedule_adapter.lower(source, owner, document, tree, path,
+                    (owner, record.get('source_document', document), tree) in self.object_scopes,
+                    reference(associative_indexes(literal(attrs['target']), self.variables,
+                                                 self.catalog.get('native_behavior_map', False))))
+            elif op == 'ExecuteLua':
                 if set(attrs) != {'code'} or op not in self.catalog['nodes']:
                     raise UnsupportedOperation('Native ExecuteLua contract is missing or has unsupported fields')
                 script = literal(attrs['code'])
@@ -458,6 +492,9 @@ class BehaviorCompiler:
             elif op == 'PlayAnimation':
                 from campaign_work_animations import lower as lower_work_animation
                 node = lower_work_animation(source, self.catalog, animation_controllers)
+            elif op in COMBAT_AUTOMATIONS:
+                from campaign_combat_automation import lower as lower_combat_automation
+                node = lower_combat_automation(source, self.catalog)
             elif op == 'EnableProfile':
                 if self.profile_streaming is None:
                     raise UnsupportedOperation('Installed native profile streaming helper is required')
@@ -597,6 +634,8 @@ class BehaviorCompiler:
                             raise UnsupportedOperation('Referenced AI link type conversion did not complete: ' + value)
                         value = quote(target)
                     elif kind in ('mailbox', 'message_type', 'optional_message_type'):
+                        if kind == 'message_type' and value == SCHEDULE_MESSAGE:
+                            raise UnsupportedOperation('Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer')
                         if kind == 'message_type' and value == MONOLOGUE_MESSAGE and op in ('SendMessageToNPC', 'InstantSendMessageToNPC'):
                             values[name] = quote(validate_request(literal(attrs.get('values', '')), self.catalog))
                             continue
@@ -638,6 +677,11 @@ class BehaviorCompiler:
                         raise UnsupportedOperation('Dynamic behavior name needs runtime dispatch')
                     target_doc = key(behavior_path(attrs['File']))
                     record['includes'].append((self.include_owner(owner, target_doc), target_doc, target_tree))
+                if (op == 'CallBehavior' and literal(attrs.get('Target', '')).lstrip('$') == '__object.id'
+                        and (owner, record.get('source_document', document), tree) in self.object_scopes):
+                    resolved = resolve_behavior_request(self.models[owner], dict(
+                        source='$__object.id', tree=literal(attrs.get('BehaviorName', ''))))
+                    record['includes'].append((owner, resolved['document'], resolved['tree']))
                 if op == 'CreateItem' or (op == 'RemoveItem' and literal(attrs.get('ItemGUID', ''))):
                     item = literal(attrs.get('ItemGUID', ''))
                     record['item_dependencies'].append(dict(item=item, site=site))
@@ -663,6 +707,8 @@ class BehaviorCompiler:
                     values['BuffGUID'] = quote(target)
                 node = ET.Element(op, values)
             self.converted[op] += 1
+            if children_lowered:
+                return node
         except (UnsupportedOperation, KeyError) as error:
             record['unresolved'].append(dict(site=site, reason=str(error)))
             node = None
@@ -697,6 +743,13 @@ class BehaviorCompiler:
                     # too. Previously only IncludeTree participated in closure,
                     # allowing a request to target a withheld/missing tree.
                     record['behavior_requests'] = behavior_requests(source['root'])
+                    record['schedule_requests'] = schedule_requests(model, source['root'])
+                    for request in record['schedule_requests']:
+                        if 'callback' in request:
+                            callback = request['callback']
+                            record['includes'].append((owner, callback['document'], callback['tree']))
+                        if 'error' in request:
+                            record['unresolved'].append(dict(request=request, reason=request['error']))
                     for request in record['behavior_requests']:
                         if 'error' in request:
                             record['unresolved'].append(dict(request=request, reason=request['error']))
@@ -751,6 +804,10 @@ class BehaviorCompiler:
         bridge_files, wiring = self.bridge.emit()
         profile_modules = []
         auxiliary_modules = []
+        if self.faction_adapter is not None and self.faction_adapter.actions:
+            bridge_files.update(self.faction_adapter.emit())
+            auxiliary_modules.append(dict(file='Quests/' + self.faction_adapter.stem + '.xml',
+                name=self.faction_adapter.stem, instance='source_temporary_factions'))
         if self.time_bridge.actions:
             bridge_files.update(self.time_bridge.emit())
             auxiliary_modules.append(dict(file='Quests/' + self.namespace + '_time_bridge.xml',
@@ -763,15 +820,17 @@ class BehaviorCompiler:
             converted_operations=dict(self.converted), whole_trees_emitted=sum(r['native_emitted'] for r in self.records.values()),
             blocked_trees=len(blocked), wiring=wiring, profile_modules=profile_modules,
             auxiliary_modules=auxiliary_modules, time_actions=self.time_bridge.actions,
+            temporary_factions=self.faction_adapter.report() if self.faction_adapter else None,
+            schedule_consumer_required=self.schedule_adapter.stem if self.schedule_adapter else None,
             executable=False, runtime_validated=False,
             requires=['Native brain/mailbox registration', 'Source message and link type conversion',
                       'World profiles, actor, item, dialogue and audio registration', 'Retail New Game execution and save/load'])
 
 
-def convert_behaviors(models, namespace, catalog, registered=None, importer=None, profile_streaming=None):
+def convert_behaviors(models, namespace, catalog, registered=None, importer=None, profile_streaming=None, schedule_adapter=None, faction_adapter=None):
     from campaign_animation_specialization import specialize
     models, specializations = specialize(models)
-    files, bridge, report = BehaviorCompiler(models, namespace, catalog, registered, importer, profile_streaming).compile()
+    files, bridge, report = BehaviorCompiler(models, namespace, catalog, registered, importer, profile_streaming, schedule_adapter, faction_adapter).compile()
     report['animation_specializations'] = specializations
     report['source_trees_emitted'] = sum(r['native_emitted'] for r in report['trees'] if 'source_document' not in r)
     report['specialized_trees_emitted'] = sum(r['native_emitted'] for r in report['trees'] if 'source_document' in r)

@@ -16,6 +16,10 @@ from region_travel_companions import travel_player_resources
 
 
 class UpgradeTests(unittest.TestCase):
+    def test_recipe36_resolves_quest_start_layout_through_shared_finalization(self):
+        self.source_recipe = 36
+        self.test_migrates_legacy_world_without_changing_shared_assets()
+
     def test_recipe35_adds_population_through_shared_finalization(self):
         self.source_recipe = 35
         self.test_migrates_legacy_world_without_changing_shared_assets()
@@ -164,14 +168,34 @@ class UpgradeTests(unittest.TestCase):
                 archive('Data/kingdomcomegluemapper_world_000.pak',{'glueveg/tree.cgf':normalize(mesh_fixture())})
                 upgrade_package(p)
                 r['build_recipe']['version']=9
+            # Exercise the real start-layout migration as part of finalization,
+            # including a person and owned idle anchor in a previously built mod.
+            from test_campaign_quest_start_placement import source_entities, mission as start_mission
+            from setup_package_upgrade import rewrite
+            level_path = 'Data/Levels/kcd1_travel/level.pak'
+            with zipfile.ZipFile(p/level_path) as z:
+                combined = ET.fromstring(z.read('objects_mission0.xml'))
+            combined.extend(ET.fromstring(start_mission()))
+            rewrite(p, level_path, {'objects_mission0.xml': ET.tostring(combined)})
+            source_path = p/'Data/Levels/rataje/level.pak'
+            if source_path.exists():
+                with zipfile.ZipFile(source_path) as z:
+                    source_world = ET.fromstring(z.read('objects_mission0.xml'))
+                source_world.extend(source_entities())
+                rewrite(p, 'Data/Levels/rataje/level.pak', {'objects_mission0.xml': ET.tostring(source_world)})
+            else:
+                source_world = ET.Element('Objects'); source_world.extend(source_entities())
+                archive('Data/Levels/rataje/level.pak', {'objects_mission0.xml': ET.tostring(source_world)})
             r['files']={f.relative_to(p).as_posix():digest(f) for f in p.rglob('*') if f.is_file()}
             (p/RECEIPT).write_text(json.dumps(r))
             eligible(r)
             animal_report = {'version': 2, 'scheduler_validation': True, 'pending': []}
             population_report = {'version': 1, 'scheduler_validation': True, 'work': {'pending': []}}
             with patch('setup_profile_population.upgrade', return_value=({}, population_report)) as population_upgrade, patch('setup_animal_population.upgrade', return_value=({}, animal_report)) as animal_upgrade, patch('static_navigation_profiles.upgrade', return_value=({}, {'version': 1})) as navigation_upgrade, patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
-                with patch('campaign_menu_stage.add_to_package'):
+                with patch('setup_quest_introductions.upgrade', return_value=({}, {'runtime_verified': False})) as intro_upgrade, patch('campaign_menu_stage.add_to_package'), patch(
+                        'setup_quest_starts.SELECTIONS', (('different_quest','teacher','intro'),)):
                     result=finalize(p, source=p, target=p/'native' if getattr(self, 'retail_initializers', False) else None)
+                    intro_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     if getattr(self, 'repeat_resume', False):
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             before_lod = z.read('terrain/hlods.dat')
@@ -185,6 +209,8 @@ class UpgradeTests(unittest.TestCase):
                 self.assertEqual(result['animal_population'], animal_report)
                 self.assertEqual(population_upgrade.call_args.args[:4], navigation_upgrade.call_args.args[:4])
                 self.assertEqual(result['profile_population'], population_report)
+                self.assertEqual(result['quest_start_placements']['placements'][0]['placement']['Pos'], '5,6,7')
+                self.assertIn('quest-start-placements.json', result['files'])
             if getattr(self, 'retail_initializers', False):
                 self.assertEqual(result['retail_initialization_upgrade']['nodes'], ['gm_source_baseline_stat_strength'])
                 with zipfile.ZipFile(p/'Data/gluemappertravel.pak') as z:

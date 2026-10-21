@@ -149,6 +149,10 @@ WORK_CONTRACTS['Semaphore'] = dict(_SEMAPHORE)
 # flatten the job or execute it without reserving the shared resource.
 WORK_CONTRACTS['InstantSemaphore'] = dict(LockManagerType='value',
     SemaphoreName='string_expression', SemaphoreCount='expression')
+# Shipped animal state transitions use these operations in executable Roots.
+# Keep the actor reference and enable/disable ordering in the original subtree.
+for _operation in ('DisablePerception', 'EnablePerception'):
+    WORK_CONTRACTS[_operation] = dict(Perceptor='value', Perceptible='value', ToWhom='reference')
 WORK_CONTRACTS['GetItemProperty'] = dict(itemId='reference', property='item_property', result='reference')
 WORK_CONTRACTS['SetItemProperty'] = dict(itemId='reference', property='item_property',
     sourceVar='reference', isRelative='value')

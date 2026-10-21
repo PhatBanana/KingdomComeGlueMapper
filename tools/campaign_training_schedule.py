@@ -7,7 +7,10 @@ import xml.etree.ElementTree as E
 from campaign_quest_graph import edge, constant, identifier, all_of
 
 
-def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, cancel_events, reconcile_events=()):
+def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, cancel_events, reconcile_events=(),
+         *, arrival_completion='worker'):
+    if arrival_completion not in ('worker', 'source_objective'):
+        raise ValueError('Unknown arrival completion contract')
     if set(objectives) != {'arrival', 'authorization', 'completion'}:
         raise ValueError('Training requires arrival, authorization and completion objective bindings')
     ports = E.fromstring(quest_definition).find('./Skald/Quest/Ports')
@@ -18,7 +21,11 @@ def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, 
     for objective in objectives.values(): identifier(objective)
     require(objectives['arrival']+'_Started', 'Out', 'bool')
     require(objectives['authorization']+'_Started', 'Out', 'bool')
-    for role in ('arrival', 'completion'): require('complete_'+objectives[role], 'In', 'trigger')
+    require('complete_'+objectives['completion'], 'In', 'trigger')
+    if arrival_completion == 'source_objective':
+        require(objectives['arrival']+'_Completed', 'Out', 'bool')
+    else:
+        require('complete_'+objectives['arrival'], 'In', 'trigger')
     require('source_state_changed', 'Out', 'trigger')
     if arrival_worker.tag != 'EnableBehavior' or arrival_worker.get('EventSet') != 'resultNotification':
         raise ValueError('Arrival worker requires native resultNotification events')
@@ -60,6 +67,38 @@ def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, 
     for event in (*cancel_events, lifecycle.get('Name')+'.stop_workers'): edge(running, event, 'SetFalse')
     for event in cancel_events: edge(lifecycle, event, 'cancel')
     edge(arrival_worker, running.get('Name')+'.State', 'IsActive')
+    if arrival_completion == 'source_objective':
+        # A complete source routine may Move, complete its arrival objective,
+        # then wait/lean indefinitely. Its success event is not arrival. Keep
+        # that authored waiting behavior alive until preparation takes over.
+        waiting = E.SubElement(nodes, 'State', Name=name+'_waiting_for_arrival', TypeT='bool')
+        constant(waiting, 'DefaultValue', 'false')
+        edge(waiting, lifecycle.get('Name')+'.arrive', 'SetTrue')
+        for event in (*cancel_events, lifecycle.get('Name')+'.stop_workers'):
+            edge(waiting, event, 'SetFalse')
+        edge(running, lifecycle.get('Name')+'.prepare', 'SetFalse')
+        guard = E.SubElement(nodes, 'If', Name=name+'_source_completed')
+        for event in (q+'.source_state_changed', *reconcile_events): edge(guard, event, 'Exec')
+        edge(guard, all_of(nodes, name+'_source_arrived',
+            [waiting.get('Name')+'.State', running.get('Name')+'.State',
+             q+'.'+objectives['arrival']+'_Completed']), 'Condition')
+        order = E.SubElement(nodes, 'TriggerSequence', Name=name+'_source_arrived_order')
+        edge(order, guard.get('Name')+'.True', 'Exec')
+        edge(waiting, order.get('Name')+'.A', 'SetFalse')
+        edge(lifecycle, order.get('Name')+'.B', 'arrived')
+        # Failure before reaching the objective is an arrival failure. Failure
+        # of the waiting pose afterwards must cancel, not deliver arrival again.
+        failed = E.SubElement(nodes, 'If', Name=name+'_source_failed_active')
+        edge(failed, arrival_worker.get('Name')+'.Fail', 'Exec')
+        edge(failed, running.get('Name')+'.State', 'Condition')
+        phase = E.SubElement(nodes, 'If', Name=name+'_source_failed_phase')
+        edge(phase, failed.get('Name')+'.True', 'Exec')
+        edge(phase, waiting.get('Name')+'.State', 'Condition')
+        edge(lifecycle, phase.get('Name')+'.True', 'arrival_failed')
+        edge(lifecycle, phase.get('Name')+'.False', 'cancel')
+        edge(quest, lifecycle.get('Name')+'.finished', 'complete_'+objectives['completion'])
+        return dict(objectives=objectives, arrival_completion=arrival_completion, runtime_validated=False,
+                    requires_resolved_arrival_worker=True, requires_invocation_scoped_callbacks=True)
     for outcome, port in (('Success','arrived'), ('Fail','arrival_failed')):
         guard = E.SubElement(nodes, 'If', Name=name+'_'+outcome)
         edge(guard, arrival_worker.get('Name')+'.'+outcome, 'Exec')
@@ -70,7 +109,7 @@ def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, 
         if outcome == 'Success': edge(quest, order.get('Name')+'.B', 'complete_'+objectives['arrival'])
         edge(lifecycle, order.get('Name')+'.C', port)
     edge(quest, lifecycle.get('Name')+'.finished', 'complete_'+objectives['completion'])
-    return dict(objectives=objectives, runtime_validated=False,
+    return dict(objectives=objectives, arrival_completion=arrival_completion, runtime_validated=False,
                 requires_resolved_arrival_worker=True, requires_invocation_scoped_callbacks=True)
 
 

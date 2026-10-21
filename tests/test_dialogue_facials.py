@@ -2,10 +2,13 @@ import struct
 import sys
 import unittest
 import zlib
+import tempfile
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from dialogue_facials import chunks, container, database, select_database, header_path, renamed_header, aliased_controllers
+from dialogue_facials import (chunks, container, database, select_database, header_path,
+                             renamed_header, aliased_controllers, NativeFacialImporter, INDEX)
 from facial_rig_adapter import controller_aliases
 
 
@@ -26,6 +29,57 @@ def fixture():
 
 
 class FacialTests(unittest.TestCase):
+    def native_archive(self, directory):
+        data=fixture(); _,entries,_=database(data)
+        records=[]; db='animations/humans/facials/native.dba'
+        for i,entry in enumerate(entries):
+            header=bytearray(404); raw=entry['name'].encode()
+            header[4:260]=raw+bytes(256-len(raw))
+            struct.pack_into('<I',header,264,zlib.crc32(db.encode()))
+            struct.pack_into('<I',header,312,entry['count'])
+            records.append((0x3007,0x971,i+1,bytes(header)))
+        folder=Path(directory)/'Data/Facials';folder.mkdir(parents=True)
+        with zipfile.ZipFile(folder/'Facials_english-part0.pak','w') as z:
+            z.writestr(INDEX,container(records)); z.writestr(db,data)
+        return records
+
+    def test_native_relocation_preserves_rig_curves_and_existing_imports(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline=self.native_archive(directory)
+            prior=renamed_header(baseline[0],'animations/humans/facials/dialog/earlier/a.caf','animations/earlier.dba')
+            prior=(*prior[:2],3,prior[3])
+            importer=NativeFacialImporter(directory,container([*baseline,prior]))
+            try:
+                importer.add(['dialog/newquest/a.ogg'])
+                resources=importer.resources()
+                self.assertEqual(chunks(resources[INDEX])[:3],[*baseline,prior])
+                dbs=[v for k,v in resources.items() if k.endswith('.dba')]
+                self.assertEqual(len(dbs),1)
+                _,original,tracks=database(fixture());_,relocated,retained=database(dbs[0])
+                self.assertEqual(retained,tracks)
+                self.assertEqual(relocated[0]['controllers'],original[0]['controllers'])
+                self.assertEqual(relocated[0]['name'],'animations/humans/facials/dialog/newquest/a.caf')
+                self.assertFalse(importer.aliases)
+            finally:importer.close()
+            resumed=NativeFacialImporter(directory,resources[INDEX])
+            try:
+                resumed.add(['dialog/newquest/b.ogg'])
+                self.assertEqual(len(resumed.records),5)
+                _,clips,_=database(next(iter(resumed.outputs.values())))
+                self.assertEqual({Path(e['name']).stem for e in clips},{'a','b'})
+            finally:resumed.close()
+
+    def test_native_relocation_rejects_missing_track_and_corrupt_baseline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline=self.native_archive(directory)
+            with self.assertRaisesRegex(ValueError,'baseline'):
+                NativeFacialImporter(directory,container(baseline[1:]))
+            importer=NativeFacialImporter(directory)
+            try:
+                with self.assertRaisesRegex(ValueError,'lip-sync track'):
+                    importer.add(['dialog/quest/missing.ogg'])
+            finally:importer.close()
+
     def test_rig_aliases_retain_original_curves_and_rebuild_metadata(self):
         blob = fixture()
         _, before, tracks = database(blob)

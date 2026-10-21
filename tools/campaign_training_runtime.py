@@ -33,7 +33,7 @@ def emit(name, domain, contract):
         port(n)
     for n in ('tutor_ready', 'dialogue_busy', 'lesson_authorized'): port(n, 'bool')
     port('ack_phase', 'int')
-    for n in ('arrive', 'prepare', 'stop_workers', 'cleanup', 'started', 'finished', 'canceled', 'fault'):
+    for n in ('arrive', 'prepare', 'stop_workers', 'cleanup', 'started', 'exercises_finished', 'finished', 'canceled', 'fault'):
         port(n, direction='Out')
     for n in ('busy', 'training_active'): port(n, 'bool', 'Out')
 
@@ -106,6 +106,7 @@ def emit(name, domain, contract):
     success = gate('accept_success', 'training.OnTutorialEnd', 'running.State')
     successful = order('success_order', success)
     set_state('completion_pending', successful+'.A', True)
+    send(successful+'.A', 'exercises_finished')
     stop = order('stop_order', successful+'.B')
     cancellable = any_of(nodes, 'cancellable', [n+'.State' for n in ('arriving','at_destination','preparing','waiting','running')])
     canceled = gate('accept_cancel', 'cancel', cancellable)

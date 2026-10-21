@@ -11,11 +11,15 @@ from setup_campaign import RECEIPT, MOD_ID, digest, verify_package
 
 def migrate_step_ids(report):
     from setup_gameplay import STAGE_IDS
-    old = [s for s in STAGE_IDS if s != 'gm_guard_interaction']
     steps = report.get('steps', [])
-    if [s.get('id') for s in steps if s.get('id')] == old:
-        index = next(i for i,s in enumerate(steps) if s.get('id') == 'combat')
-        steps.insert(index, dict(id='gm_guard_interaction', name='Source guard conversations (migration)'))
+    ids = [s.get('id') for s in steps if s.get('id')]
+    missing = {'gm_guard_interaction', 'quest-introductions'} - set(ids)
+    if ids == [s for s in STAGE_IDS if s not in missing]:
+        for identity in STAGE_IDS:
+            if identity not in missing: continue
+            following = set(STAGE_IDS[STAGE_IDS.index(identity)+1:])
+            index = next(i for i,s in enumerate(steps) if s.get('id') in following)
+            steps.insert(index,dict(id=identity,name=identity+' (migration)'))
 
 
 def eligible(receipt):
@@ -23,7 +27,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -303,6 +307,14 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     localization_files, localization_report = repair_localization(package)
     receipt['files'].update(localization_files)
     if localization_report: receipt['localization_registry'] = localization_report
+    from setup_quest_starts import upgrade as upgrade_quest_starts
+    start_files, start_report = upgrade_quest_starts(package, source)
+    receipt['files'].update(start_files)
+    receipt['quest_start_placements'] = start_report
+    from setup_quest_introductions import upgrade as upgrade_introductions
+    intro_files, intro_report = upgrade_introductions(package, source, target)
+    receipt['files'].update(intro_files)
+    receipt['quest_introductions'] = intro_report
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))

@@ -263,3 +263,43 @@ class FacialImporter:
     def report(self):
         return dict(native_headers=self.native_count,total_headers=len(self.records),
                     recordings=self.receipts,databases=len(self.outputs),rig_adapter=self.rig_report,runtime_verified=False)
+
+
+class NativeFacialImporter(FacialImporter):
+    """Relocate target-game dialogue tracks with their original rig/curves.
+
+    Moving a native recording to a new quest namespace also changes its facial
+    lookup path. Extend the existing combined index; never replace converted
+    source tracks with a fresh native-only index.
+    """
+    def __init__(self, target, existing=None):
+        self.aliases = {}
+        self.rig_report = dict(mode='native target rig; no controller remapping')
+        self.archives = []; self.dbas = {}; self.source_headers = defaultdict(list)
+        baselines = []
+        try:
+            for path in sorted((Path(target)/'Data/Facials').glob('*english*.pak')):
+                pak = zipfile.ZipFile(path); self.archives.append(pak)
+                for name in pak.namelist():
+                    key = name.lower()
+                    if key == INDEX.lower(): baselines.append(chunks(pak.read(name)))
+                    if key.startswith('animations/humans/facials/') and key.endswith('.dba'):
+                        crc = zlib.crc32(key.encode('ascii'))
+                        if crc in self.dbas: raise ValueError('Ambiguous native facial DBA')
+                        self.dbas[crc] = (pak, name)
+            if len(baselines) != 1: raise ValueError('Expected one native English facial index')
+            baseline = baselines[0]
+            for record in baseline:
+                original = header_path(record)
+                self.source_headers[Path(original).stem].append((original, record))
+            self.records = chunks(existing) if existing is not None else list(baseline)
+            if self.records[:len(baseline)] != baseline:
+                raise ValueError('Existing facial index does not preserve native baseline')
+            self.native_count = len(baseline)
+            self.indexed = {header_path(r): r for r in self.records}
+            if len(self.indexed) != len(self.records): raise ValueError('Duplicate facial index paths')
+            self.next_id = max(r[2] for r in self.records) + 1
+            self.outputs = {}; self.receipts = []
+        except Exception:
+            self.close()
+            raise

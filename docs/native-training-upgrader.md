@@ -1,46 +1,110 @@
 # Native training conversion: implementation boundary
 
-## Source exercise sequencing (current direction)
+The controller integration design and 2026-10-21 audit are documented in
+[quest-controller-training-conversion.md](quest-controller-training-conversion.md).
+The source walk-and-wait routine requires `arrival_completion='source_objective'`;
+waiting for its overall Success is not an arrival acknowledgement.
 
-`campaign_training_exercises.py` resolves a bounded lesson from enabled source
-objective transitions and explicit behavior registrations. It preserves whole
-programs, variable scopes and source tree identities, and uses the quest
-compiler's objective-port encoding for names beginning with digits. Numeric
-sorting, disabled branches and native phase-number substitution are not used.
-Branches, cycles, missing registrations and stale plans reject compilation.
+## Selected direction: complete native KCD2 Basic lesson
 
-`compile_exercises` invokes the ordinary behavior compiler and its dependency
-closure. If any required exercise is withheld, no lesson files are returned;
-the exception carries the full conversion diagnostics. `bind` schedules
-dedicated workers from their source objective states and the host's active
-state. Conflicting active exercise objectives disable all workers. Source
-programs own completion through their compiled quest bridge; worker Success
-and native tutorial phase events are not substituted for exercise completion.
-The host must still supply the source controller scope, quest bridge and
-cancellation/cleanup bindings. This API is not yet installed in setup.
+On 2026-10-21 the user explicitly selected KCD2's complete native Basic lesson
+for combat exercises. Preserve KCD1's invitation, walk, practice equipment and
+quest handoff. Temporary-faction conversion is deferred and is not a prerequisite
+for this selected path. This is an intentional curriculum replacement, not a
+claim that KCD1 movement/stab objectives equal KCD2 phase numbers.
 
-The real source probe resolved movement -> normal attack -> stab -> combo ->
-first block -> second block -> final showcase. Stamina and third block are
-not in that enabled chain. It then correctly withheld the lesson: the legacy
-player controls, melee event listeners, natural-combo listener, sweet-spot and
-combat automation nodes still lack native adapters. Additional diagnostics
-include monologue request ABI and tutorial Lua conversion. The isolated probe
-also has no registered quest binding; that is a probe dependency, not proof of
-a production quest registration defect. The diagnostic artifact is
-`outputs/native-training-adapter/source-exercise-conversion.json`.
+`campaign_training_curriculum.py` resolves a selected production graph from the
+installed target archive. It follows each Phase switch entry through the phase
+module's output and state activation to the actual instruction dialogue and its
+trigger. It validates the selected graph's own full controller contract rather
+than merging evidence from unrelated examples. The emitted lifecycle uses that
+complete native domain from phase zero; legacy exercise compilation is not called.
 
-These changes implement source selection, scheduling linkage and the atomic
-compilation boundary, **not playable exercise conversion**. No in-game result
-has been established. KCD2's shipped Basic graph has no separate movement/stab
-phases; its perfect-block phase cannot replace the source's second ordinary
-block exercise. Unsupported controls/listeners must be converted before the
-lesson can be published, rather than emitted as legacy XML or fake successes.
+The installed Basic lesson resolves as follows:
 
-The earlier native-lesson path uses KCD2's `CombatTutorialNode`; it remains
-available for lessons with matching semantics, but is not a faithful substitute
-for this source exercise chain. The source quest still owns its actor, place,
-equipment, dialogue and completion objective.
-No generated training module selects Vanyek or a specific quest by name.
+| Native phase | Native instruction alias | CustomStepEvent |
+| --- | --- | --- |
+| 0 | combatTutorial_phase0_start | Yes |
+| 1 | combatTutorial_phase1_start | Yes |
+| 2 | combatTutorial_phase3_start | Yes |
+| 3 | combatTutorial_phase4_start | No |
+| 4 | combatTutorial_phase5_start | No |
+| 5 | combatTutorial_phase6_start | No |
+| 6 | combatTutorial_phase7_start | Yes |
+
+Instruction bindings follow native document identity and authored trigger ports.
+`campaign_training_presentation.py` preserves native alias dispatch; it does not
+enqueue a second copy of the instruction. A CustomStep phase must emit its
+authored cue and release the dialogue before the adapter acknowledges it. A
+scene release without that cue cannot advance the lesson. Cancellation clears
+pending cues, hides tutorial windows and blocks late objective/UI activation.
+Native scene occupancy remains set until the actual scene-release callback;
+stop/reset cannot falsely clear it and allow a new lesson to start while an old
+instruction still owns the actors. That occupancy is combined with source
+dialogue occupancy inside the assembled lifecycle.
+Native `Tracker` is exposed alongside Phase and combat events; it was missing
+from the previous wrapper even though native progress displays consume it.
+
+The importer follows the actual seven phase modules, their progress states,
+UI prompts, skip conditions, feedback barks and referenced quest objectives.
+Phase-dependent native buffs and combat contexts require an explicit tutor or
+player binding. Constant-only effects, unrelated story inputs and unrelated
+local cycles are not treated as lesson effects. Five unreferenced crowd-only
+dialogue documents are explicitly omitted for this selection; tutor/player
+instructions and feedback cannot be omitted by that policy.
+
+`campaign_training_native.assemble` connects the presentation to the acknowledged
+lifecycle and imports the native combat tutorial settings with their three
+namespaced combat helpers. It preserves their native post-combat grace periods.
+Native exercise completion has a separate `exercises_finished` output, while
+the source-facing `finished` still requires worker release and equipment cleanup.
+Cancellation does not mark the native exercise objectives complete. Instruction
+acknowledgements are internal to this assembled module rather than exposed as
+an alternative way for the source to skip exercises.
+
+`bind_resources` resolves audio folders through the actual instantiated Project /
+Quest / Module hierarchy. It preserves native text and recorded voices, resolves
+inherited voices using the target character table, and verifies OGG durations
+against the shipped dubbing index. One shipped recording has a complete final
+page without EOS; that opt-in is accepted only alongside matching native index
+timing. The ordinary source OGG importer remains strict. English is the currently
+implemented recording selection; this is not a multi-language media conversion.
+
+The native recordings also require relocated facial lookup paths.
+`dialogue_facials.NativeFacialImporter` retains the native rig, controllers and
+curves, extends the current combined facial index, and retains earlier converted
+dialogue entries. It does not run the KCD1 facial-rig remapping on native tracks.
+Native instruction recordings remain the original Hans/Henry performances when
+bound locally to Vanyek; this does not produce new Vanyek recordings or rewrite
+native tutorial text that mentions Hans.
+
+`campaign_training_exercises.py` remains available for explicit source-faithful
+conversion elsewhere. Its unsupported legacy movement/stab listeners do not
+block selection or emission of the complete native lesson. The replacement
+adapter does not manufacture success for those legacy objectives.
+
+**Integration boundary:** source arrival/controller scheduling and shared
+equipment callbacks still need connection to this assembled native lesson in
+the installed quest. The generated module explicitly exposes those inputs;
+it does not fabricate acknowledgements. It is not yet a setup-installed,
+playable fencing lesson. Do not install the emitted module by itself or claim
+that the source controller has been replaced. The starting-placement adapter
+is separate. Temporary factions and the superseded legacy exercise listeners
+are not blockers for the selected native curriculum.
+
+Validation: **640 campaign tests and 14 dialogue/audio/facial tests pass**,
+including 71 training tests. The actual installed Basic lesson assembles into
+33 XML documents, 19 tutor/player dialogue documents within that set, 93 native
+OGG recordings and 26 relocated facial databases. The source inspection covers
+39 native graph/phase/dialogue documents plus the four combat-settings helpers.
+A rooted validation harness adds two XML documents, resolves the actual voice
+namespace and checks local edges/definitions. The facial index retains all
+295,556 native entries and adds 93 relocated entries. Regression tests also
+cover preserving an already extended index and rebuilding a previously imported
+facial namespace. Artifacts and source hashes are under
+`outputs/native-basic-integration/assembled/`. The harness is structural evidence,
+not the installed source quest: no in-game completion, cleanup or save/load
+result has been established.
 
 ## Implemented
 
@@ -97,14 +161,16 @@ different objective-start messages for travelling to the arena and beginning
 training. The lifecycle now waits at the destination until authorized, in either
 event order. Repeated unrelated quest changes do not repeat the arrival request.
 
-Dialogue binding requires explicit imported scenes for every native phase. The
+The earlier source-scene dialogue binding API requires explicit imported scenes for every native phase. The
 phase extractor reads the shipped tutorial's phase switch, progress-state
 acknowledgements and CustomStepEvent edges. The installed Basic example has
 seven phases; only phases 0, 1, 2 and 6 use CustomStepEvent. Scene releases are
 guarded by active training, expected phase and a pending invocation; cancellation
 clears pending releases. Callers must provide invocation-scoped scene instances.
-KCD1 movement/stab exercise numbering is not a native phase mapping. The actual
-source dialogue mapping has not been resolved or installed.
+KCD1 movement/stab exercise numbering is not a native phase mapping. The selected
+complete-native mode uses the presentation importer above instead of that
+explicit scene-dispatch API. It preserves the native alias registrations and
+uses the original native exercise instructions.
 
 The lifecycle is not yet installed or wired into setup. A host must bind the
 source destination and routine, select the controller's source call sites,
@@ -118,8 +184,8 @@ acknowledgement, the previous invocation cannot create items or send callbacks.
 Callbacks must be scoped to the active invocation; the graph alone cannot
 identify an old callback arriving during a later invocation of the same phase.
 
-The host must also connect native phase-specific instruction dialogue and
-acknowledgements, and route `finished` into the source quest's completion path.
+The assembled native module now owns phase-specific instruction dialogue and
+acknowledgements. The host must route its `finished` into the source quest's completion path.
 Do not substitute the entire native training-ground manager: it owns additional
 fight transitions, and its equipment helper does not expose preparation/cleanup
 acknowledgements required by this lifecycle.

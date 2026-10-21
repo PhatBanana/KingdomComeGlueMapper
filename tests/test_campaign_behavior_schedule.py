@@ -9,6 +9,28 @@ from character_person_activity import validate_scheduler_targets
 
 
 class BehaviorScheduleTests(unittest.TestCase):
+    def test_invalid_template_does_not_leave_an_anchor_or_empty_links(self):
+        objects = E.fromstring('<Objects><Entity EntityId="1" EntityGuid="00000001-0000-0000" Pos="1,2,3"/><Entity EntityId="2" EntityGuid="00000002-0000-0000"/></Objects>')
+        scheduler = E.fromstring('<database><Schedulers><C_SmartHub EntityGuid="1"/></Schedulers></database>')
+        before = E.tostring(objects), E.tostring(scheduler)
+        additions = []
+        with self.assertRaisesRegex(ValueError, 'parameter contract'):
+            connect(objects, additions, objects[0], objects[1], 'job', 55, 'Slow', 'test', scheduler, E.Element('S_ActivityLink'))
+        self.assertEqual(before, (E.tostring(objects), E.tostring(scheduler)))
+        self.assertEqual(additions, [])
+
+    def test_duplicate_anchor_does_not_add_links_to_baseline(self):
+        import uuid
+        from campaign_entity_links import native_guid
+        guid = native_guid(uuid.uuid5(uuid.NAMESPACE_URL,'test/schedule-anchor').int & ((1<<64)-1))
+        objects = E.fromstring('<Objects><Entity EntityId="1" EntityGuid="00000001-0000-0000" Pos="1,2,3"/><Entity EntityId="2" EntityGuid="00000002-0000-0000"/></Objects>')
+        E.SubElement(objects,'Entity',EntityId='3',EntityGuid=guid)
+        scheduler = E.fromstring('<database><Schedulers><C_SmartHub EntityGuid="1"/></Schedulers></database>')
+        before=E.tostring(objects),E.tostring(scheduler);additions=[]
+        with self.assertRaisesRegex(ValueError,'identity collision'):
+            connect(objects,additions,objects[0],objects[1],'job',55,'Slow','test',scheduler,E.fromstring('<S_ActivityLink><Parameters/></S_ActivityLink>'))
+        self.assertEqual(before,(E.tostring(objects),E.tostring(scheduler)));self.assertEqual(additions,[])
+
     def test_actor_can_reach_host_in_both_exported_networks(self):
         objects = E.fromstring('<Objects><Entity Name="unrelated_actor" EntityId="1" EntityGuid="00000001-0000-0000" Pos="1,2,3"><EntityLinks><Link Name="home" TargetId="2" TargetGuid="00000002-0000-0000"/></EntityLinks></Entity><Entity Name="host" EntityId="2" EntityGuid="00000002-0000-0000"/></Objects>')
         actor, host = list(objects)
@@ -37,8 +59,10 @@ class BehaviorScheduleTests(unittest.TestCase):
             validate_compiled(objects, scheduler, additions)
 
     def test_source_policy_is_not_fixed_to_one_quest(self):
-        self.assertEqual(source_policy({'values': 'priority(72), immediate(true)'}), (72, 'Instant'))
+        self.assertEqual(source_policy({'values': 'priority(72), immediate(true)'}), (72, 'Slow'))
         self.assertEqual(source_policy({'values': 'priority(43), immediate(false)'}), (43, 'Slow'))
+        self.assertEqual(source_policy({'values': 'priority(43),immediate(true),immediateDaycycleHaltSpeed($enum:daycycleHaltSpeed.fast)'}), (43, 'Fast'))
+        with self.assertRaises(ValueError): source_policy({'values': 'priority(43),immediate(true),immediateDaycycleHaltSpeed($speed)'})
         with self.assertRaises(ValueError): source_policy({'values': 'priority(43)'})
 
 
