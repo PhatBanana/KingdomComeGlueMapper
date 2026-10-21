@@ -7,7 +7,7 @@ finish a batch call release() so its workers do not idle through the rest of
 the build (atexit covers the rest).
 """
 import atexit
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, wait as wait_for
 import copy
 
 from bounded_pool import worker_count
@@ -37,29 +37,52 @@ class Bakes:
 
     Matches the bake(path, image, material, specular=None) callback of
     convert_character_materials. Arguments are copied because they are pickled
-    after submit() and the caller may reuse the images.
+    after submit() and the caller may reuse the images. Use it as a context
+    manager: leaving the block waits for every bake, and if a bake or the
+    conversion fails, queued bakes are cancelled and running ones joined before
+    the original error propagates, so nothing writes into the outputs after a
+    reported failure.
     """
     def __init__(self):
         self.pending = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, kind, error, traceback):
+        if kind is None:
+            self.wait()
+        else:
+            self.drain()
+        return False
 
     def __call__(self, path, image, material, specular=None):
         executor = pool()
         # Bound the queued texture copies.
         while len(self.pending) >= 2 * executor._max_workers:
-            self._finish(*self.pending.pop(0))
+            self._finish_next()
         self.pending.append((path, executor.submit(bake_float_dds, path, image.copy(), copy.deepcopy(material),
                                                    None if specular is None else specular.copy())))
 
-    @staticmethod
-    def _finish(path, future):
+    def _finish_next(self):
+        path, future = self.pending.pop(0)
         try:
             future.result()
         except Exception as error:
+            self.drain()
             raise RuntimeError('Character texture bake ' + str(path) + ': ' + str(error)) from error
+
+    def drain(self):
+        """Cancel queued bakes and wait for running ones; their own errors are dropped."""
+        pending, self.pending = self.pending, []
+        for _, future in pending:
+            future.cancel()
+        wait_for([future for _, future in pending])
 
     def wait(self):
         try:
             while self.pending:
-                self._finish(*self.pending.pop(0))
-        finally:
-            self.pending.clear()
+                self._finish_next()
+        except BaseException:
+            self.drain()
+            raise

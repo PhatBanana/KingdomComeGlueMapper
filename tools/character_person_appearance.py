@@ -322,11 +322,11 @@ def _build_appearance(source, target, person, namespace, output):
             'Libs/Tables/item/InventoryPreset__' + namespace + '_clothes.xml': xml(preset_root)})
         # Same native clothing shader/vertex-feature upgrade as female garments:
         # the fixed outfit otherwise keeps legacy Illum colourisation (issue #1).
-        # The float bakes run in worker processes; nothing below reads them until wait().
-        bakes = Bakes()
-        material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
-                                                      native, namespace, sex, bakes)
-        bakes.wait()
+        # The float bakes run in worker processes; leaving the block waits for them
+        # (or, on failure, cancels and joins them) before anything reads the outputs.
+        with Bakes() as bakes:
+            material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
+                                                          native, namespace, sex, bakes)
         (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender=sex,
                 archetype=native_soul_archetype(archetypes, sex.title()), parts=evidence, rig=rig,
@@ -394,10 +394,9 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         'Localization/English/text_ui_items.xml': xml(localization),
     }
     write_staged(output, {**emitted, **additions})
-    bakes = Bakes()
-    material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
-                                                  native, namespace, 'female', bakes)
-    bakes.wait()
+    with Bakes() as bakes:
+        material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
+                                                      native, namespace, 'female', bakes)
     from clothing_coverage import register_coverage
     coverage = register_coverage(output, document.find('CharacterComponents/Component'), garments, tables, namespace)
     (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
