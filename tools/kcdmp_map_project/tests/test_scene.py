@@ -163,16 +163,41 @@ class SceneTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     prepare_scene(archive)
 
-    def test_conflicting_entity_ids_and_reserved_actor_id_are_rejected(self):
+    def test_conflicting_entity_ids_and_reserved_actor_guid_are_rejected(self):
         for objects in (
             '<Objects>'+MARKER+'<Entity EntityId="10" EntityClass="GeomEntity" Geometry="objects/x.cgf"/></Objects>',
-            '<Objects>'+MARKER+'<Entity EntityId="30583" EntityClass="GeomEntity" Geometry="objects/x.cgf"/></Objects>',
-            '<Objects>'+MARKER+'<Entity EntityId="030583" EntityClass="GeomEntity" Geometry="objects/x.cgf"/></Objects>',
             '<Objects>'+MARKER+'<Entity EntityId="22" EntityGuid="00007777-0000-0000" EntityClass="GeomEntity" Geometry="objects/x.cgf"/></Objects>',
         ):
             with package(objects) as archive:
                 with self.assertRaises(ValueError):
                     prepare_scene(archive)
+
+    def test_reserved_numeric_id_is_remapped_with_links_and_parent_transform(self):
+        for reserved_id in ('30583', '030583'):
+            objects = ('<Objects>'+MARKER+
+                f'<Entity EntityId="{reserved_id}" EntityGuid="357da218-c0bb-1f5d" Name="window" EntityClass="ReflexLight" Pos="10,20,30"><Properties Radius="5"/></Entity>'
+                '<Entity EntityId="1" EntityGuid="00000001-0000-0000" Name="child" EntityClass="Light" ParentId="30583" Pos="1,2,3"><EntityLinks>'
+                '<Link Name="light" TargetId="030583" TargetGuid="357da218-c0bb-1f5d"/>'
+                '</EntityLinks></Entity>'
+                '<Entity EntityId="65533" Name="highest" EntityClass="TagPoint"/>'
+                '</Objects>')
+            with package(objects) as archive:
+                context = prepare_scene(archive)
+                self.assertEqual(context.replacements, prepare_scene(archive).replacements)
+            output = ET.fromstring(context.replacements['objects_mission0.xml'])
+            window = output.find('Entity[@Name="window"]')
+            child = output.find('Entity[@Name="child"]')
+            self.assertNotEqual(window.get('EntityId'), '30583')
+            self.assertEqual(window.get('EntityGuid'), '357da218-c0bb-1f5d')
+            self.assertEqual(window.find('Properties').get('Radius'), '5')
+            self.assertEqual(child.get('Pos'), '11,22,33')
+            self.assertEqual(child.find('EntityLinks/Link').get('TargetId'), window.get('EntityId'))
+            ids = [e.get('EntityId') for e in output]
+            self.assertNotIn('30583', ids)
+            self.assertEqual(len(ids), len(set(ids)))
+            self.assertEqual(len(context.report['remapped_entity_ids']), 1)
+            souls = ET.fromstring(context.replacements['whdata_0'])
+            self.assertEqual(souls.findtext('.//Soul/EntityGuid'), '30583')
 
     def test_stale_dual_link_endpoint_is_not_kept(self):
         objects = ('<Objects>'+MARKER+

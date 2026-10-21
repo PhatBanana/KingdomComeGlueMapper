@@ -388,7 +388,7 @@ def prepare_scene(archive: zipfile.ZipFile, *,
         static_id = _id_key(entity.get("EntityId"))
         if static_id and (not static_id.isdecimal() or not 0 < int(static_id) < 65534):
             raise ValueError(f"Unsupported static visual entity ID: {entity.get('EntityId')}")
-        if static_id == str(0x7777) or _guid_key(entity.get("EntityGuid")) == str(0x7777):
+        if _guid_key(entity.get("EntityGuid")) == str(0x7777):
             raise ValueError("A visual entity uses CryEngine's reserved local-player ID/GUID 0x7777")
         if static_id:
             visual.set("EntityId", static_id)
@@ -429,12 +429,31 @@ def prepare_scene(archive: zipfile.ZipFile, *,
                 if id_target is not None:
                     link.set("TargetId", target_id)
         output.append(visual)
+    # Source builders allocate numeric editor IDs sequentially and can reach
+    # the multiplayer local-player slot. Keep GUID identity (and compiled
+    # references) intact; remap only the numeric ID after parent transforms
+    # and dual-endpoint links have been resolved against the source IDs.
     used = {int(x) for x in kept_ids if x.isdecimal()}
-    number = max(used, default=0)+1
-    if number == 0x7777:
-        number += 1
-    if number >= 65534:
-        raise ValueError("No available static entity ID for multiplayer SpawnPoint")
+    used.add(0x7777)
+    def allocate_id():
+        for candidate in range(1, 65534):
+            if candidate not in used:
+                used.add(candidate)
+                return candidate
+        raise ValueError("No available static entity ID for multiplayer scene")
+    remapped_ids = []
+    reserved = kept_by_id.get(str(0x7777))
+    if reserved is not None:
+        replacement = str(allocate_id())
+        reserved.set("EntityId", replacement)
+        for visual in selected:
+            for link in visual.findall('EntityLinks/Link'):
+                if _id_key(link.get('TargetId')) == str(0x7777):
+                    link.set('TargetId', replacement)
+        remapped_ids.append(dict(name=reserved.get('Name', ''),
+            source_id=str(0x7777), target_id=replacement,
+            reason='reserved local-player numeric ID'))
+    number = allocate_id()
     if _guid_key(SPAWN_GUID) in kept_guids:
         raise ValueError("The dedicated multiplayer spawn GUID conflicts with source geometry")
     yaw = math.radians(heading)
@@ -452,6 +471,7 @@ def prepare_scene(archive: zipfile.ZipFile, *,
         "actions": dict(sorted(counts.items())), "retained_visual_entities": len(selected),
         "entity_audit": reports, "excluded_entity_layers": excluded_layers,
         "pruned_entity_links": removed_links, "emptied_level_tables": [],
+        "remapped_entity_ids": remapped_ids,
         "native_player_souls_retained": 0, "other_souls_removed": 0,
         "limitations": [
             "No game process was run by the exporter; custom-level local actor creation needs runtime acceptance.",

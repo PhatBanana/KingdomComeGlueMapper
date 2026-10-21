@@ -1,6 +1,6 @@
-# Windows setup — 0.3.15
+# Windows setup — 0.3.16
 
-Download `KingdomComeGlueMapper-Setup-0.3.15-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.15). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface. See the [release notes](releases/v0.3.15.md) for validation and limits.
+Download `KingdomComeGlueMapper-Setup-0.3.16-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.16). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface. See the [release notes](releases/v0.3.16.md) for validation and limits.
 
 **KCD1 Map requires the official KCD2 Modding Tools from Steam before building, installing an existing package, or resuming installation.** Setup detects the tools and offers Browse, Recheck, and Install through Steam. It uses your installed tools to compile shaders; Warhorse's tools are not bundled. Fishing alone does not require them.
 
