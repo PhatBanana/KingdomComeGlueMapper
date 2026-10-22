@@ -33,7 +33,7 @@ The goal is to preserve KCD1's authored world while using compatible KCD2 runtim
 
 **The main Rataje world is imported geographically. Complete KCD1 gameplay, campaign progression and every interactive object are still being converted.** Separate source maps and every DLC or alternate quest state are not covered by a whole-game completion claim.
 
-This page describes the **current source and inspected development build as of 18 October 2026**, checked against the build pipeline and converter code. Downloaded releases may predate features listed here; check their release notes. A current source implementation is not evidence that an older setup executable contains it.
+The checklist describes source implementation, with dated development-build observations below. It is not a release manifest or a whole-game acceptance result. See the [release, source and runtime status](docs/status.md) for the **22 October 2026 source review**, newer gameplay work and its remaining checks. Historical counts retain their original observation dates.
 
 The normal travel route is **Launch mod → Continue a Trosky save → coachman → Travel to the Rattay region**. Setup also connects the bounded Skalitz opening and selected gameplay conversions to its build recipe. This does not complete the KCD1 campaign. KCD1 saves are not converted.
 
@@ -41,16 +41,16 @@ The normal travel route is **Launch mod → Continue a Trosky save → coachman 
 
 ### Windows setup
 
-1. Download **Setup 0.3.16** from [Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.16). Python is bundled; Microsoft Edge WebView2 is required. See the [0.3.16 release notes](docs/releases/v0.3.16.md) for the multiplayer entity-ID fix and the [KCD1:MP guide](docs/kcd1-mp-setup.md) for configuration.
+1. Download **KingdomComeGlueMapper-Setup-0.3.16-win64.exe** from the **Assets** section of the [0.3.16 prerelease](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.16), not GitHub's source-code ZIP. Python is bundled; Microsoft Edge WebView2 is required. The release also includes `SHA256SUMS.txt` and `self-test.json`. See the [0.3.16 release notes](docs/releases/v0.3.16.md) for validation and the [KCD1:MP guide](docs/kcd1-mp-setup.md) for the separate experimental multiplayer export.
 2. Select **KCD1 Map**, **KCD2 Fishing**, or both. KCD1 Map needs both games and the **official KCD2 Modding Tools from Steam**; fishing alone needs KCD2. The supported KCD2 version is **1.5.6**.
 3. Choose game locations and a build folder outside the games. A fresh map build reserves **200 GiB**, plus **64 GiB** for installation staging; these combine on the same drive.
 4. Choose **No Baking**, **Buildings** (+30 GiB working space), or **All (Forest)** (+60 GiB). The optional opening movie needs an external RAD encoder, FFmpeg/FFprobe and another 10 GiB; it currently replaces the shared New Game intro, including KCD2's.
 5. Close the games, review settings and start. Activity lists pending steps, progress and logs.
 6. For KCD1 Map, keep Steam running and choose **Launch mod** in the setup Library to load its compiled shaders. Continue a Trosky save and use the coachman's **Travel to the Rattay region** option. The retail **New Game Sasau region (In Progress)** menu entry is experimental. For fishing, buy a rod from a general merchant after stock refresh, carry it, face nearby water and choose **Fish**.
 
-**Updating or resuming?** Choose **Activity → Resume failed setup…** and select the original job folder containing `job.json`. Supported completed recipes migrate through the shared upgrader without a full map rebuild. Verified current packages and compatible finished lighting tiles are reused. Stale LOD validation can now be [repaired as a single section](docs/stale-section-repair.md) using verified saved build data, without rerunning completed gameplay or lighting stages. Keep the original build workspace available. If map conversion never produced a complete package, that phase restarts. Logs and partial outputs are retained.
+**Updating or resuming?** Choose **Activity → Resume failed setup…** and select the original job folder containing `job.json`. Supported completed recipes migrate through the shared upgrader without a full map rebuild. Verified current packages and compatible finished lighting tiles are reused. In source after v0.3.16, stale LOD validation can be [repaired as a single section](docs/stale-section-repair.md) using verified saved build data, without rerunning completed gameplay or lighting stages. Keep the original build workspace available. If map conversion never produced a complete package, that phase restarts. Logs and partial outputs are retained.
 
-The end-to-end duration of recipe 3, including its additional gameplay and shader stages, has not been measured. PR #28 adds parallel conversion and persistent lighting-cache reuse; its contributor benchmarks are documented in the PR. Full-world bake duration is also not yet established.
+Post-release source includes parallel tile baking with contributor measurements for a complete 1,220-tile Buildings bake. See the [performance evidence and limits](docs/status.md#performance-evidence) for hardware, measured stages and release scope. These measurements are not a duration guarantee for the downloaded installer, another bake mode or your machine.
 
 See the [Windows setup guide](docs/windows-setup.md) for requirements, instructions, recovery and rollback, and the [launcher details](docs/setup-launcher.md) for each mode and current limitations.
 

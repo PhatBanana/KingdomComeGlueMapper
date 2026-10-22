@@ -1,6 +1,12 @@
-# Setup 0.3.4
+# Setup launcher
 
-Run `KingdomComeGlueMapper-Setup-0.3.4-win64.exe`. The HTML/CSS/JavaScript interface runs locally in WebView2; a Python worker performs conversion and verified installation. Python is bundled in the EXE. Microsoft Edge WebView2 must be installed. KCD1 Map also requires the official KCD2 Modding Tools installed through Steam; setup detects and validates their shader compiler, resource compiler, lists, and engine DLLs. The SDK is not redistributed.
+Start with the [Windows installation guide](windows-setup.md) and the
+[0.3.16 prerelease](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.16).
+This page explains the launcher workflow and current source behavior; see
+[release, source and runtime status](status.md) for the difference between the
+download and later local builds.
+
+The HTML/CSS/JavaScript interface runs locally in WebView2; a Python worker performs conversion and verified installation. Python is bundled in the EXE. Microsoft Edge WebView2 must be installed. KCD1 Map also requires the official KCD2 Modding Tools installed through Steam; setup detects and validates their shader compiler, resource compiler, lists, and engine DLLs. The SDK is not redistributed.
 
 ## Mod library
 
@@ -8,6 +14,11 @@ Run `KingdomComeGlueMapper-Setup-0.3.4-win64.exe`. The HTML/CSS/JavaScript inter
 | --- | --- | --- | --- |
 | KCD1 Map | 0.2.0-alpha.4 | Installed KCD1, KCD2 1.5.6, and KCD2 Modding Tools | Converts the original world, coach travel, and a bounded Skalitz gameplay slice. The original campaign and saves are not converted into a complete playable campaign. |
 | KCD2 Fishing | 0.3.0 | KCD2 1.5.6 | Standalone fishing for Trosky and Kuttenberg. Carry a rod, look at water and choose Fish. General merchants stock rods after a stock refresh. A KCD1 Map present during package construction also contributes its water data. Native-region runtime validation is still pending. |
+
+The separate **KCD1:MP** option exports scenery from a completed KCD1 Map for
+KCD:MP 0.44.0 and Steam KCD2 1.5.6. It does not provide cooperative campaign
+conversion; player initialization and two-client gameplay remain unverified.
+Use the [multiplayer guide](kcd1-mp-setup.md) for its prerequisites and workflow.
 
 ## Wizard
 
@@ -32,7 +43,7 @@ complete the KCD1 campaign. Coach travel remains available for existing saves.
 | Buildings | Include structures, static props, ground and roads. Explicitly exclude forest instances from this surface pass. | 30 GiB |
 | All (Forest) | Buildings coverage plus eligible trees and foliage with their original transforms. | 60 GiB |
 
-Every choice installs visible buildings and vegetation. Optional surface baking prepares opacity, surface colour and normals for indirect illumination. A separate mandatory map-build stage compiles the mod shader archives with the installed Modding Tools, including when No Baking is selected. Lighting remains dynamic. The surface bake uses automatic CPU/OptiX selection: two compiled CPU workers for smaller tiles, persistent OptiX for dense tiles, 64-brick batches and overlapping CPU preparation/encoding. GPU errors are logged and fall back to CPU. All tiles are validated before packaging. The current bundled GPU binary targets sm_120; other hardware uses CPU when unsupported. These are experimental presets: terrain blends and foliage translucency do not have proven native parity. Full-world setup duration has not been benchmarked. The allowances are planning thresholds, not measured final package sizes.
+Every choice installs visible buildings and vegetation. Optional surface baking prepares opacity, surface colour and normals for indirect illumination. A separate mandatory map-build stage compiles the mod shader archives with the installed Modding Tools, including when No Baking is selected. Lighting remains dynamic. The surface bake uses automatic CPU/OptiX selection: two compiled CPU workers for smaller tiles, persistent OptiX for dense tiles, 64-brick batches and overlapping CPU preparation/encoding. GPU errors are logged and fall back to CPU. All tiles are validated before packaging. The current bundled GPU binary targets sm_120; other hardware uses CPU when unsupported. These are experimental presets: terrain blends and foliage translucency do not have proven native parity. Post-release source has [bounded contributor bake/build benchmarks](status.md#performance-evidence); these are not a duration guarantee for the published installer or every bake mode. The allowances are planning thresholds, not measured final package sizes.
 
 Existing unrecognized/modified installations are refused. Fishing is not installed alongside the old embedded fishing experiment in a map package; migrate to a clean map package first. Each mod has a separate verified installation transaction. Map rollback data is temporary and removed on success; Fishing retains its backup. If the second mod fails, the first successful installation remains.
 
@@ -89,7 +100,7 @@ The library uses fresh user-supplied in-game screenshots in `setup-ui/assets`, w
 
 In **Activity**, choose **Resume failed setup…** and select the original timestamped job folder containing `job.json`. You can close and reopen setup first. Resume uses the saved mod selection, game paths, baking preset and movie choice; it does not use changed wizard settings.
 
-Setup verifies the completed map package against its receipt and recipe version before reusing it. Older recipes must be rebuilt with 0.3.4. A failure during optional baking can reuse a completed current-recipe map. Completed movie conversion and the selected bake are skipped when their receipts are present. Compatible completed bake tiles are checked before reuse; missing or damaged tiles are rebuilt. Interrupted scene planning restarts that planning phase. An interrupted map conversion without a verified complete package restarts the map phase, not individual world-converter steps.
+Setup verifies the completed map package against its receipt and recipe version before reusing it. Supported older recipes can migrate through this same Resume action, including completed jobs; see the [version-specific migration ranges](windows-setup.md#continue-a-failed-setup). Direct installation does not perform that migration. A failure during optional baking can reuse a completed current-recipe map. Completed movie conversion and the selected bake are skipped when their receipts are present. Compatible completed bake tiles are checked before reuse; missing or damaged tiles are rebuilt. Interrupted scene planning restarts that planning phase. An interrupted map conversion without a verified complete package restarts the map phase, not individual world-converter steps.
 
 Each retry writes separate logs under `resume-<timestamp>-<id>` inside the original job. Original logs and partial outputs remain. An old cancellation request does not cancel the new attempt. A job lock prevents two current setup workers from resuming the same job simultaneously. Stop an older setup application before selecting its job.
 

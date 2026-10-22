@@ -1,6 +1,17 @@
-# Windows setup — 0.3.16
+# Windows setup
 
 Download `KingdomComeGlueMapper-Setup-0.3.16-win64.exe` from [GitHub Releases](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases/tag/v0.3.16). This is an experimental prerelease for Windows x64. Python is bundled; Microsoft Edge WebView2 is required for the local interface. See the [release notes](releases/v0.3.16.md) for validation and limits.
+
+Choose the executable under **Assets**, not **Source code (zip)**. Download
+`SHA256SUMS.txt` from the same release if you want to compare the executable's
+SHA-256 with PowerShell's `Get-FileHash -Algorithm SHA256`.
+
+This guide also describes **current source behavior**. The published v0.3.16
+tag uses recipe 40; the source reviewed at `a9a40cd` uses recipe 51 while still
+displaying setup version 0.3.16. Newer source features are not automatically in
+that download. See [release, source and runtime status](status.md) before
+choosing an upgrade path. Recipe numbers describe package conversion rules,
+not campaign completion.
 
 **KCD1 Map requires the official KCD2 Modding Tools from Steam before building, installing an existing package, or resuming installation.** Setup detects the tools and offers Browse, Recheck, and Install through Steam. It uses your installed tools to compile shaders; Warhorse's tools are not bundled. Fishing alone does not require them.
 
@@ -72,7 +83,7 @@ The bundled GPU binary currently targets `sm_120` (the tested development GPU). 
 
 A fresh map build reserves **200 GiB** in the build location and **64 GiB** for installation staging. Add the chosen bake allowance and another **10 GiB** for the optional movie. Requirements combine when build and game folders share a drive. Fishing alone needs approximately 1 GiB for build and staging. These are planning allowances, not final installed sizes. Existing build folders and older backups are not automatically removed. Successful map replacement retains no additional full-mod backup.
 
-End-to-end timing for recipe 3, including its additional gameplay and shader stages, is not established. Earlier 43-minute conversion measurements predate this recipe. PR #28 includes contributor measurements for its parallel conversion changes, with warm-cache caveats; they are not a timing guarantee for this release. CPU, storage, memory, shader compilation, and selected coverage affect duration.
+Post-release source includes parallel tile baking with contributor measurements for a full 1,220-tile Buildings bake and one cold build. See [performance evidence](status.md#performance-evidence) for the measured configuration and scope. Those results do not establish the time for v0.3.16, All (Forest), installation on your machine or later recipes. CPU, storage, memory, shader compilation and selected coverage affect duration.
 
 ## Continue a failed setup
 
@@ -84,7 +95,7 @@ End-to-end timing for recipe 3, including its additional gameplay and shader sta
 
 For a failure in optional baking, a completed map package from the current recipe is reused. A completed movie or selected bake is skipped when its package receipt confirms completion. Compatible completed bake tiles are verified and reused. Missing or damaged tiles are rebuilt. Interrupted scene planning restarts that planning phase.
 
-**Completed packages from recipes 3–32 can be upgraded through Resume failed setup.** Select the original job folder containing `job.json`; a completed job is accepted too. Setup verifies the original package and stages the migration before replacing it. Direct installation requires the current recipe and does not perform migration. Incomplete world conversion may still need rebuilding.
+**Completed packages from supported older recipes can be upgraded through Resume failed setup.** The v0.3.16 tag supports migration from recipes 3-39 to recipe 40; the reviewed source supports recipes 3-50 to recipe 51. These ranges are eligibility checks, not a guarantee that every saved package will pass validation. Select the original job folder containing `job.json`; a completed job is accepted too. Setup verifies the original package and stages the migration before replacing it. Direct installation requires the recipe expected by the setup you are running and does not perform migration. Incomplete world conversion may still need rebuilding. Keep the build workspace for [current-source stale LOD repair](stale-section-repair.md); that repair postdates the v0.3.16 tag.
 
 If map conversion failed before a complete package existed, the map phase restarts. Resume does not checkpoint every individual world-converter stage. Partial outputs remain for diagnosis. Modified or incomplete packages are rejected rather than treated as successful.
 
@@ -101,7 +112,7 @@ If the old map contains an embedded fishing test, standalone fishing installatio
 
 ## Install existing packages
 
-Choose **Install existing packages** and select the job's parent `package` folder, which contains `map` and/or `fishing`. The selected packages must match their receipts and the map must have completed the current recipe, 33. Use **Resume failed setup** first for older packages. The official Modding Tools are required for map installation even when compilation was already completed. Direct installation does not rerun conversion or change bake settings.
+Choose **Install existing packages** and select the job's parent `package` folder, which contains `map` and/or `fishing`. The selected packages must match their receipts and the map must have completed the recipe required by that setup: 40 at the v0.3.16 tag, or 51 in the reviewed source. Use **Resume failed setup** first for supported older packages. An older executable cannot install a newer-recipe package. The official Modding Tools are required for map installation even when compilation was already completed. Direct installation does not rerun conversion or change bake settings.
 
 ## Logs and reporting problems
 
@@ -121,10 +132,11 @@ Existing build folders, unsuccessful attempts, and backups from earlier versions
 
 ## Build from source
 
-The current setup can resume completed recipe 3 through 32 packages into recipe 33 without
-repeating world conversion. It finishes or reuses the existing `kcd1_travel`
-bake checkpoints first, then updates the campaign start guard, removes the old
-horse-recovery hook, reconciles smart-area registrations, and removes compiled
+The reviewed source can migrate eligible completed recipe 3 through 50 packages
+to recipe 51 without repeating world conversion. The full path still verifies
+package receipts and required content, streaming and shader checks. Completed
+compatible lighting is retained. Earlier migrations also update the campaign start guard, remove the old
+horse-recovery hook, reconcile smart-area registrations, and remove compiled
 smart-area geometry duplicates while preserving their inline shapes. These
 area changes passed the user's Mod Tools return-travel test; retail and broader
 save/companion coverage remain separate acceptance checks.

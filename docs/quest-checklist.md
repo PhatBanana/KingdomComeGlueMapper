@@ -1,9 +1,15 @@
 # Quest conversion checklist
 
-Status: 14 October 2026. This tracks the original KCD1 campaign conversion into
+Historical checkpoint: 14 October 2026. This tracks the original KCD1 campaign conversion into
 KCD2. A checked implementation milestone means that specific capability exists;
 it does not mark an entire quest complete. Development scene tests are separate
 from the normal coach-travel installation route and published installers.
+
+For subsequent work, start with [release, source and runtime status](status.md),
+[source quest-item ownership](source-quest-inventory.md) and
+[the trainer introduction and invitation audit](quest-introduction-activities.md).
+Those later records supersede matching implementation claims in this checkpoint,
+but do not establish a completed opening-to-attack quest or full campaign.
 
 ## Current work boundary: New Game to the start of the Skalitz attack
 
