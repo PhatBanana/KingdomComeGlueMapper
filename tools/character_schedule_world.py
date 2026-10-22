@@ -43,6 +43,14 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None, t
     mission = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
     for entry in schedule['resolved']:
         behavior = entry['behavior']
+        from character_horse_handler_work import supports as stable_supports, resolve as stable_resolve
+        if stable_supports(entry):
+            result.append(stable_resolve(entry, archive, person, source, reader, target))
+            continue
+        from character_farmer_work import supports as farmer_supports, resolve as farmer_resolve
+        if farmer_supports(entry):
+            result.append(farmer_resolve(entry, archive, person, source, reader))
+            continue
         from character_shop_guard_work import supports as guard_supports, resolve as guard_resolve
         if guard_supports(entry):
             result.append(guard_resolve(entry, archive, source, reader, target))

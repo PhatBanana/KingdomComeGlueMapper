@@ -148,7 +148,10 @@ def geometry(item):
     # BasicEntity loads object_Model before physicalization in SetupModel.
     # Authored solid furniture must not rely on GeomEntity's external slot load.
     visual_only = item.get('visual_only', False)
-    node = E.Element('Entity', EntityClass='GeomEntity' if visual_only else 'BasicEntity',
+    subobject = item.get('subobject', '')
+    if subobject and visual_only:
+        raise ValueError('A physical subobject cannot use the visual-only loader')
+    node = E.Element('Entity', EntityClass='GeomEntity' if visual_only else 'DestroyableObject' if subobject else 'BasicEntity',
                      CastShadowMinSpec='1', ViewDistRatio='100')
     props = E.SubElement(node, 'Properties', bSaved_by_game='0', bInteractiveCollisionClass='0')
     if visual_only:
@@ -157,6 +160,14 @@ def geometry(item):
         props.set('object_Model', model)
     E.SubElement(props, 'Physics', bPhysicalize='0' if item.get('visual_only') else '1', bRigidBody='0',
                  bPushableByPlayers='0', Density='-1', Mass='-1')
+    if subobject:
+        # Native DestroyableObject supports selecting a compound mesh component.
+        # Use only its static loader: furniture cannot be damaged or exploded.
+        props.set('ModelSubObject', subobject)
+        props.set('bExplode', '0');props.set('bUsable', '0');props.set('bPickable', '0')
+        props.find('Physics').set('bRigidBodyActive', '1')
+        E.SubElement(props, 'Health', bInvulnerable='1')
+        E.SubElement(props, 'Vulnerability', bExplosion='0', bCollision='0', bMelee='0', bBullet='0', bOther='0')
     return node
 
 

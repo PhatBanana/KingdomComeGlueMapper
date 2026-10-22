@@ -1,7 +1,7 @@
 """Generic sleep extension: native shared beds, authored or inferred job clocks.
 
-Existing work/quest links are retained byte-for-byte. A timed, lower-than-quest
-sleep pool uses the native bed resource and scoped stance/context lifetime.
+Quest links are preserved. Ordinary generated work is limited to waking hours;
+a timed, lower-than-quest sleep pool uses native beds and stance lifetimes.
 """
 import copy
 import hashlib
@@ -17,6 +17,49 @@ from character_person_activity import validate_scheduler_targets
 from upgrade_map import xml
 
 PREFIX = 'gm_sleep_'
+
+
+def restrict_work_to_waking_hours(mission, scheduler, *, actors=None):
+    """Bound converter-owned routine work by the actor's existing sleep clock.
+
+    Merely adding a higher-priority sleep choice leaves continuous work valid
+    all night. Restrict only ordinary generated work links, never quest links.
+    Splitting intervals is idempotent and also supports rotating guard shifts.
+    """
+    targets={str(guid_value(e.get('EntityGuid'))):e for e in mission if e.get('EntityGuid')}
+    rows=scheduler.find('Schedulers');changed=[]
+    for actor in mission:
+        if actor.get('EntityClass') not in ('NPC','NPC_Female'):continue
+        if actors is not None and actor.get('Name') not in actors:continue
+        row=next((r for r in rows if r.get('EntityGuid')==str(guid_value(actor.get('EntityGuid')))),None)
+        if row is None:continue
+        sleep=owned_links(mission,rows,actor,row)
+        if not sleep:continue
+        night=[(int(l.find('Parameters').get('TimeOfDayStart')),int(l.find('Parameters').get('TimeOfDayEnd'))) for l in sleep]
+        links=row.find('Links');replacement=[];modified=False
+        for link in links:
+            p=link.find('Parameters');dest=targets.get(link.get('TargetGuid'))
+            if (p is None or dest is None or not dest.get('Name','').startswith('gm_schedule_')
+                    or p.get('Priority')!='0' or p.get('Privileged','false')!='false'
+                    or any(k in p.attrib for k in ('RequiredRole','RequiredContext','LinkTag','BuffTag'))):
+                replacement.append(link);continue
+            original=(int(p.get('TimeOfDayStart','0')),int(p.get('TimeOfDayEnd','1440')))
+            intervals=[original]
+            for a,b in night:
+                intervals=[piece for x,y in intervals for piece in ((x,min(y,a)),(max(x,b),y)) if piece[0]<piece[1]]
+            # A clock excludes future selection; an already-running activity
+            # must also become interruptible when that clock expires.
+            if intervals==[original]:
+                if intervals!=[(0,1440)] and p.get('HaltOnInvalid')!='true':
+                    p.set('HaltOnInvalid','true');modified=True
+                replacement.append(link);continue
+            modified=True
+            for a,b in intervals:
+                new=copy.deepcopy(link);params=new.find('Parameters')
+                params.set('TimeOfDayStart',str(a));params.set('TimeOfDayEnd',str(b))
+                params.set('HaltOnInvalid','true');replacement.append(new)
+        if modified:links[:]=replacement;changed.append(actor.get('Name'))
+    return changed
 
 
 def identity(actor):
@@ -76,6 +119,9 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
         beds.append((bed, choice))
     if not beds:
         return None, [], False
+    # An explicit household assignment may be added after public fallbacks.
+    # The pool's spatial anchor must follow its preferred bed, not list order.
+    anchor=max(beds,key=lambda pair:pair[1]['rank'])[0].get('Pos')
     outgoing = E.Element('Links'); incoming = []; graph = []
     for start, end in clock['intervals']:
         if not 0 <= start < end <= 1440:
@@ -104,10 +150,12 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
                 or hub.find('Links') is None or signature(hub.find('Links')) != signature(outgoing)
                 or [signature(l) for l in current] != [signature(l) for l in incoming]):
             raise ValueError('Existing sleep pool differs from the current source/policy; rebuild from a pre-sleep package')
-        return [dict(c, bed_guid=b.get('EntityGuid')) for b, c in beds], [], False
+        moved=pool.get('Pos')!=anchor or hub.get('Position')!=anchor
+        pool.set('Pos',anchor);hub.set('Position',anchor)
+        return [dict(c, bed_guid=b.get('EntityGuid')) for b, c in beds], [], moved
     pool = E.SubElement(mission, 'Entity', Name=PREFIX+name, EntityClass='SchedulerHub',
                         EntityId=str(max(int(e.get('EntityId', '0')) for e in mission)+1),
-                        EntityGuid=pool_guid, Pos=beds[0][0].get('Pos'))
+                        EntityGuid=pool_guid, Pos=anchor)
     E.SubElement(pool, 'Properties', bSaved_by_game='0')
     hub = E.SubElement(rows, 'C_SmartHub', EntityGuid=pool_id, IgnoreDeadEnds='false', StupidHub='false', Position=pool.get('Pos'))
     hub.append(outgoing)
@@ -146,6 +194,7 @@ def upgrade(files, people, archive, target, tables, reader, source):
             beds=beds or [], runtime_verified=False,
             pending=[] if beds else ['No compatible sleep place, or an authored bed schedule is already present']))
     validate_scheduler_targets(scheduler)
+    changed |= bool(restrict_work_to_waking_hours(mission, scheduler))
     if not changed:
         return files, reports
     return dict(files, **{'objects_mission0.xml': xml(mission), 'tables/ai/scheduler.xml': xml(scheduler),

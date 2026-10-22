@@ -207,6 +207,8 @@ class UpgradeTests(unittest.TestCase):
             from forge_loft import VERSION as LOFT_VERSION
             loft_report = {'version': LOFT_VERSION, 'runtime_verified': False}
             loft_upgrade = self.enterContext(patch('forge_loft.upgrade', return_value=({}, loft_report)))
+            lights_report = {'version': 1, 'runtime_verified': False}
+            lights_upgrade = self.enterContext(patch('procedural_lights.upgrade', return_value=({}, lights_report)))
             with patch('setup_profile_population.upgrade', return_value=({}, population_report)) as population_upgrade, patch('setup_animal_population.upgrade', return_value=({}, animal_report)) as animal_upgrade, patch('static_navigation_profiles.upgrade', return_value=({}, {'version': 1})) as navigation_upgrade, patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
                 with patch('setup_quest_introductions.upgrade', return_value=({}, {'runtime_verified': False})) as intro_upgrade, patch('campaign_menu_stage.add_to_package'), patch(
                         'setup_quest_starts.SELECTIONS', (('different_quest','teacher','intro'),)):
@@ -217,6 +219,8 @@ class UpgradeTests(unittest.TestCase):
                     intro_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     loft_upgrade.assert_called_once_with(p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['forge_loft'], loft_report)
+                    lights_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
+                    self.assertEqual(result['procedural_lights'], lights_report)
                     if getattr(self, 'repeat_resume', False):
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             before_lod = z.read('terrain/hlods.dat')

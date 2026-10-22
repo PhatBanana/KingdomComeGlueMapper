@@ -42,6 +42,18 @@ def fixture():
 
 
 class SleepClockTests(unittest.TestCase):
+    def test_pool_anchor_migrates_to_highest_ranked_bed(self):
+        m,s,activity,c,clock=fixture()
+        bind(m,s,'worker',clock,c,'bed',activity)
+        pool=next(e for e in m if e.get('EntityGuid')==identity(m[0]))
+        row=next(r for r in s.find('Schedulers') if r.get('EntityGuid')==str(guid_value(identity(m[0]))))
+        m[2].set('Pos','12,34,56')
+        _,_,changed=bind(m,s,'worker',clock,c,'bed',activity)
+        self.assertTrue(changed)
+        self.assertEqual(pool.get('Pos'),'12,34,56')
+        self.assertEqual(row.get('Position'),'12,34,56')
+        self.assertFalse(bind(m,s,'worker',clock,c,'bed',activity)[2])
+
     def test_generated_sleep_ending_at_midnight_has_no_empty_interval(self):
         class Seed:
             def digest(self): return bytes(8)

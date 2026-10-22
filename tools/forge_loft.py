@@ -16,7 +16,7 @@ from upgrade_map import read, xml
 from room_layout import geometry
 from forge_loft_layout import placements
 
-VERSION=2
+VERSION=3
 PREFIX='gm_forge_loft_'
 MARKER='gluemapper/forge_loft.json'
 FILES=('objects_mission0.xml','waitinglinks.xml','whdata_0','tables/ai/scheduler.xml',
@@ -69,6 +69,16 @@ def convert(files,native):
         report=json.loads(files[MARKER])
         if report.get('version')==1 and report.get('layout_sha256')=='b677cda1bf1f3fa5e8eef8b71e8736158fd5cba1b7ddcf08e01e830a1f703def':
             result=repair_interactions(files,native)
+            from home_bed_assignment import apply
+            result=apply(result)
+            report.update(version=VERSION,layout_sha256=layout_hash(),runtime_verified=False)
+            result[MARKER]=json.dumps(report,indent=2).encode()
+            validate(result)
+            return result,report
+        if report.get('version') in (2,VERSION) and report.get('layout_sha256') in (
+                layout_hash(),'bce6c03c92417e11a2f81cc9e38af67144ea813120088923fdcf31941366cc0d'):
+            from home_bed_assignment import apply
+            result=apply(repair_interactions(files,native))
             report.update(version=VERSION,layout_sha256=layout_hash(),runtime_verified=False)
             result[MARKER]=json.dumps(report,indent=2).encode()
             validate(result)
@@ -194,8 +204,10 @@ def validate(files):
             raise ValueError('Bed furniture and helper transform mismatch')
         if visual.find('Properties/Physics').get('bPhysicalize')!='1':
             raise ValueError('Bed furniture lacks collision')
-        if visual.get('EntityClass')!='BasicEntity' or not visual.find('Properties').get('object_Model'):
+        if visual.get('EntityClass')!='DestroyableObject' or visual.find('Properties').get('ModelSubObject')!='WH_MergeNode007':
             raise ValueError('Furniture must load its mesh before physicalization')
+        if visual.find('Properties/Health').get('bInvulnerable')!='1' or visual.find('Properties').get('bExplode')!='0':
+            raise ValueError('Static furniture must not accept damage or explode')
         trigger=names[PREFIX+role+'_trigger']
         if trigger.find('Properties/Click').get('UseNotOwnerMessage')!='@ui_use_sit':
             raise ValueError('Bed inherits an unrelated theft label')

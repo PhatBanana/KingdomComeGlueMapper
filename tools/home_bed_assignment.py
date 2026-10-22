@@ -2,7 +2,7 @@
 import copy
 import xml.etree.ElementTree as E
 from campaign_entity_links import append_links, guid_value
-from character_sleep_work import identity, owned_links
+from character_sleep_work import identity, owned_links, restrict_work_to_waking_hours
 from upgrade_map import xml
 
 
@@ -23,7 +23,7 @@ def choices(mission,actor):
 
 
 def apply(files):
-    """Keep daytime links and night hours; add assigned beds ahead of fallback by rank."""
+    """Prefer assigned beds at night and keep generated work within waking hours."""
     mission=E.fromstring(files['objects_mission0.xml']);scheduler=E.fromstring(files['tables/ai/scheduler.xml'])
     rows=scheduler.find('Schedulers');network=[]
     by_guid={e.get('EntityGuid'):e for e in mission}
@@ -35,6 +35,8 @@ def apply(files):
             raise ValueError('Assigned sleeper has no validated sleep schedule')
         pool=by_guid[identity(actor)]
         hub=next(r for r in rows if r.get('EntityGuid')==str(guid_value(pool.get('EntityGuid'))))
+        preferred=next(e for e in mission if e.get('Name')==max(selected,key=lambda c:c['rank'])['entity_name'])
+        pool.set('Pos',preferred.get('Pos'));hub.set('Position',preferred.get('Pos'))
         outgoing=hub.find('Links');old=list(outgoing)
         intervals=[]
         for link in old:
@@ -63,5 +65,6 @@ def apply(files):
             if not any(l.get('TargetGuid')==bed.get('EntityGuid') for l in links):
                 E.SubElement(links,'Link',Name='_,use',TargetId=bed.get('EntityId'),TargetGuid=bed.get('EntityGuid'))
             network.append((pool.get('EntityGuid'),bed.get('EntityGuid'),'_,use'))
+    restrict_work_to_waking_hours(mission,scheduler)
     return dict(files,**{'objects_mission0.xml':xml(mission),'tables/ai/scheduler.xml':xml(scheduler),
                          'waitinglinks.xml':append_links(files['waitinglinks.xml'],network)})

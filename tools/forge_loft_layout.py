@@ -25,7 +25,8 @@ def add(name,model,group='room',offset=(0,0,0),yaw=0,**kwargs):
 
 for role,group in (('player','henry'),('mother','mother'),('father','father')):
  LAYOUT['items'].append(dict(name=role+'_bed',model=FURNITURE+'beds/high/bed_rustic_d.cgf',
-  group=group,offset=(0,0,0),kind='bed',owner=role,helper_family='Bed_1Place_High',footprint=BED_BOUNDS))
+  group=group,offset=(0,0,0),kind='bed',owner=role,helper_family='Bed_1Place_High',footprint=BED_BOUNDS,
+  subobject='WH_MergeNode007'))
  # Complete native bedding mesh; no separately overlaid cloth across the frame.
 
 for name,owner,group,offset,yaw,shared in (

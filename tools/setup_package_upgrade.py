@@ -27,7 +27,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -255,6 +255,11 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     loft_files, loft_report = upgrade_forge_loft(package, target)
     receipt['files'].update(loft_files)
     receipt['forge_loft'] = loft_report
+    from procedural_lights import upgrade as upgrade_procedural_lights
+    notify('Register candles and fire lights', 0, 1, 'Native flames and lighting at source placements')
+    light_files, light_report = upgrade_procedural_lights(package, source, target)
+    receipt['files'].update(light_files)
+    receipt['procedural_lights'] = light_report
     from setup_animal_population import upgrade as upgrade_animals
     animal_files, animal_report = upgrade_animals(
         package, source, target, STATIC_WORLD_PROFILES, notify, cancelled)

@@ -12,6 +12,8 @@ import character_blacksmith_jobs
 import character_city_work
 import character_seated_work
 import character_shop_guard_work
+import character_farmer_work
+import character_horse_handler_work
 
 
 def population_work_supports(entry):
@@ -20,7 +22,7 @@ def population_work_supports(entry):
     identity = (behavior['tree_file'].replace('\\', '/').lower(), behavior['tree_name'])
     return (identity in {('final/sa_home.xml', 'housework'), ('final/sa_garrison.xml', 'Guard')}
             or character_city_work.supports(entry) or character_seated_work.supports(entry)
-            or character_shop_guard_work.supports(entry))
+            or character_shop_guard_work.supports(entry) or character_farmer_work.supports(entry) or character_horse_handler_work.supports(entry))
 
 
 def job_resources(source, target, files, schedules):
@@ -44,6 +46,8 @@ def job_resources(source, target, files, schedules):
                 template, definitions = station_resources(entry['station_work'])
                 if template in used:
                     resources.update(definitions)
+    if character_horse_handler_work.TEMPLATE in used:
+        resources.update(character_horse_handler_work.resources())
     return resources
 
 
@@ -70,10 +74,40 @@ It does not represent the other housework activities as converted.
     mission=ET.fromstring(files['objects_mission0.xml'])
     scheduler=ET.fromstring(files['tables/ai/scheduler.xml'])
     source_entities=list(ET.fromstring(read(archive,'objects_mission0.xml')))
-    waiting=[];report=[]; renamed={};city_pools={};seated_pools={};guard_pools={}
+    waiting=[];report=[]; renamed={};city_pools={};seated_pools={};guard_pools={};farmer_pools={};stable_pools={}
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
+            if entry.get('horse_handler_work'):
+                key = (person, entry['arrival']['EntityGuid'])
+                if key in stable_pools:
+                    previous, item_report = stable_pools[key]
+                    if previous != entry['horse_handler_work']:
+                        raise ValueError('Different stables share one schedule anchor')
+                    item_report['intervals'].append([entry['start_minute'], entry['end_minute']])
+                    continue
+                job, links, item_report = character_horse_handler_work.bind(
+                    mission, scheduler, person, entry, archive, target, registered_items)
+                item_report['intervals'] = [[entry['start_minute'], entry['end_minute']]]
+                stable_pools[key] = (entry['horse_handler_work'], item_report)
+                waiting.extend(links); report.append(item_report)
+                renamed[job.get('EntityGuid')] = ''
+                continue
+            if entry.get('farmer_work'):
+                key = (person, entry['arrival']['EntityGuid'])
+                if key in farmer_pools:
+                    previous, item_report = farmer_pools[key]
+                    if previous != entry['farmer_work']:
+                        raise ValueError('Different farms share one schedule anchor')
+                    item_report['intervals'].append([entry['start_minute'], entry['end_minute']])
+                    continue
+                job, links, item_report = character_farmer_work.bind(
+                    mission, scheduler, person, entry, archive, target, registered_items)
+                item_report['intervals'] = [[entry['start_minute'], entry['end_minute']]]
+                farmer_pools[key] = (entry['farmer_work'], item_report)
+                waiting.extend(links); report.append(item_report)
+                renamed[job.get('EntityGuid')] = ''
+                continue
             if entry.get('shop_guard_work'):
                 key = (person, entry['arrival']['EntityGuid'])
                 if key in guard_pools:

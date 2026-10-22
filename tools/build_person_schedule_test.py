@@ -47,6 +47,14 @@ def build(a):
             files,jobs=bind_jobs(files,schedules,archive,a.target,registered,getattr(a,'routes',False))
         resources.update(job_resources(a.source,a.target,files,schedules))
         report=dict(arrivals=report,jobs=jobs)
+        # Match setup's additive sleep policy after replacing an owned idle
+        # routine. Otherwise a test package can reintroduce all-night work.
+        from character_sleep_work import restrict_work_to_waking_hours
+        from upgrade_map import xml
+        scheduler = ET.fromstring(files['tables/ai/scheduler.xml'])
+        report['work_clock_repairs'] = restrict_work_to_waking_hours(
+            ET.fromstring(files['objects_mission0.xml']), scheduler, actors=set(schedules))
+        files['tables/ai/scheduler.xml'] = xml(scheduler)
         with zipfile.ZipFile(a.target/'Data/Levels/trosecko/level.pak') as native:
             files,animation_report=seating_animations.install(files,native)
         report['animations']=animation_report

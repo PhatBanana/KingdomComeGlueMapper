@@ -96,7 +96,7 @@ class RoomLayoutTests(unittest.TestCase):
                 self.assertTrue(0<=x<=6 and 0<=y<=7)
 
     def test_geometry_is_static_and_preview_namespace_is_required(self):
-        p=placements()[0];e=geometry(p)
+        p=dict(placements()[0]);p.pop('subobject');e=geometry(p)
         self.assertEqual(e.get('EntityClass'),'BasicEntity')
         self.assertEqual(e.find('Properties').get('object_Model'),p['model'])
         self.assertEqual(e.find('Properties/Physics').get('bRigidBody'),'0')
@@ -107,6 +107,16 @@ class RoomLayoutTests(unittest.TestCase):
         self.assertEqual(floor.find('Properties/Physics').get('bPhysicalize'),'0')
         with self.assertRaises(ValueError):preview_lua(LAYOUT,'gm_forge_loft_')
         with self.assertRaises(ValueError):geometry(dict(name='bad',model='x.lua'))
+
+    def test_compound_furniture_uses_native_component_loader_without_damage(self):
+        p=placements()[0];e=geometry(p)
+        self.assertEqual(e.get('EntityClass'),'DestroyableObject')
+        self.assertEqual(e.find('Properties').get('ModelSubObject'),'WH_MergeNode007')
+        self.assertEqual(e.find('Properties/Health').get('bInvulnerable'),'1')
+        self.assertEqual(e.find('Properties').get('bExplode'),'0')
+        self.assertEqual(set(e.find('Properties/Vulnerability').attrib.values()),{'0'})
+        self.assertEqual(e.find('Properties/Physics').get('bRigidBody'),'0')
+        with self.assertRaises(ValueError):geometry(dict(p,visual_only=True))
 
     @unittest.skipUnless(LuaRuntime,'Lua runtime not installed')
     def test_preview_repeat_cleanup_and_foreign_entity_protection(self):

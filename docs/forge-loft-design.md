@@ -162,6 +162,71 @@ and setup finalization calling the converter and retaining its receipt.
 The source changes are included in setup's converter inventory; publishing a
 new executable release is a separate operation.
 
+### Waking hours, compound furniture and lights, version 3
+
+The next live check found Mother sweeping at about 01:04, within her sleep
+window. Her ordinary generated work still had a 00:00–24:00 interval. The
+generic sleep upgrader now subtracts validated sleep intervals from ordinary
+converter-owned work. Quest, privileged and conditional links stay unchanged.
+Daytime sleep can split a night worker's work interval into two ranges. The
+operation is repeatable and household assignment upgrades use the same rule.
+
+BasicEntity loading alone did not solve bed collision: live rays still hit
+the floor beneath all three mattresses. The native bed asset is compound, with
+a separate shadow root. Explicitly loading its `WH_MergeNode007` furniture
+component made rays hit the mattress at about 67.7715. The room helper now
+accepts `subobject`, using the native component loader with static physics,
+invulnerability, no pickup/use action, no vulnerability and explosions disabled.
+An isolated spawn through this exact loader also passed the mattress ray test.
+Version 3 migrates existing furniture without changing bed/schedule identities.
+Father still remained in MotionIdle after the live collision correction;
+successful bed entry is not yet demonstrated.
+
+Recipe 50 also expands active source Fires procedural prefabs into native
+light/particle entities. The real source audit accounts for 1,760 objects:
+1,470 registered, 290 already controlled by converted cooking fireplaces,
+and zero unsupported in the tested package. It preserves inactive layers and
+avoids duplicate cooking flames. The loft table receives a native small candle
+with its mesh, flame and flickering light. IDs and repeated output are stable;
+unsupported resources are reported rather than replaced with invented effects.
+
+The staged candidate is `D:/BuildKCDMod/forge-loft-sleep-lights-v3-20261022`.
+Archive CRC, repeat conversion, mounted scheduler/animation aliases and parent
+work/sleep intervals pass. Runtime sleep, parent routes, lighting appearance,
+performance and save/load remain playtest requirements. This is source/setup
+integration; the already-running setup executable has not been rebuilt.
+
+### Midnight follow-up: sleep is not yet accepted
+
+The user confirmed the candles work after the v3 install, but neither parent
+was sleeping; Mother was still sweeping at midnight. Live reads during the
+night found Mother downstairs and Father moving near the public fallback
+area, rather than occupying his assigned loft bed. The work intervals were
+already bounded in the installed scheduler, so changing the clock alone did
+not resolve this failure.
+
+Two additional schedule corrections are now in the shared converter: bounded
+ordinary work uses `HaltOnInvalid=true`, and both the sleep-pool entity and its
+compiled hub are positioned at the highest-ranked bed. Previously the pool
+retained its original public-bed position after adding a household assignment.
+These are source corrections, not a verified retail sleep result.
+
+The installed base navigation has no connection for the authored loft ladder
+(`c9ef1513-ef3d-d45f`). A comparison of the exported native Trosky base mesh
+finds category-3 connections for all 58 registered ladders. Interactive ladder
+registration and solid loft furniture do not establish NPC traversal. The
+loft still needs a validated navigation route, including its landing and bed
+approach areas; no invented connection or foreign world-space bake has been
+installed. Cancellation, parent traversal, actual lying poses and wake-up
+remain unverified. Do not describe the schedule changes as a complete fix.
+
+The subsequent [parent sleep audit](parent-sleep-audit.md) confirms an additional
+generic mismatch: 100 source ladder navigation links retain category 2 and
+source GUIDs, whereas native KCD2 ladders use category 3 and matching registered
+GUIDs. It also qualifies the cancellation hypothesis: `HaltOnInvalid=false`
+is common in native timed activities and does not by itself prove the cause.
+The user confirmed that Henry can already sleep in all three beds.
+
 ## Image provenance
 
 Generated with the built-in image generation tool from the user's supplied loft
