@@ -69,7 +69,7 @@ def rewrite(package, relative, replacements, remove=lambda name: False):
     pending.replace(path)
 
 
-def finalize(package, *, source=None, target=None, notify=lambda *a: None, cancelled=lambda: False):
+def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambda *a: None, cancelled=lambda: False):
     """Called only on a private build or the transactional resume staging copy."""
     from campaign_start_policy import gate_start
     from region_travel_companions import remove_horse_recovery
@@ -81,6 +81,11 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     eligible(receipt)
     if receipt.get('travel_bridge', {}).get('destination') != 'kcd1_travel':
         raise ValueError('Expected the established playable travel world')
+    # Resolve stale derived metadata before spending time on unrelated builders.
+    # The caller owns the private staging transaction and supplies its cache roots.
+    from setup_section_repair import repair, stale_sections
+    if stale_sections(package):
+        receipt = repair(package, repair_roots=repair_roots, notify=notify, cancelled=cancelled)
     from setup_guard_conversations import upgrade as upgrade_guards
     guard_files, guard_report = upgrade_guards(package, source, target)
     receipt['files'].update(guard_files)
@@ -303,7 +308,7 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     receipt['vegetation_spatial_metadata'] = spatial_report
     receipt['build_recipe']['streaming_validation']['vegetation_grid_version'] = spatial_report['version']
     from lod_ratio_metadata import upgrade_package as upgrade_lod_ratios
-    ratio_files, ratio_report = upgrade_lod_ratios(package)
+    ratio_files, ratio_report = upgrade_lod_ratios(package, repair_roots=repair_roots)
     receipt['files'].update(ratio_files)
     receipt['lod_ratio_metadata'] = ratio_report
     receipt['build_recipe']['streaming_validation']['lod_ratio_version'] = ratio_report['version']

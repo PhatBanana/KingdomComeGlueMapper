@@ -222,11 +222,17 @@ def _worker(path):
                 if saved and saved.get('travel_bridge'):
                     from setup_resume import update_private_package
                     from setup_package_upgrade import finalize
+                    from setup_section_repair import stale_sections, repair
                     from build_recipe import VERSION
+                    if stale_sections(package/'map'):
+                        events.emit('stage',index=0,total=len(c['mods']),label='Repair stale map section')
+                        update_private_package(package/'map',lambda staged:repair(staged,
+                            repair_roots=(c['workspace'],), notify=events.progress, cancelled=cancel),cancel)
                     if not saved.get('single_playable_world') or saved.get('build_recipe',{}).get('version') != VERSION:
                         events.emit('stage',index=0,total=len(c['mods']),label='Upgrade saved gameplay and keep one playable world')
                         update_private_package(package/'map',lambda staged:finalize(staged,
-                            source=c['kcd1'], target=c['kcd2'], notify=events.progress, cancelled=cancel),cancel)
+                            source=c['kcd1'], target=c['kcd2'], repair_roots=(c['workspace'],),
+                            notify=events.progress, cancelled=cancel),cancel)
                 if c['action']=='build_install':
                     events.emit('stage',index=0,total=len(c['mods']),label='Install and verify KCD1 Map')
                     legacy.install_transaction(package/'map',c['kcd2'],events.progress,cancel)

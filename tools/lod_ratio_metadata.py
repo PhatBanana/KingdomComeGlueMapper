@@ -149,7 +149,7 @@ def validate_marker(terrain_blob, hlod_blob, marker):
         raise ValueError('LOD encoding marker does not match world data; rebuild the changed source stage')
 
 
-def upgrade_package(package, level='kcd1_travel', *, validate_only=False):
+def upgrade_package(package, level='kcd1_travel', *, validate_only=False, repair_roots=()):
     """Shared fresh-build and transactional migration stage; never double-encode.
 
     The marker is inside level.pak, so resume cannot confuse a completed
@@ -169,9 +169,19 @@ def upgrade_package(package, level='kcd1_travel', *, validate_only=False):
     with zipfile.ZipFile(package / relative / 'terrain.pak') as archive:
         old_terrain = read(archive, 'terrain/terrain.dat')
     if marker:
-        validate_marker(old_terrain, old_hlod, marker)
-        return {}, dict(marker, already_current=True)
-    terrain, hlod, report = convert(old_terrain, old_hlod)
+        try:
+            validate_marker(old_terrain, old_hlod, marker)
+        except ValueError:
+            if validate_only or not repair_roots:
+                raise
+            from lod_ratio_repair import recover
+            terrain, hlod, recovery = recover(old_terrain, old_hlod, marker, repair_roots, level)
+            report = dict(marker, recovery=recovery)
+            report.pop('already_current', None)
+        else:
+            return {}, dict(marker, already_current=True)
+    else:
+        terrain, hlod, report = convert(old_terrain, old_hlod)
     if not any(report['scoped'].values()):
         return {}, report
     if validate_only:

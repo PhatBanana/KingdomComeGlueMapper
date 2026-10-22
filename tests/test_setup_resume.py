@@ -63,7 +63,7 @@ class ResumeTests(unittest.TestCase):
                 saved={'travel_bridge':{'destination':'kcd1_travel'},'build_recipe':{'version':3}}
                 if baked:saved['baking']={'preset':'all'}
                 calls=[]
-                with patch('setup_package_upgrade.finalize') as finalize,patch('setup_resume.preflight'),patch('setup_resume.map_receipt',return_value=saved),patch('setup_mods.legacy.worker') as convert,patch('setup_mods.bake_package',side_effect=lambda *a:calls.append('bake')),patch('setup_resume.update_private_package',side_effect=lambda *a:calls.append('upgrade')) as upgrade,patch('setup_mods.legacy.install_transaction',side_effect=lambda *a:calls.append('install')):
+                with patch('setup_section_repair.stale_sections',return_value=[]),patch('setup_package_upgrade.finalize') as finalize,patch('setup_resume.preflight'),patch('setup_resume.map_receipt',return_value=saved),patch('setup_mods.legacy.worker') as convert,patch('setup_mods.bake_package',side_effect=lambda *a:calls.append('bake')),patch('setup_resume.update_private_package',side_effect=lambda *a:calls.append('upgrade')) as upgrade,patch('setup_mods.legacy.install_transaction',side_effect=lambda *a:calls.append('install')):
                     self.assertEqual(setup_mods.worker(attempt/'job.json'),0)
                     self.assertEqual(calls,(['bake'] if not baked else [])+['upgrade','install'])
                     convert.assert_not_called()
@@ -72,6 +72,27 @@ class ResumeTests(unittest.TestCase):
                     self.assertEqual(finalize.call_args.args, (root/'staged',))
                     self.assertEqual(finalize.call_args.kwargs['target'], 'target')
                     self.assertTrue(callable(finalize.call_args.kwargs['notify']))
+
+    def test_current_recipe_repairs_only_stale_section_before_install(self):
+        from build_recipe import VERSION
+        with tempfile.TemporaryDirectory() as t:
+            root=Path(t);(root/'job.json').write_text(json.dumps(self.config(root)))
+            attempt=root/'resume-1';attempt.mkdir()
+            (attempt/'job.json').write_text(json.dumps(resume.load_job(root)))
+            saved=dict(travel_bridge={'destination':'kcd1_travel'},single_playable_world=True,
+                       build_recipe={'version':VERSION},baking={'preset':'all'})
+            calls=[]
+            with patch('setup_resume.preflight'),patch('setup_resume.map_receipt',return_value=saved), \
+                    patch('setup_section_repair.stale_sections',return_value=['lod_ratios']), \
+                    patch('setup_section_repair.repair',side_effect=lambda *a,**kw:calls.append('repair')) as repair, \
+                    patch('setup_resume.update_private_package',side_effect=lambda p,op,cancel:op(p)), \
+                    patch('setup_mods.legacy.install_transaction',side_effect=lambda *a:calls.append('install')), \
+                    patch('setup_package_upgrade.finalize') as finalize, \
+                    patch('setup_mods.legacy.worker') as convert,patch('setup_mods.bake_package') as bake:
+                self.assertEqual(setup_mods.worker(attempt/'job.json'),0)
+                self.assertEqual(calls,['repair','install'])
+                self.assertEqual(repair.call_args.kwargs['repair_roots'],(str(root),))
+                finalize.assert_not_called();convert.assert_not_called();bake.assert_not_called()
 
     def test_atomic_swap_recovery_and_job_lock(self):
         with tempfile.TemporaryDirectory() as t:

@@ -249,6 +249,17 @@ def stage(mod,target,output):
     with zipfile.ZipFile(target/'Data/Levels/trosecko/level.pak') as native:
         updated,report=convert(files,native)
     changed={n:b for n,b in updated.items() if files.get(n)!=b}
+    if 'terrain/hlods.dat' in changed:
+        from lod_ratio_metadata import MARKER as LOD_MARKER
+        from lod_ratio_repair import mark_geometry_edit
+        with zipfile.ZipFile(level) as archive:
+            if LOD_MARKER in archive.namelist():
+                marker=json.loads(read(archive,LOD_MARKER))
+                with zipfile.ZipFile(level.with_name('terrain.pak')) as terrain:
+                    marker=mark_geometry_edit(read(terrain,'terrain/terrain.dat'),
+                        files['terrain/hlods.dat'],updated['terrain/hlods.dat'],
+                        files['terrain/hlods.xml'],marker,BRUSH_EDITS)
+                changed[LOD_MARKER]=json.dumps(marker,indent=2).encode()
     rewrite(level,output/'Data/Levels/kcd1_travel/level.pak',changed)
     modid=E.parse(mod/'mod.manifest').findtext('info/modid')
     mounted={f'Mods/{modid}/Data/Levels/kcd1_travel/{n}':updated[n]
