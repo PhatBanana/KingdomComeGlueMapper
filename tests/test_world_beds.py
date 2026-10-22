@@ -73,7 +73,8 @@ def fixtures():
         ET.SubElement(p,'Click',sAction='lying',bCheckOwner='1',bAllowNoOwner='0')
         h=ET.SubElement(rows,'C_SmartHub',EntityGuid=str(guid_value(e.get('EntityGuid'))))
         ET.SubElement(h,'EffectHeal',Role='sleeper',HealRate='25')
-        ET.SubElement(collections,'Collection',HelperSetName=f)
+        collection=ET.SubElement(collections,'Collection',HelperSetName=f)
+        ET.SubElement(collection,'SmartObjectHelperSetAnimationCollection',HashValue=str(900+i))
     files={'objects_mission0.xml':ET.tostring(visual), SCHEDULER:b'<database><Schedulers><Other EntityGuid="42"/></Schedulers></database>',
            'waitinglinks.xml':None, HELPERS:b'<SmartObjectAnimationCollections/>',
            ANIMATIONS:b'<database><SmartObjectAnimationss/></database>'}
@@ -135,7 +136,20 @@ class WorldBedTests(unittest.TestCase):
         before=ET.fromstring(fixture[1]['objects_mission0.xml'])
         for e in before:
             self.assertEqual(ET.tostring(next(x for x in root if x.get('Name')==e.get('Name'))),ET.tostring(e))
-        self.assertEqual(len(ET.fromstring(result[ANIMATIONS]).find('SmartObjectAnimationss')),8)
+        animations=ET.fromstring(result[ANIMATIONS]).find('SmartObjectAnimationss')
+        self.assertEqual(len(animations),8)
+        native_hashes={c.get('HelperSetName'):c[0].get('HashValue')
+                       for c in ET.fromstring(fixture[2][HELPERS])}
+        for bed in (e for e in root if e.get('EntityClass')=='StanceSmartObject'):
+            row=next(a for a in animations if a.get('EntityGuid')==str(guid_value(bed.get('EntityGuid'))))
+            self.assertEqual(row.get('Hash'),native_hashes[bed.find('Properties').get('soclass_SmartObjectHelpers')])
+            self.assertEqual(row.get('AllowRuntimeAnimValidationFallback'),'true')
+
+    def test_missing_bed_animation_reference_is_rejected(self):
+        fixture=fixtures();root=ET.fromstring(fixture[2][HELPERS]);root[0].remove(root[0][0])
+        fixture[2][HELPERS]=ET.tostring(root)
+        with self.assertRaisesRegex(ValueError,'Ambiguous native animation collection'):
+            self.run_conversion(fixture)
 
     def test_inactive_beds_not_activated(self):
         fixture=fixtures();fixture[0][0].set('Layer','later_state1{test}')

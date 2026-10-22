@@ -42,7 +42,8 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'character_fence_work', 'character_home_rest',
               'character_chopping_work', 'character_chopping_source', 'character_chopping_native',
               'character_sleep_work', 'character_sleep_clock', 'character_sleep_beds', 'character_sleep_native',
-              'setup_quest_starts', 'campaign_quest_start_placement')
+              'setup_quest_starts', 'campaign_quest_start_placement',
+              'forge_loft', 'forge_loft_layout', 'room_layout', 'world_brush_edits', 'home_bed_assignment')
 
 
 class Cancelled(Exception):

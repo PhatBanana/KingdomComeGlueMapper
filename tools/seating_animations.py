@@ -65,14 +65,14 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
         # be reused at KCD1 coordinates. Request native runtime validation.
         animation_hash = '0'
         if ((seat.get('EntityClass') == 'StanceSmartObject'
-             and seat.find('Properties').get('soclass_SmartObjectHelpers', '').startswith('Sit_1Place_'))
+             and seat.find('Properties').get('soclass_SmartObjectHelpers', '').startswith(('Sit_1Place_', 'Bed_1Place_')))
                 or converted_door(seat)
                 or seat.get('Name','').startswith(('gm_schedule_','gm_job_item_'))):
             family=seat.find('Properties').get('soclass_SmartObjectHelpers')
             # This hash selects the local animation/start-transform collection;
             # zero leaves native unstances without a move target when runtime
             # preparation is disabled. The entity world transform below is new.
-            # Sitting transitions and doors need this reference too; it is not
+            # Sitting, lying transitions and doors need this reference; it is not
             # a foreign world bake. Keep validation at the imported location.
             animation_hash=collection_hash(available[family])
         row = ET.SubElement(rows, 'SmartObjectAnimations', EntityGuid=str(guid_value(seat.get('EntityGuid'))),

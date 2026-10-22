@@ -64,7 +64,7 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
             return None, [], False
     beds = []
     for choice in selected:
-        matches = [e for e in mission if e.get('Name') == 'gm_world_bed_'+choice['source_id']+'_bed']
+        matches = [e for e in mission if e.get('Name') == choice.get('entity_name', 'gm_world_bed_'+choice['source_id']+'_bed')]
         if not matches:
             continue  # An old/rental contract needs an explicit identity adapter.
         bed = unique(matches, 'converted sleep bed'); props = bed.find('Properties')
@@ -138,6 +138,8 @@ def upgrade(files, people, archive, target, tables, reader, source):
         if actor is None:
             continue
         selected = candidates(people[name], records, position=tuple(float(v) for v in actor.get('Pos').split(',')))
+        from home_bed_assignment import choices as assigned_beds
+        selected.extend(assigned_beds(mission, actor))
         beds, links, modified = bind(mission, scheduler, name, clock, selected, template, activity)
         graph.extend(links); changed |= modified
         reports.append(dict(person=name, job='native_sleep', extension_only=True, clock=clock,
