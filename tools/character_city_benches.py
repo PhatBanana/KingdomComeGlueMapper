@@ -86,7 +86,11 @@ def native_contract(target):
 
 def prepare(mission, entry, target):
     """Resolve existing converted seats; never clone an occupied resource."""
-    source_seats = entry['city_work'].get('benches', [])
+    return prepare_sources(mission, entry['city_work'].get('benches', []), target)
+
+
+def prepare_sources(mission, source_seats, target):
+    """Resolve an authored seat selection shared by independent work adapters."""
     if not source_seats:
         return [], None
     template, activity = native_contract(target)

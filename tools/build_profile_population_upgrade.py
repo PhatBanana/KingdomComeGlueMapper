@@ -135,25 +135,33 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             entries = resolve_arrivals(dict(schedule, resolved=city), archive, person, source, reader, target)
             files, extended = extend_existing(files, {name: entries}, target)
             converted.extend(extended)
-        # A bounded native repair phase replaces only owned male housework
-        # arrivals. The same path handles clean builds and older packages.
+        # Bounded native housework phases replace only owned pending arrivals.
+        # Each adapter validates the source gender branch and linked workplace.
+        # The same path handles clean builds and older packages.
         from character_fence_work import upgrade as upgrade_fences, supports as fence_supports
         from character_schedule_world import ARRIVAL_TEMPLATE
         mission = E.fromstring(files['objects_mission0.xml'])
         arrival_names = {e.get('Name') for e in mission if e.find('Properties') is not None
-                         and e.find('Properties').get('guidSmartObjectType') == ARRIVAL_TEMPLATE}
-        fence_schedules = {}
+                         and (e.find('Properties').get('guidSmartObjectType') == ARRIVAL_TEMPLATE
+                              or e.get('EntityClass') == 'SchedulerHub')}
+        housework_schedules = {}
         for name in sorted(set(people)-set(merchants)):
             actor = next((e for e in mission if e.get('Name') == name), None)
-            if actor is None or actor.get('EntityClass') != 'NPC' or not any(
+            if actor is None or actor.get('EntityClass') not in ('NPC', 'NPC_Female') or not any(
                     n.startswith('gm_schedule_'+name+'_') for n in arrival_names):
                 continue
             person = people[name]; schedule = plan(person, tables)
             work = [e for e in schedule['resolved'] if fence_supports(e)]
             if not schedule['pending'] and work:
-                fence_schedules[name] = resolve_arrivals(dict(schedule, resolved=work), archive, person, source, reader, target)
-        if fence_schedules:
-            files, repaired = upgrade_fences(files, fence_schedules, archive, target)
+                housework_schedules[name] = resolve_arrivals(dict(schedule, resolved=work), archive, person, source, reader, target)
+        if housework_schedules:
+            files, repaired = upgrade_fences(files, housework_schedules, archive, target)
+            from character_home_rest import upgrade as upgrade_rest
+            files, resting = upgrade_rest(files, housework_schedules, archive, target)
+            repaired.extend(resting)
+            from character_chopping_work import upgrade as upgrade_chopping
+            files, chopping = upgrade_chopping(files, housework_schedules, archive, target, items)
+            repaired.extend(chopping)
             changed = {r['person'] for r in repaired}
             converted = [r for r in converted if not (r['person'] in changed and r.get('job') == 'source_housework_pending')]
             pending = [r for r in pending if not (r['person'] in changed and r.get('correction') == 'source housework branch excludes sweeping')]
