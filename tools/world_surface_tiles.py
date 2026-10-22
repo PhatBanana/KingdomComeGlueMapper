@@ -205,7 +205,7 @@ class _TileBaker:
             selected=('optix' if len(triangles)>=1_000_000 else 'compiled') if backend=='auto' else backend
             fallback=None
             try:
-                with self.lanes if self.lanes is not None and selected=='optix' else nullcontext():
+                with self.lanes if self.lanes is not None and selected in ('cuda','optix') else nullcontext():
                     idx,vox,validation=build_tile(triangles,uvs,ids,materials,origin,samples=samples,backend=selected,allow_empty=True,workers=workers if selected=='compiled' else 1)
             except (RuntimeError,MemoryError,OSError) as error:
                 if backend!='auto' or selected!='optix':raise

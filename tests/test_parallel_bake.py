@@ -82,6 +82,34 @@ def empty_scene(root, tiles):
 
 
 class ParallelBakeCancellationTests(unittest.TestCase):
+    def test_both_gpu_backends_take_a_lane_and_release_it_after_failure(self):
+        class Lane:
+            active = False
+            entries = 0
+            def __enter__(self):
+                self.active = True; self.entries += 1
+            def __exit__(self, *args):
+                self.active = False
+
+        for backend in ('cuda', 'optix', 'compiled'):
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as t:
+                scene = empty_scene(t, 1)
+                (scene / 'tiles').mkdir()
+                lane = Lane()
+                baker = _TileBaker(scene, None, 2, False, backend, 1, lanes=lane)
+                def fail_raster(*args, **kwargs):
+                    self.assertEqual(lane.active, backend in ('cuda', 'optix'))
+                    raise RuntimeError('raster failed')
+                try:
+                    with patch('world_surface_tiles.build_tile', side_effect=fail_raster):
+                        result = baker.bake(0, 1, baker.plan['tiles'][0])
+                    self.assertEqual(result['status'], 'failed')
+                    self.assertEqual(result['error'], 'raster failed')
+                    self.assertFalse(lane.active)
+                    self.assertEqual(lane.entries, int(backend in ('cuda', 'optix')))
+                finally:
+                    baker.assets.close()
+
     def test_a_cancelled_parallel_bake_starts_no_tile(self):
         from world_surface_tiles import build
         with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, {'GLUEMAPPER_BAKE_TILE_WORKERS': '2'}):
