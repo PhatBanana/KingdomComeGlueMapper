@@ -10,13 +10,28 @@ An experimental world and gameplay converter built around the assets in your ins
 [![Status](https://img.shields.io/badge/status-experimental-orange)](#project-status)
 [![License: MIT](https://img.shields.io/badge/code-MIT-green)](LICENSE)
 
-[Download setup](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases) · [Installation guide](docs/windows-setup.md) · [Feature checklist](#feature-checklist) · [Report an issue](https://github.com/SamG-Coder/KingdomComeGlueMapper/issues)
+[Website](https://samg-coder.github.io/KingdomComeGlueMapper/) · [Download setup](https://github.com/SamG-Coder/KingdomComeGlueMapper/releases) · [Installation guide](docs/windows-setup.md) · [Feature checklist](#feature-checklist) · [Report an issue](https://github.com/SamG-Coder/KingdomComeGlueMapper/issues)
 
 </div>
 
-![Imported KCD1 river, terrain and vegetation running in KCD2](docs/images/kcd1-water-in-kcd2.png)
+![Imported countryside with grassy hills, trees and a distant windmill in KCD2](docs/images/countryside-2026-10.jpg)
 
-*KCD1 terrain, vegetation and water in the KCD2 engine. Earlier development capture; see the checklist below for current scope.*
+*Development screenshot supplied on 22 October 2026. The exact build was not identified; this visual snapshot does not establish release-wide gameplay acceptance. See the checklist below for scope.*
+
+<details>
+<summary>More development screenshots</summary>
+
+![Woodland path, trees and distant hills](docs/images/woodland-path-2026-10.jpg)
+
+![Sunlight through the forest canopy and undergrowth](docs/images/forest-canopy-2026-10.jpg)
+
+The full frame and original game HUD are retained in these web-sized copies.
+See [screenshot provenance](docs/images/screenshots-2026-10.md).
+
+</details>
+
+Follow development on [YouTube](https://www.youtube.com/@SamGCoder) and
+[X / @SamGCoder](https://x.com/SamGCoder).
 
 ## The project
 
