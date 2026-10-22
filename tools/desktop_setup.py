@@ -1,5 +1,5 @@
 """Desktop setup backend. All conversion output stays in a private job directory."""
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stdout, redirect_stderr, nullcontext
 import cProfile
 from datetime import datetime
 import hashlib
@@ -33,7 +33,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'setup_merchant_upgrade', 'source_merchant_upgrade', 'character_station_work',
               'campaign_dialogue_requests', 'campaign_script_import', 'item_icons', 'item_icon_atlas',
               'smart_area_registration', 'area_geometry_contract',
-              'hlod_spatial_metadata', 'lod_ratio_metadata', 'terrain_object_tree',
+              'hlod_spatial_metadata', 'lod_ratio_metadata', 'lod_ratio_repair', 'setup_section_repair', 'terrain_object_tree',
               'terrain_surface_placement', 'setup_animal_population',
               'build_animal_population_upgrade', 'animal_population',
               'animal_population_sources', 'animal_native_templates', 'setup_profile_population',
@@ -205,10 +205,13 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
         if MOD_ID not in [line.strip().lower() for line in lines]: lines.append(MOD_ID)
         new_order = ('\n'.join(lines)+'\n').encode('utf-8')
     if game_running(): raise ValueError('Close the game before installing')
-    if destination.exists(): verify_package(destination)
+    previous_receipt = verify_package(destination) if destination.exists() else {'files': {}}
     if package == destination or package.is_relative_to(destination): raise ValueError('Select a separate source package')
     total = sum((package / n).stat().st_size for n in receipt['files'])
-    if free_space(target) < total + GIB: raise ValueError('Insufficient free space to stage the mod safely')
+    reusable = {n for n,h in receipt['files'].items() if previous_receipt['files'].get(n) == h}
+    remaining_copy = sum((package / n).stat().st_size for n in receipt['files'] if n not in reusable)
+    remaining_copy += (package / RECEIPT).stat().st_size
+    if free_space(target) < remaining_copy + GIB: raise ValueError('Insufficient free space to stage the mod safely')
     mods.mkdir(exist_ok=True)
     backup = None
     legacy_backup = None
@@ -219,14 +222,24 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
         for name in [*receipt['files'], RECEIPT]:
             if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
             dest = stage / name; dest.parent.mkdir(parents=True, exist_ok=True)
+            linked = False
+            if name in reusable:
+                try:
+                    os.link(destination / name, dest)
+                    linked = True
+                except OSError:
+                    if free_space(target) < remaining_copy + (package/name).stat().st_size + GIB:
+                        raise ValueError('Cannot reuse unchanged files on this filesystem; insufficient space for a copy')
             hashed = hashlib.sha256()
-            with (package / name).open('rb') as inp, dest.open('xb') as out:
+            with (package / name).open('rb') as inp, (nullcontext(None) if linked else dest.open('xb')) as out:
                 while chunk := inp.read(4 * 1024 ** 2):
                     if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
-                    out.write(chunk); hashed.update(chunk); count += len(chunk)
-                    notify('Copying mod files', min(count, total), total, name)
+                    if out is not None: out.write(chunk)
+                    hashed.update(chunk); count += len(chunk)
+                    notify('Verifying reused mod files' if linked else 'Copying mod files', min(count, total), total, name)
             if name != RECEIPT and hashed.hexdigest() != receipt['files'][name]:
                 raise ValueError(f'Package changed: {name}')
+            if name not in reusable: remaining_copy -= (package/name).stat().st_size
         verify_package(stage)
         if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
         if game_running(): raise ValueError('Game started during setup; close it and retry installation')

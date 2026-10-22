@@ -48,6 +48,8 @@ class DesktopSetupTests(unittest.TestCase):
         # setup self-test, not only available from a source checkout.
         self.assertIn('hlod_spatial_metadata', CONVERTERS)
         self.assertIn('lod_ratio_metadata', CONVERTERS)
+        self.assertIn('lod_ratio_repair', CONVERTERS)
+        self.assertIn('setup_section_repair', CONVERTERS)
         for module in ('setup_animal_population', 'build_animal_population_upgrade',
                        'animal_population', 'animal_population_sources', 'animal_native_templates',
                        'setup_profile_population', 'build_profile_population_upgrade',
@@ -126,6 +128,40 @@ class DesktopSetupTests(unittest.TestCase):
         with patch.object(Path, 'rename', fail_stage):
             with self.assertRaisesRegex(OSError, 'simulated'): install_transaction(source, target)
         self.assertEqual((dest / f'Data/{MOD_ID}.pak').read_bytes(), b'old'); verify_package(dest)
+
+    @patch('desktop_setup.game_running', return_value=False)
+    def test_upgrade_reuses_unchanged_files_with_space_only_for_replacements(self, *_):
+        target=self.target();dest=self.package(target/'Mods'/MOD_ID,b'old')
+        source=self.package(self.root/'package',b'new')
+        # A large unchanged file makes a full-copy install exceed the budget.
+        name='Data/shared.pak'
+        for package in (dest,source):
+            (package/name).write_bytes(b'x'*16384)
+            receipt=json.loads((package/RECEIPT).read_text())
+            receipt['files'][name]=hashlib.sha256((package/name).read_bytes()).hexdigest()
+            (package/RECEIPT).write_text(json.dumps(receipt))
+        inode=(dest/name).stat().st_ino
+        space=1024**3+(source/RECEIPT).stat().st_size+3
+        with patch('desktop_setup.free_space',return_value=space):
+            install_transaction(source,target)
+        self.assertEqual((dest/name).stat().st_ino,inode)
+        self.assertEqual((dest/f'Data/{MOD_ID}.pak').read_bytes(),b'new')
+        verify_package(dest)
+
+    @patch('desktop_setup.game_running', return_value=False)
+    def test_reuse_failure_or_tampered_shared_source_keeps_install(self, *_):
+        target=self.target();dest=self.package(target/'Mods'/MOD_ID,b'old')
+        source=self.package(self.root/'package',b'new')
+        with patch('desktop_setup.free_space',return_value=1024**3+(source/RECEIPT).stat().st_size+3), \
+                patch('desktop_setup.os.link',side_effect=OSError('links unavailable')):
+            with self.assertRaisesRegex(ValueError,'Cannot reuse'):
+                install_transaction(source,target)
+        verify_package(dest)
+        (source/'campaign-audit.json').write_bytes(b'tampered')
+        with patch('desktop_setup.free_space',return_value=100*1024**3):
+            with self.assertRaisesRegex(ValueError,'Package changed'):
+                install_transaction(source,target)
+        verify_package(dest)
 
     @patch('desktop_setup.game_running', return_value=False)
     @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)

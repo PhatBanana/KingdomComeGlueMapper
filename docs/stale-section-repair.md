@@ -19,8 +19,12 @@ inside `level.pak`, then updates that archive's receipt hash. It never runs the
 nonlinear LOD conversion a second time. New loft builds maintain this marker
 when applying their registered geometry edits.
 
-Repair runs in the same private-copy transaction as other setup updates. A
-failure or cancellation retains the previous package and receipt. Unrelated
+Repair runs in the same private-copy transaction as other setup updates. Normal
+installation also reuses receipt-matching files from the verified
+installed mod through hard links. Only replacements and the new receipt need
+additional staging space. Incoming files and the completed stage are still
+hashed; link failure falls back to copying only when sufficient space remains.
+A failure or cancellation retains the previous package and receipt. Unrelated
 file hashes are retained and verified, not regenerated to hide unknown changes.
 Repeating a completed repair is a no-op. Current-recipe packages skip the full
 gameplay finalizer after repair; older recipes still perform their required
