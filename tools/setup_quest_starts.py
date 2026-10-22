@@ -32,7 +32,10 @@ def upgrade(package, source):
     if changes:
         rewrite(package, level, {'objects_mission0.xml': mission})
     result = report(records)
-    (package/RECORD).write_text(json.dumps(result, indent=2), encoding='utf-8')
+    # Private stages may share metadata hardlinks with their baseline.
+    pending = (package/RECORD).with_suffix('.json.pending')
+    pending.write_text(json.dumps(result, indent=2), encoding='utf-8')
+    pending.replace(package/RECORD)
     return {level: digest(package/level), RECORD: digest(package/RECORD)}, result
 
 

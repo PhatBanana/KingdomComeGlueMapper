@@ -68,7 +68,20 @@ def plan(blob, tree_name):
     if not actor or 'once(true)' not in request.get('values', ''):
         raise ValueError('Intro requires a resolved once-only actor request')
     from campaign_intro_initialization import contract
+    # A recoverable worker failure is not completion of its once-only request.
+    # Only the source's explicit request-removal callbacks retire the activity.
+    completion_events = []
+    for branch, event in (('OnSuccess', 'Success'), ('OnFail', 'Fail')):
+        removals = tree.findall('.//FuseBox/'+branch+'//InstantSendMessageToNPC')
+        for removal in removals:
+            if removal.get('type') != 'daycycle:change' or 'add(false)' not in removal.get('values', ''):
+                raise ValueError('Unsupported introduction completion callback')
+            handle = re.search(r"handle\('([^']+)'\)", removal.get('values', ''))
+            if not handle or "handle('"+handle[1]+"')" not in request.get('values', ''):
+                raise ValueError('Introduction removes a different source request')
+            if event not in completion_events: completion_events.append(event)
     return dict(tree=tree_name, actor_role=actor[1], place_role=role[1], initialization=contract(tree),
+                completion_events=completion_events,
                 alias=match[1], bark_priority=int(match[2]), priority=priority, speed=speed,
                 low=low, high=high,
                 gate=dict(gate.attrib), dialog=dict(dialog.attrib), wait=dict(wait.attrib))

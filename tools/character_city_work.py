@@ -199,7 +199,8 @@ def bind(mission, scheduler, person, entry, target, *, extend=False, source_cloc
             point.append(copy.deepcopy(props))
         elif (point.get('Name') != name or point.get('EntityClass') != 'DetailMovementSmartObject'
               or point.get('Pos') != pose['Pos'] or point.get('Rotate') != pose['Rotate']
-              or E.tostring(point.find('Properties')) != E.tostring(props)):
+              or point.find('Properties') is None
+              or benches.signature(point.find('Properties')) != benches.signature(props)):
             raise ValueError('Conflicting native city-walk destination: ' + pose['EntityGuid'])
         point_id = str(guid_value(guid))
         registered = [r for r in rows if r.get('EntityGuid') == point_id]

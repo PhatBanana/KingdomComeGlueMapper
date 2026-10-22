@@ -39,3 +39,16 @@ source immutability, trigger propagation, repeat upgrades, and unsupported-polic
 rejection. The AddQuestItem contract is checked against the selected game's
 shipped definitions. Package conversion and tests do not establish in-game
 handover success: reports retain `runtime_verified: false` until playtesting.
+
+## New-game torch — 23 October 2026
+
+Recipe 51 appends one native `torch_weapon` to Henry's existing once-only
+new-game loadout chain. The item is resolved from the installed KCD2 item table
+and must have the native Torch entity script. It is unequipped and does not
+reset or replace the source inventory. Loading an existing save does not grant
+another torch. Clean setup and transactional package upgrades use the same
+adapter, with conflict checks and repeat-upgrade validation.
+
+Automated graph tests cover the new-game insertion, inventory parameters,
+repeat application and conflicting bindings. The resulting package has not
+been tested in a running game.

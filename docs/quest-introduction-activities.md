@@ -27,11 +27,11 @@ loop. Native `activity_disableSchedulerLooping` keeps `so_sitPlace/use` from
 ending its routine after the normal 15-second scheduler interval.
 
 The bounded introduction is available while the source parent quest and
-`practiceFencing` objective are active. Success/Fail retires the once-only
-request; cancellation removes native EnableBehavior availability. These events
-are not treated as proof of cleanup for a subsequent worker. The future
-invitation/walk/lesson controller must supply its own replacement and retirement
-handoff. No complete quest-controller conversion is claimed here.
+`practiceFencing` objective are active. Request retirement follows the explicit
+source removal callbacks: this source removes the request on Success only.
+Recoverable failure must not permanently retire it. The invitation now supplies
+the departure handoff described below. No complete combat-lesson conversion is
+claimed here.
 
 Clean setup includes the `quest-introductions` stage. Recipe 40 and transactional
 package migration use the same builder; a completed introduction is validated
@@ -190,3 +190,51 @@ declaration and verifies idempotent migration. The corrected staged package at
 in `Quests/GlueTravel/GlueTravel_kcd1.xml` compared with the first test. All 17
 introduction tests and 17 package-upgrade tests pass; archive CRC and repeated
 migration checks pass. No runtime success is claimed here.
+
+## Invitation and recoverable introduction repair — 23 October 2026
+
+Recipe 51 adds the selected original invitation topic 20281 and the source
+`vanek_walksToTiltyard` departure to clean setup and transactional upgrades.
+The dialogue adapter imports the source lines, voices, conditions and objective
+effects. Both invitation choices reach the source reply about waiting by the
+sheepfold. The departure adapter derives actor/place roles, priority, movement
+settings and the arrival objective from source XML. Unsupported changes fail
+conversion rather than receiving a guessed actor, timer or position.
+
+The trainer retains the source arrival and sitting locations above. The later
+waiting point is `754.30408,3405.6086,61.858891`; native leaning alignment is
+applied to that authored point. No two-hour delay is added or removed: this audit
+has not established the runtime cause of the reported delay. The existing
+source-scoped temporary faction remains in place.
+
+The previous converted introduction permanently set its ended state on both
+Success and Fail. The source has a removal callback only on Success. Existing
+package graphs are migrated accordingly, so new recoverable failures do not
+retire the request. An ended state already persisted by the old build cannot be
+safely distinguished from legitimate completion and is not reset blindly.
+
+Parent quest/objective state activates the child invitation quest. Its original
+arrival objective switches availability from the introduction to departure.
+The native Move's successful completion acknowledges arrival, followed by the
+native destination's `use` behavior. Failure does not complete the objective.
+The combat lesson, its later timer and rewards remain outside this slice.
+
+Resource hashes and graph bindings are validated on repeat upgrades. Source and
+native archive checks are offline evidence, not proof of an in-game Talk prompt,
+movement, stance or save/load behavior. This change has not been live-tested.
+
+The package audit also found metadata hardlinks being overwritten during
+private staging. Introduction and start-placement receipts now use atomic
+replacement. A separate setup failure compared city-walk XML indentation as
+though it were a change to the native activity. That comparison now checks
+structure and attributes while continuing to reject changed contracts/poses.
+
+Validation on 23 October: 1,831 automated tests passed with 17 skips. A private
+copy of the installed package passed gameplay content validation after the
+source introduction, invitation and torch upgrades; repeating those stages
+made no changes. The full transactional upgrade passed population, loft and
+light stages but correctly rejected a pre-existing stale LOD encoding marker.
+Its recorded HLOD hash differs from the installed data; the upgrade left those
+HLOD bytes unchanged. This candidate is not certified for installation, and
+no runtime behavior was verified. All 183 installed receipt entries remained
+intact. The parents' separate navigation gap is recorded in parent-sleep-audit.md.

@@ -27,7 +27,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, VERSION):
+    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -334,6 +334,14 @@ def finalize(package, *, source=None, target=None, notify=lambda *a: None, cance
     intro_files, intro_report = upgrade_introductions(package, source, target)
     receipt['files'].update(intro_files)
     receipt['quest_introductions'] = intro_report
+    from setup_quest_invitation import upgrade as upgrade_invitation
+    invitation_files, invitation_report = upgrade_invitation(package, source, target)
+    receipt['files'].update(invitation_files)
+    receipt['quest_invitation'] = invitation_report
+    from setup_starting_inventory import upgrade as upgrade_starting_inventory
+    inventory_files, inventory_report = upgrade_starting_inventory(package, target)
+    receipt['files'].update(inventory_files)
+    receipt['starting_inventory'] = inventory_report
     # After every step that registers people and shops: give each shopkeeper the
     # native haggle and shop-ending roles, without which a confirmed trade does nothing.
     from shop_roles import keepers as shop_keepers, add_haggle_roles

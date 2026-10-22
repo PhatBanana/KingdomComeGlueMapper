@@ -20,6 +20,38 @@ SOURCE = b'''<BehaviorTrees>
 
 
 class IntroTests(unittest.TestCase):
+    def test_receipt_upgrade_does_not_write_through_staging_hardlink(self):
+        import json, os, tempfile
+        from setup_quest_introductions import write_report, RECORD
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);baseline=root/'baseline.json';baseline.write_bytes(b'original')
+            stage=root/'stage';stage.mkdir();os.link(baseline,stage/RECORD)
+            write_report(stage,{'source_plan':{'completion_events':['Success']}})
+            self.assertEqual(baseline.read_bytes(),b'original')
+            self.assertEqual(json.loads((stage/RECORD).read_text())['source_plan']['completion_events'],['Success'])
+
+    def test_recoverable_failure_does_not_retire_success_only_source_request(self):
+        from setup_quest_introductions import bind_completion
+        root=E.fromstring(SOURCE)
+        request=root.find('.//InstantSendMessageToNPC')
+        request.set('values',request.get('values')+",handle('request')")
+        body=root.find("BehaviorTree[@name='intro']/Root/Behavior")
+        parallel=body[0];body.remove(parallel)
+        fuse=E.SubElement(body,'FuseBox');E.SubElement(fuse,'Child').append(parallel)
+        E.SubElement(E.SubElement(fuse,'OnSuccess'),'InstantSendMessageToNPC',
+            type='daycycle:change',values="add(false),handle('request')")
+        policy=plan(E.tostring(root),'intro')
+        self.assertEqual(policy['completion_events'],['Success'])
+        entry=E.fromstring('<Entry><State Name="test_ended"><Constant Name="DefaultValue" Value="false"/>'
+            '<Edge From="test_enable.Success" To="SetTrue"/><Edge From="test_enable.Fail" To="SetTrue"/></State></Entry>')
+        with self.assertRaises(ValueError):bind_completion(entry,'test',policy,validate=True)
+        self.assertTrue(bind_completion(entry,'test',policy))
+        self.assertEqual([n.get('From') for n in entry.findall('.//Edge')],['test_enable.Success'])
+        self.assertFalse(bind_completion(entry,'test',policy))
+        bind_completion(entry,'test',policy,validate=True)
+        fuse.find('OnSuccess/InstantSendMessageToNPC').set('values',"add(false),handle('other')")
+        with self.assertRaises(ValueError):plan(E.tostring(root),'intro')
+
     def test_called_seat_requires_its_own_scheduler_destination(self):
         from setup_quest_introductions import repair_destinations
         report = {'placement':{'quest':'example','source_place_guid':'0000000000000002'},

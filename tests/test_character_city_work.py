@@ -175,6 +175,17 @@ class CityWorkTests(unittest.TestCase):
             owner=E.SubElement(rows,'C_SmartHub',EntityGuid='101')
             link=E.SubElement(E.SubElement(owner,'Links'),'S_ActivityLink',TargetGuid='100')
             E.SubElement(link,'Parameters',BehaviorName='use',TimeOfDayStart='800',TimeOfDayEnd='1000')
+            point=next(e for e in mission if e.get('Name','').startswith('gm_citywalk_'))
+            props=point.find('Properties')
+            original=props.get('guidSmartObjectType')
+            props.set('guidSmartObjectType','foreign')
+            with self.assertRaisesRegex(ValueError,'Conflicting native city-walk destination'):
+                bind(copy.deepcopy(mission),copy.deepcopy(scheduler),'other',entry,root)
+            props.set('guidSmartObjectType',original)
+            # Other setup stages reindent XML. This changes serialization, not
+            # the identity, pose or native activity contract of a shared point.
+            props.text='\n  ';props.tail='\n    '
+            props.attrib=dict(reversed(list(props.attrib.items())))
             _,_,again=bind(mission,scheduler,'other',entry,root)
             self.assertEqual([x['target_guid'] for x in report['destinations']],
                              [x['target_guid'] for x in again['destinations']])

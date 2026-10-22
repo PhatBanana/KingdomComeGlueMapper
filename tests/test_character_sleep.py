@@ -125,6 +125,20 @@ class SleepBedTests(unittest.TestCase):
 
 
 class SleepBindingTests(unittest.TestCase):
+    def test_legacy_clocks_interrupt_work_and_release_sleep_at_wakeup(self):
+        from character_sleep_work import restrict_work_to_waking_hours
+        m,s,a,c,clock=fixture()
+        m[1].set('Name','gm_schedule_worker_job')
+        bind(m,s,'worker',clock,c,'bed',a)
+        row=s.find('Schedulers')[0]
+        for p in s.findall('.//Parameters'):p.set('HaltOnInvalid','false')
+        work=row.find('Links')[0].find('Parameters')
+        work.set('TimeOfDayStart','420');work.set('TimeOfDayEnd','1320')
+        self.assertEqual(restrict_work_to_waking_hours(m,s),['worker'])
+        self.assertTrue(all(p.get('HaltOnInvalid')=='true' for p in s.findall('.//Parameters')))
+        self.assertEqual(restrict_work_to_waking_hours(m,s),[])
+        self.assertFalse(bind(m,s,'worker',clock,c,'bed',a)[2])
+
     def test_work_upgrade_clock_uses_only_validated_sleep_windows(self):
         from character_sleep_work import waking_work_clock
         m, s, a, c, clock = fixture()

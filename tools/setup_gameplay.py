@@ -195,6 +195,8 @@ def loadout(source, target, package, output):
     publish_flat(output, {'gluemappertravel.pak': 'Data/gluemappertravel.pak',
         'gluemapper_initial_loadout.pak': 'Data/gluemapper_initial_loadout.pak',
         'English_xml.pak': 'Localization/English_xml.pak'})
+    from setup_starting_inventory import upgrade
+    upgrade(output/'package', target)
 
 
 def quest_items(source, target, package, output, model_path):
@@ -325,7 +327,7 @@ def steps(source, target, package, work):
         result.append((group[0], 'Source conversations: '+group[0],
                        lambda out, group=group: dialogues(source, target, package, out, model, group)))
     result += [
-        ('quest-introductions', 'Source introductory sitting and nearby speech',
+        ('quest-introductions', 'Source introduction, invitation and departure',
          lambda out: __import__('setup_quest_introductions').build(source, target, package, out)),
         ('combat', 'Native quest combat and aftermath', lambda out: combat(source, target, package, out, model)),
         ('facials', 'Recording-linked facial data', lambda out: facials(source, target, package, out)),
@@ -337,6 +339,11 @@ def validate(package):
     """Check emitted content, not filenames or success of the last builder."""
     from setup_quest_introductions import validate_package
     validate_package(package)
+    from setup_quest_invitation import validate as validate_invitation
+    validate_invitation(package)
+    from setup_starting_inventory import validate as validate_inventory
+    with zipfile.ZipFile(package/'Data/gluemappertravel.pak') as z:
+        validate_inventory(read(z,PROJECT))
     with zipfile.ZipFile(package/'Data/Levels'/LEVEL/'level.pak') as z:
         mission = ET.fromstring(read(z, 'objects_mission0.xml'))
         souls = ET.fromstring(read(z, 'whdata_0'))

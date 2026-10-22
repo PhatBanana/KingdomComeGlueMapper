@@ -39,6 +39,11 @@ class ProceduralLightsTests(unittest.TestCase):
         before=E.tostring(root)
         self.assertEqual(append_group(root,'123',parent,[('a',lamp)]),0)
         self.assertEqual(E.tostring(root),before)
+        E.indent(root,space='    ')
+        root[-1].attrib=dict(reversed(list(root[-1].attrib.items())))
+        before=E.tostring(root)
+        self.assertEqual(append_group(root,'123',parent,[('a',lamp)]),0)
+        self.assertEqual(E.tostring(root),before)
         bad=copy.deepcopy(lamp);bad.find('Properties').set('Radius','3')
         with self.assertRaisesRegex(ValueError,'Changed registered light'):
             append_group(root,'123',parent,[('a',bad)])

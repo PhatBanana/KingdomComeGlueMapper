@@ -51,6 +51,14 @@ def restrict_work_to_waking_hours(mission, scheduler, *, actors=None):
         if not sleep:continue
         night=[(int(l.find('Parameters').get('TimeOfDayStart')),int(l.find('Parameters').get('TimeOfDayEnd'))) for l in sleep]
         links=row.find('Links');replacement=[];modified=False
+        # The same invalidation rule applies at wake-up. Native all-day bed
+        # links have no expiry, so their copied default is not suitable for a
+        # generated clock. Limit this repair to our validated pool and leaves.
+        pool=next(r for r in rows if r.get('EntityGuid')==str(guid_value(identity(actor))))
+        for edge in [*sleep, *pool.findall('Links/S_ActivityLink')]:
+            p=edge.find('Parameters')
+            if p is not None and p.get('HaltOnInvalid')!='true':
+                p.set('HaltOnInvalid','true');modified=True
         for link in links:
             p=link.find('Parameters');dest=targets.get(link.get('TargetGuid'))
             if (p is None or dest is None or not dest.get('Name','').startswith('gm_schedule_')
@@ -144,11 +152,13 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
         params = edge.find('Parameters')
         params.attrib.pop('BehaviorName'); params.attrib.pop('ProvidedRole')
         params.set('Priority', '2'); params.set('TimeOfDayStart', str(start)); params.set('TimeOfDayEnd', str(end))
+        params.set('HaltOnInvalid', 'true')
         incoming.append(edge)
         for bed, choice in beds:
             link = copy.deepcopy(native_activity); link.set('TargetGuid', str(guid_value(bed.get('EntityGuid'))))
             p = link.find('Parameters'); p.set('TimeOfDayStart', str(start)); p.set('TimeOfDayEnd', str(end))
             p.set('Priority', str(choice['rank']))
+            p.set('HaltOnInvalid', 'true')
             outgoing.append(link)
     existing = [e for e in mission if e.get('EntityGuid') == pool_guid or e.get('Name') == PREFIX+name]
     hub_matches = [r for r in rows if r.get('EntityGuid') == pool_id]
@@ -161,11 +171,14 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
         if (pool.get('EntityClass') != 'SchedulerHub' or pool.get('Name') != PREFIX+name or pool.get('EntityGuid') != pool_guid
                 or actual_edges != expected_edges or len(actor_edges) != 1
                 or actor_edges[0].get('Name') != '_' or actor_edges[0].get('TargetId') != pool.get('EntityId')
-                or hub.find('Links') is None or signature(hub.find('Links')) != signature(outgoing)
-                or [signature(l) for l in current] != [signature(l) for l in incoming]):
+                or hub.find('Links') is None or clock_signature(hub.find('Links')) != clock_signature(outgoing)
+                or [clock_signature(l) for l in current] != [clock_signature(l) for l in incoming]):
             raise ValueError('Existing sleep pool differs from the current source/policy; rebuild from a pre-sleep package')
         moved=pool.get('Pos')!=anchor or hub.get('Position')!=anchor
         pool.set('Pos',anchor);hub.set('Position',anchor)
+        for edge in [*current, *hub.findall('Links/S_ActivityLink')]:
+            if edge.find('Parameters').get('HaltOnInvalid')!='true':
+                edge.find('Parameters').set('HaltOnInvalid','true');moved=True
         return [dict(c, bed_guid=b.get('EntityGuid')) for b, c in beds], [], moved
     pool = E.SubElement(mission, 'Entity', Name=PREFIX+name, EntityClass='SchedulerHub',
                         EntityId=str(max(int(e.get('EntityId', '0')) for e in mission)+1),
@@ -184,6 +197,16 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
     graph.append((actor.get('EntityGuid'), pool_guid, '_'))
     old_links.extend(incoming)
     return [dict(c, bed_guid=b.get('EntityGuid')) for b, c in beds], graph, True
+
+
+def clock_signature(element):
+    """Allow only the known all-day-template invalidation default to migrate."""
+    normalized=copy.deepcopy(element)
+    for p in normalized.iter('Parameters'):
+        if p.get('HaltOnInvalid') not in ('false','true'):
+            raise ValueError('Invalid sleep clock halt policy')
+        p.set('HaltOnInvalid','true')
+    return signature(normalized)
 
 
 def upgrade(files, people, archive, target, tables, reader, source):

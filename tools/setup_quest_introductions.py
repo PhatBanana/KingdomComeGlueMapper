@@ -17,6 +17,31 @@ SELECTIONS = (('q_tutorial_swordOne', 'vanek_idle'),)
 RECORD = 'quest-introductions.json'
 
 
+def write_report(package, report):
+    """Break staging hard links before updating the receipt."""
+    destination = package/RECORD
+    pending = destination.with_suffix('.json.pending')
+    pending.write_text(json.dumps(report,indent=2),encoding='utf-8')
+    pending.replace(destination)
+
+
+def bind_completion(entry, stem, source, *, validate=False):
+    """Preserve the source request's retirement policy on fresh and resumed builds."""
+    ended = unique(entry.findall(".//State[@Name='"+stem+"_ended']"), 'intro retirement state')
+    events = source.get('completion_events')
+    if events is None or any(e not in ('Success', 'Fail') for e in events):
+        raise ValueError('Missing source introduction completion policy')
+    expected = {(stem+'_enable.'+event, 'SetTrue') for event in events}
+    existing = {(e.get('From'),e.get('To')) for e in ended.findall('Edge')}
+    if existing == expected: return False
+    if validate: raise ValueError('Introduction completion policy differs from source')
+    if any(f not in (stem+'_enable.Success',stem+'_enable.Fail') or t != 'SetTrue' for f,t in existing):
+        raise ValueError('Conflicting introduction completion binding')
+    for e in list(ended.findall('Edge')): ended.remove(e)
+    for f,t in sorted(expected): edge(ended,f,t)
+    return True
+
+
 def repair_destinations(mission, scheduler, report, *, create=False):
     """Repair only this introduction's source-linked seat in older packages."""
     from campaign_behavior_schedule import destination
@@ -42,6 +67,7 @@ def validate_package(package):
             if read(z,name) != blob: raise ValueError('Introduction worker differs: '+name)
         from setup_gameplay import ENTRY
         entry = E.fromstring(read(z,ENTRY))
+        bind_completion(entry, stem, p, validate=True)
         from setup_gameplay import PROJECT
         project = E.fromstring(read(z,PROJECT)).find('Skald/Project')
         from campaign_intro_factions import attach
@@ -83,12 +109,14 @@ def upgrade(package, source, target):
         p = report['source_plan']
         # Re-read the selected source on migration; old receipts did not carry
         # the worker's first-entry initializer at all.
-        if 'initialization' not in p:
+        if 'initialization' not in p or 'completion_events' not in p:
             if source is None: raise ValueError('KCD1 is required for introductory initialization')
             from campaign_sources import RetailSourceReader
             with RetailSourceReader(source) as reader:
                 blob = reader(source, {'intro':('Scripts.pak','Libs/AI/quests/'+report['placement']['quest']+'.xml')})['intro']['data']
-            p['initialization'] = plan(blob,p['tree'])['initialization']
+            fresh = plan(blob,p['tree'])
+            p['completion_events'] = fresh['completion_events']
+            p['initialization'] = fresh['initialization']
             if p['initialization']:
                 p['initialization']['placement'] = load(source,'rataje',[(report['placement']['quest'],p['actor_role'],p['initialization']['arrival_role'])])[0]
         travel = 'Data/gluemappertravel.pak'
@@ -100,11 +128,12 @@ def upgrade(package, source, target):
                 p['temporary_faction'] = resolve(Path(source),Path(target),z,p,report['placement']['quest'])
         stem = 'gm_intro_'+report['placement']['quest']+'_'+p['tree']
         changed = {}
-        if attach(entry,stem,p):
+        completion_changed = bind_completion(entry,stem,p)
+        if attach(entry,stem,p) or completion_changed:
             rewrite(package,travel,{ENTRY:xml(entry)})
             changed[travel] = digest(package/travel)
             report['runtime_verified'] = False
-            (package/RECORD).write_text(json.dumps(report,indent=2),encoding='utf-8')
+            write_report(package,report)
             changed[RECORD] = digest(package/RECORD)
         level = 'Data/Levels/kcd1_travel/level.pak'
         with zipfile.ZipFile(package/level) as z:
@@ -130,7 +159,7 @@ def upgrade(package, source, target):
                 rewrite(package,level,{'objects_mission0.xml':xml(mission),'waitinglinks.xml':append_links(waiting,additions)})
                 changed[travel]=digest(package/travel); changed[level]=digest(package/level)
                 report['runtime_verified']=False
-                (package/RECORD).write_text(json.dumps(report,indent=2),encoding='utf-8')
+                write_report(package,report)
                 changed[RECORD]=digest(package/RECORD)
         if repair_destinations(mission, scheduler, report, create=True):
             rewrite(package, level, {'tables/ai/scheduler.xml':xml(scheduler)})
@@ -227,8 +256,7 @@ def convert(files, level_files, source_plan, placement, stem, target, project_pa
     for name,key in [('NPC','actor'),('SmartEntity','host'),('workPlace','place')]:
         E.SubElement(enable,'Asset',Name=name,Alias=assets[key])
     edge(enable,active,'IsActive')
-    # A once-only source request must not restart indefinitely after failure.
-    for event in ('Success','Fail'): edge(ended,stem+'_enable.'+event,'SetTrue')
+    bind_completion(entry_root,stem,source_plan)
     from campaign_intro_factions import attach
     attach(entry_root,stem,source_plan)
     if source_plan.get('initialization'):
@@ -305,7 +333,9 @@ def build(source, target, package, output, selections=SELECTIONS):
     rewrite(level,destination/'Data/Levels'/LEVEL/'level.pak',level_changes)
     report = dict(source_plan=p,placement=placement, runtime_verified=False,
                   scope='Introductory sitting and proximity bark; invitation and lesson are separate stages')
-    (destination/RECORD).write_text(json.dumps(report,indent=2),encoding='utf-8')
+    write_report(destination,report)
+    from setup_quest_invitation import upgrade as invitation
+    invitation(destination,source,target,manifest=package/'mod.manifest')
     for path in destination.rglob('*.pak'):
         with zipfile.ZipFile(path) as z:
             if len(z.namelist()) != len(set(n.lower() for n in z.namelist())) or z.testzip():

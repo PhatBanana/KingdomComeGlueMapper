@@ -124,7 +124,11 @@ class QuestStartPlacementTests(unittest.TestCase):
                 z.writestr('tables/ai/scheduler.xml', b'unchanged schedules')
                 z.writestr('terrain/terrain.dat', b'unchanged terrain')
             with patch('setup_quest_starts.plans', return_value=[record()]):
+                baseline=root/'baseline-record.json'
+                baseline.write_bytes(b'baseline metadata')
+                (root/RECORD).hardlink_to(baseline)
                 files, evidence = upgrade(root, Path('source'))
+                self.assertEqual(baseline.read_bytes(),b'baseline metadata')
                 before = pak.read_bytes()
                 again, _ = upgrade(root, Path('source'))
             self.assertEqual(before, pak.read_bytes())

@@ -16,6 +16,7 @@ from entity_visuals import world_transform, quaternion_product as qmul
 from region_travel import guid
 from upgrade_map import read, xml
 from world_lighting import defaults, overlay, shadow_spec
+from character_city_benches import signature
 
 PREFIX = 'gm_fire_light_'
 
@@ -76,7 +77,7 @@ def append_group(root, key, parent, components):
         existing=names.get(name)
         if existing is not None:
             node.set('EntityId',existing.get('EntityId'))
-            if E.tostring(node)!=E.tostring(existing):raise ValueError('Changed registered light '+name)
+            if signature(node)!=signature(existing):raise ValueError('Changed registered light '+name)
             continue
         if next_id==0x7777:next_id+=1
         if next_id>=65534:raise ValueError('Light registration exceeds static entity IDs')

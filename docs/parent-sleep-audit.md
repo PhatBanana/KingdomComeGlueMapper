@@ -92,3 +92,23 @@ cutoff, not a verified explanation of Mother's nighttime sweeping.
 
 This audit identifies concrete conversion gaps; it does not claim that the
 parents' sleep behavior is fixed or that every observed symptom has one cause.
+
+## Offline code changes — 23 October 2026
+
+The shared generated schedule now expires its sleep links at wake-up, as well
+as clipping imported work to waking hours. Migration accepts only the known
+old halt-policy default while preserving the generated clock and bed bindings.
+The parent pool anchor follows its assigned loft bed. In a staged package, the
+assignments and mounted scheduler copies agree: Mother 22:12–06:52, Father
+20:13–06:46.
+
+These changes do **not** complete the navigation repair above. The current loft
+builder still emits an interactive ladder without an authored NPC connection;
+its added upper-floor landing and bed approaches are not certified by a navmesh
+bake. A fresh scan of the installed archive on 23 October again found zero
+connections to the loft ladder across all 362 mesh pairs. The local SDK includes
+editor navigation facilities, but no tested offline
+bake adapter or editable converted travel level was found in this audit.
+Do not label the parents' autonomous sleep fixed based on schedule XML, player
+bed use, or the automated test suite. Their complete route and natural bedtime
+transition remain outstanding.
