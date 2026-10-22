@@ -41,6 +41,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'character_city_work', 'character_city_benches', 'character_seated_work', 'character_shop_guard_work',
               'character_fence_work', 'character_home_rest',
               'character_chopping_work', 'character_chopping_source', 'character_chopping_native',
+              'character_sleep_work', 'character_sleep_clock', 'character_sleep_beds', 'character_sleep_native',
               'setup_quest_starts', 'campaign_quest_start_placement')
 
 

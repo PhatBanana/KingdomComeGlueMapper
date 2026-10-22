@@ -166,6 +166,11 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             converted = [r for r in converted if not (r['person'] in changed and r.get('job') == 'source_housework_pending')]
             pending = [r for r in pending if not (r['person'] in changed and r.get('correction') == 'source housework branch excludes sweeping')]
             converted.extend(repaired)
+        # Source sleeps take precedence; prologue all-day work routines receive
+        # deterministic job-based sleep windows. Native beds remain shared.
+        from character_sleep_work import upgrade as upgrade_sleep
+        files, sleeping = upgrade_sleep(files, people, archive, target, tables, reader, source)
+        converted.extend(sleeping)
     import seating_animations
     with zipfile.ZipFile(package/lp) as archive:
         for name in (seating_animations.HELPERS, seating_animations.ANIMATIONS):

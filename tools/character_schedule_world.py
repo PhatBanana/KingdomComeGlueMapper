@@ -108,7 +108,9 @@ def baseline_schedule_names(files, names):
         schedules = [r for r in rows if r.get('EntityGuid') == identity]
         if len(schedules) != 1:
             continue
-        links = schedules[0].findall('Links/S_ActivityLink')
+        from character_sleep_work import owned_links
+        sleeping = owned_links(mission, rows, actors[0], schedules[0])
+        links = [l for l in schedules[0].findall('Links/S_ActivityLink') if l not in sleeping]
         delegate = str(guid_value(anchors[0].get('EntityGuid')))
         if links and all(l.get('PositioningDelegate') == delegate and l.find('Parameters') is not None
                          and l.find('Parameters').get('BehaviorName') == 'schedulerWait' for l in links):
@@ -130,8 +132,12 @@ def bind_arrivals(files, schedules, target):
         old_anchor = next(e for e in mission if e.get('Name') == 'gm_person_idle_' + name)
         row = next(r for r in rows if r.get('EntityGuid') == str(guid_value(npc.get('EntityGuid'))))
         old = row.find('Links')
-        if old is None or any(l.get('PositioningDelegate') != str(guid_value(old_anchor.get('EntityGuid')))
-                              or l.find('Parameters').get('BehaviorName') != 'schedulerWait' for l in old):
+        from character_sleep_work import owned_links
+        sleeping = owned_links(mission, rows, npc, row)
+        idle = [] if old is None else [l for l in old if l not in sleeping]
+        if not idle or any(l.get('PositioningDelegate') != str(guid_value(old_anchor.get('EntityGuid')))
+                          or l.find('Parameters') is None
+                          or l.find('Parameters').get('BehaviorName') != 'schedulerWait' for l in idle):
             raise ValueError('Cannot replace non-baseline actor schedule: ' + name)
         if not entries: raise ValueError('Empty arrival schedule')
         # Remove only the importer-owned idle activity, preserving unrelated
@@ -149,7 +155,7 @@ def bind_arrivals(files, schedules, target):
                         if definition.tag == 'LinkDefinition' and definition.text == '_,schedulerWait':
                             element.remove(definition)
                     if not len(element): parent.remove(element)
-        for link in list(old): old.remove(link)
+        for link in idle: old.remove(link)
         for entry in entries:
             pose = entry['arrival']
             guid = native_guid(int.from_bytes(hashlib.sha256(('schedule-arrival/' + npc.get('EntityGuid') +
