@@ -120,7 +120,7 @@ def native_contract(target):
     raise ValueError('Missing unrestricted native city-walk scheduler contract')
 
 
-def bind(mission, scheduler, person, entry, target, *, extend=False):
+def bind(mission, scheduler, person, entry, target, *, extend=False, source_clock=None):
     """Replace one owned arrival leaf with a pool of native work destinations."""
     props, activity, terminal = native_contract(target)
     job = unique((e for e in mission if e.get('Name') ==
@@ -133,13 +133,23 @@ def bind(mission, scheduler, person, entry, target, *, extend=False):
     incoming = [l for r in rows for l in r.findall('Links/S_ActivityLink') if l.get('TargetGuid') == hub_id]
     if not incoming or any(l.find('Parameters').get('BehaviorName') != (None if extend else 'use') for l in incoming):
         raise ValueError('City-walk pool requires an importer-owned arrival activity')
+    # Sleep clips the actor's entry edge, not the shared alternatives. Validate
+    # and extend those alternatives using their original authored work windows.
+    choice_incoming = incoming
+    if source_clock is not None:
+        choice_incoming = []
+        for start, end in sorted(source_clock):
+            link = copy.deepcopy(incoming[0])
+            link.find('Parameters').set('TimeOfDayStart', str(start))
+            link.find('Parameters').set('TimeOfDayEnd', str(end))
+            choice_incoming.append(link)
     seats, seat_activity = benches.prepare(mission, entry, target)
-    seat_links = benches.choices(seats, seat_activity, incoming)
+    seat_links = benches.choices(seats, seat_activity, choice_incoming)
     expected_walk = []
     for pose in entry['city_work']['points']:
         guid = native_guid(int.from_bytes(hashlib.sha256(
             ('work/citywalk/' + pose['EntityGuid'].lower()).encode()).digest()[:8], 'little'))
-        for source_link in incoming:
+        for source_link in choice_incoming:
             link = copy.deepcopy(activity)
             link.set('TargetGuid', str(guid_value(guid)))
             for field in ('TimeOfDayStart', 'TimeOfDayEnd'):
@@ -200,7 +210,7 @@ def bind(mission, scheduler, person, entry, target, *, extend=False):
             rows.append(leaf)
         elif len(registered) != 1 or len(registered[0]):
             raise ValueError('City-walk destination has conflicting scheduler dependencies')
-        for source_link in incoming:
+        for source_link in choice_incoming:
             link = copy.deepcopy(activity)
             link.set('TargetGuid', point_id)
             for field in ('TimeOfDayStart', 'TimeOfDayEnd'):
@@ -252,11 +262,13 @@ def extend_existing(files, schedules, target):
                              int(l.find('Parameters').get('TimeOfDayEnd'))) for l in incoming}
             source_clock = {(e['start_minute'], e['end_minute']) for e in entries
                 if e.get('city_work') and e['arrival']['EntityId'] == entry['arrival']['EntityId']}
-            if actual_clock != source_clock:
+            from character_sleep_work import waking_work_clock
+            actor = unique((e for e in mission if e.get('Name') == person), 'city-walk actor')
+            effective_clock = waking_work_clock(mission, scheduler, actor, source_clock)
+            if actual_clock != effective_clock:
                 raise ValueError('Existing city-walk clock differs from source schedule')
-            _, links, report = bind(mission, scheduler, person, entry, target, extend=True)
-            report['intervals'] = [[e['start_minute'], e['end_minute']] for e in entries
-                if e.get('city_work') and e['arrival']['EntityId'] == entry['arrival']['EntityId']]
+            _, links, report = bind(mission, scheduler, person, entry, target, extend=True, source_clock=source_clock)
+            report['intervals'] = sorted(effective_clock)
             report.pop('interval')
             report['extension_only'] = True
             waiting.extend(links); reports.append(report)

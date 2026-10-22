@@ -143,6 +143,7 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
         mission = E.fromstring(files['objects_mission0.xml'])
         arrival_names = {e.get('Name') for e in mission if e.find('Properties') is not None
                          and (e.find('Properties').get('guidSmartObjectType') == ARRIVAL_TEMPLATE
+                              or e.find('Properties').get('guidSmartObjectType') == sweeping_template
                               or e.get('EntityClass') == 'SchedulerHub')}
         housework_schedules = {}
         for name in sorted(set(people)-set(merchants)):
@@ -162,7 +163,10 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             from character_chopping_work import upgrade as upgrade_chopping
             files, chopping = upgrade_chopping(files, housework_schedules, archive, target, items)
             repaired.extend(chopping)
-            changed = {r['person'] for r in repaired}
+            from character_household_work import upgrade as upgrade_household
+            files, household = upgrade_household(files, housework_schedules, archive, target, source, reader, tables)
+            repaired.extend(household)
+            changed = {r['person'] for r in repaired if not r.get('extension_only')}
             converted = [r for r in converted if not (r['person'] in changed and r.get('job') == 'source_housework_pending')]
             pending = [r for r in pending if not (r['person'] in changed and r.get('correction') == 'source housework branch excludes sweeping')]
             converted.extend(repaired)

@@ -58,6 +58,29 @@ ITEMS = {v:v for v in ('basket','axe','oldaxe','log','half')}
 
 
 class ChoppingTests(unittest.TestCase):
+    def test_existing_chopping_pool_can_be_extended_after_sleep_clips_work(self):
+        import test_character_sleep as sleep_fixture
+        from character_sleep_work import bind as bind_sleep, restrict_work_to_waking_hours
+        m, s, entry = self.prepared()
+        self.bind(m, s, entry)
+        bed = E.SubElement(m, 'Entity', Name='gm_world_bed_10_bed', EntityClass='StanceSmartObject',
+            EntityId='900', EntityGuid=native_guid(900), Pos='1,2,3')
+        E.SubElement(bed, 'Properties', guidSmartObjectType='bed')
+        leaf = E.SubElement(s.find('Schedulers'), 'C_SmartHub', EntityGuid='900')
+        E.SubElement(E.SubElement(leaf, 'Effects'), 'EffectHeal', Role='sleeper', HealRate='25')
+        _, _, activity, choices, clock = sleep_fixture.fixture()
+        bind_sleep(m, s, 'person', clock, choices, 'bed', activity)
+        restrict_work_to_waking_hours(m, s)
+        _, _, _, incoming = work.owned_pool(m, s, 'person', entry, {(300, 720)})
+        self.assertEqual([(l.find('Parameters').get('TimeOfDayStart'), l.find('Parameters').get('TimeOfDayEnd'))
+            for l in incoming], [('420', '720')])
+        before = work.signature(m), work.signature(s)
+        self.assertFalse(self.bind(m, s, entry)[4])
+        self.assertEqual(before, (work.signature(m), work.signature(s)))
+        incoming[0].find('Parameters').set('TimeOfDayStart', '421')
+        with self.assertRaisesRegex(ValueError, 'clock differs'):
+            work.owned_pool(m, s, 'person', entry, {(300, 720)})
+
     def prepared(self):
         files,schedules = fence_fixture.FenceWorkTests().prepared()
         return E.fromstring(files['objects_mission0.xml']), E.fromstring(files['tables/ai/scheduler.xml']), schedules['person'][0]

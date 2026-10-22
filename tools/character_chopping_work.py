@@ -39,7 +39,9 @@ def owned_pool(mission, scheduler, person, entry, clock):
         raise ValueError('Cannot extend non-owned housework pool')
     incoming = [l for _,l in uses]
     actual = {(int(l.find('Parameters').get('TimeOfDayStart')), int(l.find('Parameters').get('TimeOfDayEnd'))) for l in incoming}
-    if actual != clock: raise ValueError('Chopping clock differs from source')
+    from character_sleep_work import waking_work_clock
+    effective_clock = waking_work_clock(mission, scheduler, actor, clock)
+    if actual != effective_clock: raise ValueError('Chopping clock differs from source and owned sleep')
     if job.get('EntityClass') == 'SmartObjectHolder':
         if (job.find('Properties').get('guidSmartObjectType') != ARRIVAL_TEMPLATE or len(hub)
                 or job.findall('EntityLinks/Link') or any(l.find('Parameters').get('BehaviorName') != 'use' for l in incoming)):
@@ -56,7 +58,7 @@ def owned_pool(mission, scheduler, person, entry, clock):
             target = entities.get(link.get('TargetGuid')); p = link.find('Parameters')
             if (target is None or p is None or p.get('BehaviorName') != 'use'
                     or not target.get('Name', '').startswith(('gm_schedule_fence_', 'gm_bench_', 'gm_schedule_chopping_'))
-                    or (int(p.get('TimeOfDayStart')), int(p.get('TimeOfDayEnd'))) not in clock):
+                    or (int(p.get('TimeOfDayStart')), int(p.get('TimeOfDayEnd'))) not in clock | effective_clock):
                 raise ValueError('Foreign activity in housework pool')
         authored = {(l.get('TargetGuid'), l.get('Name')) for l in job.findall('EntityLinks/Link')}
         expected_edges = {(entities[l.get('TargetGuid')].get('EntityGuid'), '_,use') for l in outgoing}
@@ -178,7 +180,15 @@ def bind(mission, scheduler, person, entry, clock, station, contract, registered
         for link in actor.findall('EntityLinks/Link'):
             if link.get('TargetGuid') == job.get('EntityGuid') and link.get('Name') == '_,use': link.set('Name', '_')
     outgoing = hub.find('Links'); existing = {signature(l) for l in outgoing}; added = False
-    for link in choices([point], contract['activity'], incoming):
+    # The actor edge owns the sleep cutoff. Keep the authored leaf windows so
+    # a repeat upgrade does not add overlapping copies of the same workplace.
+    choice_incoming = []
+    for start, end in sorted(clock):
+        link = copy.deepcopy(incoming[0])
+        link.find('Parameters').set('TimeOfDayStart', str(start))
+        link.find('Parameters').set('TimeOfDayEnd', str(end))
+        choice_incoming.append(link)
+    for link in choices([point], contract['activity'], choice_incoming):
         if signature(link) not in existing: outgoing.append(link); added = True
     edges = job.find('EntityLinks')
     if edges is None: edges = E.SubElement(job, 'EntityLinks')

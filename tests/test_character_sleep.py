@@ -125,6 +125,18 @@ class SleepBedTests(unittest.TestCase):
 
 
 class SleepBindingTests(unittest.TestCase):
+    def test_work_upgrade_clock_uses_only_validated_sleep_windows(self):
+        from character_sleep_work import waking_work_clock
+        m, s, a, c, clock = fixture()
+        source = {(0, 1440)}
+        self.assertEqual(waking_work_clock(m, s, m[0], source), source)
+        bind(m, s, 'worker', clock, c, 'bed', a)
+        self.assertEqual(waking_work_clock(m, s, m[0], source), {(420, 1320)})
+        self.assertEqual(waking_work_clock(m, s, m[0], {(300, 720), (780, 1400)}), {(420, 720), (780, 1320)})
+        self.assertEqual(source, {(0, 1440)})
+        next(e for e in m if e.get('Name') == 'gm_sleep_worker').set('Name', 'foreign_sleep')
+        with self.assertRaises(ValueError): waking_work_clock(m, s, m[0], source)
+
     def test_later_work_upgrade_preserves_additive_sleep(self):
         m,s,a,c,clock=fixture()
         m[1].set('Name','gm_person_idle_worker')

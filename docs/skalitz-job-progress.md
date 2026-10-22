@@ -41,6 +41,56 @@ male source work contains fire tending, fence repair, bucket filling, hanging
 out and chopping. Some bounded phases already have adapters. Do not count every
 houseworker as fully converted merely because one supported phase runs.
 
+## Household extension and repeat-upgrade audit — 22 October 2026
+
+The population builder now includes existing native sweeping jobs when finding
+household routines to extend. Previously those women were excluded by a filter
+which accepted only pending arrivals and scheduler hubs.
+
+`character_household_work.py` adds source-linked native choices through the
+reusable `character_work_pool.py` binder:
+
+- Cooking uses the converted fireplace belonging to the source home's furnace.
+  The exclusive native cooking resource, completion action and remapped native
+  fireplace scheduler effects remain intact.
+- Needlework uses the source home's table-free benches and the native embroidery
+  override. The underlying seat remains a shared, exclusive resource.
+- Home rest extends existing work pools with the source's indoor bench choices.
+  Outdoor-priority homes still require the weather dispatcher; the upgrader does
+  not silently substitute indoor rest for that policy.
+
+The installed-town input produces seven cooking choices, seven needlework
+choices and ten home-rest choices. These counts describe emitted assignments,
+not observed animations. Selection follows source programs, gender branches and
+area links; there are no resident-name or world-coordinate exceptions.
+
+The extension preserves existing work and quest activities and inherits the
+actor's current work clock. Sleep remains authoritative. The city-walk, fence,
+rest and wood-chopping adapters now accept a source work window shortened by a
+validated generated sleep pool. Other clock changes still fail validation.
+City and chopping alternatives retain their original windows behind the clipped
+actor edge, avoiding duplicate overlapping choices on repeat upgrades.
+
+This is integrated in the population setup path and desktop module inventory.
+It is **not full source-controller equivalence**: native scheduler choices do
+not yet implement the original ordered chore cycle or its phase durations.
+Bucket carrying, the full fireplace-refill cycle, dynamic guard allocation,
+bartender orders/cleaning/closing, dice-controller interactions, remaining stable
+phases, blacksmith cooperation/tempering and weather-dependent branches remain
+unfinished. Quest-controlled actors with no ordinary activity link must retain
+their quest controller rather than receive an invented occupation.
+
+Private offline evidence is under `reports/jobs-completion/`. No game bridge or
+computer controls were used for this pass. Runtime verification remains false;
+the candidate must not be described as a completed town or a tested retail install.
+
+Validation: the 55-person population setup path completed, its mounted and level
+schedulers matched, and every scheduler target resolved. A second complete pass
+left the mission, scheduler and waiting-link graphs semantically unchanged.
+The regression suite ran 1,813 tests successfully with 17 skipped; the source
+desktop process-pool self-test also passed. The work report remains incomplete
+with nine top-level pending records, in addition to the partial phase reports.
+
 ## First candidate: field hoeing
 
 `character_farmer_work.py` recognizes `final/sa_farm.xml:Farmer`. It resolves the

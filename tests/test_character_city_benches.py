@@ -15,6 +15,28 @@ import test_character_city_work as fixtures
 
 
 class CityBenchTests(unittest.TestCase):
+    def test_repeat_city_extension_respects_sleep_clipped_actor_clock(self):
+        import test_character_sleep as sleep_fixture
+        from character_sleep_work import bind as bind_sleep, restrict_work_to_waking_hours
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); files, schedules = self.fixture(root)
+            m = E.fromstring(files['objects_mission0.xml']); s = E.fromstring(files['tables/ai/scheduler.xml'])
+            m.find("Entity[@Name='person']").set('EntityClass', 'NPC')
+            city.bind(m, s, 'person', schedules['person'][0], root)
+            bed = E.SubElement(m, 'Entity', Name='gm_world_bed_10_bed', EntityClass='StanceSmartObject',
+                EntityId='501', EntityGuid=native_guid(501), Pos='1,2,3')
+            E.SubElement(bed, 'Properties', guidSmartObjectType='bed')
+            leaf = E.SubElement(s.find('Schedulers'), 'C_SmartHub', EntityGuid='501')
+            E.SubElement(E.SubElement(leaf, 'Effects'), 'EffectHeal', Role='sleeper', HealRate='25')
+            _, _, activity, choices, clock = sleep_fixture.fixture()
+            bind_sleep(m, s, 'person', clock, choices, 'bed', activity)
+            restrict_work_to_waking_hours(m, s)
+            files.update({'objects_mission0.xml': E.tostring(m), 'tables/ai/scheduler.xml': E.tostring(s)})
+            result, reports = city.extend_existing(files, schedules, root)
+            self.assertEqual(reports[0]['intervals'], [(420, 720)])
+            self.assertEqual(benches.signature(E.fromstring(result['objects_mission0.xml'])), benches.signature(m))
+            self.assertEqual(benches.signature(E.fromstring(result['tables/ai/scheduler.xml'])), benches.signature(s))
+
     def fixture(self, root):
         fixtures.CityWorkTests().contract_fixture(root)
         with zipfile.ZipFile(root/'Data/Tables.pak', 'a') as z:

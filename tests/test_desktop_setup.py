@@ -54,6 +54,7 @@ class DesktopSetupTests(unittest.TestCase):
                        'profile_population_upgrade', 'character_market_jobs', 'character_seated_work',
                        'character_shop_guard_work', 'character_city_benches', 'character_fence_work', 'character_home_rest',
                        'character_chopping_work', 'character_chopping_source', 'character_chopping_native',
+                       'character_household_work', 'character_work_pool',
                        'character_sleep_work', 'character_sleep_clock', 'character_sleep_beds', 'character_sleep_native'):
             self.assertIn(module, CONVERTERS)
         plan = conversion_plan(self.root / 'paths.json', self.root / 'build')

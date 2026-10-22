@@ -19,6 +19,20 @@ from upgrade_map import xml
 PREFIX = 'gm_sleep_'
 
 
+def waking_work_clock(mission, scheduler, actor, source_clock):
+    """Apply only a validated generated sleep pool to an authored work clock."""
+    rows = scheduler.find('Schedulers')
+    owner = unique((r for r in rows if r.get('EntityGuid') == str(guid_value(actor.get('EntityGuid')))),
+                   'work clock owner')
+    intervals = set(source_clock)
+    for link in owned_links(mission, rows, actor, owner):
+        p = link.find('Parameters')
+        a, b = int(p.get('TimeOfDayStart')), int(p.get('TimeOfDayEnd'))
+        if not 0 <= a < b <= 1440: raise ValueError('Invalid sleep clock')
+        intervals = {piece for x, y in intervals for piece in ((x, min(y, a)), (max(x, b), y)) if piece[0] < piece[1]}
+    return intervals
+
+
 def restrict_work_to_waking_hours(mission, scheduler, *, actors=None):
     """Bound converter-owned routine work by the actor's existing sleep clock.
 

@@ -230,6 +230,8 @@ def upgrade(files, schedules, archive, target):
                 actual = {(int(l.find('Parameters').get('TimeOfDayStart')), int(l.find('Parameters').get('TimeOfDayEnd')))
                     for l in scheduler.findall('.//S_ActivityLink') if l.get('TargetGuid') == hub_id}
                 clock = {(e['start_minute'], e['end_minute']) for e in entries if supports(e) and e['arrival']['EntityId'] == entry['arrival']['EntityId']}
+                from character_sleep_work import waking_work_clock
+                clock = waking_work_clock(mission, scheduler, actor, clock)
                 if actual != clock: raise ValueError('Fence arrival clock differs from source')
                 points = resolve(entry, archive, source, reader)
                 if not points: continue
