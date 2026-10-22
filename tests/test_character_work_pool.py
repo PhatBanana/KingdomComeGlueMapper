@@ -89,5 +89,27 @@ class WorkPoolTests(unittest.TestCase):
         _, _, clock = pool.bind(m, s, 'person', entry, 'Cooking', resources, activity)
         self.assertEqual(clock, [(420, 720), (780, 1080)])
 
+    def test_compound_job_keeps_native_override_and_shared_dependency(self):
+        m, s, entry, resources, activity = self.fixture()
+        well = E.SubElement(m, 'Entity', EntityId='501', EntityGuid=native_guid(501), Name='well', Pos='4,5,6')
+        leaf = E.Element('C_SmartHub', EntityGuid='501', IgnoreDeadEnds='false', StupidHub='false')
+        link = copy.deepcopy(activity); link.set('TargetGuid', '501')
+        E.SubElement(resources[0][1], 'Links').append(link)
+        activity.find('Parameters').set('BehaviorOverride', 'true')
+        pool.bind(m, s, 'person', entry, 'water', resources, activity, dependencies=[(well, leaf)])
+        validate_scheduler_targets(s)
+        before = signature(m), signature(s)
+        pool.bind(m, s, 'person', entry, 'water', resources, activity, dependencies=[(well, leaf)])
+        self.assertEqual(before, (signature(m), signature(s)))
+
+    def test_dangling_and_cyclic_compound_graph_rejected_before_mutation(self):
+        for target in ('999', '500'):
+            m, s, entry, resources, activity = self.fixture()
+            link = copy.deepcopy(activity); link.set('TargetGuid', target)
+            E.SubElement(resources[0][1], 'Links').append(link)
+            before = signature(m), signature(s)
+            with self.assertRaises(ValueError): pool.bind(m, s, 'person', entry, 'water', resources, activity)
+            self.assertEqual(before, (signature(m), signature(s)))
+
 
 if __name__ == '__main__': unittest.main()

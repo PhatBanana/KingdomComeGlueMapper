@@ -91,6 +91,53 @@ The regression suite ran 1,813 tests successfully with 17 skipped; the source
 desktop process-pool self-test also passed. The work report remains incomplete
 with nine top-level pending records, in addition to the partial phase reports.
 
+## Household water refill — 23 October 2026
+
+The generic population setup now resolves household water chores through
+`character_water_source.py`, `character_water_native.py` and
+`character_water_work.py`. It validates the source bucket reservation and
+fill-before-pour program, prefers a home's authored water links, and otherwise
+uses the linked well of its unambiguous containing source city. It never picks
+the closest well or assigns an NPC by name.
+
+The town well was previously only a converted visual. Setup now replaces that
+visual with the native well animation object, exclusive smart-object holder and
+empty bucket placement slot at the authored source transform. All workers share
+that one resource. The native tub override retains its own bucket decision,
+source-pool branch, well action and pouring action. Existing player washing and
+cleaning effects remain. Refilling tubs and the well receive native local
+animation collection references with their new world transforms.
+
+Four source household assignments are emitted: Mother, `ska_woman5`,
+`ska_woman22` and `ska_woman9`. These names describe the tested inventory; they
+are not conversion filters. Work inherits each actor's existing waking clock.
+
+Seven other household assignments remain explicitly pending. Four require a
+validated male native refill contract; the shipped tub-override links inspected
+for this conversion permit women only. Three have overlapping tub links but
+different source household bucket pools. Combining those reservations on one
+tub would allow borrowing another home's tool, so those cases require an
+actor-scoped reservation adapter before activation. Source housework ordering
+and phase duration are also still pending.
+
+The reusable work-pool binder now accepts complete compound resource graphs and
+rejects missing dependencies, cycles, duplicate identities and conflicting
+existing registrations. Regression coverage checks shared resources, preservation
+of washing, rotated well placement, tool ownership, repeat conversion and native
+animation references.
+
+Offline validation: the full 55-person setup path completed; a second pass left
+the mission, scheduler and waiting links semantically unchanged. Mounted and
+level schedulers match. The private stage is
+`D:/BuildKCDMod/household-water-20261023/package`; its installation receipt has
+not been refreshed and it has not been installed. No live game/MCP controls were
+used. These jobs are **not runtime verified**, and the remaining town jobs are
+not complete.
+
+The regression suite ran 1,824 tests successfully with 17 skipped; the source
+desktop process-pool self-test passed. The work report still has nine top-level
+pending records plus the partial phase reports described above.
+
 ## First candidate: field hoeing
 
 `character_farmer_work.py` recognizes `final/sa_farm.xml:Farmer`. It resolves the

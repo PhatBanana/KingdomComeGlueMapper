@@ -36,7 +36,7 @@ def source_job(mission, scheduler, person, entry):
     return actor, owner, incoming
 
 
-def bind(mission, scheduler, person, entry, phase, resources, activity, *, template=None):
+def bind(mission, scheduler, person, entry, phase, resources, activity, *, template=None, dependencies=()):
     """Resources are (existing entity, validated native leaf) pairs.
 
     A template makes the pool a native activity override (e.g. embroidery).
@@ -49,6 +49,23 @@ def bind(mission, scheduler, person, entry, phase, resources, activity, *, templ
     if len({e.get('EntityGuid') for e, _ in resources}) != len(resources):
         raise ValueError('Duplicate native work resource')
     rows = scheduler.find('Schedulers')
+    # Compound native jobs (for example tub -> well) supply their complete
+    # dependency graph explicitly. Reject dangling edges and cycles before any
+    # actor or scheduler mutation. Existing registrations must match exactly.
+    graph = {r.get('EntityGuid'): r for _, r in (*resources, *dependencies)}
+    if len(graph) != len(resources) + len(dependencies):
+        raise ValueError('Duplicate native work graph identity')
+    visited, active = set(), set()
+    def visit(key):
+        if key in active: raise ValueError('Cyclic native work graph')
+        if key in visited: return
+        active.add(key)
+        for edge in graph[key].findall('Links/S_ActivityLink'):
+            target = edge.get('TargetGuid')
+            if target not in graph: raise ValueError('Incomplete native work graph')
+            visit(target)
+        active.remove(key); visited.add(key)
+    for key in graph: visit(key)
     guid = identity('work-phase/'+actor.get('EntityGuid')+'/'+entry['arrival']['EntityGuid']+'/'+phase)
     number = str(guid_value(guid))
     name = 'gm_schedule_phase_'+person+'_'+entry['arrival']['EntityId']+'_'+phase
@@ -76,15 +93,17 @@ def bind(mission, scheduler, person, entry, phase, resources, activity, *, templ
         planned_in.append(edge)
     planned_out = []
     pending_leaves = []
-    for entity, native_leaf in resources:
+    for entity, native_leaf in (*resources, *dependencies):
         resource_id = str(guid_value(entity.get('EntityGuid')))
         leaf = copy.deepcopy(native_leaf); leaf.set('EntityGuid', resource_id)
-        if leaf.tag != 'C_SmartHub' or leaf.find('Links') is not None:
+        if (leaf.tag != 'C_SmartHub' or native_leaf.get('EntityGuid') != resource_id
+                or (leaf.find('Links') is not None and not dependencies)):
             raise ValueError('Native work resource must be a terminal hub')
         found = [r for r in rows if r.get('EntityGuid') == resource_id]
         if found and (len(found) != 1 or signature(found[0]) != signature(leaf)):
             raise ValueError('Native work resource has conflicting scheduler dependencies')
         if not found: pending_leaves.append(leaf)
+        if (entity, native_leaf) not in resources: continue
         edge = copy.deepcopy(activity); edge.set('TargetGuid', resource_id)
         p = edge.find('Parameters'); p.set('TimeOfDayStart', '0'); p.set('TimeOfDayEnd', '1440')
         if template:

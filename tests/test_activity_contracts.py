@@ -13,6 +13,23 @@ from lean_alignment import align
 
 
 class ActivityContractTests(unittest.TestCase):
+    def test_refill_tub_gets_local_animation_collection_without_foreign_world_bake(self):
+        identity = guid('test/refill-tub')
+        files = {'objects_mission0.xml': f'''<Objects><Entity Name="gm_wash_any_SmartObjectHolder"
+          EntityClass="SmartObjectHolder" EntityGuid="{identity}" Pos="10,20,30">
+          <Properties soclass_SmartObjectHelpers="watertube"/><EntityLinks>
+          <Link Name="schedulerReservedItem['refillWatertube','housekeeper_refillWatertube_bucket']"/>
+          </EntityLinks></Entity></Objects>'''.encode()}
+        collection = b'''<SmartObjectAnimationCollections><Collection HelperSetName="watertube">
+          <SmartObjectHelperSetAnimationCollection HashValue="12345"><AnimationsMap/>
+          </SmartObjectHelperSetAnimationCollection></Collection></SmartObjectAnimationCollections>'''
+        with archive({HELPERS: collection}) as native:
+            result, _ = install(files, native)
+        row = ET.fromstring(result[ANIMATIONS]).find('.//SmartObjectAnimations')
+        self.assertEqual(row.get('Hash'), '12345')
+        self.assertEqual(row.find('SmartObjectTransform').get('Position'), '10,20,30')
+        self.assertIsNone(row.find('Animations'))
+
     def test_existing_seats_replace_zero_hash_without_copying_world_bake(self):
         for prefix in ('gm_bench_', 'gm_chair_'):
             with self.subTest(prefix=prefix):

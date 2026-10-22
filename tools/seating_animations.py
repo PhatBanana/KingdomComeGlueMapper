@@ -67,6 +67,9 @@ def install(files, native, prefixes=('gm_chair_', 'gm_bench_'), extra_collection
         if ((seat.get('EntityClass') == 'StanceSmartObject'
              and seat.find('Properties').get('soclass_SmartObjectHelpers', '').startswith(('Sit_1Place_', 'Bed_1Place_')))
                 or converted_door(seat)
+                or (seat.get('Name', '').startswith('gm_wash_') and any(
+                    l.get('Name', '').startswith("schedulerReservedItem['refillWatertube',")
+                    for l in seat.findall('EntityLinks/Link')))
                 or seat.get('Name','').startswith(('gm_schedule_','gm_job_item_'))):
             family=seat.find('Properties').get('soclass_SmartObjectHelpers')
             # This hash selects the local animation/start-transform collection;

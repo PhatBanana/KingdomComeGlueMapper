@@ -166,6 +166,9 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             from character_household_work import upgrade as upgrade_household
             files, household = upgrade_household(files, housework_schedules, archive, target, source, reader, tables)
             repaired.extend(household)
+            from character_water_work import upgrade as upgrade_water
+            files, water = upgrade_water(files, housework_schedules, archive, target, source, reader, tables, items)
+            repaired.extend(water)
             changed = {r['person'] for r in repaired if not r.get('extension_only')}
             converted = [r for r in converted if not (r['person'] in changed and r.get('job') == 'source_housework_pending')]
             pending = [r for r in pending if not (r['person'] in changed and r.get('correction') == 'source housework branch excludes sweeping')]
