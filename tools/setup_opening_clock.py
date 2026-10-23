@@ -1,5 +1,6 @@
 """Shared setup migration for the source-selected new-game starting hour."""
 import hashlib
+from pathlib import Path
 import zipfile
 from campaign_opening_clock import source_clock, bind
 from upgrade_map import read
@@ -10,6 +11,7 @@ def upgrade(package, source):
     from setup_package_upgrade import rewrite
     from setup_campaign import digest
     if source is None:raise ValueError('KCD1 is required to resolve the opening clock')
+    package, source = Path(package), Path(source)
     controller=OPENING_CLOCK['controller']
     with zipfile.ZipFile(source/'Data/Scripts.pak') as z: original=read(z,controller)
     plan=source_clock(original,OPENING_CLOCK['tree'])
