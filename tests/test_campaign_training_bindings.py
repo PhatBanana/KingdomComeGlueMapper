@@ -26,11 +26,12 @@ class TrainingBindingsTests(unittest.TestCase):
         host, nodes, life, quest, worker, definition = schedule_fixture()
         root = E.fromstring(definition)
         E.SubElement(root.find('./Skald/Quest/Ports'), 'Port', Name='arrive_Completed', Direction='Out', Type='bool')
+        E.SubElement(root.find('./Skald/Quest/Ports'), 'Port', Name='done_Completed', Direction='Out', Type='bool')
         schedule(nodes, life, quest, E.tostring(root), worker,
                  dict(arrival='arrive', authorization='begin', completion='done'), ['cancel'], ['reconcile'],
                  arrival_completion='source_objective')
         graph = Graph(E.tostring(host))
-        graph.values.update({'quest.arrive_Started': True, 'quest.arrive_Completed': False, 'lesson.busy': True})
+        graph.values.update({'quest.arrive_Started': True, 'quest.arrive_Completed': False, 'quest.done_Completed':False, 'lesson.busy': True})
         graph.fire('lesson.arrive')
         return host, life, quest, worker, graph
 
@@ -56,6 +57,19 @@ class TrainingBindingsTests(unittest.TestCase):
         graph.fire('quest.source_state_changed'); graph.fire('walker.Fail')
         for port in ('arrived', 'arrival_failed'):
             self.assertNotIn(life.find("Edge[@To='"+port+"']").get('From'), graph.events)
+
+    def test_existing_arrival_save_can_start_but_finished_lesson_cannot_repeat(self):
+        _,life,_,_,graph=self.source_arrival_fixture()
+        graph.values.update({'quest.arrive_Started':False,'quest.arrive_Completed':True,'lesson.busy':False})
+        request=life.find("Edge[@To='request']").get('From')
+        graph.fire('reconcile')
+        self.assertIn(request,graph.events)
+        graph.values['lesson.busy']=True
+        graph.fire('lesson.arrive')
+        self.assertIn(life.find("Edge[@To='arrived']").get('From'),graph.events)
+        graph.values.update({'lesson.busy':False,'quest.done_Completed':True})
+        graph.events=[];graph.fire('quest.source_state_changed');graph.fire('reconcile')
+        self.assertNotIn(request,graph.events)
 
     def test_source_failure_distinguishes_walk_from_waiting_pose(self):
         _, life, _, _, graph = self.source_arrival_fixture()

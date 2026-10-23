@@ -9,6 +9,7 @@ from character_water_source import resolve, conflicting_tools, bucket_contract
 from character_water_work import refill_graph, well_group
 from character_city_benches import signature
 from campaign_entity_links import native_guid
+from character_water_native import base_geometry
 
 
 class WaterSourceTests(unittest.TestCase):
@@ -87,6 +88,12 @@ class WaterGraphTests(unittest.TestCase):
         contract = dict(well=donor('holder',100,'100,200,300'),
             group=dict(animObject=donor('animObject',101,'100,200,300'),slot=donor('slot',102,'101,200,300')),
             well_leaf=E.Element('C_SmartHub',EntityGuid='100'))
+        contract['well'].find('Properties').set('guidSmartObjectType','well-type')
+        prefab = E.fromstring('''<Prefab><Objects>
+          <Object Type="Brush" Prefab="objects/well_base.cgf" Pos="0,1,0"/>
+          <Object EntityClass="SmartObjectHolder"><Properties guidSmartObjectType="well-type"/></Object>
+          </Objects></Prefab>''')
+        contract['base'] = base_geometry(prefab, contract['well'])
         pair, waiting = well_group(m,source,{'1':source},contract)
         self.assertEqual(len(waiting),2)
         self.assertIsNone(m.find("Entity[@Name='glue_item_1']"))
@@ -94,9 +101,26 @@ class WaterGraphTests(unittest.TestCase):
         slot = m.find("Entity[@EntityClass='ItemSlot']")
         for actual, expected in zip(map(float,slot.get('Pos').split(',')),(10,21,30)):
             self.assertAlmostEqual(actual,expected)
+        base = m.find("Entity[@EntityClass='BasicEntity']")
+        self.assertEqual(base.find('Properties').get('object_Model'),'objects/well_base.cgf')
+        self.assertEqual(base.find('Properties/Physics').get('bPhysicalize'),'1')
+        for actual, expected in zip(map(float,base.get('Pos').split(',')),(9,20,30)):
+            self.assertAlmostEqual(actual,expected)
         before = signature(m)
         well_group(m,source,{'1':source},contract)
         self.assertEqual(before,signature(m))
+        # Existing installations have the complete animation group but no base.
+        m.remove(base)
+        well_group(m,source,{'1':source},contract)
+        restored = m.find("Entity[@EntityClass='BasicEntity']")
+        base.set('EntityId',restored.get('EntityId'))
+        self.assertEqual(signature(base),signature(restored))
+        repaired = signature(m)
+        well_group(m,source,{'1':source},contract)
+        self.assertEqual(repaired,signature(m))
+        broken = copy.deepcopy(m)
+        broken.remove(broken.find("Entity[@EntityClass='ItemSlot']"))
+        with self.assertRaises(ValueError): well_group(broken,source,{'1':source},contract)
         source.set('Pos','11,20,30')
         with self.assertRaises(ValueError): well_group(m,source,{'1':source},contract)
 

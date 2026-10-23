@@ -1,5 +1,12 @@
 # Native training conversion: implementation boundary
 
+Update (2026-10-23): the source-selected setup host, equipment worker, follow-up
+conversation and opening clock are now assembled and privately package-tested.
+See [source-opening-training-upgrade.md](source-opening-training-upgrade.md) for
+the current implementation and validation boundary. The earlier host-integration
+limitations below describe the 2026-10-21 component audit. In-game verification
+is still outstanding.
+
 The controller integration design and 2026-10-21 audit are documented in
 [quest-controller-training-conversion.md](quest-controller-training-conversion.md).
 The source walk-and-wait routine requires `arrival_completion='source_objective'`;

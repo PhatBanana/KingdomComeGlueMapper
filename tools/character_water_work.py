@@ -32,7 +32,7 @@ def connect(a, b, name):
 
 def well_group(mission, source, entities, contract):
     props = source.find('Properties')
-    donor = contract['well']; originals = dict(contract['group'], holder=donor)
+    donor = contract['well']; originals = dict(contract['group'], holder=donor, base=contract['base'])
     model = contract['group']['animObject'].find('Properties').get('object_Model', '').lower().removeprefix('data/')
     if (source.get('EntityClass') != 'AnimObject' or props is None
             or props.get('object_Model', '').lower() != model
@@ -44,7 +44,7 @@ def well_group(mission, source, entities, contract):
     dp, dq, _ = world_transform(donor, native_entities)
     delta = quaternion_product(sq, (dq[0], -dq[1], -dq[2], -dq[3]))
     next_id = max(int(e.get('EntityId', '0')) for e in mission)+1
-    group = {}; fresh = []
+    group = {}; fresh = []; fresh_roles = set()
     for role, original in originals.items():
         guid = identity('water-well/'+source.get('EntityGuid')+'/'+role)
         name = 'gm_schedule_water_source_'+source.get('EntityId')+'_'+role
@@ -64,10 +64,14 @@ def well_group(mission, source, entities, contract):
             if len(old) != 1 or signature(expected) != signature(node):
                 raise ValueError('Existing water well differs from native contract')
             node = old[0]
-        else: fresh.append(node)
+        else:
+            fresh.append(node); fresh_roles.add(role)
         group[role] = node
     visual = [e for e in mission if e.get('Name') == 'glue_item_'+source.get('EntityId')]
-    if fresh and (len(fresh) != 3 or len(visual) != 1):
+    # The previous converter emitted the rig/slot/holder but omitted the body.
+    # Repair only that exact complete group; reject partially missing rigs.
+    repair = fresh_roles == {'base'} and not visual
+    if fresh and not repair and (len(fresh) != len(originals) or len(visual) != 1):
         raise ValueError('Incomplete source well conversion')
     if not fresh and visual: raise ValueError('Duplicate well visual')
     mission.extend(fresh)
@@ -76,6 +80,39 @@ def well_group(mission, source, entities, contract):
     leaf = copy.deepcopy(contract['well_leaf'])
     leaf.set('EntityGuid', str(guid_value(group['holder'].get('EntityGuid'))))
     return (group['holder'], leaf), waiting
+
+
+def upgrade_well_bodies(package, source, target):
+    """Repair complete older well groups without rebuilding unrelated jobs."""
+    from pathlib import Path
+    import zipfile
+    from upgrade_map import read
+    from chairs import inventory
+    from character_water_native import load
+    from setup_package_upgrade import rewrite
+    from setup_campaign import digest
+    package = Path(package)
+    relative = 'Data/Levels/kcd1_travel/level.pak'
+    with zipfile.ZipFile(package/relative) as archive:
+        before = read(archive, 'objects_mission0.xml')
+    mission = E.fromstring(before)
+    holders = [e for e in mission if e.get('Name','').startswith('gm_schedule_water_source_')
+               and e.get('Name','').endswith('_holder')]
+    if not holders: return {}, {'repaired': [], 'runtime_verified': False}
+    if source is None or target is None: raise ValueError('Both games are required to restore well bodies')
+    contract = load(target)
+    with zipfile.ZipFile(Path(source)/'Data/Levels/rataje/level.pak') as archive:
+        entities, _, _ = inventory(archive, 'AnimObject')
+    repaired = []
+    for holder in holders:
+        sid = holder.get('Name')[len('gm_schedule_water_source_'):-len('_holder')]
+        if sid not in entities: raise ValueError('Converted well has no source: '+sid)
+        old_count = len(mission)
+        well_group(mission, entities[sid], entities, contract)
+        if len(mission) != old_count: repaired.append(sid)
+    if not repaired: return {}, {'repaired': [], 'runtime_verified': False}
+    rewrite(package, relative, {'objects_mission0.xml': xml(mission)})
+    return {relative: digest(package/relative)}, {'repaired': repaired, 'runtime_verified': False}
 
 
 def refill_graph(mission, scheduler, tub, sources, contract):

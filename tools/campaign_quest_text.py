@@ -55,6 +55,31 @@ def localization_table(records):
     return ET.tostring(table, encoding='utf-8', xml_declaration=True)
 
 
+def update_journal(blob, model, localized):
+    """Refresh source journal fields without replacing a quest's live graph."""
+    import copy
+    from campaign_quest_graph import emit_quest
+    root = ET.fromstring(blob)
+    quest = root.find('Skald/Quest')
+    if quest is None or quest.get('Name') != model['quest']:
+        raise ValueError('Journal model does not match quest')
+    types = {n.get('TypeT') for n in quest.iter('State') if n.get('TypeT','').endswith('ObjectiveProgress')}
+    if len(types) != 1: raise ValueError('Missing objective progress type for journal')
+    canonical, report = emit_quest(model, types.pop(), localized)
+    authored = ET.fromstring(canonical).find('Skald/Quest')
+    def replace_fields(destination, source, tags):
+        for tag in tags:
+            for old in list(destination.findall(tag)): destination.remove(old)
+            for new in source.findall(tag): destination.append(copy.deepcopy(new))
+    replace_fields(quest, authored, ('QuestName','QuestDescription'))
+    expected = {o.get('Name'):o for o in authored.findall('Objectives/Objective')}
+    actual = {o.get('Name'):o for o in quest.findall('Objectives/Objective')}
+    if actual.keys() != expected.keys(): raise ValueError('Journal objectives differ from source model')
+    for name, objective in actual.items():
+        replace_fields(objective, expected[name], ('LocalizedName','Logs'))
+    return ET.tostring(root, encoding='utf-8', xml_declaration=True), report['journal_strings']
+
+
 def resolve(models, tables, strings):
     objective_types = {r['skald_objective_string_type_id']: r['skald_objective_string_type_name']
                        for r in tables['skald_objective_string_type']}

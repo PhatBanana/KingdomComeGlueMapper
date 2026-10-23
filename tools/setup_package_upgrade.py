@@ -27,7 +27,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, VERSION):
+    if report.get('version') not in (*range(3, 53), VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -86,6 +86,31 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from setup_section_repair import repair, stale_sections
     if stale_sections(package):
         receipt = repair(package, repair_roots=repair_roots, notify=notify, cancelled=cancelled)
+    # Recipe 52 already contains the complete world, schedules and training.
+    # This revision repairs only derived collision/presentation sections, so
+    # do not rebuild people, lighting or terrain in a completed saved build.
+    if (receipt.get('build_recipe',{}).get('version') in (52, 53)
+            and receipt['build_recipe'].get('status') == 'complete'
+            and receipt.get('quest_training') and (package/'quest-training.json').exists()):
+        from designer_collision_repair import upgrade as repair_collision
+        from training_presentation_repair import upgrade as repair_presentation
+        from setup_training_upgrade import validate as validate_training
+        from setup_quest_invitation import validate as validate_invitation
+        notify('Repair collision and tutorial presentation', 0, 1, 'Reuse the verified world and schedules')
+        for key, operation, game in (('designer_collision_repair', repair_collision, source),
+                                     ('training_presentation_repair', repair_presentation, target)):
+            files, report = operation(package, game)
+            receipt['files'].update(files); receipt[key] = report
+        receipt['quest_training'] = validate_training(package)
+        receipt['quest_invitation'] = validate_invitation(package)
+        receipt['build_recipe']['content_validation'] = validate(package)
+        receipt['build_recipe']['version'] = VERSION
+        from lod_ratio_metadata import upgrade_package as validate_lod
+        validate_lod(package, validate_only=True)
+        pending=package/(RECEIPT+'.pending')
+        pending.write_text(json.dumps(receipt,indent=2),encoding='utf-8');pending.replace(package/RECEIPT)
+        notify('Repair collision and tutorial presentation', 1, 1, 'Saved-build repair validated')
+        return verify_package(package)
     from setup_guard_conversations import upgrade as upgrade_guards
     guard_files, guard_report = upgrade_guards(package, source, target)
     receipt['files'].update(guard_files)
@@ -246,6 +271,10 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     door_files, door_report = upgrade_door_animations(package)
     receipt['files'].update(door_files)
     receipt['door_animation_registration'] = door_report
+    from designer_collision_repair import upgrade as repair_designer_collision
+    collision_files, collision_report = repair_designer_collision(package, source)
+    receipt['files'].update(collision_files)
+    receipt['designer_collision_repair'] = collision_report
     from static_navigation_profiles import upgrade as upgrade_static_navigation
     from setup_gameplay import STATIC_WORLD_PROFILES
     navigation_files, navigation_report = upgrade_static_navigation(
@@ -257,6 +286,10 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         package, source, target, STATIC_WORLD_PROFILES, notify, cancelled)
     receipt['files'].update(population_files)
     receipt['profile_population'] = population_report
+    from character_water_work import upgrade_well_bodies
+    well_files, well_report = upgrade_well_bodies(package, source, target)
+    receipt['files'].update(well_files)
+    receipt['well_bodies'] = well_report
     from forge_loft import upgrade as upgrade_forge_loft
     notify('Furnish the forge loft', 0, 1, 'Ladder, assigned beds and personal storage')
     loft_files, loft_report = upgrade_forge_loft(package, target)
@@ -343,10 +376,28 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     invitation_files, invitation_report = upgrade_invitation(package, source, target)
     receipt['files'].update(invitation_files)
     receipt['quest_invitation'] = invitation_report
+    from setup_training_upgrade import upgrade as upgrade_training
+    training_files, training_report = upgrade_training(package, source, target)
+    receipt['files'].update(training_files)
+    receipt['quest_training'] = training_report
+    from training_presentation_repair import upgrade as repair_training_presentation
+    presentation_files, presentation_report = repair_training_presentation(package, target)
+    receipt['files'].update(presentation_files)
+    receipt['training_presentation_repair'] = presentation_report
+    from setup_training_upgrade import validate as validate_training
+    receipt['quest_training'] = validate_training(package)
+    # The training stage takes ownership of departure availability and adds a
+    # behavior to its shared host; retain the updated invitation provenance.
+    from setup_quest_invitation import validate as validate_invitation
+    receipt['quest_invitation'] = validate_invitation(package)
     from setup_starting_inventory import upgrade as upgrade_starting_inventory
     inventory_files, inventory_report = upgrade_starting_inventory(package, target)
     receipt['files'].update(inventory_files)
     receipt['starting_inventory'] = inventory_report
+    from setup_opening_clock import upgrade as upgrade_opening_clock
+    clock_files, clock_report = upgrade_opening_clock(package, source)
+    receipt['files'].update(clock_files)
+    receipt['opening_clock'] = clock_report
     # After every step that registers people and shops: give each shopkeeper the
     # native haggle and shop-ending roles, without which a confirmed trade does nothing.
     from shop_roles import keepers as shop_keepers, add_haggle_roles

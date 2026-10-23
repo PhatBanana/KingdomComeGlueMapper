@@ -210,9 +210,13 @@ def native_catalog(game):
     with zipfile.ZipFile(Path(game) / 'Data/Tables.pak') as archive:
         metaroles = {row.get('metarole_name') for row in ET.fromstring(
             read(archive, 'Libs/Tables/rpg/metarole.xml')).iter('metarole')}
+        melee_categories = ['melee_weapon.'+row.get('name')+'.*' for row in ET.fromstring(
+            read(archive, 'Libs/Tables/item/weapon_class.xml')).iter('MeleeWeaponClass')
+            if row.get('name') and row.get('name') != 'undefined']
     return dict(nodes={n: dict(r, attributes=sorted(r['attributes']), children=sorted(r['children']))
                        for n, r in nodes.items()}, variable_types=sorted(types), enum_types=sorted(enum_types),
                 native_monologue_consumer=speech_consumer, work_animations=fragment_catalog(game),
+                melee_categories=melee_categories,
                 combat_automation={op: {field: sorted(values) for field, values in fields.items()}
                                    for op, fields in combat_automation.items()},
                 entity_classes=sorted(entity_classes),
@@ -590,8 +594,15 @@ class BehaviorCompiler:
                             raise UnsupportedOperation('SetVariable script requires a semantic adapter')
                     elif kind == 'empty_category':
                         if value:
-                            raise UnsupportedOperation('Source item category filter requires category conversion')
+                            if (op != 'ItemClassFilter' or literal(attrs.get('ClassId',''))
+                                    or value not in self.catalog.get('melee_categories', [])):
+                                raise UnsupportedOperation('Source item category filter requires category conversion')
+                            value = quote(value)
                     elif kind == 'item_class':
+                        if (not value and op == 'ItemClassFilter' and
+                                literal(attrs.get('Category','')) in self.catalog.get('melee_categories', [])):
+                            values[name] = ''
+                            continue
                         record['item_dependencies'].append(dict(item=value, site=site))
                         if not re.fullmatch(r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}', value):
                             raise UnsupportedOperation('Dynamic or missing job item class requires a runtime identity map')

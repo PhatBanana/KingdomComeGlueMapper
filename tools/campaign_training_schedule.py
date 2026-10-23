@@ -4,7 +4,7 @@ Objective bindings are explicit converter outputs. This module never infers
 an objective from an NPC name, dialogue text or source phase number.
 """
 import xml.etree.ElementTree as E
-from campaign_quest_graph import edge, constant, identifier, all_of
+from campaign_quest_graph import edge, constant, identifier, all_of, any_of
 
 
 def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, cancel_events, reconcile_events=(),
@@ -24,6 +24,7 @@ def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, 
     require('complete_'+objectives['completion'], 'In', 'trigger')
     if arrival_completion == 'source_objective':
         require(objectives['arrival']+'_Completed', 'Out', 'bool')
+        require(objectives['completion']+'_Completed', 'Out', 'bool')
     else:
         require('complete_'+objectives['arrival'], 'In', 'trigger')
     require('source_state_changed', 'Out', 'trigger')
@@ -53,8 +54,19 @@ def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, 
     for event in (q+'.source_state_changed', *reconcile_events):
         edge(request, event, 'Exec'); edge(lifecycle, event, 'authorization_changed')
         edge(reset, event, 'Exec')
+    pending_arrival = q+'.'+objectives['arrival']+'_Started'
+    if arrival_completion == 'source_objective':
+        # A migrated save may already be at the ring. Authorization can arrive
+        # after the old departure worker has completed the source objective.
+        pending_arrival = any_of(nodes,name+'_arrival_available',
+            [pending_arrival,q+'.'+objectives['arrival']+'_Completed'])
+        unfinished=E.SubElement(nodes,'Function',Name=name+'_unfinished',
+            MethodName='math::boolean::Not',DeclaringType='math::boolean')
+        edge(unfinished,q+'.'+objectives['completion']+'_Completed','Value')
+        pending_arrival=all_of(nodes,name+'_unfinished_arrival',
+            [pending_arrival,unfinished.get('Name')+'.bool'])
     edge(request, all_of(nodes, name+'_new_request',
-        [q+'.'+objectives['arrival']+'_Started', not_sent.get('Name')+'.bool',
+        [pending_arrival, not_sent.get('Name')+'.bool',
          _idle(nodes, name, lifecycle.get('Name'))]), 'Condition')
     requested = E.SubElement(nodes, 'TriggerSequence', Name=name+'_request_order')
     edge(requested, request.get('Name')+'.True', 'Exec')
@@ -78,7 +90,14 @@ def bind(nodes, lifecycle, quest, quest_definition, arrival_worker, objectives, 
             edge(waiting, event, 'SetFalse')
         edge(running, lifecycle.get('Name')+'.prepare', 'SetFalse')
         guard = E.SubElement(nodes, 'If', Name=name+'_source_completed')
-        for event in (q+'.source_state_changed', *reconcile_events): edge(guard, event, 'Exec')
+        arrived_order = E.SubElement(nodes,'TriggerSequence',Name=name+'_arm_arrival')
+        edge(arrived_order,lifecycle.get('Name')+'.arrive','Exec')
+        for state in (running,waiting):
+            for e in list(state.findall('Edge')):
+                if e.get('To')=='SetTrue' and e.get('From')==lifecycle.get('Name')+'.arrive':state.remove(e)
+            edge(state,arrived_order.get('Name')+'.A','SetTrue')
+        for event in (q+'.source_state_changed', arrived_order.get('Name')+'.B', *reconcile_events):
+            edge(guard, event, 'Exec')
         edge(guard, all_of(nodes, name+'_source_arrived',
             [waiting.get('Name')+'.State', running.get('Name')+'.State',
              q+'.'+objectives['arrival']+'_Completed']), 'Condition')

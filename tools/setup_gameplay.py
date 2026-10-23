@@ -22,6 +22,19 @@ OPENING = 'gm_kcd1_character_creation'
 # Always-resident source layout used by this shipped slice. Population and
 # navigation must use the same explicit selection after geometry is flattened.
 STATIC_WORLD_PROFILES = ('q_skalitz_normal',)
+# Content selections only. Shared adapters resolve the time and source handoff;
+# no actor coordinates, quest timers, objective names or item GUIDs live here.
+OPENING_CLOCK = dict(controller='Libs/AI/quests/q_skalitz.xml', tree='cutscene_stribrna_skalice')
+TRAINING = dict(quest='q_tutorial_swordOne', arrival='vanek_walksToTiltyard',
+    request='vanek_startTutorial', controller='vanek_handleTutorial', topic='20311',
+    native_source='Quests/Final/Barbora/trosecko/prepadeni/hibernovana_cast/tabor/serm_s_ptackem.xml',
+    domain='Basic', native_tutor_role='PTACEK', native_player_role='HENRY',
+    optional_roles=('DRUZINA_REAGUJE_NA_CHAIN_STRIKE','DRUZINA_REAGUJE_NA_BLOK',
+        'DRUZINA_REAGUJE_NA_ZASAH','DRUZINA_REAGUJE_NA_NEPODARENY_CHAIN_STRIKE',
+        'DRUZINA_KOMENTUJE_ZASAH_DO_PTACKA'),
+    effect_roles={'ptacek':'tutor','player':'player'},
+    settings='Quests/Final/Barbora/utils/tutorials/combattutorialfightsettings.xml',
+    settings_library='Quests/Final/Barbora/utils/combat.xml',player_alias='player',player_asset='travel_player')
 PEOPLE = ('ska_motherOfHenry', 'ska_fatherOfHenry', 'ska_blanka', 'ska_fricek',
           'ska_kunes', 'ska_matus', 'ska_matej', 'ska_sarka', 'ska_woman5',
           'ska_guard2', 'vra_vanek')

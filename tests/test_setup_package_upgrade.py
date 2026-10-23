@@ -221,7 +221,14 @@ class UpgradeTests(unittest.TestCase):
             lights_report = {'version': 1, 'runtime_verified': False}
             lights_upgrade = self.enterContext(patch('procedural_lights.upgrade', return_value=({}, lights_report)))
             inventory_upgrade = self.enterContext(patch('setup_starting_inventory.upgrade', return_value=({}, {'new_game_only': True})))
+            self.enterContext(patch('setup_opening_clock.upgrade', return_value=({}, {'new_game_only': True})))
+            self.enterContext(patch('setup_training_upgrade.upgrade', return_value=({}, {'runtime_verified': False})))
+            self.enterContext(patch('setup_training_upgrade.validate', return_value={'runtime_verified': False}))
+            self.enterContext(patch('training_presentation_repair.upgrade', return_value=({}, {'version': 1})))
+            self.enterContext(patch('designer_collision_repair.upgrade', return_value=({}, {'version': 1})))
+            self.enterContext(patch('setup_quest_invitation.validate', return_value={'runtime_verified': False}))
             invitation_upgrade = self.enterContext(patch('setup_quest_invitation.upgrade', return_value=({}, {'runtime_verified': False})))
+            self.enterContext(patch('character_water_work.upgrade_well_bodies', return_value=({}, {'repaired': []})))
             with patch('setup_profile_population.upgrade', return_value=({}, population_report)) as population_upgrade, patch('setup_animal_population.upgrade', return_value=({}, animal_report)) as animal_upgrade, patch('static_navigation_profiles.upgrade', return_value=({}, {'version': 1})) as navigation_upgrade, patch('setup_merchant_upgrade.upgrade',return_value=({},{})), patch('setup_tavern_upgrade.upgrade',return_value=({},{})), patch('setup_gameplay.validate',return_value={'start_policy':POLICY}), patch('quest_import.import_quest', return_value=(marker_model, {})):
                 with patch('setup_quest_introductions.upgrade', return_value=({}, {'runtime_verified': False})) as intro_upgrade, patch('campaign_menu_stage.add_to_package'), patch(
                         'setup_quest_starts.SELECTIONS', (('different_quest','teacher','intro'),)):

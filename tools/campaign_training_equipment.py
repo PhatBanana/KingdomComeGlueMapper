@@ -13,7 +13,7 @@ from campaign_quest_bridge import UnsupportedOperation
 from campaign_quest_graph import xml
 
 
-def lower(compiler, owner, document, prepare, cleanup, variables):
+def lower(compiler, owner, document, prepare, cleanup, variables, *, adapt=None):
     plan = borrowed_equipment(prepare, cleanup)
     declarations = {v['name']: copy.deepcopy(v) for v in variables}
     if len(declarations) != len(variables):
@@ -36,8 +36,11 @@ def lower(compiler, owner, document, prepare, cleanup, variables):
         compiler.variables = declarations
         native_variables = [compiler.variable(v) for v in declarations.values()]
         for phase, source in (('prepare', prepare), ('cleanup', cleanup)):
+            source = copy.deepcopy(source)
+            if adapt is not None:
+                source = adapt(phase, source, plan)
             record = dict(includes=[], item_dependencies=[], buff_dependencies=[], unresolved=[])
-            root = compiler.lower_node(copy.deepcopy(source), owner, document,
+            root = compiler.lower_node(source, owner, document,
                                        'training_' + phase, 'Root', record)
             if record['unresolved'] or root is None:
                 reasons = '; '.join(r['reason'] for r in record['unresolved'])

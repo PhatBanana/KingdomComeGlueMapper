@@ -10,6 +10,32 @@ from character_person import unique
 from upgrade_map import read
 
 
+def base_geometry(prefab, donor):
+    """Keep the prefab's static well body alongside its separate animated rig."""
+    from room_layout import geometry
+    from cooking_pots import rotate, vector
+    from entity_visuals import quaternion_product as qmul
+    brush = unique(prefab.findall("Objects/Object[@Type='Brush']"), 'native well base')
+    holder = unique(prefab.findall("Objects/Object[@EntityClass='SmartObjectHolder']"), 'prefab well holder')
+    if holder.find('Properties').get('guidSmartObjectType') != donor.find('Properties').get('guidSmartObjectType'):
+        raise ValueError('Well prefab and interaction contract differ')
+    def transform(e):
+        if e.get('Scale', '1,1,1') != '1,1,1':
+            raise ValueError('Scaled well prefab needs a geometry adapter')
+        return (tuple(map(float, e.get('Pos', '0,0,0').split(','))),
+                tuple(map(float, e.get('Rotate', '1,0,0,0').split(','))))
+    hp, hq = transform(holder); bp, bq = transform(brush); dp, dq = transform(donor)
+    delta = qmul(dq, (hq[0], -hq[1], -hq[2], -hq[3]))
+    offset = rotate(delta, tuple(b-h for b,h in zip(bp,hp)))
+    node = geometry(dict(name='well_base', model=brush.get('Prefab', '')))
+    node.set('EntityId', 'well_base')
+    node.set('Pos', vector(tuple(d+o for d,o in zip(dp,offset))))
+    node.set('Rotate', vector(qmul(delta,bq)))
+    if brush.get('Material'): node.set('Material', brush.get('Material'))
+    node.find('Properties').set('bInteractiveCollisionClass', '1')
+    return node
+
+
 def load(target):
     target = Path(target)
     with zipfile.ZipFile(target/'Data/Tables.pak') as z:
@@ -44,6 +70,9 @@ def load(target):
              all(l.get('TargetId') in entities for l in e.findall('EntityLinks/Link'))]
     donor = next((e for e in wells if {l.get('Name') for l in e.findall('EntityLinks/Link')} == {'animObject', 'slot'}), None)
     if donor is None: raise ValueError('Missing native well graph')
+    from campaign_sources import retail_sources
+    prefab = retail_sources(target, {'well': ('IPL_GameData.pak', 'Prefabs/Water/well.xml')})['well']['data']
+    base = base_geometry(E.fromstring(prefab), donor)
     group = {l.get('Name'): entities[l.get('TargetId')] for l in donor.findall('EntityLinks/Link')}
     if (group['animObject'].get('EntityClass') != 'AnimObject' or group['slot'].get('EntityClass') != 'ItemSlot'
             or group['slot'].find('Properties').get('bSpawnOnStart') != '0'):
@@ -76,5 +105,5 @@ def load(target):
         if len(source_links) != 1: continue
         return copy.deepcopy(dict(tub_template=tub.get('DatabaseId'), activity=edge, tub_row=row,
             source_edge=links[0], source_definition=source_links[0], well_edge=water_edge, well=donor, group=group,
-            well_leaf=well_leaf, bucket=contract))
+            well_leaf=well_leaf, bucket=contract, base=base))
     raise ValueError('Missing complete native tub refill graph')

@@ -209,6 +209,8 @@ def asset_pack(stack, library, prefix, cache_dir=None):
             name = 'objects/'+name
         from building_materials import blend_inputs, convert as convert_blend
         doc = ET.fromstring(asset_read(name+".mtl"))
+        from designer_collision_repair import hide_proxy
+        hide_proxy(doc)
         if name == 'objects/vegetation/vines/vine':
             if native_vine is None:
                 native_path = 'objects/natural/vegetation/vines/vine.mtl'

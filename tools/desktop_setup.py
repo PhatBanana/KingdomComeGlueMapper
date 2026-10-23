@@ -45,8 +45,12 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'character_water_source', 'character_water_native', 'character_water_work',
               'character_sleep_work', 'character_sleep_clock', 'character_sleep_beds', 'character_sleep_native',
               'setup_quest_starts', 'campaign_quest_start_placement',
+              'setup_opening_clock', 'campaign_opening_clock',
+              'setup_training_upgrade', 'campaign_training_handoff', 'campaign_training_host',
+              'campaign_training_worker', 'campaign_training_equipment', 'campaign_training_schedule',
+              'campaign_training_native', 'campaign_training_sources',
               'forge_loft', 'forge_loft_layout', 'room_layout', 'world_brush_edits', 'home_bed_assignment',
-              'procedural_lights')
+              'procedural_lights', 'designer_collision_repair', 'training_presentation_repair')
 
 
 class Cancelled(Exception):

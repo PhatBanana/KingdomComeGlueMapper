@@ -96,5 +96,22 @@ def upgrade(package, source):
             pending.replace(destination)
         changed[ARCHIVE]=digest(destination)
     for relative,changes in plans:
+        # Training records own exact imported item bytes. Only advance those
+        # hashes for the icon edits this stage has just resolved, after checking
+        # the old bytes; never bless unrelated changes to equipment tables.
+        import hashlib, json
+        record=package/'quest-training.json'
+        training=json.loads(record.read_text(encoding='utf-8')) if record.exists() else None
+        owned=training.get('resources',{}).get(relative,{}) if training else {}
+        updates={name:hashlib.sha256(blob).hexdigest() for name,blob in changes.items() if name in owned}
+        if updates:
+            with zipfile.ZipFile(package/relative) as original:
+                for name in updates:
+                    if hashlib.sha256(read(original,name)).hexdigest()!=owned[name]:
+                        raise ValueError('Training item changed before icon conversion: '+name)
         rewrite(package,relative,changes);changed[relative]=digest(package/relative)
+        if updates:
+            owned.update(updates)
+            pending=record.with_suffix('.json.pending');pending.write_text(json.dumps(training,indent=2),encoding='utf-8');pending.replace(record)
+            changed['quest-training.json']=digest(record)
     return changed,dict(version=1,icons=len(textures),changed_items=report,runtime_verified=False)

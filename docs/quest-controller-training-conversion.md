@@ -1,5 +1,9 @@
 # Generic quest-controlled routines and fencing integration
 
+For the 2026-10-23 setup integration, see
+[source-opening-training-upgrade.md](source-opening-training-upgrade.md).
+The following is the earlier controller audit; it is not the current setup status.
+
 Status (2026-10-21): generic request-consumer implementation and structural
 validation, **not a playable lesson**. No game files were installed or game
 process launched for this stage.

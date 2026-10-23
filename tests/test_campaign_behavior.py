@@ -32,6 +32,17 @@ class ItemImporter:
 
 
 class CampaignBehaviorTests(unittest.TestCase):
+    def test_inventory_category_requires_native_catalog_membership(self):
+        from campaign_behavior import BehaviorCompiler
+        native=catalog();native['melee_categories']=['melee_weapon.example.*']
+        compiler=BehaviorCompiler([],'CategoryTest',native)
+        for value,valid in [('melee_weapon.example.*',True),('melee_weapon.unknown.*',False),('$dynamic',False)]:
+            record={'unresolved':[]}
+            node=compiler.lower_node(dict(op='ItemClassFilter',attributes={'ClassId':'','Category':value},children=[]),
+                'arbitrary','arbitrary.xml','test','Root',record)
+            self.assertEqual(not record['unresolved'],valid)
+            if valid:self.assertEqual(node.get('Category'),"'melee_weapon.example.*'")
+
     def test_explicit_buff_removal_accepts_native_no_tag_sentinel(self):
         buff='12345678-1234-1234-1234-123456789abc'
         def run(tag, registered=True):

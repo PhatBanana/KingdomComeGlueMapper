@@ -139,6 +139,7 @@ def build(archive, source, domain, namespace, role_bindings, *, optional_roles=(
         for n in scope.iter():
             for attr in ('TypeT', 'ValueTypes'):
                 typ = n.get(attr)
+                if typ in ('Progress', 'ProgressFailable'): continue
                 if typ and any(typ == t.get('TypeName') for _, a in ancestors for t in a.findall('Types/Type')):
                     inherit_type(typ); n.set(attr, namespace + '_' + typ)
 
@@ -267,6 +268,8 @@ def build(archive, source, domain, namespace, role_bindings, *, optional_roles=(
             n.tag = namespace + '_' + n.tag
         edge(_one(phase_nodes.findall('Output'), 'phase output'), any_of(phase_nodes, 'gm_speech_busy', occupied), 'gm_dialogue_busy')
         lifecycle(ph); rewrite_types(ph)
+        from training_presentation_repair import guard_progress
+        guard_progress(ph)
         files[new_name + '.xml'] = xml(pr)
         instance = _one((n for n in nodes if n.get('Name') == phase['module_instance']), 'phase instance')
         instance.tag = new_name
@@ -295,10 +298,13 @@ def build(archive, source, domain, namespace, role_bindings, *, optional_roles=(
             if types[typ].find("StateTypeEnumeration[@Name='None']") is None:
                 raise ValueError('Native presentation state lacks an inactive value')
             edge(n, 'reset', 'SetNone'); edge(n, 'stop', 'SetNone')
+    from training_presentation_repair import guard_progress
+    guard_progress(host)
     files[namespace + '.xml'] = xml(root)
     additions = E.Element('QuestAdditions')
     ts = E.SubElement(additions, 'Types'); ts.extend(types.values())
     os = E.SubElement(additions, 'Objectives'); os.extend(objectives.values())
+    rewrite_types(os)
     return files, xml(additions), dict(curriculum=curriculum, root=namespace + '.xml',
         dialogue_sources=dialogue_sources, omitted_passive_barks=omitted,
         asset_ports=asset_ports,

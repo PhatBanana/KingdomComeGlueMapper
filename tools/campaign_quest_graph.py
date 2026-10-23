@@ -163,12 +163,18 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
         input_edge(available, port(name), 'Set' + value)
     for name, value in [('start', 'Active'), ('complete', 'Done'), ('fail', 'Failed')]:
         input_edge(progress, port(name), 'Set' + value)
-    edge(output, 'quest_progress.State', 'Progress')
     port('available', 'Out', 'bool'); edge(output, 'quest_available.State', 'available')
     for name, value in [('started', 'Active'), ('completed', 'Done'), ('failed', 'Failed'), ('unchanged', 'None')]:
         port(name, 'Out', 'bool'); edge(output, 'quest_progress.' + value, name)
-    ET.SubElement(quest, 'QuestName', Text=localization.get('name', model['quest']))
-    if localization.get('description'): ET.SubElement(quest, 'QuestDescription', Text=localization['description'])
+    # An explicitly empty source journal binding is a controller-only quest.
+    # Giving it a fallback title promotes an internal tutorial into a visible
+    # quest notification, with an unregistered technical name.
+    journal = 'quest2skald_subchapter' not in model['tables'] or bool(model['tables']['quest2skald_subchapter']['rows'])
+    if journal:
+        edge(output, 'quest_progress.State', 'Progress')
+        ET.SubElement(quest, 'QuestName', Text=localization.get('name', model['quest']))
+        if localization.get('description'): ET.SubElement(quest, 'QuestDescription', Text=localization['description'])
+    report['journal_visible'] = journal
     states = {}
     tracked = defaultdict(list)
     for row in model['tables'].get('quest_tracked_asset', {}).get('rows', []):
@@ -186,7 +192,7 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
             out_port = name + '_' + value
             port(out_port, 'Out', 'bool'); edge(output, state_name + '.' + value, out_port)
         states[i] = state
-        hidden = row['is_hidden'] == 'True'
+        hidden = row['is_hidden'] == 'True' or not journal
         if not hidden:
             title = localization.get('objectives', {}).get(i, {})
             decl = ET.SubElement(objectives, 'Objective', Name=name, TypeT=progress_type)

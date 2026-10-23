@@ -8,6 +8,25 @@ from campaign_quest_graph import constant, edge, objective_identifier, xml
 from campaign_objective_conditions import counted_asset
 
 
+def expose_state_changes(blob):
+    """Expose persistent source state updates for late-added controller stages."""
+    root=ET.fromstring(blob);quest=root.find('./Skald/Quest')
+    if quest is None:raise ValueError('State notifications require a source quest')
+    ports=quest.find('Ports');output=quest.find("Nodes/Output[@Name='Output']")
+    expected={s.get('Name')+'.OnExec' for s in quest.findall('Nodes/State')
+        if s.get('Name') in ('quest_progress','quest_available') or s.get('Name','').startswith('objective_')}
+    if not expected or ports is None or output is None:raise ValueError('Missing source quest states')
+    existing=ports.findall("Port[@Name='source_state_changed']")
+    if existing:
+        if (len(existing)!=1 or existing[0].attrib!=dict(Name='source_state_changed',Direction='Out',Type='trigger')
+                or {e.get('From') for e in output.findall("Edge[@To='source_state_changed']")}!=expected):
+            raise ValueError('Conflicting source state notifications')
+        return blob
+    ET.SubElement(ports,'Port',Name='source_state_changed',Direction='Out',Type='trigger')
+    for event in sorted(expected):edge(output,event,'source_state_changed')
+    return xml(root)
+
+
 def bind(files, project, models, nodes):
     roots = {m['quest']: ET.fromstring(files[project + '/' + m['quest'] + '.xml']) for m in models}
     changed = set()
@@ -58,12 +77,5 @@ def bind(files, project, models, nodes):
             reports.append(dict(quest=owner, objective=row['objective_name'], expression=expression,
                                 dependencies=sorted(dependencies)))
     for name in sorted(changed):
-        root = roots[name]
-        quest = root.find('./Skald/Quest')
-        ET.SubElement(quest.find('Ports'), 'Port', Name='source_state_changed', Direction='Out', Type='trigger')
-        output = quest.find("./Nodes/Output[@Name='Output']")
-        for state in quest.findall('./Nodes/State'):
-            if state.get('Name') in ('quest_progress', 'quest_available') or state.get('Name', '').startswith('objective_'):
-                edge(output, state.get('Name') + '.OnExec', 'source_state_changed')
-        files[project + '/' + name + '.xml'] = xml(root)
+        files[project + '/' + name + '.xml'] = expose_state_changes(xml(roots[name]))
     return reports

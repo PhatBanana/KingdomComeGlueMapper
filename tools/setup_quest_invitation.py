@@ -90,7 +90,9 @@ def validate(package):
 
 def upgrade(package, source, target, *, manifest=None):
     from setup_campaign import digest
-    if (package/RECORD).exists(): return {},validate(package)
+    if (package/RECORD).exists():
+        validate(package)
+        return repair_journal(package, source)
     if source is None or target is None: raise ValueError('Both games are required for source invitations')
     from setup_gameplay import PROJECT, ENTRY, LEVEL, quest_model
     from setup_package_upgrade import rewrite
@@ -209,4 +211,46 @@ def upgrade(package, source, target, *, manifest=None):
                     graph_nodes=graph_nodes,runtime_verified=False,scope='Source invitation and departure; combat lesson is not enabled')
         (package/RECORD).write_text(json.dumps(report,indent=2),encoding='utf-8')
     changes={n:digest(package/n) for n in (travel,level,RECORD,'Localization/English.pak','Localization/English_xml.pak','Data/gluemapper_dialogue_facials.pak')}
-    return changes,validate(package)
+    localized, report = repair_journal(package, source, model=model)
+    changes.update(localized)
+    return changes,report
+
+
+def repair_journal(package, source, *, model=None):
+    """Migrate missing invitation strings and retain all existing graph bindings."""
+    from campaign_quest_text import load as load_text, update_journal, localization_table
+    from build_english_audio_test import merge_audio_strings
+    from setup_campaign import digest
+    from setup_package_upgrade import rewrite
+    report = validate(package)
+    path = 'Quests/GlueTravel/gm_imported_scene/'+SELECTION[0]+'.xml'
+    travel, locale = 'Data/gluemappertravel.pak', 'Localization/English_xml.pak'
+    if report.get('journal_localization'):
+        with zipfile.ZipFile(package/locale) as archive:
+            rows = E.fromstring(read(archive,'text_ui_quest.xml'))
+        values = {r.findtext('Cell'):r.findall('Cell')[2].text for r in rows.findall('Row')}
+        if any(values.get(r['key']) != r['text'] for r in report['quest_conversion']['journal_strings']):
+            raise ValueError('Invitation journal strings are missing or changed')
+        return {},report
+    if source is None: raise ValueError('KCD1 is required to restore invitation journal text')
+    if model is None:
+        from quest_import import import_quest
+        model, _ = import_quest(Path(source), SELECTION[0])
+    localized, evidence = load_text(source,[model])
+    journal = bool(model['tables']['quest2skald_subchapter']['rows'])
+    if evidence['missing'] or journal and not localized[model['quest']].get('name'):
+        raise ValueError('Missing source invitation journal text')
+    evidence['journal_visible'] = journal
+    with zipfile.ZipFile(package/travel) as archive:
+        blob, records = update_journal(read(archive,path), model, localized[model['quest']])
+    with zipfile.ZipFile(package/locale) as archive:
+        strings = merge_audio_strings(read(archive,'text_ui_quest.xml'),localization_table(records))
+    rewrite(package,travel,{path:blob})
+    rewrite(package,locale,{'text_ui_quest.xml':strings})
+    report['resources'][path] = hashlib.sha256(blob).hexdigest()
+    report['quest_conversion']['journal_strings'] = records
+    report['journal_localization'] = evidence
+    pending = (package/RECORD).with_suffix('.json.pending')
+    pending.write_text(json.dumps(report,indent=2),encoding='utf-8')
+    pending.replace(package/RECORD)
+    return {n:digest(package/n) for n in (travel,locale,RECORD)},validate(package)
