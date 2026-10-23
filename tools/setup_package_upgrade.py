@@ -27,7 +27,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (*range(3, 53), VERSION):
+    if report.get('version') not in (*range(3, 54), VERSION):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -89,7 +89,7 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     # Recipe 52 already contains the complete world, schedules and training.
     # This revision repairs only derived collision/presentation sections, so
     # do not rebuild people, lighting or terrain in a completed saved build.
-    if (receipt.get('build_recipe',{}).get('version') in (52, 53)
+    if (receipt.get('build_recipe',{}).get('version') in (52, 53, 54)
             and receipt['build_recipe'].get('status') == 'complete'
             and receipt.get('quest_training') and (package/'quest-training.json').exists()):
         from designer_collision_repair import upgrade as repair_collision
@@ -101,6 +101,15 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
                                      ('training_presentation_repair', repair_presentation, target)):
             files, report = operation(package, game)
             receipt['files'].update(files); receipt[key] = report
+        from setup_opening_clock import upgrade as repair_clock
+        files, report = repair_clock(package, source)
+        receipt['files'].update(files); receipt['opening_clock'] = report
+        from well_collision_repair import upgrade as repair_wells
+        files, report = repair_wells(package, source, target)
+        receipt['files'].update(files); receipt['well_collision_repair'] = report
+        from market_visual_repair import upgrade as repair_market
+        files, report = repair_market(package, source, target)
+        receipt['files'].update(files); receipt['market_visual_repair'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -290,6 +299,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     well_files, well_report = upgrade_well_bodies(package, source, target)
     receipt['files'].update(well_files)
     receipt['well_bodies'] = well_report
+    from well_collision_repair import upgrade as repair_wells
+    well_files, well_report = repair_wells(package, source, target)
+    receipt['files'].update(well_files); receipt['well_collision_repair'] = well_report
+    from market_visual_repair import upgrade as repair_market
+    market_files, market_report = repair_market(package, source, target)
+    receipt['files'].update(market_files); receipt['market_visual_repair'] = market_report
     from forge_loft import upgrade as upgrade_forge_loft
     notify('Furnish the forge loft', 0, 1, 'Ladder, assigned beds and personal storage')
     loft_files, loft_report = upgrade_forge_loft(package, target)

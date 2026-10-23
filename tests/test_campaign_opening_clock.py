@@ -34,7 +34,7 @@ class OpeningClockTests(unittest.TestCase):
             self.assertEqual(float(plan['hour']),float(hour))
             out=bind(self.graph(),plan,'open');r=E.fromstring(out)
             call=r.find(".//Function[@Name='open_source_clock']")
-            self.assertEqual(call.find('Constant').get('Value'),'#forwardTime('+plan['hour']+')')
+            self.assertEqual(call.find('Constant').get('Value'),{'10.00':'10h00m','7.25':'07h15m','23.5':'23h30m'}[hour])
             self.assertEqual(r.find(".//Function[@Name='loadout']/Edge").get('From'),'open_source_clock.OnExec')
             self.assertEqual(r.find(".//Function[@Name='restore']/Edge").get('From'),'OnLoad')
             self.assertEqual(out,bind(out,plan,'open'))
@@ -42,6 +42,15 @@ class OpeningClockTests(unittest.TestCase):
             from campaign_start_policy import validate_start_policy, gate_start
             validate_start_policy(out,'open')
             self.assertEqual(gate_start(out,'open'),out)
+
+    def test_migrates_console_clock_without_replaying_or_rebinding_start(self):
+        plan=source_clock(self.source(),'opening')
+        native=bind(self.graph(),plan,'open')
+        root=E.fromstring(native); call=root.find(".//Function[@Name='open_source_clock']")
+        call.set('MethodName','wh::conceptmodule::ExecuteConsoleString');call.set('DeclaringType','wh::conceptmodule')
+        call.find('Constant').attrib.update(Name='Command',Value='#forwardTime(10)')
+        repaired=bind(E.tostring(root),plan,'open')
+        self.assertEqual(repaired,native)
 
     def test_ambiguous_conditional_and_compound_scripts_are_rejected(self):
         for blob in (self.source(nested=True),self.source('forwardTime(10); forwardTime(16)'),
@@ -52,7 +61,7 @@ class OpeningClockTests(unittest.TestCase):
         plan=source_clock(self.source(),'opening')
         with self.assertRaises(ValueError):bind(self.graph().replace(b'open_new_game.True',b'OnLoad'),plan,'open')
         out=bind(self.graph(),plan,'open')
-        with self.assertRaises(ValueError):bind(out.replace(b'#forwardTime(10)',b'#forwardTime(12)'),plan,'open')
+        with self.assertRaises(ValueError):bind(out.replace(b'10h00m',b'12h00m'),plan,'open')
 
 
 if __name__=='__main__':unittest.main()

@@ -1,4 +1,6 @@
 """Repair inactive native lesson notifications in fresh and resumed builds."""
+import copy
+import posixpath
 import hashlib
 import json
 from pathlib import Path
@@ -35,6 +37,45 @@ def guard_progress(scope):
     return count
 
 
+def progress_definitions(archive, source):
+    """Resolve the nearest authored definitions, preserving enum order."""
+    result = {}
+    parent = posixpath.dirname(source)
+    while parent:
+        path = parent + '.xml'
+        if path in archive.namelist():
+            root = E.fromstring(archive.read(path))
+            for typ in root.findall('./Skald/*/Types/Type'):
+                name = typ.get('TypeName')
+                if name in ('Progress', 'ProgressFailable'):
+                    result.setdefault(name, copy.deepcopy(typ))
+        parent = posixpath.dirname(parent)
+    return result
+
+
+def repair_progress_types(scope, namespace, definitions):
+    used = set()
+    for node in scope.iter():
+        for attr in ('TypeT', 'ValueTypes'):
+            value = node.get(attr, '')
+            original = value.removeprefix(namespace + '_')
+            if original not in ('Progress', 'ProgressFailable'): continue
+            if original not in definitions:
+                raise ValueError('Missing native progress definition: ' + original)
+            node.set(attr, namespace + '_' + original); used.add(original)
+        if node.tag == 'State' and node.get('TypeT', '').startswith(namespace + '_'):
+            if node.find("Edge[@To='SetNone']") is not None and node.find("Constant[@Name='DefaultValue']") is None:
+                E.SubElement(node, 'Constant', Name='DefaultValue', Value='None')
+    if scope.tag == 'Quest' and scope.get('Name') == namespace.removesuffix('_presentation'):
+        types = scope.find('Types')
+        if types is None: types = E.SubElement(scope, 'Types')
+        for name in sorted(definitions):
+            qualified = namespace + '_' + name
+            if types.find("Type[@TypeName='"+qualified+"']") is None:
+                typ = copy.deepcopy(definitions[name]); typ.set('TypeName', qualified); types.append(typ)
+    return used
+
+
 def upgrade(package, target):
     from setup_package_upgrade import rewrite
     from setup_campaign import digest
@@ -43,20 +84,27 @@ def upgrade(package, target):
     package = Path(package)
     training = validate(package); invitation = validate_invitation(package)
     travel = 'Data/gluemappertravel.pak'; changes = {}; gates = 0; hidden = 0
-    keys = set()
+    keys = set(); borrowed = set(); removed = 0
+    with zipfile.ZipFile(package/travel) as z:
+        for name in training["resources"][travel]:
+            if name.startswith("Quests/") and name.endswith(".xml"):
+                root = E.fromstring(read(z, name))
+                borrowed.update(o.get("Name") for o in root.findall("./Skald/Quest/Objectives/Objective")
+                                if o.get("Name", "").startswith(training["lesson"]["presentation"]["root"].removesuffix(".xml") + "_"))
+    namespace = training['lesson']['presentation']['root'].removesuffix('.xml')
+    with zipfile.ZipFile(Path(target)/'Data/Scripts.pak') as native:
+        definitions = progress_definitions(native, training['selection']['native_source'])
     with zipfile.ZipFile(package/travel) as z:
         for name in training['resources'][travel]:
             if not name.startswith('Quests/') or not name.endswith('.xml'): continue
             blob = read(z,name); root = E.fromstring(blob); scope = root.find('Skald/*')
             if scope is None: continue
             before = xml(root)
-            # These are engine builtins, explicitly excluded from copied
-            # Types. Older presentation builders nevertheless prefixed uses.
-            for node in scope.iter():
-                for attr in ('TypeT','ValueTypes'):
-                    value=node.get(attr,'')
-                    if value.endswith(('_presentation_Progress','_presentation_ProgressFailable')):
-                        node.set(attr,value.rsplit('_',1)[1])
+            for parent in scope.iter():
+                for node in list(parent):
+                    if node.tag in borrowed or node.tag == 'Objective' and node.get('Name') in borrowed:
+                        parent.remove(node); removed += 1
+            repair_progress_types(scope, namespace, definitions)
             gates += guard_progress(scope)
             # Controller-only imported quests have no source journal title or
             # objectives. Keep their internal state and outward logic ports.
@@ -96,4 +144,5 @@ def upgrade(package, target):
             pending=package/(name+'.pending');pending.write_text(json.dumps(report,indent=2),encoding='utf-8');pending.replace(package/name)
             files[name]=digest(package/name)
     validate(package);validate_invitation(package)
-    return files,dict(version=1,guarded_transitions=gates,hidden_controllers=hidden,localized_objectives=added,runtime_verified=False)
+    return files,dict(version=2,guarded_transitions=gates,hidden_controllers=hidden,
+                     removed_borrowed_objective_nodes=removed,localized_objectives=added,runtime_verified=False)

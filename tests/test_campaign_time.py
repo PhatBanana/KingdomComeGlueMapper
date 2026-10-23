@@ -25,7 +25,7 @@ class CampaignTimeTests(unittest.TestCase):
         shared = next(s for s in states if len(s.findall('Edge')) == 2)
         self.assertEqual({e.get('To') for e in shared.findall('Edge')}, {'SetTrue', 'SetFalse'})
         commands = root.findall('.//Function/Constant')
-        self.assertEqual({c.get('Value') for c in commands}, {'#forwardTime(10.00)', '#forwardTime(16.00)'})
+        self.assertEqual({c.get('Value') for c in commands}, {'10h00m', '16h00m'})
 
     def test_unsupported_tail_or_dynamic_hour_does_not_register_partial_action(self):
         bridge = TimeBridge('imported')

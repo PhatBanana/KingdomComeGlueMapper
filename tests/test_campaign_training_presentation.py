@@ -21,7 +21,7 @@ def source():
     n = E.SubElement(r.find('.//Nodes'), 'LessonGoal', Name='visual', RequiredForOutput='original_world')
     E.SubElement(n, 'Edge', From='active.State', To='Progress'); files[p] = E.tostring(r)
     files['Quests/Final/Arbitrary.xml'] = b'''<Database><Skald><Quest Name="NativeParent">
-      <Objectives><Objective Name="LessonGoal" TypeT="Progress"><LocalizedName StringName="native_goal"/></Objective></Objectives>
+      <Types><Type TypeName="Progress"><StateTypeEnumeration Name="None" ObjectiveValueType="None"/><StateTypeEnumeration Name="Active" ObjectiveValueType="Started"/><StateTypeEnumeration Name="Done" ObjectiveValueType="Completed"/></Type></Types><Objectives><Objective Name="LessonGoal" TypeT="Progress"><LocalizedName StringName="native_goal"/></Objective></Objectives>
     </Quest></Skald></Database>'''
     return files
 
@@ -44,8 +44,11 @@ class NativePresentationTests(unittest.TestCase):
             tutorials += [c.get('Value') for c in root.findall('.//DisplayTutorial/Constant[@Name="Tutorial"]')]
         self.assertEqual(sorted(aliases),['native_chain_3','native_draw_0','native_zone_7'])
         self.assertEqual(sorted(tutorials),['Native_chain_3','Native_draw_0','Native_zone_7'])
-        self.assertIsNotNone(E.fromstring(additions).find('Objectives/Objective[@Name="ConvertedLesson_LessonGoal"]'))
-        self.assertIn('ConvertedLesson_LessonGoal',generated['ConvertedLesson_phase_1.xml'].decode())
+        self.assertIsNone(E.fromstring(additions).find('Objectives/Objective'))
+        self.assertNotIn('ConvertedLesson_LessonGoal',generated['ConvertedLesson_phase_1.xml'].decode())
+        self.assertIsNotNone(E.fromstring(additions).find("Types/Type[@TypeName='ConvertedLesson_Progress']"))
+        state=E.fromstring(generated['ConvertedLesson_phase_1.xml']).find(".//State[@TypeT='ConvertedLesson_Progress']")
+        self.assertEqual(state.find("Constant[@Name='DefaultValue']").get('Value'),'None')
 
     def test_bound_souls_are_local_and_native_voices_retained(self):
         files=source(); p='Quests/Final/Arbitrary/instruction0.xml'; r=E.fromstring(files[p])

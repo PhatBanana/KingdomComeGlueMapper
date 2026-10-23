@@ -55,7 +55,7 @@ class NativeLessonAssemblyTests(unittest.TestCase):
         self.assertIsNotNone(root.find('.//Nodes/*[@Name="settings"]/Edge[@From="GenericLesson_lifecycle.training_active"]'))
         self.assertFalse(report['installed']); self.assertFalse(report['ready_for_game_test'])
         self.assertIn('workers_stopped',report['required_host_bindings'])
-        self.assertIsNotNone(E.fromstring(additions).find('Objectives/*'))
+        self.assertIsNone(E.fromstring(additions).find('Objectives/*'))
 
     def test_native_settings_resolve_namespace_and_shared_helper_without_global_assets(self):
         with archive(fixture()) as z:

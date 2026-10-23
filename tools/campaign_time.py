@@ -30,6 +30,14 @@ def parse(script):
     return actions
 
 
+def time_of_day(hour):
+    seconds = Decimal(hour) * 3600
+    if not seconds.is_finite() or not 0 <= seconds < 86400 or seconds != int(seconds):
+        raise ValueError('Clock target must resolve to a whole second within one day')
+    h, rest = divmod(int(seconds), 3600); m, sec = divmod(rest, 60)
+    return f'{h:02d}h{m:02d}m' + (f'{sec:02d}s' if sec else '')
+
+
 class TimeBridge:
     def __init__(self, namespace):
         self.namespace = identifier(namespace)
@@ -70,11 +78,10 @@ class TimeBridge:
                     state = nodes.find("State[@Name='" + locks[action['reason']] + "']")
                     edge(state, event, 'SetTrue' if action['active'] else 'SetFalse')
                 else:
-                    # Native Quests/Debug/Haste/time.xml uses this exact call;
-                    # TimeUtils.ForwardTime retains forward-only day rollover.
+                    # Use the retail RPG node, preserving forward-only day rollover.
                     call = ET.SubElement(nodes, 'Function', Name=name + '_hour_' + str(index),
-                        MethodName='wh::conceptmodule::ExecuteConsoleString', DeclaringType='wh::conceptmodule')
-                    constant(call, 'Command', '#forwardTime(' + action['hour'] + ')')
+                        MethodName='wh::rpgmodule::AdvanceWorldTime', DeclaringType='wh::rpgmodule')
+                    constant(call, 'TimeOfDay', time_of_day(action['hour']))
                     edge(call, event, 'Exec')
         return {'Quests/' + self.namespace + '_time_bridge.xml': xml(root),
                 'Libs/Tables/ai/AIConceptSignalDatabase__' + self.namespace.lower() + '_time.xml': xml(database)}

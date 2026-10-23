@@ -10,7 +10,7 @@ import xml.etree.ElementTree as E
 from campaign_intro_activity import normalized
 from campaign_quest_start_placement import unique
 from campaign_quest_graph import xml, edge, constant, identifier
-from campaign_time import parse
+from campaign_time import parse, time_of_day
 
 
 def source_clock(blob, tree):
@@ -43,11 +43,17 @@ def bind(blob, clock, opening):
     # insert the clock there after A has consumed the new-game request.
     name = opening+'_source_clock'
     existing = nodes.findall("*[@Name='"+name+"']")
-    call = E.Element('Function',Name=name,MethodName='wh::conceptmodule::ExecuteConsoleString',
-                     DeclaringType='wh::conceptmodule')
-    constant(call,'Command','#forwardTime('+format(hour.normalize(),'f')+')')
+    call = E.Element('Function',Name=name,MethodName='wh::rpgmodule::AdvanceWorldTime',
+                     DeclaringType='wh::rpgmodule')
+    constant(call,'TimeOfDay',time_of_day(hour))
     edge(call,opening+'_initialize.B','Exec')
     if existing:
+        if len(existing) == 1 and existing[0].get('MethodName') == 'wh::conceptmodule::ExecuteConsoleString':
+            legacy = existing[0]
+            expected = '#forwardTime('+format(hour.normalize(),'f')+')'
+            if legacy.find("Constant[@Name='Command']").get('Value') != expected:
+                raise ValueError('Conflicting legacy opening clock')
+            nodes.remove(legacy); nodes.append(call); existing = [call]
         if len(existing)!=1 or E.tostring(existing[0]).strip()!=E.tostring(call).strip():
             # Ignore formatting only, while checking the complete node contract.
             from character_city_benches import signature
@@ -57,7 +63,7 @@ def bind(blob, clock, opening):
             raise ValueError('Opening clock is disconnected')
         if nodes.findall("*/Edge[@From='"+opening+"_initialize.B'][@To='Exec']") != call_edges(existing[0]):
             raise ValueError('Opening initialization bypasses clock')
-        return blob
+        return xml(root)
     incoming = unique(nodes.findall("*/Edge[@From='"+opening+"_initialize.B'][@To='Exec']"),
                       'opening loadout initialization event')
     nodes.append(call); incoming.set('From',name+'.OnExec')

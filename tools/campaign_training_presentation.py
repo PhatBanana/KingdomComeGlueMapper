@@ -129,7 +129,7 @@ def build(archive, source, domain, namespace, role_bindings, *, optional_roles=(
         raise ValueError('Missing inherited native definition: ' + name)
 
     def inherit_type(name):
-        if name in ('bool', 'int', 'Progress', 'ProgressFailable'): return
+        if name in ('bool', 'int'): return
         if name not in types:
             path, item = inherited('Types', 'TypeName', name)
             item.set('TypeName', namespace + '_' + name)
@@ -139,7 +139,6 @@ def build(archive, source, domain, namespace, role_bindings, *, optional_roles=(
         for n in scope.iter():
             for attr in ('TypeT', 'ValueTypes'):
                 typ = n.get(attr)
-                if typ in ('Progress', 'ProgressFailable'): continue
                 if typ and any(typ == t.get('TypeName') for _, a in ancestors for t in a.findall('Types/Type')):
                     inherit_type(typ); n.set(attr, namespace + '_' + typ)
 
@@ -155,6 +154,7 @@ def build(archive, source, domain, namespace, role_bindings, *, optional_roles=(
             if n.tag == 'State':
                 typ = n.get('TypeT')
                 if typ in ('Progress', 'ProgressFailable'):
+                    constant(n, 'DefaultValue', 'None')
                     edge(n, 'gm_reset', 'SetNone'); edge(n, 'gm_stop', 'SetNone')
                 elif typ == 'int':
                     if n.find("Edge[@To='Value']") is not None or n.find("Constant[@Name='Value']") is not None:
@@ -257,15 +257,16 @@ def build(archive, source, domain, namespace, role_bindings, *, optional_roles=(
                 edge(cue, order.get('Name') + '.A', 'SetFalse')
                 edge(_one(phase_nodes.findall('Output'), 'phase output'), order.get('Name') + '.B', 'gm_instruction_released')
         declared_names = {E.fromstring(files[d.get('File')]).find('./Skald/*').get('Name') for d in declarations}
-        for n in phase_nodes:
+        for n in list(phase_nodes):
             if n.tag in declared_names or n.get('RequiredForOutput') is None: continue
             if n.tag == 'State': continue
             _, obj = inherited('Objectives', 'Name', n.tag)
             if obj.findall('.//*[@Marker]'):
                 raise ValueError('Native lesson objective requires a world marker conversion')
-            objectives.setdefault(n.tag, obj)
-            obj.set('Name', namespace + '_' + n.tag)
-            n.tag = namespace + '_' + n.tag
+            # The host source quest owns the journal. Borrowed native exercise
+            # objectives belong to a different campaign; keep their State and
+            # tutorial instructions, but do not publish that campaign checklist.
+            phase_nodes.remove(n)
         edge(_one(phase_nodes.findall('Output'), 'phase output'), any_of(phase_nodes, 'gm_speech_busy', occupied), 'gm_dialogue_busy')
         lifecycle(ph); rewrite_types(ph)
         from training_presentation_repair import guard_progress
