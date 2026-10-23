@@ -16,7 +16,7 @@ from campaign_quest_graph import constant, edge
 from upgrade_map import read
 
 NATIVE = 'Quests/Final/Barbora/klaster/klaster_hibernate_mode/npc_modifikace.xml'
-VERSION = 1
+VERSION = 2
 
 
 def source_contract(blob, plan):
@@ -57,7 +57,9 @@ def source_contract(blob, plan):
     contexts = [n for n in root.iter('ExecuteLua') if OPTION in n.get('code','')]
     if contexts != [context]:
         raise ValueError('Intro faction has additional context lifecycle operations')
+    from campaign_intro_preparation import contract as prepare
     return dict(version=VERSION, source_faction=faction, actor_role=plan['actor_role'],
+                preparation=prepare(seq, worker, actor_ref, plan),
                 source_profile=profile.get('LayerName'), source_parent=plan['parent_quest'],
                 protection_handle=protection[1], source_sha256=hashlib.sha256(blob).hexdigest(),
                 lifetime='converted_parent_quest_active',
@@ -75,6 +77,10 @@ def resolve(source, target, archive, plan, quest):
         groups = SourceTables(source, reader).get('rpg/superfaction')['rows']
     with zipfile.ZipFile(target/'Data/Scripts.pak') as native:
         native_blob = read(native,NATIVE)
+        if contract['preparation']:
+            from campaign_intro_preparation import validate_native
+            with zipfile.ZipFile(target/'Data/Tables.pak') as tables:
+                validate_native(native, tables)
     # Reuse the general bridge's strict source-name -> registered-native-group
     # resolution. The scope adapter needs no asynchronous signals or own slot.
     tree = read(archive,PATH)
@@ -110,8 +116,11 @@ def attach(entry_root, stem, plan, *, validate=False):
             return n.tag,dict(n.attrib),[canonical(c) for c in n]
         if canonical(actual) != canonical(expected):
             raise ValueError('Introductory faction effect differs from its source contract')
-        return False
+        from campaign_intro_preparation import attach as prepare
+        return prepare(entry_root, stem, plan, validate=validate)
     if validate:
         raise ValueError('Introductory temporary faction is not connected')
     nodes.append(expected)
+    from campaign_intro_preparation import attach as prepare
+    prepare(entry_root, stem, plan)
     return True

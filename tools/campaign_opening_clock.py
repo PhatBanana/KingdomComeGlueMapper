@@ -48,12 +48,13 @@ def bind(blob, clock, opening):
     constant(call,'TimeOfDay',time_of_day(hour))
     edge(call,opening+'_initialize.B','Exec')
     if existing:
+        migrated = False
         if len(existing) == 1 and existing[0].get('MethodName') == 'wh::conceptmodule::ExecuteConsoleString':
             legacy = existing[0]
             expected = '#forwardTime('+format(hour.normalize(),'f')+')'
             if legacy.find("Constant[@Name='Command']").get('Value') != expected:
                 raise ValueError('Conflicting legacy opening clock')
-            nodes.remove(legacy); nodes.append(call); existing = [call]
+            nodes.remove(legacy); nodes.append(call); existing = [call]; migrated = True
         if len(existing)!=1 or E.tostring(existing[0]).strip()!=E.tostring(call).strip():
             # Ignore formatting only, while checking the complete node contract.
             from character_city_benches import signature
@@ -63,7 +64,10 @@ def bind(blob, clock, opening):
             raise ValueError('Opening clock is disconnected')
         if nodes.findall("*/Edge[@From='"+opening+"_initialize.B'][@To='Exec']") != call_edges(existing[0]):
             raise ValueError('Opening initialization bypasses clock')
-        return xml(root)
+        # Other upgrade stages add native definitions with their own formatting.
+        # A validated, unchanged clock must not rewrite those shared resources on
+        # the next restore merely to normalize whitespace.
+        return xml(root) if migrated else blob
     incoming = unique(nodes.findall("*/Edge[@From='"+opening+"_initialize.B'][@To='Exec']"),
                       'opening loadout initialization event')
     nodes.append(call); incoming.set('From',name+'.OnExec')

@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.19'
+APP_VERSION = '0.3.21'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -51,7 +51,13 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'campaign_training_native', 'campaign_training_sources',
               'forge_loft', 'forge_loft_layout', 'room_layout', 'world_brush_edits', 'home_bed_assignment',
               'procedural_lights', 'designer_collision_repair', 'training_presentation_repair', 'well_collision_repair', 'market_visual_repair',
-              'setup_static_gate_repair', 'training_handoff_repair')
+              'setup_static_gate_repair', 'training_handoff_repair',
+              'campaign_training_entry', 'training_entry_repair', 'campaign_intro_preparation',
+              'character_pub_cleaning', 'character_pub_rest', 'setup_pub_cleaning', 'campaign_work_speech',
+              'source_work_coverage', 'setup_work_coverage', 'character_dice_resources',
+              'character_dice_policy', 'character_gambler_work', 'setup_gambler_work', 'campaign_work_metaroles',
+              'campaign_market_speech', 'setup_work_speech', 'gambler_dialogue_registration',
+              'gambler_schedule_activation')
 
 
 class Cancelled(Exception):

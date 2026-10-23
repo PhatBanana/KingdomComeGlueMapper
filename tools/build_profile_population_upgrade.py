@@ -178,6 +178,9 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
         from character_sleep_work import upgrade as upgrade_sleep
         files, sleeping = upgrade_sleep(files, people, archive, target, tables, reader, source)
         converted.extend(sleeping)
+        from character_pub_cleaning import extend_people as extend_pub_cleaning
+        files, cleaning = extend_pub_cleaning(files, people, tables, archive, target, source, reader)
+        converted.extend(cleaning)
     import seating_animations
     with zipfile.ZipFile(package/lp) as archive:
         for name in (seating_animations.HELPERS, seating_animations.ANIMATIONS):

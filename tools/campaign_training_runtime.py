@@ -67,9 +67,16 @@ def emit(name, domain, contract):
     arrived = order('arrived_order', gate('accept_arrival', 'arrived', 'arriving.State'))
     set_state('arriving', arrived+'.A', False)
     set_state('at_destination', arrived+'.B', True)
+    not_talking = invert('not_talking', 'dialogue_busy')
     ready_to_prepare = E.SubElement(nodes, 'If', Name='authorized_preparation')
-    for event in (arrived+'.C', 'authorization_changed'): edge(ready_to_prepare, event, 'Exec')
-    edge(ready_to_prepare, all_of(nodes, 'may_prepare', ['at_destination.State', 'lesson_authorized']), 'Condition')
+    # Authorization fires inside the source conversation. Its scene still owns
+    # the participants until the host's SceneFinishedWaiter acknowledges release.
+    # Equipment changes and arena entry must wait for that same release, not
+    # merely defer the combat controller after preparation has already begun.
+    for event in (arrived+'.C', 'authorization_changed', 'dialogue_finished'):
+        edge(ready_to_prepare, event, 'Exec')
+    edge(ready_to_prepare, all_of(nodes, 'may_prepare',
+                                ['at_destination.State', 'lesson_authorized', not_talking]), 'Condition')
     preparation = order('preparation_order', 'authorized_preparation.True')
     set_state('at_destination', preparation+'.A', False)
     set_state('preparing', preparation+'.B', True)
@@ -77,7 +84,7 @@ def emit(name, domain, contract):
     prepared = order('prepared_order', gate('accept_preparation', 'prepared', 'preparing.State'))
     set_state('preparing', prepared+'.A', False)
     set_state('waiting', prepared+'.B', True)
-    can_start = all_of(nodes, 'can_start', ['waiting.State', 'tutor_ready', invert('not_talking', 'dialogue_busy')])
+    can_start = all_of(nodes, 'can_start', ['waiting.State', 'tutor_ready', not_talking])
     start = E.SubElement(nodes, 'If', Name='begin')
     for event in (prepared+'.C', 'readiness_changed', 'dialogue_finished'): edge(start, event, 'Exec')
     edge(start, can_start, 'Condition')

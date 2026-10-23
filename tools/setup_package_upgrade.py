@@ -96,7 +96,7 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from training_presentation_repair import upgrade as repair_presentation
         from setup_training_upgrade import validate as validate_training
         from setup_quest_invitation import validate as validate_invitation
-        notify('Repair world access and sword-training handoff', 0, 1, 'Reuse the verified world and schedules')
+        notify('Upgrade saved gameplay and schedules', 0, 1, 'Reuse the verified world and repair its gameplay dependencies')
         for key, operation, game in (('designer_collision_repair', repair_collision, source),
                                      ('training_presentation_repair', repair_presentation, target)):
             files, report = operation(package, game)
@@ -116,6 +116,26 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from training_handoff_repair import upgrade as repair_training_handoff
         files, report = repair_training_handoff(package, source, target)
         receipt['files'].update(files); receipt['training_handoff_repair'] = report
+        from training_entry_repair import upgrade as repair_training_entry
+        files, report = repair_training_entry(package, source, target)
+        receipt['files'].update(files); receipt['training_entry_repair'] = report
+        # Completed worlds still need current source-introduction semantics;
+        # the fast path must not leave an old worker behind after an upgrade.
+        from setup_quest_introductions import upgrade as repair_introductions
+        files, report = repair_introductions(package, source, target)
+        receipt['files'].update(files); receipt['quest_introductions'] = report
+        from setup_pub_cleaning import upgrade as upgrade_pub_work
+        files, report = upgrade_pub_work(package, source, target)
+        receipt['files'].update(files); receipt['source_pub_work'] = report
+        from setup_gambler_work import upgrade as upgrade_gambler_work
+        files, report = upgrade_gambler_work(package, source, target)
+        receipt['files'].update(files); receipt['source_gambler_work'] = report
+        from setup_work_coverage import upgrade as audit_work_ownership
+        files, report = audit_work_ownership(package, source)
+        receipt['files'].update(files); receipt['source_work_coverage'] = report
+        from setup_work_speech import upgrade as upgrade_work_speech
+        files, report = upgrade_work_speech(package, source, target)
+        receipt['files'].update(files); receipt['source_work_speech'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -124,7 +144,7 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         validate_lod(package, validate_only=True)
         pending=package/(RECEIPT+'.pending')
         pending.write_text(json.dumps(receipt,indent=2),encoding='utf-8');pending.replace(package/RECEIPT)
-        notify('Repair world access and sword-training handoff', 1, 1, 'Saved-build repair validated')
+        notify('Upgrade saved gameplay and schedules', 1, 1, 'Saved-build upgrade validated')
         return verify_package(package)
     from setup_guard_conversations import upgrade as upgrade_guards
     guard_files, guard_report = upgrade_guards(package, source, target)
@@ -301,6 +321,15 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         package, source, target, STATIC_WORLD_PROFILES, notify, cancelled)
     receipt['files'].update(population_files)
     receipt['profile_population'] = population_report
+    from setup_pub_cleaning import upgrade as upgrade_pub_work
+    pub_files, pub_report = upgrade_pub_work(package, source, target)
+    receipt['files'].update(pub_files); receipt['source_pub_work'] = pub_report
+    from setup_gambler_work import upgrade as upgrade_gambler_work
+    files, report = upgrade_gambler_work(package, source, target)
+    receipt['files'].update(files); receipt['source_gambler_work'] = report
+    from setup_work_coverage import upgrade as audit_work_ownership
+    files, report = audit_work_ownership(package, source)
+    receipt['files'].update(files); receipt['source_work_coverage'] = report
     from character_water_work import upgrade_well_bodies
     well_files, well_report = upgrade_well_bodies(package, source, target)
     receipt['files'].update(well_files)
@@ -408,6 +437,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from training_handoff_repair import upgrade as repair_training_handoff
     files, report = repair_training_handoff(package, source, target)
     receipt['files'].update(files); receipt['training_handoff_repair'] = report
+    from training_entry_repair import upgrade as repair_training_entry
+    files, report = repair_training_entry(package, source, target)
+    receipt['files'].update(files); receipt['training_entry_repair'] = report
     from setup_training_upgrade import validate as validate_training
     receipt['quest_training'] = validate_training(package)
     from setup_static_gate_repair import upgrade as repair_static_gates
@@ -435,6 +467,11 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     role_changes, receipt['shop_roles'] = add_haggle_roles(role_files, people)
     if role_changes:
         rewrite(package, travel, role_changes)
+    # Speech binds the final actor, staffed-shop and dialogue registrations.
+    # Apply it after all person/service upgrades in both build paths.
+    from setup_work_speech import upgrade as upgrade_work_speech
+    speech_files, speech_report = upgrade_work_speech(package, source, target)
+    receipt['files'].update(speech_files); receipt['source_work_speech'] = speech_report
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))

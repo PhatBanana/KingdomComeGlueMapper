@@ -85,6 +85,24 @@ class IntroTests(unittest.TestCase):
         self.assertEqual((p['actor_role'],p['place_role'],p['priority'],p['speed']),('teacher','seat',63,'Slow'))
         self.assertEqual((p['low'],p['high'],p['alias'],p['bark_priority']),(3,6,'test_bark',2))
 
+    def test_indefinite_bark_keeps_source_lod_lifetime(self):
+        # Success of this parallel branch retires the once-only request. A
+        # source prohibition on skipping its wait must survive conversion.
+        for value in ('false', 'true'):
+            blob = SOURCE.replace(b'timeType="GameTime"',
+                                  ('timeType="GameTime" skipInLOD="'+value+'"').encode())
+            p = plan(blob, 'intro')
+            wait = E.fromstring(emit('example_intro', p)['AI/example_intro.xml']).find('.//Wait')
+            self.assertEqual(wait.get('skipInLOD'), value)
+            self.assertEqual(wait.get('duration'), "'-1'")
+        native = E.fromstring(emit('example_intro', plan(SOURCE, 'intro'))['AI/example_intro.xml'])
+        self.assertNotIn('skipInLOD', native.find('.//Wait').attrib)
+
+    def test_unsupported_wait_lifetime_is_not_silently_flattened(self):
+        for extra in ('skipInLOD="sometimes"', 'unknownPolicy="false"', 'variation="10s"'):
+            with self.subTest(extra=extra), self.assertRaisesRegex(ValueError, 'bark lifetime'):
+                plan(SOURCE.replace(b'timeType="GameTime"', ('timeType="GameTime" '+extra).encode()), 'intro')
+
     def test_native_stance_owns_movement_and_no_animation_loop(self):
         files = emit('example_intro',plan(SOURCE,'intro'))
         root = E.fromstring(files['AI/example_intro.xml'])

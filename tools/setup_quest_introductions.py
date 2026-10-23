@@ -25,6 +25,27 @@ def write_report(package, report):
     pending.replace(destination)
 
 
+def migrate_invitation_binding(report, before, after, stem, source):
+    """Update only the verified callback ABI change in an invitation receipt."""
+    from campaign_intro_preparation import event_set
+    from setup_quest_invitation import graph_digest
+    if report is None or graph_digest(before) == graph_digest(after):
+        return report, False
+    name = stem+'_enable'
+    if report['graph_nodes'].get(name) != graph_digest(before):
+        raise ValueError('Unverified invitation introduction binding')
+    expected = copy.deepcopy(before)
+    if expected.get('EventSet') != 'resultNotification':
+        raise ValueError('Unsupported invitation callback migration')
+    expected.set('EventSet', event_set(stem, source))
+    if graph_digest(expected) != graph_digest(after):
+        raise ValueError('Unexpected invitation introduction graph change')
+    updated = copy.deepcopy(report)
+    updated['graph_nodes'][name] = graph_digest(after)
+    updated['runtime_verified'] = False
+    return updated, True
+
+
 def bind_completion(entry, stem, source, *, validate=False):
     """Preserve the source request's retirement policy on fresh and resumed builds."""
     ended = unique(entry.findall(".//State[@Name='"+stem+"_ended']"), 'intro retirement state')
@@ -104,7 +125,7 @@ def upgrade(package, source, target):
         from setup_package_upgrade import rewrite
         from setup_campaign import digest
         from setup_gameplay import ENTRY
-        from campaign_intro_factions import resolve, attach
+        from campaign_intro_factions import VERSION as FACTION_VERSION, resolve, attach
         report = json.loads((package/RECORD).read_text(encoding='utf-8'))
         p = report['source_plan']
         # Re-read the selected source on migration; old receipts did not carry
@@ -122,11 +143,15 @@ def upgrade(package, source, target):
         travel = 'Data/gluemappertravel.pak'
         with zipfile.ZipFile(package/travel) as z:
             entry = E.fromstring(read(z,ENTRY))
-            if 'temporary_faction' not in p:
+            if p.get('temporary_faction', {}).get('version') != FACTION_VERSION:
                 if source is None or target is None:
                     raise ValueError('Both installed games are required for introductory factions')
                 p['temporary_faction'] = resolve(Path(source),Path(target),z,p,report['placement']['quest'])
         stem = 'gm_intro_'+report['placement']['quest']+'_'+p['tree']
+        from setup_quest_invitation import RECORD as INVITATION, validate as validate_invitation
+        invitation = validate_invitation(package) if (package/INVITATION).exists() else None
+        invocation = unique(entry.findall(".//EnableBehavior[@Name='"+stem+"_enable']"), 'intro invocation')
+        original_invocation = copy.deepcopy(invocation)
         changed = {}
         completion_changed = bind_completion(entry,stem,p)
         if attach(entry,stem,p) or completion_changed:
@@ -145,7 +170,7 @@ def upgrade(package, source, target):
             from setup_gameplay import PROJECT
             with zipfile.ZipFile(package/travel) as z:
                 project_root = E.fromstring(read(z,PROJECT))
-                existing = {n:read(z,n) for n in emit(stem,p)}
+                existing = {n:read(z,n) for n in emit(stem,p) if n in z.namelist()}
             project = project_root.find('Skald/Project')
             entity = unique((e for e in mission if e.get('Name') == project.get('Name')), 'intro project entity')
             additions = []
@@ -164,7 +189,16 @@ def upgrade(package, source, target):
         if repair_destinations(mission, scheduler, report, create=True):
             rewrite(package, level, {'tables/ai/scheduler.xml':xml(scheduler)})
             changed[level] = digest(package/level)
-        return changed, validate_package(package)
+        checked = validate_package(package)
+        invitation, invitation_changed = migrate_invitation_binding(invitation, original_invocation, invocation, stem, p)
+        if invitation_changed:
+            destination = package/INVITATION
+            pending = destination.with_suffix('.json.pending')
+            pending.write_text(json.dumps(invitation,indent=2),encoding='utf-8')
+            pending.replace(destination)
+            changed[INVITATION] = digest(destination)
+            validate_invitation(package)
+        return changed, checked
     if source is None or target is None:
         raise ValueError('Both installed games are required for quest introductions')
     import tempfile

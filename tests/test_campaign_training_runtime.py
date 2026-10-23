@@ -35,6 +35,29 @@ class TrainingGraph(Graph):
 
 
 class TrainingRuntimeTests(unittest.TestCase):
+    def test_equipment_waits_for_authorization_scene_release(self):
+        g = TrainingGraph(); g.values.update(lesson_authorized=False, dialogue_busy=True)
+        g.fire('request'); g.fire('arrived')
+        g.values['lesson_authorized'] = True; g.fire('authorization_changed')
+        self.assertTrue(g.states['at_destination'])
+        self.assertNotIn('output.prepare', g.events)
+        # An earlier dialogue ending does not release this scene's ownership.
+        g.fire('dialogue_finished')
+        self.assertNotIn('output.prepare', g.events)
+        g.values['dialogue_busy'] = False; g.fire('dialogue_finished')
+        g.fire('dialogue_finished'); g.fire('authorization_changed')
+        self.assertEqual(g.events.count('output.prepare'), 1)
+        self.assertTrue(g.states['preparing'])
+
+    def test_cancel_before_scene_release_never_creates_equipment(self):
+        g = TrainingGraph(); g.values['dialogue_busy'] = True
+        g.fire('request'); g.fire('arrived'); g.fire('cancel')
+        g.values['dialogue_busy'] = False; g.fire('dialogue_finished')
+        g.fire('authorization_changed')
+        self.assertNotIn('output.prepare', g.events)
+        g.fire('workers_stopped'); g.fire('cleanup_done')
+        self.assertIn('output.canceled', g.events)
+
     def test_arrival_waits_for_separate_lesson_authorization(self):
         for authorize_first in (False, True):
             g = TrainingGraph(); g.values['lesson_authorized'] = False

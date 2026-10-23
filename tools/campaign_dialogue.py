@@ -312,7 +312,7 @@ def camera_assets(model, level_archive):
 
 def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
          selection_compiler=None, registered_items=(), participant_assets=None, area_assets=None,
-         context_entities=None, scene_bound=False):
+         context_entities=None, scene_bound=False, metarole_dispatch=None):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog', 'Dialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -326,6 +326,12 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             raise ValueError('Ambiguous source dialogue branch settings')
         branch = branches[0]
         expected_type = '6' if kind == 'Dialog' else '0'
+        if metarole_dispatch is not None:
+            if kind != 'Dialog' or branch.get('branch_type_id') != '4':
+                raise ValueError('Work metarole dispatch requires its source ambient branch')
+            from campaign_work_metaroles import validate_dispatch
+            validate_dispatch(model, metarole_dispatch)
+            expected_type = '4'
         if branch.get('branch_type_id', '0') != expected_type or branch.get('reputation_condition_id'):
             raise ValueError('Dialogue branch type/reputation policy requires conversion')
         priority = branch['priority']

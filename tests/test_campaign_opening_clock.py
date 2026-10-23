@@ -52,6 +52,18 @@ class OpeningClockTests(unittest.TestCase):
         repaired=bind(E.tostring(root),plan,'open')
         self.assertEqual(repaired,native)
 
+    def test_valid_clock_preserves_unrelated_native_resource_formatting(self):
+        plan=source_clock(self.source(),'opening')
+        root=E.fromstring(bind(self.graph(),plan,'open'))
+        # Later stages append native types/assets without normalizing the whole
+        # project. Reapplying the clock must preserve those exact packaged bytes.
+        types=root.find('Skald/Project/Types')
+        types.append(E.fromstring('<Type TypeName="NativeGameState">\n\t<Enum Value="Waiting" />\n</Type>'))
+        E.SubElement(root.find('Skald/Project'),'Assets').append(
+            E.fromstring('<SoulAsset Name="native_actor"\n\tSharedSoulGuids="actor" />'))
+        payload=E.tostring(root,encoding='utf-8',xml_declaration=True)
+        self.assertEqual(bind(payload,plan,'open'),payload)
+
     def test_ambiguous_conditional_and_compound_scripts_are_rejected(self):
         for blob in (self.source(nested=True),self.source('forwardTime(10); forwardTime(16)'),
                      self.source('forwardTime(10); doOtherWork()'),self.source('forwardTime(24)')):

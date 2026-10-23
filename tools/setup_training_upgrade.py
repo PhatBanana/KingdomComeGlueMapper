@@ -50,7 +50,7 @@ def validate_references(entry, graphs, prefix):
                 outputs={p.get('Name') for p in definition.findall('Ports/Port') if p.get('Direction')=='Out'}
                 if definition.tag in ('Dialog','FaderDialog','ForcedDialog'):outputs.update(('BeforePlay','AfterPlay'))
                 if port not in outputs:raise ValueError('Missing training source port: '+ref)
-            elif port in ('BeforePlay','AfterPlay'):
+            elif port in ('BeforePlay','AfterPlay') and origin.tag != 'CutsceneHandler':
                 raise ValueError('Training conversation event refers to a non-dialogue: '+ref)
         definition=hosts.get(node.tag)
         if definition is not None:
@@ -228,6 +228,7 @@ def upgrade(package,source,target,*,selection=None):
             departure,plan['objectives'],[stopped.get('Name')+'.False'],[alive.get('Name')+'.OnChanged'],arrival_completion='source_objective')
         speech=conversations(nodes,graphs,stem+'_speech_')
         host_report=host_bind(nodes,lesson,worker,dialogue_nodes=speech)
+        host_report['preparation_requires_scene_release'] = True
         from campaign_training_host import guard_authorization
         guard_authorization(nodes,stem,q,plan['objectives'],speech)
         host_report['authorization_requires_arrival'] = True

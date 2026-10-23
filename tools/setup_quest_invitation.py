@@ -44,7 +44,10 @@ def bind_quest(entry, quest_blob, source, intro_stem, departure_stem):
     pending = E.SubElement(nodes,'Function',Name=departure_stem+'_not_departed',
         MethodName='math::boolean::Not',DeclaringType='math::boolean')
     edge(pending,departed,'Value')
-    edge(intro,all_of(nodes,departure_stem+'_intro_active',[old_active,pending.get('Name')+'.bool']),'IsActive')
+    intro_active = all_of(nodes,departure_stem+'_intro_active',[old_active,pending.get('Name')+'.bool'])
+    edge(intro,intro_active,'IsActive')
+    from campaign_intro_preparation import rebind
+    rebind(entry,intro_stem,old_active,intro_active)
     # Parent activation is the same source condition already compiled for the
     # introduction. A Watch reconciles saved state without a new-game-only hook.
     parent = source['parent_quest']

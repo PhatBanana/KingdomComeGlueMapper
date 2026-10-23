@@ -48,6 +48,9 @@ def job_resources(source, target, files, schedules):
                     resources.update(definitions)
     if character_horse_handler_work.TEMPLATE in used:
         resources.update(character_horse_handler_work.resources())
+    import character_pub_cleaning
+    if character_pub_cleaning.TEMPLATE in used:
+        resources.update(character_pub_cleaning.resources(target))
     return resources
 
 

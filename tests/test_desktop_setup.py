@@ -52,6 +52,15 @@ class DesktopSetupTests(unittest.TestCase):
         self.assertIn('setup_section_repair', CONVERTERS)
         self.assertIn('setup_static_gate_repair', CONVERTERS)
         self.assertIn('training_handoff_repair', CONVERTERS)
+        self.assertIn('campaign_training_entry', CONVERTERS)
+        self.assertIn('training_entry_repair', CONVERTERS)
+        self.assertIn('campaign_intro_preparation', CONVERTERS)
+        for name in ('character_pub_cleaning', 'character_pub_rest', 'setup_pub_cleaning', 'campaign_work_speech',
+                     'source_work_coverage', 'setup_work_coverage', 'character_dice_resources',
+                     'character_dice_policy', 'character_gambler_work', 'setup_gambler_work', 'campaign_work_metaroles',
+                     'campaign_market_speech', 'setup_work_speech', 'gambler_dialogue_registration',
+                     'gambler_schedule_activation'):
+            self.assertIn(name, CONVERTERS)
         for module in ('setup_animal_population', 'build_animal_population_upgrade',
                        'animal_population', 'animal_population_sources', 'animal_native_templates',
                        'setup_profile_population', 'build_profile_population_upgrade',

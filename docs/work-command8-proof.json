@@ -1,0 +1,15 @@
+{
+  "binary": "WHGame.dll",
+  "sha256": "cf9f6dc384edcf35c20647a912745ddb8adb5ba65953e329c24e89dd9c4381aa",
+  "image_base": "0x180000000",
+  "type": "C_CommandHearing@dialogmodule@wh",
+  "type_rva": "0x2a254b8",
+  "complete_object_locator_rva": "0x244e558",
+  "vtable_va": "0x1821db3a8",
+  "factory_begin": "0x1806880a4",
+  "factory_end": "0x1806882c7",
+  "enum_load": "0x1806880c4: edx=[rdi+0x10]",
+  "selection": "seven sub edx,1 checks then cmp edx,1 at0x1806881f4 selects original8",
+  "vtable_install": "0x18068825a loads C_CommandHearing vtable then0x180688175 writes it into allocated object",
+  "runtime_executed": false
+}

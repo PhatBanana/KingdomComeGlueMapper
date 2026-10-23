@@ -50,7 +50,10 @@ def plan(blob, tree_name):
     if (seq.tag != 'Sequence' or message.tag != 'InstantSendMessageToNPC'
             or message.get('target') != 'this.id' or message.get('type') != 'dialog:monologRequest'
             or not match or wait.tag != 'Wait' or wait.get('duration') != '-1'
-            or wait.get('doFail') != 'false'):
+            or wait.get('doFail') != 'false' or wait.get('timeType') != 'GameTime'
+            or wait.get('variation', '') != ''
+            or wait.get('skipInLOD', 'false') not in ('false', 'true')
+            or set(wait.attrib) - {'duration', 'timeType', 'doFail', 'variation', 'skipInLOD'}):
         raise ValueError('Unsupported intro bark lifetime')
     if work.get('BehaviorName') != 'use':
         raise ValueError('Unsupported intro work behavior')
@@ -108,12 +111,19 @@ def emit(stem, source):
     E.SubElement(seq, 'InstantSendMessageToNPC', target='$this.id', type="'dialog:monologRequest'",
                  values=f"alias('{source['alias']}'),lookAtId($__player),priority({source['bark_priority']})")
     # Keep the source wait inside the gate: one bark per entry, no polling loop.
-    E.SubElement(seq, 'Wait', duration="'-1'", timeType='GameTime', doFail='false', variation='')
+    # A skipped indefinite wait can finish the bark branch and therefore the
+    # Any-success Parallel, retiring the once-only introduction. Preserve the
+    # source's explicit LOD lifetime instead of relying on a native default.
+    wait = dict(source['wait'], duration=repr(source['wait']['duration']))
+    wait.setdefault('variation', '')
+    E.SubElement(seq, 'Wait', **wait)
     context = E.SubElement(parallel, 'EntityContextElement', context='activity_disableSchedulerLooping', enabled='true')
     E.SubElement(context, 'CallBehavior', Target='$workPlace', BehaviorName="'use'", ignoreDropUnloading='false')
     for branch, event in [('OnSuccess', 'Success'), ('OnFail', 'Fail')]:
         E.SubElement(E.SubElement(fuse, branch, canSkip='1'), 'Callback_empty', EventName=repr(event))
     E.SubElement(tree, 'EditorData', Signature=stem, EventSet='resultNotification')
+    from campaign_intro_preparation import worker_files
+    additions = worker_files(tree, stem, source)
     table = E.Element('database', name='barbora')
     sig = E.SubElement(E.SubElement(table, 'Signatures', version='1'), 'TreeSignature', Name=stem, EnableBehavior='true')
     E.SubElement(E.SubElement(sig, 'Parameters'), 'VariableInfo', name='workPlace', type='_wuid', form='Single',
@@ -121,4 +131,5 @@ def emit(stem, source):
     if source.get('initialization'):
         E.SubElement(sig.find('Parameters'), 'VariableInfo', name='arrivalPlace', type='_wuid', form='Single',
                      values='', isOptional='false', isPersistent='false', requirementType='In')
-    return {'AI/' + stem + '.xml': xml(root), 'Libs/Tables/ai/Signature__' + stem + '.xml': xml(table)}
+    return dict(additions, **{'AI/' + stem + '.xml': xml(root),
+                             'Libs/Tables/ai/Signature__' + stem + '.xml': xml(table)})
