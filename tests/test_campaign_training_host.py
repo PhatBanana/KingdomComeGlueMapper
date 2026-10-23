@@ -3,7 +3,7 @@ from pathlib import Path
 import unittest
 import xml.etree.ElementTree as E
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
-from campaign_training_host import bind
+from campaign_training_host import bind, guard_authorization
 from campaign_training_worker import emit,basic_equipment_policy
 from campaign_training_equipment import lower
 from campaign_behavior import BehaviorCompiler
@@ -13,6 +13,38 @@ from test_campaign_combat_runtime import Graph
 
 
 class TrainingHostTests(unittest.TestCase):
+    def test_continuation_cannot_authorize_before_arrival(self):
+        root=E.Element('Document')
+        nodes=E.SubElement(E.SubElement(E.SubElement(root,'Skald'),'Module'),'Nodes')
+        speech=E.SubElement(nodes,'Conversation',Name='speech')
+        E.SubElement(speech,'Edge',From='existing_eligibility',To='active')
+        objectives=dict(arrival='reach_workplace',completion='finished',authorization='accepted')
+        self.assertTrue(guard_authorization(nodes,'lesson','other_quest',objectives,[speech]))
+        graph=Graph(E.tostring(root)); active=speech.find("Edge[@To='active']").get('From')
+        for started,arrived,finished,eligible,expected in [
+                (True,False,False,True,False), # the reported premature continuation
+                (True,True,False,True,True),
+                (True,True,True,True,False),
+                (False,True,False,True,False),
+                (True,True,False,False,False)]:
+            graph.values.update({'other_quest.started':started,
+                'other_quest.reach_workplace_Completed':arrived,
+                'other_quest.finished_Completed':finished,'existing_eligibility':eligible})
+            self.assertEqual(graph.value(active),expected)
+        before=E.tostring(root)
+        self.assertFalse(guard_authorization(nodes,'lesson','other_quest',objectives,[speech]))
+        self.assertEqual(E.tostring(root),before)
+
+    def test_changed_arrival_contract_is_rejected(self):
+        nodes=E.Element('Nodes');speech=E.SubElement(nodes,'Conversation',Name='speech')
+        E.SubElement(speech,'Edge',From='q.started',To='active')
+        objectives=dict(arrival='arrival',completion='done')
+        guard_authorization(nodes,'lesson','q',objectives,[speech])
+        before=E.tostring(nodes)
+        with self.assertRaises(ValueError):
+            guard_authorization(nodes,'lesson','q',dict(arrival='other',completion='done'),[speech])
+        self.assertEqual(before,E.tostring(nodes))
+
     def test_authorization_binding_ignores_dialogue_action_nodes(self):
         from setup_training_upgrade import conversations,validate_references
         nodes=E.Element('Nodes')

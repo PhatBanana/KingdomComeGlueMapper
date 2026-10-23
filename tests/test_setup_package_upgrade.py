@@ -228,6 +228,8 @@ class UpgradeTests(unittest.TestCase):
             self.enterContext(patch('designer_collision_repair.upgrade', return_value=({}, {'version': 1})))
             self.enterContext(patch('well_collision_repair.upgrade', return_value=({}, {'repaired': []})))
             self.enterContext(patch('market_visual_repair.upgrade', return_value=({}, {'restored': 0})))
+            self.enterContext(patch('setup_static_gate_repair.upgrade', return_value=({}, {'opened': 0})))
+            self.enterContext(patch('training_handoff_repair.upgrade', return_value=({}, {'version': 1})))
             self.enterContext(patch('setup_quest_invitation.validate', return_value={'runtime_verified': False}))
             invitation_upgrade = self.enterContext(patch('setup_quest_invitation.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('character_water_work.upgrade_well_bodies', return_value=({}, {'repaired': []})))

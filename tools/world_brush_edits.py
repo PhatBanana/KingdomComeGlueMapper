@@ -30,7 +30,8 @@ def edit(data, metadata, edits):
                 pos = tuple(matrix[i] for i in (3,7,11))
                 bounds = list(struct.unpack_from('<6f', record, 4))
                 matches = [i for i,e in enumerate(edits) if math.dist(pos,e['position']) < .002
-                           and max(abs(a-b) for a,b in zip(bounds,e['bbox'])) < .002]
+                           and max(abs(a-b) for a,b in zip(bounds,e['bbox'])) < .002
+                           and ('target_mesh' not in e or e['target_mesh'] == struct.unpack_from('<H',record,40)[0])]
                 if len(matches)>1: raise ValueError('Ambiguous brush edit')
                 if matches:
                     i=matches[0]; counts[i]+=1; delta=edits[i].get('delta')

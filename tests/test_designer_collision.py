@@ -6,7 +6,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from building_brushes import (COLLISION_PROXY_MATERIALS, LANDSCAPE_DESIGNER_MATERIALS,
-                              is_collision_designer, is_landscape_designer, convert_brush)
+                              is_collision_designer, is_world_boundary_designer, is_landscape_designer, convert_brush)
 
 
 class DesignerCollisionTests(unittest.TestCase):
@@ -32,6 +32,15 @@ class DesignerCollisionTests(unittest.TestCase):
         self.assertFalse(is_collision_designer('objects/buildings/houses/house_a.cgf', 'materials/special/collision_proxy_material'))
         self.assertFalse(is_collision_designer('%level%/brush/designer_0.cgf', 'materials/color/dark'))
         self.assertFalse(is_collision_designer('%level%/brush/designer_0.cgf', 'objects/structures/mining_structures/material_unwalk'))
+
+    def test_only_shared_level_border_is_flattened(self):
+        mesh = '%level%/brush/designer_1.cgf'
+        border = 'materials/special/collision_proxy_level_barrier'
+        self.assertTrue(is_world_boundary_designer(mesh, border, 0))
+        self.assertFalse(is_world_boundary_designer(mesh, border, 583))  # quest fencing barrier
+        for material in COLLISION_PROXY_MATERIALS - {border}:
+            self.assertFalse(is_world_boundary_designer(mesh, material, 0), material)
+        self.assertFalse(is_world_boundary_designer('objects/props/hearth.cgf', border, 0))
 
     def test_converted_collision_record_bakes_material_into_mesh(self):
         source = bytearray(100)

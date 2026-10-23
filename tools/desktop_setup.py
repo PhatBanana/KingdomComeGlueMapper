@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.18'
+APP_VERSION = '0.3.19'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -50,7 +50,8 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'campaign_training_worker', 'campaign_training_equipment', 'campaign_training_schedule',
               'campaign_training_native', 'campaign_training_sources',
               'forge_loft', 'forge_loft_layout', 'room_layout', 'world_brush_edits', 'home_bed_assignment',
-              'procedural_lights', 'designer_collision_repair', 'training_presentation_repair', 'well_collision_repair', 'market_visual_repair')
+              'procedural_lights', 'designer_collision_repair', 'training_presentation_repair', 'well_collision_repair', 'market_visual_repair',
+              'setup_static_gate_repair', 'training_handoff_repair')
 
 
 class Cancelled(Exception):

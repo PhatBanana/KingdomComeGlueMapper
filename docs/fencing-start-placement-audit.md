@@ -100,3 +100,30 @@ block exercises must not be mapped to unrelated KCD2 phase numbers.
 See `native-training-upgrader.md` for the existing conversion boundaries.
 No playable lesson, save/load continuation, or retail arrival result is claimed
 by the initial layout correction.
+
+## 23 October 2026: premature lesson conversation
+
+The installed lesson conversation was activated by the child quest's `started`
+state alone. Source topic 20311 has an unconditional continuation alternative
+(sequence 52918, "Let's carry on"). That alternative could offer "We can!"
+before the invitation had started or completed the arrival objective. Its
+effect started the authorization objective while the lesson lifecycle still
+waited for arrival. This explains the reported conversation with no lesson
+action; it is not evidence that the source coordinates are wrong.
+
+`campaign_training_host.guard_authorization` now combines existing conversation
+eligibility with the resolved arrival-completed, quest-started and
+lesson-unfinished states. Objective names come from the source handoff plan.
+Fresh training builds and `training_handoff_repair` use the same guard; Setup
+recipe 55 applies the repair to saved packages without rebuilding the world.
+The repair preserves source dialogue branches, effects and authored locations.
+The meaning of source sequence flag 65536 has not been established and is not
+guessed by this fix.
+
+The installed actor's initial pose matches `vanekTeleport`; the later
+`vanekSitting` destination has its native sitting behavior and animation
+registration. No coordinate change is justified by this audit. Retail movement
+to the seat and the complete lesson still require verification after the
+separate world-collision repair. Unit tests cover eligibility before arrival,
+after arrival, after completion, existing predicates, repeated repair and
+conflicting graph definitions.

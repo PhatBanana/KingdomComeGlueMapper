@@ -228,6 +228,9 @@ def upgrade(package,source,target,*,selection=None):
             departure,plan['objectives'],[stopped.get('Name')+'.False'],[alive.get('Name')+'.OnChanged'],arrival_completion='source_objective')
         speech=conversations(nodes,graphs,stem+'_speech_')
         host_report=host_bind(nodes,lesson,worker,dialogue_nodes=speech)
+        from campaign_training_host import guard_authorization
+        guard_authorization(nodes,stem,q,plan['objectives'],speech)
+        host_report['authorization_requires_arrival'] = True
         activity,_=native_wait_activity(target);new_links=[]
         connect(mission,new_links,actor,host,'lesson',plan['priority'],plan['speed'],stem,scheduler,activity)
         from campaign_entity_links import guid_value

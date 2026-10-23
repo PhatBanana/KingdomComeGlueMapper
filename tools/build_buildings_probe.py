@@ -11,7 +11,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
-from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer, is_collision_designer
+from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer, is_world_boundary_designer
 from compiled_terrain import parse
 from static_assets import character_definition, asset_pack, install_staged
 from upgrade_map import read, xml
@@ -80,7 +80,7 @@ def main():
                 matches = is_landscape_designer(record['path'], mat)
             if args.designer_collision:
                 mat = source.tables['materials']['paths'][record['material']] if record['material'] >= 0 else ''
-                matches = is_collision_designer(record['path'], mat)
+                matches = is_world_boundary_designer(record['path'], mat, record['layer'])
             if ((args.all or (x-734.9)**2+(y-3421.4)**2 < args.radius**2) and matches):
                 if record["layer"] in allowed:
                     selected.append(record)

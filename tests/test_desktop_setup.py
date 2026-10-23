@@ -50,6 +50,8 @@ class DesktopSetupTests(unittest.TestCase):
         self.assertIn('lod_ratio_metadata', CONVERTERS)
         self.assertIn('lod_ratio_repair', CONVERTERS)
         self.assertIn('setup_section_repair', CONVERTERS)
+        self.assertIn('setup_static_gate_repair', CONVERTERS)
+        self.assertIn('training_handoff_repair', CONVERTERS)
         for module in ('setup_animal_population', 'build_animal_population_upgrade',
                        'animal_population', 'animal_population_sources', 'animal_native_templates',
                        'setup_profile_population', 'build_profile_population_upgrade',

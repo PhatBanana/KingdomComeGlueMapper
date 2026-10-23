@@ -1,5 +1,7 @@
-"""Invisible designer physics and source-identified duplicate door blockers."""
-from collections import Counter
+"""Keep outer-map designer physics without flattening local blockers."""
+from collections import defaultdict
+from contextlib import ExitStack, contextmanager
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -105,6 +107,63 @@ def cooking_blockers(source, mission):
     return found
 
 
+def non_boundary_blockers(source):
+    """Identify legacy imported proxy placements using source material/layer.
+
+    Match full bounds and origin on migration; no town names, distances from a
+    gate or guessed coordinates determine removal. Fresh imports use the same
+    world-boundary predicate in build_buildings_probe.
+    """
+    from compiled_terrain import parse
+    from water_volumes import read_water
+    from building_brushes import read_brush, is_collision_designer, is_world_boundary_designer
+    terrain = parse(read(source, 'terrain/terrain.dat')); found = []
+    def visit(data, offset, size, kind):
+        if kind != 1: return
+        r = read_brush(data, offset, terrain.tables['meshes']['paths'], terrain.tables['materials']['paths'])
+        material = terrain.tables['materials']['paths'][r['material']] if r['material'] >= 0 else ''
+        if (is_collision_designer(r['path'], material)
+                and not is_world_boundary_designer(r['path'], material, r['layer'])):
+            found.append(dict(position=r['position'], bbox=struct.unpack_from('<6f', data, offset+4),
+                              source_mesh=r['path'], source_material=material, source_layer=r['layer']))
+    read_water(terrain, visit)
+    return found
+
+
+@contextmanager
+def collision_geometry(package, source):
+    """Require the original designer geometry, allowing only known LOD repair."""
+    from clothing_regions import read_chunks
+    from mesh_lod_metadata import normalize
+    from compiled_terrain import parse
+    with ExitStack() as stack:
+        original = stack.enter_context(zipfile.ZipFile(Path(source)/'Data/Levels/rataje/level.pak'))
+        terrain = stack.enter_context(zipfile.ZipFile(package/'Data/Levels/kcd1_travel/terrain.pak'))
+        meshes = parse(read(terrain, 'terrain/terrain.dat')).tables['meshes']['paths']
+        assets = defaultdict(list)
+        for path in sorted((package/'Data').glob('*.pak')):
+            z = stack.enter_context(zipfile.ZipFile(path))
+            for name in z.namelist():
+                if name.lower().endswith('.cgf'): assets[name.replace('\\','/').lower()].append((z,name))
+        source_cache, target_cache = {}, {}
+        def signature(blob):
+            return hashlib.sha256(b''.join(struct.pack('<HHI',c.kind,c.version,c.id)+c.data
+                                  for c in read_chunks(blob) if c.kind != 0x1014)).digest()
+        def matches(mesh, candidate):
+            if mesh >= len(meshes): raise ValueError('Unknown collision brush mesh')
+            path = meshes[mesh].replace('\\','/').lower()
+            if path not in target_cache:
+                found = assets.get(path, [])
+                if len(found) != 1: raise ValueError('Missing or ambiguous collision candidate geometry: '+path)
+                target_cache[path] = signature(read(*found[0]))
+            source_path = candidate['source_mesh'].replace('\\','/').lower().removeprefix('%level%/')
+            if source_path not in source_cache:
+                blob = read(original, source_path)
+                source_cache[source_path] = {signature(blob), signature(normalize(blob))}
+            return target_cache[path] in source_cache[source_path]
+        yield matches
+
+
 def upgrade(package, source):
     from setup_package_upgrade import rewrite
     from setup_campaign import digest
@@ -127,26 +186,31 @@ def upgrade(package, source):
             rewrite(package, rel, replacements); changed[rel] = digest(path)
     level = 'Data/Levels/kcd1_travel/level.pak'
     with zipfile.ZipFile(package/level) as z:
-        mission = E.fromstring(read(z, 'objects_mission0.xml'))
         data = read(z, 'terrain/hlods.dat'); metadata = read(z, 'terrain/hlods.xml')
         marker = json.loads(read(z, MARKER)) if MARKER in z.namelist() else None
     with zipfile.ZipFile(Path(source)/'Data/Levels/rataje/level.pak') as z:
-        candidates = door_blockers(z, mission) + cooking_blockers(z, mission)
+        candidates = non_boundary_blockers(z)
+    by_x = defaultdict(list)
+    for candidate in candidates:
+        by_x[math.floor(candidate['position'][0])].append(candidate)
     # An old or fresh package may contain only a subset of source layers.
     # Match complete source bounds as well as origin; leave unrelated brushes.
     edits = []; cursor = 4
-    while cursor < len(data):
-        end = cursor + 4 + struct.unpack_from('<I', data, cursor)[0]; cursor += 4
-        while cursor < end:
-            kind = struct.unpack_from('<I', data, cursor)[0]
-            if kind == 1:
-                matrix = struct.unpack_from('<12f', data, cursor+44)
-                pos = tuple(matrix[i] for i in (3,7,11)); bounds = struct.unpack_from('<6f', data, cursor+4)
-                matches = [r for r in candidates if math.dist(pos,r['position']) < .002 and
-                           max(abs(a-b) for a,b in zip(bounds,r['bbox'])) < .002]
-                if len(matches)>1: raise ValueError('Ambiguous source collision placement')
-                if matches: edits.append(matches[0])
-            cursor += {1:104, 2:64}[kind]
+    with collision_geometry(package, source) as same_geometry:
+        while cursor < len(data):
+            end = cursor + 4 + struct.unpack_from('<I', data, cursor)[0]; cursor += 4
+            while cursor < end:
+                kind = struct.unpack_from('<I', data, cursor)[0]
+                if kind == 1:
+                    matrix = struct.unpack_from('<12f', data, cursor+44)
+                    mesh = struct.unpack_from('<H', data, cursor+40)[0]
+                    pos = tuple(matrix[i] for i in (3,7,11)); bounds = struct.unpack_from('<6f', data, cursor+4)
+                    nearby = (r for x in range(math.floor(pos[0])-1, math.floor(pos[0])+2) for r in by_x.get(x, ()))
+                    matches = [r for r in nearby if math.dist(pos,r['position']) < .002 and
+                               max(abs(a-b) for a,b in zip(bounds,r['bbox'])) < .002 and same_geometry(mesh,r)]
+                    if len(matches)>1: raise ValueError('Ambiguous source collision placement')
+                    if matches: edits.append(dict(matches[0], target_mesh=mesh))
+                cursor += {1:104, 2:64}[kind]
     if edits:
         result, meta = edit(data, metadata, edits)
         replacements = {'terrain/hlods.dat':result, 'terrain/hlods.xml':meta}
@@ -158,7 +222,7 @@ def upgrade(package, source):
             validate_marker(terrain, result, updated)
             replacements[MARKER] = json.dumps(updated, indent=2).encode()
         rewrite(package, level, replacements); changed[level] = digest(package/level)
-    return changed, dict(version=2, hidden_materials=materials,
-                         removed_door_blockers=[e for e in edits if 'door' in e],
-                         removed_cooking_blockers=[e for e in edits if 'cooking_pot' in e],
-                         retained_other_collision=True, runtime_verified=False)
+    return changed, dict(version=3, hidden_materials=materials,
+                         removed_non_boundary_blockers=edits,
+                         designer_policy='shared_outer_level_barriers_only',
+                         retained_native_and_visible_collision=True, runtime_verified=False)

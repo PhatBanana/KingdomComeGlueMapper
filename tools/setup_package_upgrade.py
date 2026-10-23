@@ -27,7 +27,7 @@ def eligible(receipt):
     from campaign_start_policy import POLICY
     candidate = copy.deepcopy(receipt)
     report = candidate.get('build_recipe', {})
-    if report.get('version') not in (*range(3, 54), VERSION):
+    if report.get('version') not in range(3, VERSION + 1):
         raise ValueError('Saved gameplay recipe is not supported for migration')
     report['version'] = VERSION
     migrate_step_ids(report)
@@ -87,16 +87,16 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     if stale_sections(package):
         receipt = repair(package, repair_roots=repair_roots, notify=notify, cancelled=cancelled)
     # Recipe 52 already contains the complete world, schedules and training.
-    # This revision repairs only derived collision/presentation sections, so
+    # These revisions repair collision, static gates and lesson handoff, so
     # do not rebuild people, lighting or terrain in a completed saved build.
-    if (receipt.get('build_recipe',{}).get('version') in (52, 53, 54)
+    if (receipt.get('build_recipe',{}).get('version') in range(52, VERSION + 1)
             and receipt['build_recipe'].get('status') == 'complete'
             and receipt.get('quest_training') and (package/'quest-training.json').exists()):
         from designer_collision_repair import upgrade as repair_collision
         from training_presentation_repair import upgrade as repair_presentation
         from setup_training_upgrade import validate as validate_training
         from setup_quest_invitation import validate as validate_invitation
-        notify('Repair collision and tutorial presentation', 0, 1, 'Reuse the verified world and schedules')
+        notify('Repair world access and sword-training handoff', 0, 1, 'Reuse the verified world and schedules')
         for key, operation, game in (('designer_collision_repair', repair_collision, source),
                                      ('training_presentation_repair', repair_presentation, target)):
             files, report = operation(package, game)
@@ -110,6 +110,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from market_visual_repair import upgrade as repair_market
         files, report = repair_market(package, source, target)
         receipt['files'].update(files); receipt['market_visual_repair'] = report
+        from setup_static_gate_repair import upgrade as repair_static_gates
+        files, report = repair_static_gates(package, source, target)
+        receipt['files'].update(files); receipt['static_gate_repair'] = report
+        from training_handoff_repair import upgrade as repair_training_handoff
+        files, report = repair_training_handoff(package, source, target)
+        receipt['files'].update(files); receipt['training_handoff_repair'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -118,7 +124,7 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         validate_lod(package, validate_only=True)
         pending=package/(RECEIPT+'.pending')
         pending.write_text(json.dumps(receipt,indent=2),encoding='utf-8');pending.replace(package/RECEIPT)
-        notify('Repair collision and tutorial presentation', 1, 1, 'Saved-build repair validated')
+        notify('Repair world access and sword-training handoff', 1, 1, 'Saved-build repair validated')
         return verify_package(package)
     from setup_guard_conversations import upgrade as upgrade_guards
     guard_files, guard_report = upgrade_guards(package, source, target)
@@ -399,8 +405,14 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     presentation_files, presentation_report = repair_training_presentation(package, target)
     receipt['files'].update(presentation_files)
     receipt['training_presentation_repair'] = presentation_report
+    from training_handoff_repair import upgrade as repair_training_handoff
+    files, report = repair_training_handoff(package, source, target)
+    receipt['files'].update(files); receipt['training_handoff_repair'] = report
     from setup_training_upgrade import validate as validate_training
     receipt['quest_training'] = validate_training(package)
+    from setup_static_gate_repair import upgrade as repair_static_gates
+    files, report = repair_static_gates(package, source, target)
+    receipt['files'].update(files); receipt['static_gate_repair'] = report
     # The training stage takes ownership of departure availability and adds a
     # behavior to its shared host; retain the updated invitation provenance.
     from setup_quest_invitation import validate as validate_invitation

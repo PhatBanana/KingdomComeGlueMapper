@@ -48,6 +48,19 @@ def is_collision_designer(path, material):
             and material.replace('\\', '/').lower().removesuffix('.mtl') in COLLISION_PROXY_MATERIALS)
 
 
+def is_world_boundary_designer(path, material, layer):
+    """Static world policy: keep shared outer-level barriers only.
+
+    The same level-barrier material is also used by quest-local fencing-ring
+    layers. Those, town gate fillers and actor-specific proxy volumes must not
+    become unconditional collision when the selected world is flattened.
+    Ordinary visible structures and native interactive collision are separate.
+    """
+    return (layer == 0 and is_collision_designer(path, material)
+            and material.replace('\\', '/').lower().removesuffix('.mtl')
+            == 'materials/special/collision_proxy_level_barrier')
+
+
 def is_uberlod_proxy(path):
     """World-distance stand-ins belong to the switching graph, not static props."""
     # Forest proxies use uber/, while town/building proxies use uberlods/.
