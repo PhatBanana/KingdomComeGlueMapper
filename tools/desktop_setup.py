@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.21'
+APP_VERSION = '0.3.22'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -57,7 +57,8 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'source_work_coverage', 'setup_work_coverage', 'character_dice_resources',
               'character_dice_policy', 'character_gambler_work', 'setup_gambler_work', 'campaign_work_metaroles',
               'campaign_market_speech', 'setup_work_speech', 'gambler_dialogue_registration',
-              'gambler_schedule_activation')
+              'gambler_schedule_activation', 'setup_world_encounters', 'world_encounter_graphs',
+              'world_encounter_sites', 'world_encounter_registration')
 
 
 class Cancelled(Exception):

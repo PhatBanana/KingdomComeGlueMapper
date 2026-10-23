@@ -235,6 +235,7 @@ class UpgradeTests(unittest.TestCase):
             self.enterContext(patch('setup_work_coverage.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('setup_gambler_work.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('setup_work_speech.upgrade', return_value=({}, {'runtime_verified': False})))
+            encounters = self.enterContext(patch('setup_world_encounters.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('setup_quest_invitation.validate', return_value={'runtime_verified': False}))
             invitation_upgrade = self.enterContext(patch('setup_quest_invitation.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('character_water_work.upgrade_well_bodies', return_value=({}, {'repaired': []})))
@@ -252,6 +253,7 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual(result['forge_loft'], loft_report)
                     lights_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['procedural_lights'], lights_report)
+                    encounters.assert_called_once()
                     if getattr(self, 'repeat_resume', False):
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             before_lod = z.read('terrain/hlods.dat')
@@ -308,6 +310,7 @@ class UpgradeTests(unittest.TestCase):
                 with zipfile.ZipFile(p/'Data/kingdomcomegluemapper_world_000.pak') as z:
                     self.assertEqual(z.read('glueveg/tree.cgf'),normalize(mesh_fixture()))
             self.assertTrue(result['single_playable_world']);self.assertFalse(base.exists())
+            self.assertFalse(result['world_encounters']['runtime_verified'])
             self.assertEqual(result['package_upgrade']['skalitz_outer_gates']['opened_leaves'],
                              0 if getattr(self, 'repeat_resume', False) else 6)
             self.assertEqual(shared.read_bytes(),shared_before)

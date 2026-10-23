@@ -136,6 +136,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from setup_work_speech import upgrade as upgrade_work_speech
         files, report = upgrade_work_speech(package, source, target)
         receipt['files'].update(files); receipt['source_work_speech'] = report
+        from setup_world_encounters import upgrade as upgrade_encounters
+        files, report = upgrade_encounters(package, source, target)
+        receipt['files'].update(files); receipt['world_encounters'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -472,6 +475,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from setup_work_speech import upgrade as upgrade_work_speech
     speech_files, speech_report = upgrade_work_speech(package, source, target)
     receipt['files'].update(speech_files); receipt['source_work_speech'] = speech_report
+    from setup_world_encounters import upgrade as upgrade_encounters
+    encounter_files, encounter_report = upgrade_encounters(package, source, target)
+    receipt['files'].update(encounter_files); receipt['world_encounters'] = encounter_report
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))
