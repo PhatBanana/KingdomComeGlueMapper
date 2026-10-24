@@ -93,17 +93,23 @@ def verify_target_hlods(data):
     return dict(counts)
 
 
-def convert_instance(data, offset, group):
+def convert_instance(data, offset, group, tilt=None):
     # Source: 32-bit render flags, transform, angles, trailing opaque word.
     # Target: 64-bit render flags, transform and angles; no trailing word.
     # LOD bytes remain source-encoded in intermediate stages. The shared final
     # lod_ratio_metadata stage converts them once, including cached/resumed data.
+    # KCD1 aligned groups to terrain at runtime; KCD2 reads baked X/Y bytes.
+    # Aligned groups pass their baked (x, y) from vegetation_tilt.source_tilts.
     original = data[offset:offset+64]
     if len(original) != 64 or struct.unpack_from("<I", original)[0] != 2:
         raise ValueError("Invalid source vegetation record")
     converted = bytearray(original[:36] + bytes(4) + original[36:60])
     struct.pack_into("<H", converted, 28, 0)  # independent test layer
     struct.pack_into("<H", converted, 40, group)
-    if converted[44:64] != original[40:60]:
+    if tilt is not None:
+        if len(tilt) != 2 or not all(isinstance(v, int) and 0 <= v < 255 for v in tilt):
+            raise ValueError("Invalid baked vegetation tilt")
+        converted[62:64] = bytes(tilt)
+    if converted[44:62] != original[40:58] or (tilt is None and converted[62:64] != original[58:60]):
         raise ValueError("Vegetation transform changed")
     return bytes(converted)
