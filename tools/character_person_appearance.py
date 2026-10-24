@@ -81,8 +81,7 @@ def torso_shrink_weights(blob, *, arm_weight_threshold=0.5):
     Uses the same arm-bone influence as assign_upper_garment_regions. The weight
     fades linearly from 1 (no arm influence) to 0 at the threshold at which a
     face counts as a sleeve, so the fitted and unfitted surfaces stay joined.
-    Vertices sharing one skinning vertex share bone weights, so they move
-    together.
+    upgrade_skin rejects any fit that would tear a shared skinning vertex.
     """
     if not 0 < arm_weight_threshold <= 1:
         raise ValueError('Invalid arm weight threshold')
