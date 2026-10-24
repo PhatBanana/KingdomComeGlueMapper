@@ -11,6 +11,7 @@ from campaign_entity_links import append_links, guid_value
 from campaign_trigger_areas import TriggerArea, read_areas, write_areas
 from upgrade_map import read, xml
 from character_world_ai import register_interrupt_services
+from region_travel_ui_gate import gate as gate_arrival_ui, report as arrival_ui_report
 
 
 STREAMING_SOURCE = 'Quests/Final/Barbora/utils/streaming/streamprofileshandling.xml'
@@ -309,12 +310,13 @@ def register_entry(files, graph, graph_path, native_level, native_scripts,
     helper = ET.fromstring(streaming).find('Skald/Module')
     if helper is None or helper.get('Name') != 'streamprofileshandling' or helper.find('.//ProfileStateTrigger') is None:
         raise ValueError('Native streaming helper changed')
-    resources = {graph_path: xml(root), parent + '/entry/' + level + '.xml': entry_graph(level, profile),
+    resources = {graph_path: xml(root), parent + '/entry/' + level + '.xml': gate_arrival_ui(entry_graph(level, profile), level),
                  parent + '/entry/streamprofileshandling.xml': streaming}
     return files, resources, {'level_id': level_id, 'level_module': level, 'profile': profile,
         'profile_entities': len(layer), 'station_streaming': station_streaming, 'layer_activation': True, 'root_ai_area': land.get('EntityGuid'),
         'root_ai_bounds': [0, 0, size, size], 'player_scheduler_links': scheduler_links,
         'world_ai': world_ai, 'ready_port': ready, 'ready_port_consumers': len(consumers),
         'streaming_source': STREAMING_SOURCE, 'streaming_sha256': hashlib.sha256(streaming).hexdigest(),
-        'entry_events': ['OnWake', 'OnLevelSwitched'], 'creates_companion': False,
+        'entry_events': ['OnWake', 'OnLevelSwitched'], 'arrival_ui_gate': arrival_ui_report(),
+        'creates_companion': False,
         'changes_ownership': False, 'runtime_verified': False}
