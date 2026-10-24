@@ -137,6 +137,9 @@ class UpgradeTests(unittest.TestCase):
             player=travel_player_resources(b'function Player:OnInit() end\nfunction Player:OnLoadAI() end\n')['Scripts/Entities/actor/player.lua']
             player+=Path('tools/region_travel_horse_recovery.lua').read_bytes()
             travel_files = {PROJECT:ET.tostring(graph),'Scripts/Entities/actor/player.lua':player,'keep':b'unchanged'}
+            from region_travel_entry import entry_graph
+            from setup_gameplay import ENTRY
+            travel_files[ENTRY] = entry_graph('kcd1_travel', None)
             if getattr(self, 'shopkeeper', False):
                 from test_shop_roles import rule
                 travel_files['Libs/Storm/roles/gm_person_collier.xml'] = rule('collier', 'gm_person_collier_role', 'gm_person_collier_roles')
@@ -318,6 +321,10 @@ class UpgradeTests(unittest.TestCase):
                 validate_start_policy(z.read(PROJECT),OPENING)
                 self.assertNotIn(b'GlueTravelHorseRecovery',z.read('Scripts/Entities/actor/player.lua'))
                 self.assertEqual(z.read('keep'),b'unchanged')
+                gated = ET.fromstring(z.read(ENTRY)).find('Skald/Level/Nodes')
+            self.assertEqual(gated.find("FilterInput[@Name='arrival_ui_gate']/Edge[@To='IsActive']").get('From'),
+                             'arrival_ui_settle.Running')
+            self.assertEqual(result['arrival_ui_gate']['filters'], ['no_inventory', 'no_interaction'])
             with zipfile.ZipFile(p/f'Data/{MOD_ID}.pak') as z:
                 self.assertEqual([e.get('LevelId') for e in ET.fromstring(z.read(table)).find('Levels')],['2','1001'])
             with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
