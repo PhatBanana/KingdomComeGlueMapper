@@ -27,14 +27,21 @@ def read_dds_family(path):
         if numbers != list(range(1, max(numbers)+1)):
             raise ValueError('Incomplete split DDS mip family')
         data = data[:header_size]+b''.join(p.read_bytes() for p in members)+data[header_size:]
+    srgb = False
     if header_size == 148:
         # Pillow supports the identical block layout under the UNORM enum. This
         # preserves encoded channel bytes; mask channels are not colour-managed.
         dxgi = struct.unpack_from('<I', data, 128)[0]
-        struct.pack_into('<I', data, 128, {72:71, 75:74, 78:77, 99:98}.get(dxgi, dxgi))
+        unorm = {72:71, 75:74, 78:77, 99:98}
+        srgb = dxgi in unorm
+        struct.pack_into('<I', data, 128, unorm.get(dxgi, dxgi))
     image = Image.open(io.BytesIO(data))
     image.load()
-    return image.convert('RGBA')
+    image = image.convert('RGBA')
+    # The GPU decodes _SRGB formats before a shader reads them; callers that
+    # read a channel as data rather than colour need to know.
+    image.info['srgb'] = srgb
+    return image
 
 
 def legacy_bg_mask(image):
@@ -109,11 +116,15 @@ def bake_macro_diffuse(diffuse, material, specular=None):
     params = material.find('PublicParams')
     params = params.attrib if params is not None else {}
     if 'COLORIZING_WITH_MASK' in flags:
-        # Specular sampling is linear; its green channel stores the zone index.
+        # The specular green channel stores the zone index. KCD1 ships these
+        # maps as BC1_UNORM_SRGB, so its shader indexes the decoded value: two-
+        # colour hose only separate their legs into zones 2 and 3 after decoding.
         if specular is None:
             zones = np.zeros(rgb.shape[:2], dtype=np.uint8)
         else:
             mask = np.asarray(specular.resize(diffuse.size).convert('RGB'))[..., 1]/255
+            if specular.info.get('srgb'):
+                mask = np.where(mask <= .04045, mask/12.92, ((mask+.055)/1.055)**2.4)
             zones = np.floor(mask*3.9999).astype(np.uint8)
         for zone in range(4):
             keys = ('ColorizingHue','ColorizingSaturation','ColorizingBrightness') if zone == 0 else (
