@@ -139,6 +139,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from setup_world_encounters import upgrade as upgrade_encounters
         files, report = upgrade_encounters(package, source, target)
         receipt['files'].update(files); receipt['world_encounters'] = report
+        from setup_world_ledges import upgrade as upgrade_ledges
+        files, report = upgrade_ledges(package, source, target)
+        receipt['files'].update(files); receipt['world_ledges'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -478,6 +481,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from setup_world_encounters import upgrade as upgrade_encounters
     encounter_files, encounter_report = upgrade_encounters(package, source, target)
     receipt['files'].update(encounter_files); receipt['world_encounters'] = encounter_report
+    from setup_world_ledges import upgrade as upgrade_ledges
+    ledge_files, ledge_report = upgrade_ledges(package, source, target)
+    receipt['files'].update(ledge_files); receipt['world_ledges'] = ledge_report
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))
