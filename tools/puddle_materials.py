@@ -2,11 +2,11 @@
 from pathlib import PurePosixPath
 
 
-def convert_puddle_proxies(material):
-    """Match the native KCD2 mud-puddle proxy surface; return changed slot count.
+def puddle_decal_slots(material):
+    """Visible slots of a dedicated muddy puddle decal material, else [].
 
     Require a dedicated muddy decal material with puddle textures. Mixed water
-    materials, ordinary mud, and actual water shaders must keep their physics.
+    materials, ordinary mud, and actual water shaders are not puddle decals.
     """
     slots = material.findall('SubMaterials/Material')
     visible = [m for m in slots if m.get('Shader', '').lower() != 'nodraw']
@@ -19,9 +19,20 @@ def convert_puddle_proxies(material):
                 for t in m.findall('Textures/Texture'))
         for m in visible
     ):
+        return []
+    return visible
+
+
+def convert_puddle_proxies(material):
+    """Match the native KCD2 mud-puddle proxy surface; return changed slot count.
+
+    Mixed water materials, ordinary mud, and actual water shaders must keep
+    their physics.
+    """
+    if not puddle_decal_slots(material):
         return 0
     changed = 0
-    for slot in slots:
+    for slot in material.findall('SubMaterials/Material'):
         if slot.get('Shader', '').lower() == 'nodraw' and slot.get('SurfaceType') == 'mat_water':
             slot.set('SurfaceType', 'mat_mudwater')
             changed += 1
