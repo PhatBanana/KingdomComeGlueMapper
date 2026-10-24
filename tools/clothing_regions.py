@@ -182,25 +182,24 @@ def split_skin_regions(blob, face_regions):
     return outputs
 
 
-def assign_upper_garment_regions(blob, *, waist_z, arm_weight_threshold=0.5):
-    """Suggest torso/arms/waist cuts using source bind-pose weights and a plane.
+ARM_BONE_PREFIXES = ('LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm',
+                     'LeftHand', 'RightHand', 'LeftInHand', 'RightInHand',
+                     'LeftElbow', 'RightElbow')
 
-    waist_z is explicitly in this skin's local coordinates. This heuristic is
-    suitable for a preview; authored seam labels can instead be supplied directly
-    to split_skin_regions. It does not claim to convert native hiding masks.
+
+def vertex_arm_weights(blob):
+    """Return each render vertex's fraction of bind weight on named arm/hand bones.
+
+    Shoulder (clavicle) joints are not arm joints, matching the body's region
+    split, where shoulders belong to the torso.
     """
-    if not math.isfinite(waist_z) or not 0 < arm_weight_threshold <= 1:
-        raise ValueError('Invalid region thresholds')
     skin = Skin(blob)
     bones = skin.one(0x2000)
     if bones.version != 0x800 or (len(bones.data) - 32) % 584:
         raise ValueError('Unsupported compiled bones')
     names = [bones.data[o+312:o+568].split(b'\0')[0].decode('ascii')
              for o in range(32, len(bones.data), 584)]
-    arm_bones = {i for i, name in enumerate(names)
-                 if name.startswith(('LeftArm', 'RightArm', 'LeftForeArm', 'RightForeArm',
-                                     'LeftHand', 'RightHand', 'LeftInHand', 'RightInHand',
-                                     'LeftElbow', 'RightElbow'))}
+    arm_bones = {i for i, name in enumerate(names) if name.startswith(ARM_BONE_PREFIXES)}
     weights = skin.streams.get(9)
     if not arm_bones or weights is None or struct.unpack_from('<I', weights.data, 12)[0] != 12:
         raise ValueError('Expected named arm bones and four-influence bone mappings')
@@ -211,6 +210,20 @@ def assign_upper_garment_regions(blob, *, waist_z, arm_weight_threshold=0.5):
         if any(i >= len(names) and w for i, w in zip(ids, values)) or not sum(values):
             raise ValueError('Invalid bone influences')
         arm_weights.append(sum(w for i, w in zip(ids, values) if i in arm_bones) / sum(values))
+    return arm_weights
+
+
+def assign_upper_garment_regions(blob, *, waist_z, arm_weight_threshold=0.5):
+    """Suggest torso/arms/waist cuts using source bind-pose weights and a plane.
+
+    waist_z is explicitly in this skin's local coordinates. This heuristic is
+    suitable for a preview; authored seam labels can instead be supplied directly
+    to split_skin_regions. It does not claim to convert native hiding masks.
+    """
+    if not math.isfinite(waist_z) or not 0 < arm_weight_threshold <= 1:
+        raise ValueError('Invalid region thresholds')
+    skin = Skin(blob)
+    arm_weights = vertex_arm_weights(blob)
     positions = skin.positions()
     return ['arms' if sum(arm_weights[i] for i in face) / 3 >= arm_weight_threshold
             else 'waist' if sum(positions[i][2] for i in face) / 3 < waist_z

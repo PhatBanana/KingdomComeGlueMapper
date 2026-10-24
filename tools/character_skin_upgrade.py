@@ -217,13 +217,24 @@ def upgrade_skin(blob, target_skeleton, *, variant=None, clear_hiding=True, bone
     if variant:
         if variant in shapes:raise ValueError('Variant specified twice')
         shapes[variant]=1.
+    baked={}
     for name,weight in shapes.items():
-        if not math.isfinite(weight):raise ValueError('Nonfinite morph weight')
+        # A morph weight is one scalar, or one value per render vertex for a
+        # partial fit (e.g. shrinking a garment's torso but not its sleeves).
+        weight=np.asarray(weight,dtype=float)
+        if weight.ndim not in (0,1) or (weight.ndim==1 and weight.shape!=(skin.n,)):
+            raise ValueError('Morph weight must be a scalar or one value per vertex: '+name)
+        if not np.isfinite(weight).all():raise ValueError('Nonfinite morph weight')
         selected=[m for m in morphs if m['name']==name]
         if len(selected)!=1:raise ValueError('Requested garment variant missing: '+name)
         m=selected[0]
         if np.any(m['ids']>=skin.n):raise ValueError('Variant vertex out of range')
-        vertices[m['ids']]+=m['delta']*weight
+        if weight.ndim==0:
+            vertices[m['ids']]+=m['delta']*float(weight);baked[name]=shapes[name]
+        else:
+            vertices[m['ids']]+=m['delta']*weight[m['ids'],None]
+            baked[name]=dict(per_vertex=True,minimum=float(weight.min()),maximum=float(weight.max()),
+                             mean=float(weight.mean()))
     updated=np.einsum('nij,nj->ni',linear,vertices)+blended[:,:3,3]
     if geometry_field is not None:
         updated, linear = geometry_field.transform(vertices)
@@ -316,7 +327,7 @@ def upgrade_skin(blob, target_skeleton, *, variant=None, clear_hiding=True, bone
     if not np.array_equal(checked.ids,skin.ids) or not np.array_equal(checked.weights,skin.weights):
         raise AssertionError('Bind conversion changed skin influences')
     if not np.array_equal(checked.faces,skin.faces):raise AssertionError('Bind conversion changed topology')
-    return output,dict(vertices=skin.n,triangles=len(skin.faces),variant=variant,baked_morphs=shapes,
+    return output,dict(vertices=skin.n,triangles=len(skin.faces),variant=variant,baked_morphs=baked,
         geometry_mode='anatomical_landmarks' if geometry_field is not None else geometry_mode,
         anatomical_landmarks=len(geometry_field.source) if geometry_field is not None else 0,
         bone_mapping=mapping,extra_influenced_vertices=skin.info['extra_influenced_vertices'],

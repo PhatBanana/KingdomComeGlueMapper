@@ -21,7 +21,8 @@ from character_landmark_warp import anatomical_warp
 from audit_character_bodies import bone_table
 from clothing_appearance import apply_armor_colorization
 from clothing_assembly import convert_fixed_outfit
-from clothing_regions import assign_body_regions, assign_upper_garment_regions, split_skin_regions, read_chunks, write_chunks
+from clothing_regions import (assign_body_regions, assign_upper_garment_regions, split_skin_regions,
+                              read_chunks, write_chunks, vertex_arm_weights)
 from static_assets import asset_pack
 from upgrade_map import read, xml
 from character_person import native_xml
@@ -55,6 +56,38 @@ def keep_body_under_outfit(sex, region):
     # A region is not a coverage mask: sleeves occupy arms but do not cover
     # bare forearms. Keep source arms/hands underneath the fixed outfit.
     return sex == 'female' or region in ('arms', 'hands')
+
+
+def male_garment_covered(part, parts):
+    """True when a higher authored source layer covers the same body part.
+
+    Unlabelled garments neither count as covered nor cover others, preserving
+    the previous unfitted male conversion for them.
+    """
+    def layout(p):
+        try:
+            return garment_layout(p)[1:]
+        except ValueError:
+            return None
+    own = layout(part)
+    return own is not None and any(
+        p['kind'] == 'cloth' and (other := layout(p)) is not None
+        and other[0] == own[0] and other[1] > own[1] for p in parts)
+
+
+def torso_shrink_weights(blob, *, arm_weight_threshold=0.5):
+    """Per-vertex #A_Shrink weights: full on torso/waist, none on sleeves.
+
+    Uses the same arm-bone influence as assign_upper_garment_regions. The weight
+    fades linearly from 1 (no arm influence) to 0 at the threshold at which a
+    face counts as a sleeve, so the fitted and unfitted surfaces stay joined.
+    Vertices sharing one skinning vertex share bone weights, so they move
+    together.
+    """
+    if not 0 < arm_weight_threshold <= 1:
+        raise ValueError('Invalid arm weight threshold')
+    arm = np.asarray(vertex_arm_weights(blob), dtype=float)
+    return np.clip(1 - arm / arm_weight_threshold, 0, 1)
 
 
 def source_default_body(actor, assets):
@@ -185,12 +218,19 @@ def _build_appearance(source, target, person, namespace, output):
                     raise ValueError('Ambiguous source chest fitting morph')
                 if chest:
                     fitting = {chest[0]: 1.0}
+            shrink_sleeves = True
             if sex == 'female' and kind == 'cloth':
                 _, source_region, source_layer = garment_layout(part)
                 covered = any(p['kind'] == 'cloth' and garment_layout(p)[1] == source_region
                               and garment_layout(p)[2] > source_layer for p in parts)
                 if covered and '#A_Shrink' in morphs:
                     fitting = {'#A_Shrink': 1.0}
+            elif kind == 'cloth' and male_garment_covered(part, parts) and '#A_Shrink' in morphs:
+                # Male outfits keep the body's arms underneath (see
+                # keep_body_under_outfit), so a shrunk sleeve sinks into the arm.
+                # Fit only the garment's non-arm surface onto its authored shape.
+                shrink_sleeves = False
+                fitting = {'#A_Shrink': torso_shrink_weights(blob)}
             variant, variant_evidence = resolve_variant(part, morphs,
                 tables.get('item/clothing')['rows'] if kind == 'cloth' else [])
             blob, detail = upgrade_skin(blob, skeleton, variant=variant,
@@ -203,8 +243,9 @@ def _build_appearance(source, target, person, namespace, output):
                 if lower_mat != mat:
                     raise ValueError('Character LOD requires another material binding: ' + lod_model)
                 lower, _ = align_internal_translation(lower)
+                lower_fitting = fitting if shrink_sleeves else {'#A_Shrink': torso_shrink_weights(lower)}
                 lower, _ = upgrade_skin(lower, skeleton, variant=variant,
-                    discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=fitting,
+                    discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=lower_fitting,
                     clear_hiding=kind != 'cloth' or sex == 'female', geometry_field=geometry_field)
                 lower, _ = limit_skin_influences(lower)
                 lods[level] = lower
