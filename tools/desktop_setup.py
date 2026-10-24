@@ -59,7 +59,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'campaign_market_speech', 'setup_work_speech', 'gambler_dialogue_registration',
               'gambler_schedule_activation', 'setup_world_encounters', 'world_encounter_graphs',
               'world_encounter_sites', 'world_encounter_registration',
-              'ledges', 'setup_world_ledges')
+              'ledges', 'setup_world_ledges', 'vegetation_tilt')
 
 
 class Cancelled(Exception):
