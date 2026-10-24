@@ -245,6 +245,7 @@ class UpgradeTests(unittest.TestCase):
             self.enterContext(patch('setup_gambler_work.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('setup_work_speech.upgrade', return_value=({}, {'runtime_verified': False})))
             encounters = self.enterContext(patch('setup_world_encounters.upgrade', return_value=({}, {'runtime_verified': False})))
+            ledges = self.enterContext(patch('setup_world_ledges.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('setup_quest_invitation.validate', return_value={'runtime_verified': False}))
             invitation_upgrade = self.enterContext(patch('setup_quest_invitation.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('character_water_work.upgrade_well_bodies', return_value=({}, {'repaired': []})))
@@ -267,6 +268,7 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual(len(result['female_clothing']['corrected_components']), 1)
                     with zipfile.ZipFile(p/'Data/pickup-clothing.pak') as z:
                         self.assertEqual(ET.fromstring(z.read(female_member)).find('.//SkinElement').get('KeepBodyLayer'), 'true')
+                    ledges.assert_called_once()
                     if getattr(self, 'repeat_resume', False):
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             before_lod = z.read('terrain/hlods.dat')
@@ -325,6 +327,7 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual(z.read('glueveg/tree.cgf'),normalize(mesh_fixture()))
             self.assertTrue(result['single_playable_world']);self.assertFalse(base.exists())
             self.assertFalse(result['world_encounters']['runtime_verified'])
+            self.assertFalse(result['world_ledges']['runtime_verified'])
             self.assertEqual(result['package_upgrade']['skalitz_outer_gates']['opened_leaves'],
                              0 if getattr(self, 'repeat_resume', False) else 6)
             self.assertEqual(shared.read_bytes(),shared_before)
