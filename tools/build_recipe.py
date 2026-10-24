@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 58
+VERSION = 59
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -234,6 +234,9 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
     report['steps'].append(dict(name='KCD1 New Game menu'))
     receipt = verify_package(package, hashes=False)
     receipt['build_recipe'] = report
+    # People in this build were baked with decoded colour-zone masks.
+    from clothing_zone_upgrade import fresh_report
+    receipt['clothing_zone_mask'] = fresh_report()
     pending = package / (RECEIPT+'.pending')
     pending.write_text(json.dumps(receipt, indent=2))
     pending.replace(package/RECEIPT)
