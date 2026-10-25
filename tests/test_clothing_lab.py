@@ -46,6 +46,7 @@ class FakeCatalog:
         self.parts={'body':part('body','Body','0'),'dress':part('dress',groups='cover')}
         self.groups={'cover':dict(index=4,region='torso')}
         self.native_roles={'Dress':dict(archetype='27',gender='Female',layers=[('torso','5')])}
+        self.layer_order={'0':0,'1':2,'2':3,'3':4,'4':8,'5':5,'6':6,'7':7,'8':1,'9':9}
         self.presets={'person':dict(id='person',label='actor',gender='Female',parts=['body','dress'])}
         self.meshes={'body.skin':mesh(hidden=True),'dress.skin':mesh(.04)}
         self.assets=SimpleNamespace(index={'cloth.dds':None},pixels=lambda p:(np.ones((4,4,4)),False))
@@ -178,6 +179,17 @@ class ClothingLabTests(unittest.TestCase):
                 lab.run(dict(mode='presets'));lab.worker.join(5)
             state=lab.poll();report=json.loads(Path(state['report']).read_text())
             self.assertEqual(state['done'],1);self.assertTrue(report['cancelled']);self.assertFalse(report['complete'])
+
+    def test_converted_soul_does_not_hide_broken_source_reference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lab=Lab(tmp);c=FakeCatalog();c.assets.root=Path(tmp);c.assets.signature=lambda:'fixture'
+            c.rule_evidence=[];c.errors=[];lab.catalog=c
+            case=dict(id='soul',label='actor',selected=['body','dress'],source_issues=['Missing secondary garment'],status='source_error')
+            with patch('clothing_lab.service.soul_records',return_value=[case]):
+                lab.run(dict(mode='souls',source=tmp));lab.worker.join(5)
+            report=json.loads(Path(lab.poll()['report']).read_text())
+            self.assertEqual(report['results'][0]['status'],'source_error')
+            self.assertFalse(report['complete'])
 
 
 if __name__=='__main__':unittest.main()

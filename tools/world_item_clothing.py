@@ -18,6 +18,7 @@ from clothing_appearance import apply_armor_colorization
 from clothing_regions import assign_upper_garment_regions, split_skin_regions, read_chunks
 from garment_contracts import clothing_role, source_variant
 from character_source_clothing import female_role
+from character_layer_contract import region_layers, project_regions
 from upgrade_map import read, xml
 from character_native_materials import bake_float_dds, convert_character_materials
 
@@ -115,6 +116,7 @@ class ClothingAdapter:
     def convert(self, identity, plan, registered):
         part, armor, role = (plan.source[k] for k in ('part','armor','role'))
         original = next(n for n in self.components.iter('Clothing') if n.get('Name') == role and n.get('ArmorType') == role)
+        native_layers = region_layers(original, self.parents)
         ancestor = original
         while not ancestor.get('ArmorArchetypeId'): ancestor = self.parents[ancestor]
         name = 'worlditems_cloth_'+identity.replace('-','_')
@@ -167,7 +169,8 @@ class ClothingAdapter:
             if sex == 'male' and role in ('Habit','TunicLong','TunicShort','GambesonLong','GambesonShort','MailShort','Cuirass','Waffenrock','Coat'):
                 bones = CompiledSkin(blob).info['bones']
                 waist = float(matrix(next(b for b in bones if b['name']=='Hips')['bind'])[2,3])
-                regions = split_skin_regions(blob,assign_upper_garment_regions(blob,waist_z=waist))
+                regions = split_skin_regions(blob, project_regions(
+                    assign_upper_garment_regions(blob, waist_z=waist), native_layers))
                 if 'arms' in regions:
                     # Native sleeved tunics use this group to hide just the
                     # underlying upper arm, retaining hands and bare forearms.
@@ -176,11 +179,9 @@ class ClothingAdapter:
             # Native layer values are inherited by role; do not reuse KCD1's
             # numerical layers as KCD2 layers.
             for region,skin in regions.items():
-                ancestor = original; layer = None
-                while ancestor is not None and layer is None:
-                    e = ancestor.find("Elements/SkinElement[@EquipmentPart='"+region+"']")
-                    if e is not None: layer = e.get('BodyLayerId')
-                    ancestor = self.parents.get(ancestor)
+                if region not in native_layers:
+                    raise ValueError('Source garment region is absent from native role: '+role+'/'+region)
+                layer = native_layers[region]
                 files[prefix+region+'.skin'] = skin
                 element = ET.SubElement(elements,'SkinElement',EquipmentPart=region,Model=region+'.skin',
                     # Female bodies contain arms, hands and legs in their torso

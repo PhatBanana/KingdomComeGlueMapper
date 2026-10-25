@@ -19,7 +19,7 @@ def key(name):
 
 
 class Assets:
-    def __init__(self, root):
+    def __init__(self, root, overlay=None):
         self.root = Path(root).resolve()
         if not (self.root / 'Data').is_dir():
             raise ValueError('Choose a built mod folder containing Data, or the installed mod folder.')
@@ -34,6 +34,20 @@ class Assets:
                         if old[2:] != (info.CRC, info.file_size): self.collisions.append(name)
                     self.index[name] = (path, info.filename, info.CRC, info.file_size)
         if not self.index: raise ValueError('No packaged assets found')
+        self.overlay = Path(overlay).resolve() if overlay else None
+        if self.overlay:
+            if self.overlay == self.root:
+                raise ValueError('The developer overlay must be separate from the game package')
+            replacements = Assets(self.overlay)
+            if replacements.collisions:
+                raise ValueError('Conflicting developer overlay entries')
+            self.index.update(replacements.index)
+            self.collisions = [n for n in self.collisions if n not in replacements.index]
+        self.dds_members = {}
+        for name in self.index:
+            base,separator,suffix=name.rpartition('.')
+            if separator and base.endswith('.dds') and suffix.isdigit():
+                self.dds_members.setdefault(base,{})['.'+suffix]=name
 
     def read(self, name):
         name = key(name)
@@ -55,8 +69,7 @@ class Assets:
         name = key(name)
         base = self.read(name)
         info = layout(base)
-        members = {n[len(name):]: self.read(n) for n in self.index
-                   if n.startswith(name+'.') and n[len(name)+1:].isdigit()}
+        members = {suffix:self.read(member) for suffix,member in self.dds_members.get(name,{}).items()}
         checked = validate_family(base, members)
         data = base[:info['header']] + b''.join(members['.'+str(i)] for i in range(checked['streamed_mips'], 0, -1))
         data += base[info['header']:-8] if base.endswith(b'CExtCEnd') else base[info['header']:]

@@ -18,10 +18,10 @@ class Lab:
         self.worker = None
         self.progress = dict(running=False,done=0,total=0,results=[])
 
-    def open(self, package, target):
+    def open(self, package, target, overlay=None):
         with self.lock:
             if self.worker and self.worker.is_alive(): raise ValueError('Stop the clothing audit before changing packages')
-            candidate = Catalog(package,target or None)
+            candidate = Catalog(package,target or None,overlay or None)
             self.catalog = candidate
             self.progress = dict(running=False,done=0,total=0,results=[])
             return candidate.summary()
@@ -38,6 +38,7 @@ class Lab:
 
     def _run(self, options):
         result = dict(schema=1,package=str(self.catalog.assets.root),signature=self.catalog.assets.signature(),catalog_errors=self.catalog.errors,
+                      overlay=str(self.catalog.assets.overlay) if getattr(self.catalog.assets,'overlay',None) else None,
                       options=options,rule_evidence=self.catalog.rule_evidence,runtime_verified=False,results=[],
                       limitations=['Bind-pose mesh and diffuse-alpha diagnostics; no native cloth simulation or gameplay execution.',
                                    'Normal-ray intersections are candidates for review, not proof of a visual defect.',
@@ -63,6 +64,10 @@ class Lab:
                         try: cache[key]=validate(self.catalog,case['selected'],bool(options.get('geometry')),int(options.get('lod',0)))
                         except Exception as exc: cache[key]=dict(status='error',findings=[dict(code='validation_error',severity='error',message=str(exc))])
                     row=dict(case,**{k:v for k,v in cache[key].items() if k!='selected'})
+                    if case.get('source_issues'):
+                        row['findings']=list(row['findings'])+[dict(code='source_error',severity='error',message=issue)
+                                                               for issue in case['source_issues']]
+                        row['status']='source_error'
                 result['results'].append(row)
                 with self.lock:
                     self.progress.update(done=len(result['results']),message=case['label'])

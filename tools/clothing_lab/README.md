@@ -12,6 +12,8 @@ From the repository root, using the development environment:
 
 Steam game locations are detected as starting values. Select a mod folder containing `Data/*.pak`, the KCD2 installation supplying the native rules, and the KCD1 installation for source-soul audits. All three may also be supplied with `--package`, `--target`, and `--source`.
 
+The optional **Developer candidate** field, or `--overlay` on either the viewer or audit CLI, reads a separate repair overlay over that package. The game files are unchanged. This lets the viewer reproduce the same candidate used by the batch checklist.
+
 The viewer supports:
 
 - Male and female character presets, every registered clothing component, and custom layer stacks.
@@ -64,11 +66,66 @@ The command exits **1** for structural/asset/source errors, **2** if the audit c
 
 ## What is simulated
 
-Native role, gender, inherited archetype, equipment-part and body-layer definitions are read from the selected KCD2 `Data/Tables.pak`, with its table hash recorded. Checks cover unresolved layers, same-slot conflicts, undefined hiding groups, cross-outfit masks, missing meshes/materials/textures, mesh indices and weights, and source references. Differences from native role templates are review findings because a converted layout can intentionally differ.
+Native role, gender, inherited archetype, equipment-part, hiding groups and body-layer definitions are read from the selected KCD2 `Data/Tables.pak`, with each table hash recorded. Layer comparisons use `body_layer.xml`'s `layer_order`, not the layer IDs: decoration layer 4 is above layers 5–7, while underwear layer 8 is near the body. Checks cover unresolved layers, same-slot conflicts, undefined hiding groups, cross-outfit masks, missing meshes/materials/textures, mesh indices and weights, and source references. Differences from native role templates are review findings because a converted layout can intentionally differ.
 
 The geometry pass tests bounded surface-normal segments against actual garment triangles, filtering ray hits by material-subset UV alpha. A conservative spatial index reduces work without changing the segment result. It reports hidden skin without an opaque cover, clothing beneath visible skin, and higher layers intersecting lower ones. `Nodraw` material slots do not count as opaque coverage. These are **suspected** problems: seams, intended contact, wrinkles, and the bounded normal-ray policy can produce review findings.
 
 This is not a reimplementation of KCD2's closed-source character manager. In particular, equip-slot arbitration, native cloth physics, cloth collision proxies, engine animation, material-atlas microdetail, iris/skin shading, and distant streaming selection are not reproduced. The synthetic stress pose is a viewer aid; automated geometry checks use the exported bind pose. Rendering a selectable combination does not prove the native inventory system can equip it. Shared armor-archetype findings call out that boundary explicitly.
+
+## Whole wardrobe audit and isolated repair candidates
+
+The developer matrix command enumerates every registered garment and every
+same-gender garment pair, then checks each existing character preset. It writes
+`checklist.csv`, `cases.jsonl`, `confirmed.json`, and `summary.json`. Rows retain
+the exact component selection, representative body, native-table result,
+geometry result, and an explicitly unverified runtime field.
+
+```powershell
+.venv/Scripts/python.exe tools/clothing_lab_matrix.py `
+  --package "D:/path/to/built-or-installed-mod" `
+  --target "D:/path/to/KingdomComeDeliverance2" `
+  --build-layer-candidate reports/clothing-lab/my-layer-candidate `
+  --output reports/clothing-lab/my-matrix
+```
+
+`--build-layer-candidate` creates a separate overlay for missing native layer
+inheritance and unsupported upper-body partitions. It reads both `SkinElement`
+and `VClothElement` layer definitions. Merging unsupported partitions preserves
+the triangle count and material bindings. Unsupported native roles remain
+listed in `repair.json`; they are not assigned invented layer numbers. The
+original package is never changed. Pass an existing candidate with `--overlay`.
+This candidate does not rebuild skin-hiding masks or repair equipment arbitration.
+
+The matrix computes **exact symbolic counts** over full layer selections using
+unary registration checks, part/layer occupancy, and armor-archetype exclusivity.
+These counts are not rendered tests. Other engine equipment exclusions,
+body-dependent masks, cloth simulation, and full-outfit geometry are outside
+that proof. In particular, passing every pair cannot establish that a complete
+outfit works.
+
+For a tractable full space, `--full-layers Female` or `--full-layers Male`
+enumerates every layer selection and runs bind-pose geometry checks on those
+passing the native table checks. Results stream to `cases.jsonl.gz`. The command
+refuses spaces above one million cases instead of silently sampling them.
+Body, package signature, rule-table hash, all visited cases and geometry-run
+counts are recorded. A completed audit can contain failures; command completion
+is not an all-clear result.
+
+Long pair runs can be split with `--pair-range START STOP` (zero-based,
+exclusive stop). Such reports are marked incomplete. Resume completed rows
+with `--resume-from reports/clothing-lab/previous-run`; specify this option
+multiple times to combine non-conflicting batches. Output goes to a fresh
+directory. Package signatures, rule-table evidence, validator contract version,
+and exact selections must match. A truncated final JSONL write can be discarded; corrupt completed rows
+are rejected. An unbounded final run with all batch reports fills gaps and
+produces a complete checklist.
+
+`clothing_lab.checklist.write_checklist(matrix, full_layers, repairs, output)`
+generates a Markdown checklist and a CSV of exact selections passing both table
+and geometry checks. It rejects incomplete matrix/full-layer reports and
+mismatched candidate signatures. Unclothed baselines are counted separately.
+Optional `source_report` and `captures` arguments include a completed soul audit
+and developer-renderer examples, provided their candidate and rule hashes match.
 
 ## Regression tests
 

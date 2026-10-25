@@ -10,6 +10,7 @@ def main():
     parser.add_argument('--package',required=True,type=Path)
     parser.add_argument('--target',required=True,type=Path,help='KCD2 installation providing native clothing rules')
     parser.add_argument('--source',type=Path,help='KCD1 installation, required for all source souls')
+    parser.add_argument('--overlay',type=Path,help='Separate developer candidate layered over the package')
     parser.add_argument('--mode',choices=('presets','souls','singles','pairs','layers'),default='presets')
     parser.add_argument('--body',help='Character preset ID for custom combinations')
     parser.add_argument('--gender',choices=('All','Male','Female'),default='All')
@@ -21,7 +22,7 @@ def main():
     parser.add_argument('--strict',action='store_true',help='Fail for review findings, incomplete coverage, or unconverted source souls too')
     args=parser.parse_args()
     if args.mode=='souls' and not args.source: parser.error('--source is required for souls')
-    lab=Lab(args.reports); lab.open(args.package,args.target)
+    lab=Lab(args.reports); lab.open(args.package,args.target,args.overlay)
     options={k:str(v) if isinstance(v,Path) else v for k,v in vars(args).items()}
     lab.run(options);lab.worker.join()
     state=lab.poll();print(json.dumps({k:v for k,v in state.items() if k!='results'},indent=2))

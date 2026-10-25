@@ -50,10 +50,11 @@ def resolved_nodes(document, roles_only=False):
 
 
 class Catalog:
-    def __init__(self, package, target=None):
-        self.assets = Assets(package)
+    def __init__(self, package, target=None, overlay=None):
+        self.assets = Assets(package, overlay)
         self.parts, self.presets, self.groups, self.souls, self.errors = {}, {}, {}, {}, []
-        self.native_roles, self.rule_evidence = {}, []
+        self.private_groups = set()
+        self.native_roles, self.rule_evidence, self.layer_order = {}, [], {}
         if target:
             path = Path(target)/'Data/Tables.pak'
             with zipfile.ZipFile(path) as archive:
@@ -66,8 +67,20 @@ class Catalog:
                         self.native_roles[role] = dict(archetype=attrs.get('ArmorArchetypeId'), gender=part['gender'],
                             layers=sorted({(e.get('EquipmentPart'), e.get('BodyLayerId')) for e in part['elements']}, key=str))
                 self.rule_evidence.append(dict(file=str(path), member=name, sha256=hashlib.sha256(data).hexdigest()))
-                group_data = read(archive, 'Libs/Tables/Character/ClothingHidingGroup.xml')
+                name = 'Libs/Tables/Character/ClothingHidingGroup.xml'
+                group_data = read(archive, name)
                 self._groups(native_xml(group_data))
+                self.rule_evidence.append(dict(file=str(path), member=name, sha256=hashlib.sha256(group_data).hexdigest()))
+                name = 'Libs/Tables/item/body_layer.xml'
+                data = read(archive, name)
+                for row in native_xml(data).iter('body_layer'):
+                    identity = row.get('body_layer_id')
+                    if identity in self.layer_order:
+                        raise ValueError('Duplicate native body-layer identity: '+identity)
+                    self.layer_order[identity] = int(row.attrib['layer_order'])
+                if not self.layer_order:
+                    raise ValueError('Native body-layer order table is empty')
+                self.rule_evidence.append(dict(file=str(path), member=name, sha256=hashlib.sha256(data).hexdigest()))
         names = list(self.assets.index)
         for name in names:
             if not name.startswith('libs/tables/') or not name.endswith('.xml'): continue
@@ -76,7 +89,9 @@ class Catalog:
                     for soul in ET.fromstring(self.assets.read(name)).iter('soul'):
                         self.souls[soul.get('soul_id','').replace('-','')] = dict(soul.attrib)
                 elif '/clothinghidinggroup__' in name:
-                    self._groups(ET.fromstring(self.assets.read(name)))
+                    doc = ET.fromstring(self.assets.read(name))
+                    self.private_groups.update(g.get('Name') for g in doc.iter('HidingGroup'))
+                    self._groups(doc)
                 elif '/charactercomponent__' in name:
                     for part in resolved_nodes(ET.fromstring(self.assets.read(name))):
                         if not part['elements']: continue
@@ -106,12 +121,14 @@ class Catalog:
     def summary(self):
         return dict(package=str(self.assets.root), signature=self.assets.signature(), parts=list(self.parts.values()),
                     presets=list(self.presets.values()), groups=self.groups, errors=self.errors,
-                    native_rules=bool(self.native_roles), rule_evidence=self.rule_evidence)
+                    native_rules=bool(self.native_roles and self.layer_order), layer_order=self.layer_order,
+                    rule_evidence=self.rule_evidence)
 
-    @lru_cache(maxsize=32)
+    @lru_cache(maxsize=1024)
     def mesh(self, name):
         return CompiledSkin(self.assets.read(name))
 
+    @lru_cache(maxsize=256)
     def materials(self, name, textures=False):
         if not name: raise ValueError('Component has no resolved material')
         root = ET.fromstring(self.assets.read(name))
@@ -126,6 +143,41 @@ class Catalog:
                 item['image'] = 'data:image/png;base64,'+base64.b64encode(self.assets.texture(item['texture'],macro)).decode()
             output.append(item)
         return output
+
+    @lru_cache(maxsize=512)
+    def coverage_surface(self, model, material, mask):
+        from clothing_coverage import alpha_intersections
+        from .geometry import Surface
+        mesh = self.mesh(model)
+        alpha = np.frombuffer(mesh.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
+        hidden = ((255 ^ alpha) & mask) != 0
+        surfaces = []
+        for mat in self.materials(material):
+            if mat['shader'].lower() == 'nodraw':
+                surfaces.append((0,[np.zeros((1,1))])); continue
+            if mat['opacity'] != 1 or not mat['texture']:
+                raise ValueError('Material cannot prove opaque coverage')
+            pixels,_ = self.assets.pixels(mat['texture'])
+            alpha_pixels=pixels[:,:,3]
+            threshold=mat['threshold']
+            if np.all(alpha_pixels > threshold):
+                alpha_pixels=np.full((1,1),threshold+1.)
+            elif np.all(alpha_pixels <= threshold):
+                alpha_pixels=np.full((1,1),threshold)
+            else:
+                alpha_pixels=alpha_pixels.copy()
+            surfaces.append((threshold,[alpha_pixels]))
+        visible = ~hidden[mesh.faces].any(axis=1)
+        return Surface(mesh.vertices[mesh.faces[visible]],alpha_intersections(mesh,surfaces,visible))
+
+    @lru_cache(maxsize=8192)
+    def coverage_hits(self, source, cover, material, mask, inward=.06, outward=.12):
+        mesh = self.mesh(source)
+        referenced = np.unique(mesh.faces)
+        result = np.zeros(mesh.n,bool)
+        result[referenced] = self.coverage_surface(cover,material,mask).covers(
+            mesh.vertices[referenced],normals(mesh)[referenced],inward,outward)
+        return result
 
     def scene(self, selected, lod=0):
         from .validation import body_replaced

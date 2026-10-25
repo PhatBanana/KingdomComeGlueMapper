@@ -416,6 +416,7 @@
         catalog = await api().clothing_open(
           q("#lab-package").value.trim(),
           q("#kcd2").value.trim(),
+          q("#lab-overlay").value.trim(),
         );
         parts = new Map(catalog.parts.map((p) => [p.id, p]));
         fillPresets();
@@ -564,6 +565,7 @@
     q("#kcd1").value = d.source;
     q("#kcd2").value = d.target;
     q("#lab-package").value = d.package;
+    q("#lab-overlay").value = d.overlay || "";
   }
   window.addEventListener("pywebviewready", guard(locations));
   if (window.pywebview?.api) guard(locations)();

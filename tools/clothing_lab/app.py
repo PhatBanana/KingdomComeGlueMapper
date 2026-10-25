@@ -13,9 +13,9 @@ from .validation import validate
 
 
 class API:
-    def __init__(self, package='', source='', target='', reports=Path('reports/clothing-lab')):
+    def __init__(self, package='', source='', target='', reports=Path('reports/clothing-lab'), overlay=''):
         self.lab=Lab(reports)
-        self.defaults=dict(package=str(package),source=str(source),target=str(target))
+        self.defaults=dict(package=str(package),source=str(source),target=str(target),overlay=str(overlay))
 
     def clothing_locations(self):
         from steam_installations import discover
@@ -26,7 +26,7 @@ class API:
             self.defaults['package']=str(Path(self.defaults['target'])/'Mods/kingdomcomegluemapper')
         return self.defaults
 
-    def clothing_open(self,package,target):return self.lab.open(package,target)
+    def clothing_open(self,package,target,overlay=''):return self.lab.open(package,target,overlay)
 
     def clothing_scene(self,selected,lod=0):
         if self.lab.catalog is None:raise ValueError('Open a package first')
@@ -62,6 +62,7 @@ class API:
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--package',default='');parser.add_argument('--source',default='');parser.add_argument('--target',default='')
+    parser.add_argument('--overlay',default='')
     parser.add_argument('--reports',type=Path,default=Path(__file__).resolve().parents[2]/'reports/clothing-lab')
     args=parser.parse_args()
     import webview

@@ -52,6 +52,15 @@ def source_opacity(rows, model, material, count, rendered_visibility=None, gener
     return opaque & visible
 
 
+def converted_coverage_surface(skin, rows, model, material, output, material_path, visibility):
+    """A legacy triangle bit is a candidate, never proof of converted opacity."""
+    surfaces, evidence = native_alpha_surfaces(output, material_path)
+    opaque = source_opacity(rows, model, material, len(skin.faces),
+                            rendered_visibility=visibility,
+                            generated_opacity=np.ones(len(skin.faces), dtype=bool))
+    return opaque, alpha_intersections(skin, surfaces, opaque), evidence
+
+
 def native_alpha_surfaces(output, material_path):
     """Read the supported converted cloth permutation and its complete alpha mips."""
     root = ET.parse(material_path).getroot()
@@ -59,6 +68,10 @@ def native_alpha_surfaces(output, material_path):
     evidence, surfaces = [], []
     allowed = {'CLOTHING_SYSTEM', 'NORMAL_MAP', 'SPECULAR_MAP', 'SUBSURFACE_SCATTERING'}
     for material in materials:
+        if material.get('Shader','').lower() == 'nodraw':
+            evidence.append(dict(shader='Nodraw', opaque=False))
+            surfaces.append((0., [np.zeros((1,1))]))
+            continue
         flags = set(filter(None, material.get('StringGenMask', '').split('%')))
         threshold = float(material.get('AlphaTest', '0'))
         if (material.get('Shader') != 'Illum' or 'CLOTHING_SYSTEM' not in flags or flags - allowed
@@ -257,18 +270,12 @@ def register_coverage(output, component, garments, tables, namespace):
                     and r['material'].replace('\\', '/').lower() == garment['source_material'].replace('\\', '/').lower()]
         visibility = (unculled_garment_visibility(cover)
                       if len(matching) == 1 and not matching[0].get('not_culled_triangle_mask') else None)
-        generated, evidence, accept_hit = None, None, None
-        if len(matching) == 1 and not matching[0].get('opaque_triangle_mask'):
-            surfaces, evidence = native_alpha_surfaces(output, folder / (garment['stem'] + '.mtl'))
-            # Candidate triangles still pass the exact alpha test at each ray hit.
-            generated = np.ones(len(cover.faces), dtype=bool)
-        opaque = source_opacity(rows, garment['source_model'], garment['source_material'], len(cover.faces),
-                                rendered_visibility=visibility, generated_opacity=generated)
-        if generated is not None:
-            accept_hit = alpha_intersections(cover, surfaces, opaque)
+        opaque, accept_hit, evidence = converted_coverage_surface(
+            cover, rows, garment['source_model'], garment['source_material'],
+            output, folder / (garment['stem'] + '.mtl'), visibility)
         visibility_sources.append(dict(garment=garment['stem'],
             visibility='source_cache' if matching[0].get('not_culled_triangle_mask') else 'converted_complete_mesh',
-            opacity='source_cache' if generated is None else 'converted_alpha_intersections', evidence=evidence))
+            opacity='converted_alpha_intersections', evidence=evidence))
         triangles = cover.vertices[cover.faces[opaque]]
         _, region, layer = garment_layout(garment['part'])
         names = []
@@ -290,7 +297,7 @@ def register_coverage(output, component, garments, tables, namespace):
             report.append(dict(cover=garment['stem'], target=element.get('Model'),
                                covered_vertices=int(covered.sum()), total_vertices=skin.n,
                                candidate_triangles=int(opaque.sum()),
-                               opacity_test='source_triangle_mask' if generated is None else 'UV_alpha_at_intersection',
+                               opacity_test='UV_alpha_at_intersection',
                                hiding_group=name, bit=bit))
         node.set('HidingGroups', ' '.join(sorted(set(names))))
         # The fallback underwear uses the same mesh and must hide the same body
@@ -302,6 +309,6 @@ def register_coverage(output, component, garments, tables, namespace):
         path.write_bytes(apply_membership(path.read_bytes(), membership))
     path = output / ('Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml')
     path.write_bytes(xml(groups))
-    return dict(policy='Source triangle masks or converted alpha intersections; bounded normal rays after fitting',
+    return dict(policy='Source triangle candidates intersected with converted alpha; bounded normal rays after fitting',
                 inward_metres=.06, outward_metres=.12, layers=report,
                 visibility_sources=visibility_sources, runtime_verified=False)

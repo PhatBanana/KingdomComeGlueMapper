@@ -9,7 +9,7 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections
+from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections, native_alpha_surfaces
 from npc_effects import write_float_dds
 from character_skin_upgrade import CompiledSkin, upgrade_skin
 from test_character_upgrade import sample_skin
@@ -20,6 +20,16 @@ def encoded(bits):
 
 
 class ClothingCoverageTests(unittest.TestCase):
+    def test_nodraw_material_never_hides_skin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            material=Path(directory)/'invisible.mtl'
+            material.write_text('<Material Shader="Nodraw"/>')
+            surfaces,evidence=native_alpha_surfaces(directory,material)
+            self.assertFalse(surfaces[0][1][0].any())
+            self.assertFalse(evidence[0]['opaque'])
+            with self.assertRaisesRegex(ValueError,'Cutout'):
+                opaque_native_surface(directory,material,1)
+
     def test_cutout_ray_hits_use_uv_material_and_wrapped_filter_footprint(self):
         uv = np.array([[.25,.25]]*3 + [[.75,.75]]*3, dtype='<f4')
         skin = SimpleNamespace(n=6, streams={2: SimpleNamespace(data=struct.pack('<6I', 0,2,6,8,0,0)+uv.tobytes())},
