@@ -305,6 +305,10 @@ gameplay are separate validation steps. The Python 3.14 environment needs a
 C++ toolchain for xatlas, as described under
 [Run the current source](#run-the-current-source).
 
+### Developer tools
+
+The [Clothing & Body Test workbench](tools/clothing_lab/README.md) provides a standalone 3D viewer and repeatable audits for male/female clothing, layer combinations, and all KCD1 soul records. It is a developer tool, separate from the consumer setup application. Launch it with `.venv/Scripts/python.exe tools/clothing_lab_app.py`.
+
 ## Documentation and issue reports
 
 - [Setup, installation and rollback](docs/windows-setup.md)

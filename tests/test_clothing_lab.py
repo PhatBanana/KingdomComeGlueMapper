@@ -1,0 +1,183 @@
+"""Developer lab contracts: inheritance, assets, coverage, enumeration and source completeness."""
+import base64
+import json
+from pathlib import Path
+import struct
+import sys
+import tempfile
+from types import SimpleNamespace
+import unittest
+from unittest.mock import patch
+import xml.etree.ElementTree as ET
+import zipfile
+
+import numpy as np
+
+sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
+from clothing_lab.assets import Assets, key
+from clothing_lab.catalog import resolved_nodes, Catalog
+from clothing_lab.validation import active_masks, validate, plan
+from clothing_lab.geometry import Surface
+from clothing_coverage import covered_points
+from clothing_lab.service import Lab
+from clothing_lab.source import soul_records
+from npc_effects import write_float_dds
+from texture_streaming import split_generated
+
+
+def part(name,kind='Clothing',layer='5',gender='Female',family='person',groups=''):
+    return dict(id=name,kind=kind,label=name,family=family,gender=gender,
+        attributes=dict(HidingGroups=groups,**(dict(ArmorType='Dress',ArmorArchetypeId='27') if kind=='Clothing' else {})),
+        elements=[dict(EquipmentPart='torso',BodyLayerId=layer,KeepBodyLayer='true',ModelResolved=name+'.skin',MaterialResolved='cloth.mtl')])
+
+
+def mesh(z=0,hidden=False):
+    vertices=np.array([[-.5,-.5,z],[.5,-.5,z],[0,.5,z]],float)
+    rgba=np.full((3,4),255,np.uint8)
+    if hidden:rgba[:,3]=239
+    uv=np.full((3,2),.5,dtype='<f4')
+    return SimpleNamespace(n=3,ninternal=3,vertices=vertices,faces=np.array([[0,1,2]]),remap=np.arange(3),
+        info=dict(subset_records=[dict(first_index=0,num_indices=3,material_id=0)]),
+        streams={3:SimpleNamespace(data=bytes(24)+rgba.tobytes()),2:SimpleNamespace(data=struct.pack('<6I',0,2,3,8,0,0)+uv.tobytes())})
+
+
+class FakeCatalog:
+    def __init__(self):
+        self.parts={'body':part('body','Body','0'),'dress':part('dress',groups='cover')}
+        self.groups={'cover':dict(index=4,region='torso')}
+        self.native_roles={'Dress':dict(archetype='27',gender='Female',layers=[('torso','5')])}
+        self.presets={'person':dict(id='person',label='actor',gender='Female',parts=['body','dress'])}
+        self.meshes={'body.skin':mesh(hidden=True),'dress.skin':mesh(.04)}
+        self.assets=SimpleNamespace(index={'cloth.dds':None},pixels=lambda p:(np.ones((4,4,4)),False))
+    def mesh(self,name):return self.meshes[name]
+    def materials(self,name):return [dict(texture='cloth.dds',threshold=.1)]
+
+
+class ClothingLabTests(unittest.TestCase):
+    def test_inherited_layer_and_asset_paths_resolve(self):
+        doc=ET.fromstring('''<database><CharacterComponents><Component Name="Female" Gender="Female" Race="Human" FilePath="humans/female/">
+        <DerivedComponents><Clothing Name="Dress" ArmorType="Dress" ArmorArchetypeId="27"><Elements><SkinElement EquipmentPart="torso" BodyLayerId="5" Model="base.skin" KeepBodyLayer="true"/></Elements>
+        <DerivedComponents><Clothing Name="green"><Elements><SkinElement EquipmentPart="torso" Model="green.skin" Material="green.mtl"/></Elements></Clothing></DerivedComponents>
+        </Clothing></DerivedComponents></Component></CharacterComponents></database>''')
+        node=list(resolved_nodes(doc))[-1]
+        self.assertEqual(node['attributes']['ArmorArchetypeId'],'27')
+        self.assertEqual(node['elements'][0]['BodyLayerId'],'5')
+        self.assertEqual(node['elements'][0]['ModelResolved'],'objects/characters/humans/female/green.skin')
+
+    def test_unsafe_paths_and_ambiguous_layers_fail(self):
+        for path in ('../secret','C:/secret','/secret','a/../secret'):
+            with self.assertRaises(ValueError):key(path)
+        doc=ET.fromstring('<database><CharacterComponents><Clothing Name="a"><Elements><SkinElement EquipmentPart="torso" BodyLayerId="1"/><SkinElement EquipmentPart="torso" BodyLayerId="2"/></Elements><DerivedComponents><Clothing Name="b"><Elements><SkinElement EquipmentPart="torso"/></Elements></Clothing></DerivedComponents></Clothing></CharacterComponents></database>')
+        with self.assertRaisesRegex(ValueError,'Ambiguous'):list(resolved_nodes(doc))
+
+    def test_split_float_texture_alpha_is_reconstructed_exactly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'Data').mkdir();pixels=np.ones((64,64,4),np.float32);pixels[10:30,10:30,3]=0
+            write_float_dds(root/'cloth.dds',pixels)
+            family=split_generated((root/'cloth.dds').read_bytes())
+            with zipfile.ZipFile(root/'Data/a.pak','w') as z:
+                for suffix,data in family.items():z.writestr('cloth.dds'+suffix,data)
+            assets=Assets(root);image,linear=assets.pixels('cloth.dds')
+            self.assertTrue(linear);np.testing.assert_array_equal(image[:,:,3],pixels[:,:,3])
+            self.assertTrue(assets.texture('cloth.dds').startswith(b'\x89PNG'))
+            with zipfile.ZipFile(root/'Data/b.pak','w') as z:z.writestr('cloth.dds',b'conflict')
+            with self.assertRaisesRegex(ValueError,'Conflicting'):Assets(root).read('cloth.dds')
+
+    def test_package_changed_after_indexing_requires_reopen(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'Data').mkdir();archive=root/'Data/a.pak'
+            with zipfile.ZipFile(archive,'w') as z:z.writestr('mesh.skin',b'first')
+            assets=Assets(root)
+            with zipfile.ZipFile(archive,'w') as z:z.writestr('mesh.skin',b'changed')
+            with self.assertRaisesRegex(ValueError,'Package changed'):assets.read('mesh.skin')
+
+    def test_same_native_slot_and_wrong_gender_are_not_valid_combinations(self):
+        c=FakeCatalog();c.parts['other']=part('other',gender='Male');c.meshes['other.skin']=mesh(.06)
+        result=validate(c,['body','dress','other'])
+        self.assertEqual(result['status'],'error')
+        codes={f['code'] for f in result['findings']}
+        self.assertTrue({'gender_conflict','same_layer_overlap','native_role_mismatch','shared_armor_archetype'}<=codes)
+
+    def test_transparent_cloth_does_not_justify_hiding_skin(self):
+        c=FakeCatalog()
+        opaque=validate(c,['body','dress'],True)
+        self.assertNotIn('hidden_skin_without_cover',{f['code'] for f in opaque['findings']})
+        pixels=np.ones((4,4,4));pixels[:,:,3]=0
+        c.assets.pixels=lambda p:(pixels,False)
+        transparent=validate(c,['body','dress'],True)
+        found=next(f for f in transparent['findings'] if f['code']=='hidden_skin_without_cover')
+        self.assertEqual(found['vertices'],3)
+        self.assertFalse(transparent['runtime_verified'])
+
+    def test_garment_inside_visible_skin_is_reported(self):
+        c=FakeCatalog();c.parts['dress']['attributes']['HidingGroups']='';c.meshes['dress.skin']=mesh(-.01)
+        result=validate(c,['body','dress'],True)
+        self.assertIn('cloth_under_visible_skin',{f['code'] for f in result['findings']})
+
+    def test_hiding_group_is_scoped_to_equipment_part(self):
+        c=FakeCatalog();c.groups['cover']['region']='feet'
+        self.assertEqual(active_masks(c,['dress']),{'feet':16})
+        result=validate(c,['body','dress'])
+        self.assertEqual(result['meshes'][0]['hidden_vertices'],0)
+
+    def test_native_body_replacement_and_nodraw_are_not_visible_surfaces(self):
+        c=FakeCatalog();c.parts['dress']['elements'][0]['KeepBodyLayer']='false'
+        c.materials=lambda name:[dict(shader='Nodraw',texture=None,threshold=0)]
+        result=validate(c,['body','dress'],True)
+        self.assertEqual(result['meshes'][0]['hidden_vertices'],3)
+        self.assertNotIn('opacity_unverified',{f['code'] for f in result['findings']})
+        self.assertIn('hidden_skin_without_cover',{f['code'] for f in result['findings']})
+
+    def test_unlayered_native_slot_is_not_invented_or_reported_as_missing(self):
+        c=FakeCatalog();c.parts['dress']['elements'][0].pop('BodyLayerId')
+        c.native_roles['Dress']['layers']=[('torso',None)]
+        result=validate(c,['body','dress'])
+        self.assertNotIn('unresolved_layer',{f['code'] for f in result['findings']})
+        c.native_roles['Dress']['layers']=[('torso','5')]
+        result=validate(c,['body','dress'])
+        self.assertIn('unresolved_layer',{f['code'] for f in result['findings']})
+
+    def test_spatial_broadphase_matches_exhaustive_segment_test(self):
+        rng=np.random.default_rng(72);triangles=rng.uniform(-.3,.3,(60,3,3));points=rng.uniform(-.3,.3,(130,3))
+        directions=rng.normal(size=(130,3));directions/=np.linalg.norm(directions,axis=1)[:,None]
+        accept=lambda t,u,v:(t%3!=0)&(u>.1)
+        expected=covered_points(points,directions,triangles,accept_hit=accept)
+        np.testing.assert_array_equal(Surface(triangles,accept).covers(points,directions),expected)
+
+    def test_pairs_and_layer_product_have_explicit_total_and_resume(self):
+        c=FakeCatalog();c.parts['coat']=part('coat',layer='9');c.parts['dress2']=part('dress2')
+        a=plan(c,'pairs','person',limit=1);b=plan(c,'pairs','person',limit=2,offset=a['next_offset'])
+        self.assertEqual(a['total'],3);self.assertEqual(len(a['cases']+b['cases']),3)
+        self.assertEqual(len({tuple(r['selected']) for r in a['cases']+b['cases']}),3)
+        all_layers=plan(c,'layers','person');self.assertEqual(all_layers['total'],6)
+        self.assertIn(['body'],[r['selected'] for r in all_layers['cases']])
+        self.assertFalse(any('dress' in r['selected'] and 'dress2' in r['selected'] for r in all_layers['cases']))
+
+    def test_all_souls_include_unconverted_missing_and_secondary_clothing(self):
+        rows={'rpg/soul':[dict(soul_id='1',soul_name='actor',initial_clothing_preset_id='p'),dict(soul_id='2',soul_name='not_converted',initial_clothing_preset_id='p'),dict(soul_id='3',soul_name='bad',initial_clothing_preset_id='missing')],
+            'item/armor':[dict(item_id='a',clothing_id='c1',clothing2_id='c2')],
+            'item/clothing':[dict(clothing_id='c1',model='dress.skin'),dict(clothing_id='c2',model='sleeve.skin')],
+            'item/armor2clothing_preset':[dict(clothing_preset_id='p',armor_id='a')],
+            'item/clothing_preset':[dict(clothing_preset_id='p')],'item/attachment2clothing_preset':[]}
+        fake=SimpleNamespace(get=lambda name:dict(rows=rows[name]))
+        rows.update({'character_'+kind:[] for kind in ('body','head','hair','beard')})
+        with patch('clothing_lab.source.RetailSourceReader'),patch('clothing_lab.source.SourceTables',return_value=fake):
+            records=soul_records(Path('.'),FakeCatalog())
+        self.assertEqual(len(records),3)
+        self.assertEqual([r['status'] for r in records],['ready','not_converted','source_error'])
+        self.assertEqual([r['slot'] for r in records[0]['source_clothing']],['clothing_id','clothing2_id'])
+
+    def test_cancelled_batch_saves_partial_report_without_marking_complete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lab=Lab(tmp);c=FakeCatalog();c.assets.root=Path(tmp);c.assets.signature=lambda:'fixture';c.rule_evidence=[]
+            c.presets['second']=dict(c.presets['person'],id='second',label='second')
+            c.errors=[];lab.catalog=c
+            def checked(*args):
+                lab.cancel();return dict(status='review',findings=[])
+            with patch('clothing_lab.service.validate',side_effect=checked):
+                lab.run(dict(mode='presets'));lab.worker.join(5)
+            state=lab.poll();report=json.loads(Path(state['report']).read_text())
+            self.assertEqual(state['done'],1);self.assertTrue(report['cancelled']);self.assertFalse(report['complete'])
+
+
+if __name__=='__main__':unittest.main()

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self' 'unsafe-eval'; connect-src 'self'; object-src 'none'; base-uri 'none'"
+    />
+    <title>Clothing &amp; Body Test · KingdomComeGlueMapper Tools</title>
+    <link rel="stylesheet" href="clothing-lab.css" />
+  </head>
+  <body data-view="tools">
+    <main>
+      <section id="tools" class="page active">
+        <p class="eyebrow">TOOLS / CHARACTER VALIDATION</p>
+        <h1>Clothing &amp; Body Test</h1>
+        <p class="lead">
+          Inspect real male and female assets. Find missing skin, incorrect
+          coverage and layer conflicts.
+        </p>
+        <details class="lab-locations" open>
+          <summary>Game locations</summary>
+          <div class="lab-source">
+            <label>KCD1 source<input id="kcd1" spellcheck="false" /></label
+            ><label
+              >KCD2 native rules<input id="kcd2" spellcheck="false"
+            /></label>
+          </div>
+        </details>
+        <div class="lab-source">
+          <label
+            >Mod package folder<input
+              id="lab-package"
+              placeholder="Built or installed mod folder containing Data"
+              spellcheck="false" /></label
+          ><button id="lab-installed" class="secondary">
+            Use installed map</button
+          ><button id="lab-open" class="primary">Open package</button>
+        </div>
+        <p id="lab-status" role="status" class="guide">
+          Assets are read only. Reports stay in the developer tool workspace.
+        </p>
+        <div class="lab-layout">
+          <aside class="lab-panel">
+            <h2>Character &amp; outfit</h2>
+            <label
+              >Gender<select id="lab-gender">
+                <option>All</option>
+                <option>Female</option>
+                <option>Male</option>
+              </select></label
+            >
+            <label
+              >Character preset<select id="lab-preset">
+                <option value="">Open a package first</option>
+              </select></label
+            >
+            <button id="lab-reset" class="secondary">
+              Restore preset outfit
+            </button>
+            <label
+              >Find clothing<input
+                id="lab-search"
+                type="search"
+                placeholder="Name, role, equipment part…"
+            /></label>
+            <label>Available clothing<select id="lab-garment"></select></label
+            ><button id="lab-add" class="secondary">
+              Add garment to stack
+            </button>
+            <h3>Layer stack</h3>
+            <p class="lab-hint">
+              Toggle visibility to isolate a part. Fallback underwear is listed
+              separately from equipped garments.
+            </p>
+            <div id="lab-stack" class="lab-stack"></div>
+          </aside>
+          <div class="lab-preview">
+            <div class="lab-toolbar">
+              <button class="secondary" data-lab-view="front">Front</button
+              ><button class="secondary" data-lab-view="back">Back</button
+              ><button class="secondary" data-lab-view="side">Side</button>
+              <select id="lab-shading" aria-label="Preview shading">
+                <option value="textured">Textured</option>
+                <option value="layers">Layer colours</option>
+                <option value="wireframe">Wireframe</option>
+              </select>
+              <select id="lab-lod" aria-label="Mesh LOD">
+                <option value="0">LOD 0</option>
+                <option value="1">LOD 1</option>
+                <option value="2">LOD 2</option>
+                <option value="3">LOD 3</option>
+                <option value="4">LOD 4</option>
+              </select>
+            </div>
+            <div id="lab-viewport" aria-label="Interactive clothing preview">
+              <div id="lab-empty">
+                Open a package to inspect its character meshes.
+              </div>
+              <div id="lab-legend" hidden>
+                Left: selected hiding masks · Right: masks disabled
+              </div>
+            </div>
+            <div class="lab-controls">
+              <label
+                ><input id="lab-masks" type="checkbox" checked /> Apply hiding
+                groups</label
+              ><label
+                ><input id="lab-compare" type="checkbox" /> Compare masks</label
+              ><label><input id="lab-rotate" type="checkbox" /> Rotate</label>
+              <label
+                >Separate layers<input
+                  id="lab-explode"
+                  type="range"
+                  min="0"
+                  max="100"
+                  value="0" /></label
+              ><label
+                >Arm bend stress pose<input
+                  id="lab-pose"
+                  type="range"
+                  min="0"
+                  max="90"
+                  value="0"
+              /></label>
+              <button id="lab-capture" class="secondary">Save view</button>
+            </div>
+            <p class="lab-hint">
+              Drag to orbit · scroll to zoom · right-drag to pan. Diffuse
+              textures and vertex hiding are previewed. Stress poses are
+              synthetic; native cloth physics, animation and skin shaders
+              require an in-game test.
+            </p>
+          </div>
+        </div>
+        <section class="lab-panel lab-audit">
+          <h2>Automated validation</h2>
+          <p class="guide">
+            Check source souls, every converted preset, or garment combinations.
+            Geometric findings are flagged for review; they are not
+            automatically certified as engine defects.
+          </p>
+          <div class="lab-audit-options">
+            <label
+              >Coverage<select id="lab-mode">
+                <option value="presets">All converted outfits</option>
+                <option value="souls">All KCD1 soul records</option>
+                <option value="singles">Every garment on this body</option>
+                <option value="pairs">Every garment pair on this body</option>
+                <option value="layers">Every layer-slot combination</option>
+              </select></label
+            >
+            <label
+              >Batch size<input
+                id="lab-limit"
+                type="number"
+                min="1"
+                max="1000"
+                value="250" /></label
+            ><label
+              >Start at case<input
+                id="lab-offset"
+                type="number"
+                min="0"
+                value="0"
+            /></label>
+            <label
+              ><input id="lab-geometry" type="checkbox" /> Check surfaces and
+              penetration (slower)</label
+            ><button id="lab-run" class="primary">Run validation</button
+            ><button id="lab-stop" class="secondary" disabled>Stop</button
+            ><button id="lab-reports" class="secondary">Reports</button>
+          </div>
+          <p id="lab-progress" role="status" class="guide">
+            No audit run. Source-soul mode always enumerates every database
+            soul, including records without converted assets.
+          </p>
+          <div id="lab-findings" class="lab-findings"></div>
+          <div id="lab-results" class="lab-results"></div>
+        </section>
+      </section>
+    </main>
+    <script src="vendor/three-r180.js"></script>
+    <script src="clothing-lab.js"></script>
+  </body>
+</html>

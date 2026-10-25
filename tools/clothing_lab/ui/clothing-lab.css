@@ -1,0 +1,288 @@
+:root {
+  color-scheme: dark;
+  --bg: #151719;
+  --panel: #1d2023;
+  --line: #32363a;
+  --muted: #a0aab3;
+  --text: #e9e9e5;
+  --accent: #d5b579;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px/1.5 "Segoe UI",
+    sans-serif;
+}
+main {
+  max-width: 1640px;
+  margin: auto;
+  padding: 28px 36px;
+}
+h1 {
+  font-size: 30px;
+  margin: 4px 0 8px;
+}
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 10px 14px;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #181918;
+  font-weight: 600;
+}
+.secondary {
+  background: #282e33;
+  border: 1px solid #444f58;
+  color: var(--text);
+}
+.eyebrow {
+  color: var(--accent);
+  letter-spacing: 1.5px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.lead,
+.guide {
+  color: var(--muted);
+}
+.lab-locations {
+  margin: 18px 0;
+  border: 1px solid var(--line);
+  padding: 12px 16px;
+  border-radius: 8px;
+}
+.lab-locations .lab-source {
+  margin: 12px 0 0;
+}
+[hidden] {
+  display: none !important;
+}
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.lab-source {
+  display: flex;
+  align-items: end;
+  gap: 12px;
+  margin: 24px 0 12px;
+}
+.lab-source label {
+  flex: 1;
+}
+.lab-source input {
+  width: 100%;
+}
+#tools label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--muted);
+}
+#tools input,
+#tools select {
+  min-width: 0;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 9px;
+}
+.lab-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 16px;
+  margin-top: 20px;
+}
+.lab-panel {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  border-radius: 9px;
+  padding: 18px;
+}
+.lab-panel h2 {
+  margin: 0 0 16px;
+  font-size: 18px;
+}
+.lab-panel h3 {
+  font-size: 14px;
+  margin: 22px 0 8px;
+}
+.lab-panel > label {
+  margin: 14px 0;
+}
+.lab-panel > button {
+  width: 100%;
+}
+.lab-preview {
+  min-width: 0;
+}
+.lab-toolbar {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.lab-toolbar button {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+#lab-viewport {
+  height: 530px;
+  background: #20272c;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+}
+#lab-viewport canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#lab-empty {
+  position: absolute;
+  inset: 45% 15% auto;
+  text-align: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+#lab-legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  right: 12px;
+  text-align: center;
+  color: #eee;
+  font-size: 11px;
+  background: #111b;
+  padding: 5px;
+  z-index: 2;
+  pointer-events: none;
+}
+.lab-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin: 12px 0;
+}
+.lab-controls label:has(input[type="checkbox"]),
+.lab-audit-options label:has(input[type="checkbox"]) {
+  flex-direction: row !important;
+  align-items: center;
+}
+.lab-controls input[type="range"] {
+  width: 120px;
+  padding: 0 !important;
+}
+.lab-hint {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.lab-stack {
+  max-height: 330px;
+  overflow: auto;
+}
+.lab-part {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.lab-part label {
+  flex-direction: row !important;
+  color: var(--text) !important;
+  align-items: start;
+  overflow-wrap: anywhere;
+}
+.lab-part small {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 5px 0 0 23px;
+}
+.lab-audit {
+  margin: 20px 0;
+}
+.lab-audit-options {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  flex-wrap: wrap;
+}
+.lab-audit-options input[type="number"] {
+  width: 90px;
+}
+.lab-audit-options select {
+  max-width: 280px;
+}
+.lab-findings {
+  margin: 10px 0;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.lab-finding {
+  padding: 8px 12px;
+  margin: 4px 0;
+  border-left: 3px solid #d4af68;
+  background: #d4af6810;
+  overflow-wrap: anywhere;
+}
+.lab-finding.error {
+  border-color: #df706b;
+  background: #df706b10;
+}
+.lab-results {
+  max-height: 360px;
+  overflow: auto;
+}
+.lab-result {
+  display: grid;
+  grid-template-columns: 90px minmax(100px, 1fr) 85px;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 5px;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.lab-result span {
+  overflow-wrap: anywhere;
+}
+.lab-result button {
+  padding: 5px;
+  font-size: 11px;
+}
+@media (max-width: 1100px) {
+  .lab-layout {
+    grid-template-columns: 215px minmax(0, 1fr);
+  }
+  #lab-viewport {
+    height: 460px;
+  }
+  .lab-source {
+    flex-wrap: wrap;
+  }
+  .lab-source label {
+    flex-basis: 100%;
+  }
+}
