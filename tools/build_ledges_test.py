@@ -1,0 +1,35 @@
+"""Stage native vault ledges in an existing combined mod; does not install or launch."""
+import argparse
+import json
+from pathlib import Path
+import zipfile
+
+from build_horse_trader_test import digest, rewrite
+from ledges import build as convert, LEVEL_FILES
+from region_travel import guid
+from upgrade_map import read
+
+
+def build(source, target, mod, output):
+    if output.exists(): raise FileExistsError('Choose a fresh staging directory')
+    level = mod/'Data/Levels/kcd1_travel/level.pak'
+    with zipfile.ZipFile(level) as z:
+        files = {n: read(z, n) for n in LEVEL_FILES if n in z.namelist()}
+    updated, report = convert(files, source, target, guid)
+    destination = output/'Data/Levels/kcd1_travel/level.pak'
+    rewrite(level, destination, updated)
+    with zipfile.ZipFile(level) as a, zipfile.ZipFile(destination) as b:
+        before = {i.filename: (i.CRC, i.file_size) for i in a.infolist() if i.filename not in updated}
+        after = {i.filename: (i.CRC, i.file_size) for i in b.infolist() if i.filename not in updated}
+        if before != after: raise ValueError('Unrelated level entries changed')
+    report.update(baseline_sha256=digest(level), staged_level_sha256=digest(destination),
+                  unrelated_level_entries_preserved=len(before))
+    (output/'report.json').write_text(json.dumps(report, indent=2)+'\n', encoding='utf-8')
+    print(json.dumps({k: v for k, v in report.items() if k != 'records'}, indent=2))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description=__doc__)
+    for name in ('source', 'target', 'mod', 'output'):
+        parser.add_argument('--'+name, type=Path, required=True)
+    build(**vars(parser.parse_args()))
