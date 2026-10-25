@@ -191,6 +191,122 @@ class DesktopSetupTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'changed'): install_transaction(source, target)
         self.assertEqual((dest / f'Data/{MOD_ID}.pak').read_bytes(), b'old')
 
+    def set_file(self, package, name, data):
+        (package/name).parent.mkdir(parents=True, exist_ok=True); (package/name).write_bytes(data)
+        receipt = json.loads((package/RECEIPT).read_text())
+        receipt['files'][name] = hashlib.sha256(data).hexdigest()
+        (package/RECEIPT).write_text(json.dumps(receipt))
+
+    @patch('desktop_setup.game_running', return_value=False)
+    def test_same_volume_install_links_archives_and_copies_metadata(self, *_):
+        target = self.target(); source = self.package(self.root/'package', b'new')
+        big = 'Data/Levels/kcd1_rataje/big.pak'
+        self.set_file(source, big, b'w'*65536)
+        # Space for metadata only: archives must not be counted when they are linked.
+        metadata = sum(p.stat().st_size for p in source.rglob('*') if p.is_file() and p.suffix != '.pak')
+        with patch('desktop_setup.free_space', return_value=1024**3 + metadata):
+            install_transaction(source, target)
+        dest = target/'Mods'/MOD_ID
+        verify_package(dest)
+        for name in (big, f'Data/{MOD_ID}.pak', 'Data/Levels/kcd1_rataje/level.pak'):
+            self.assertTrue((dest/name).samefile(source/name), name)
+        for name in (RECEIPT, 'mod.manifest', 'campaign.json', 'Data/Levels/kcd1_rataje/levelinfo.xml'):
+            self.assertFalse((dest/name).samefile(source/name), name)
+        self.assertEqual([p.name for p in target.iterdir() if p.name.startswith('.gluemapper-install-')], [])
+
+    @patch('desktop_setup.game_running', return_value=False)
+    @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
+    def test_link_failure_or_other_volume_copies_archives(self, *_):
+        target = self.target(); source = self.package(self.root/'package', b'new')
+        name = f'Data/{MOD_ID}.pak'
+        with patch('desktop_setup.os.link', side_effect=OSError('links unavailable')):
+            install_transaction(source, target)
+        dest = target/'Mods'/MOD_ID
+        self.assertFalse((dest/name).samefile(source/name)); verify_package(dest)
+        with patch('desktop_setup.same_volume', return_value=False), \
+                patch('desktop_setup.os.link', wraps=__import__('os').link) as link:
+            install_transaction(source, target)
+        # Unchanged files are still reused from the previous install; nothing links the package.
+        self.assertTrue(all(Path(call.args[0]).is_relative_to(dest) for call in link.call_args_list))
+        self.assertFalse((dest/name).samefile(source/name)); verify_package(dest)
+
+    @patch('desktop_setup.game_running', return_value=False)
+    def test_link_failure_without_space_for_copy_installs_nothing(self, *_):
+        target = self.target(); source = self.package(self.root/'package', b'new')
+        self.set_file(source, 'Data/big.pak', b'b'*65536)
+        metadata = sum(p.stat().st_size for p in source.rglob('*') if p.is_file() and p.suffix != '.pak')
+        with patch('desktop_setup.free_space', return_value=1024**3 + metadata), \
+                patch('desktop_setup.os.link', side_effect=OSError('links unavailable')):
+            with self.assertRaisesRegex(ValueError, 'Cannot link'): install_transaction(source, target)
+        self.assertFalse((target/'Mods'/MOD_ID).exists())
+
+    @patch('desktop_setup.game_running', return_value=False)
+    @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
+    def test_linked_hash_mismatch_installs_nothing(self, *_):
+        target = self.target(); source = self.package(self.root/'package', b'new')
+        (source/f'Data/{MOD_ID}.pak').write_bytes(b'tampered')
+        with self.assertRaisesRegex(ValueError, 'Package changed'): install_transaction(source, target)
+        self.assertFalse((target/'Mods'/MOD_ID).exists())
+        self.assertEqual([p.name for p in target.iterdir() if p.name.startswith('.gluemapper-install-')], [])
+        dest = self.package(target/'Mods'/MOD_ID, b'old')
+        with self.assertRaisesRegex(ValueError, 'Package changed'): install_transaction(source, target)
+        self.assertEqual((dest/f'Data/{MOD_ID}.pak').read_bytes(), b'old'); verify_package(dest)
+
+    @patch('desktop_setup.game_running', return_value=False)
+    @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
+    def test_failed_linked_swap_restores_previous_mod(self, *_):
+        target = self.target(); dest = self.package(target/'Mods'/MOD_ID, b'old')
+        source = self.package(self.root/'package', b'new')
+        original = Path.rename
+        def fail_stage(path, to):
+            if path.name == MOD_ID and path.parent.name.startswith('.gluemapper-install-'): raise OSError('simulated swap failure')
+            return original(path, to)
+        with patch.object(Path, 'rename', fail_stage):
+            with self.assertRaisesRegex(OSError, 'simulated'): install_transaction(source, target)
+        self.assertEqual((dest/f'Data/{MOD_ID}.pak').read_bytes(), b'old'); verify_package(dest)
+        self.assertEqual((source/f'Data/{MOD_ID}.pak').read_bytes(), b'new'); verify_package(source)
+
+    @patch('desktop_setup.game_running', return_value=False)
+    @patch('desktop_setup.free_space', return_value=100 * 1024 ** 3)
+    def test_package_rewrites_after_install_leave_linked_mod_unchanged(self, *_):
+        import io, zipfile
+        from setup_package_upgrade import rewrite
+        from control_retail_package import rewrite_pak
+        target = self.target(); source = self.package(self.root/'package', b'new')
+        archives = ('Data/Levels/kcd1_rataje/level.pak', 'Data/Levels/kcd1_rataje/terrain.pak')
+        for name in archives:
+            blob = io.BytesIO()
+            with zipfile.ZipFile(blob, 'w') as z: z.writestr('entry.xml', b'<original/>')
+            self.set_file(source, name, blob.getvalue())
+        install_transaction(source, target)
+        dest = target/'Mods'/MOD_ID
+        before = {n: (dest/n).read_bytes() for n in archives}
+        self.assertTrue(all((dest/n).samefile(source/n) for n in archives))
+        rewrite(source, archives[0], {'entry.xml': b'<changed/>'})
+        rewrite_pak(source/archives[1], {'entry.xml': b'<changed/>'})
+        for name in archives:
+            self.assertFalse((dest/name).samefile(source/name))
+            self.assertEqual((dest/name).read_bytes(), before[name])
+            with zipfile.ZipFile(source/name) as z: self.assertEqual(z.read('entry.xml'), b'<changed/>')
+        verify_package(dest)
+
+    @patch('desktop_setup.validate_games', return_value='1.5.6')
+    @patch('setup_shaders.tool_root')
+    @patch('desktop_setup.game_running', return_value=False)
+    def test_install_preflight_does_not_reserve_space_for_linked_archives(self, *_):
+        target = self.target(); source = self.package(self.root/'package', b'new')
+        self.set_file(source, 'Data/big.pak', b'p'*65536)
+        receipt = json.loads((source/RECEIPT).read_text()); receipt['travel_bridge'] = {'files': []}
+        (source/RECEIPT).write_text(json.dumps(receipt))
+        metadata = sum(p.stat().st_size for p in source.rglob('*') if p.is_file() and p.suffix != '.pak')
+        config = dict(kcd1=str(self.root/'kcd1'), kcd2=str(target), workspace=str(self.root/'work'),
+                      action='install', package=str(source))
+        space = 1024**3 + 100*1024**2 + metadata + 1024
+        with patch('desktop_setup.free_space', return_value=space):
+            preflight(config)
+            with patch('desktop_setup.same_volume', return_value=False):
+                with self.assertRaisesRegex(ValueError, 'KCD2 drive needs'): preflight(config)
+
     @patch('desktop_setup.validate_games', return_value='1.5.6')
     @patch('setup_shaders.tool_root')
     @patch('desktop_setup.game_running', return_value=False)
