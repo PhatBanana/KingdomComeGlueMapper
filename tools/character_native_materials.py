@@ -54,7 +54,7 @@ def bake_float_dds(path, image, material, specular=None):
     write_float_dds(path, bake_macro_diffuse(image, material, specular))
 
 
-def convert_character_materials(output, components, assets, namespace, sex, bake=bake_float_dds):
+def convert_character_materials(output, components, assets, namespace, sex, bake=bake_float_dds, *, preserve_hiding=False):
     """Convert only materials selected by this character; no global replacements.
 
     `bake(path, image, material, specular=None)` writes each float macro texture;
@@ -157,7 +157,7 @@ def convert_character_materials(output, components, assets, namespace, sex, bake
                     model.relative_to(output).as_posix()).values())]
                 for member in family:
                     if member not in meshes:
-                        member.write_bytes(native_vertex_features(member.read_bytes())); meshes.add(member)
+                        member.write_bytes(native_vertex_features(member.read_bytes(), preserve_hiding=preserve_hiding)); meshes.add(member)
     path = output / ('Libs/Tables/Character/ClothingMaterial__' + namespace + '.xml')
     path.write_bytes(xml(feature_root))
     return report

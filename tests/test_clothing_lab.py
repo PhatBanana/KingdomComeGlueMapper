@@ -55,6 +55,18 @@ class FakeCatalog:
 
 
 class ClothingLabTests(unittest.TestCase):
+    def test_lod_selection_uses_each_parts_authored_chain_and_reports_the_effective_level(self):
+        catalog=object.__new__(Catalog)
+        catalog.assets=SimpleNamespace(index={name:None for name in ('body.skin','head.skin','head_lod1.skin','head_lod2.skin')})
+        self.assertEqual(catalog.model_at_lod('body.skin',2),('body.skin',0))
+        self.assertEqual(catalog.model_at_lod('head.skin',1),('head_lod1.skin',1))
+        self.assertEqual(catalog.model_at_lod('head.skin',4),('head_lod2.skin',2))
+        with self.assertRaisesRegex(ValueError,'Missing base'):
+            catalog.model_at_lod('missing.skin',1)
+        catalog.assets.index['broken.skin']=None;catalog.assets.index['broken_lod2.skin']=None
+        with self.assertRaisesRegex(ValueError,'Non-contiguous'):
+            catalog.model_at_lod('broken.skin',2)
+
     def test_inherited_layer_and_asset_paths_resolve(self):
         doc=ET.fromstring('''<database><CharacterComponents><Component Name="Female" Gender="Female" Race="Human" FilePath="humans/female/">
         <DerivedComponents><Clothing Name="Dress" ArmorType="Dress" ArmorArchetypeId="27"><Elements><SkinElement EquipmentPart="torso" BodyLayerId="5" Model="base.skin" KeepBodyLayer="true"/></Elements>
@@ -114,6 +126,14 @@ class ClothingLabTests(unittest.TestCase):
         c=FakeCatalog();c.parts['dress']['attributes']['HidingGroups']='';c.meshes['dress.skin']=mesh(-.01)
         result=validate(c,['body','dress'],True)
         self.assertIn('cloth_under_visible_skin',{f['code'] for f in result['findings']})
+
+    def test_inner_garment_behind_skin_is_not_visible_through_an_opaque_outer_garment(self):
+        c=FakeCatalog();c.parts['dress']['attributes']['HidingGroups']='';c.meshes['dress.skin']=mesh(-.01)
+        c.parts['outer']=part('outer',layer='6');c.meshes['outer.skin']=mesh(.02)
+        result=validate(c,['body','dress','outer'],True)
+        self.assertNotIn('cloth_under_visible_skin',{f['code'] for f in result['findings']})
+        # Removing the opaque cover must restore the diagnostic.
+        self.assertIn('cloth_under_visible_skin',{f['code'] for f in validate(c,['body','dress'],True)['findings']})
 
     def test_hiding_group_is_scoped_to_equipment_part(self):
         c=FakeCatalog();c.groups['cover']['region']='feet'

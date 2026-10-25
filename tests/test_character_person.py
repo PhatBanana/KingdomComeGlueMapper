@@ -75,7 +75,7 @@ class PersonImportTests(unittest.TestCase):
         for sex in ('male', 'female'):
             for region in ('arms', 'hands'):
                 self.assertTrue(keep_body_under_outfit(sex, region))
-        self.assertFalse(keep_body_under_outfit('male', 'torso'))
+        self.assertTrue(keep_body_under_outfit('male', 'torso'))
         self.assertTrue(keep_body_under_outfit('female', 'torso'))
 
     def test_activity_chain_has_only_resolved_native_targets(self):

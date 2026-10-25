@@ -32,6 +32,13 @@ def body_replaced(catalog, selected, part, element):
         for other in (catalog.parts[i] for i in selected))
 
 
+def rendered_vertices(mesh, hidden):
+    """Match the viewer's triangle culling, not just individual vertex bits."""
+    visible = np.zeros(mesh.n, bool)
+    visible[np.unique(mesh.faces[~hidden[mesh.faces].any(axis=1)])] = True
+    return visible
+
+
 def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
     selected = list(dict.fromkeys(selected))
     findings, meshes, slots, roles, families = [], [], {}, {}, set()
@@ -42,6 +49,13 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
     if not any(catalog.parts[i]['kind']=='Body' for i in selected):
         findings.append(finding('missing_body','No body component is selected.', selected, 'error'))
     masks = active_masks(catalog,selected)
+    equipment = getattr(catalog, 'equipment', None)
+    lod_selections = []
+    def loaded_model(element):
+        name = element['ModelResolved']
+        if hasattr(catalog, 'model_at_lod'):
+            return catalog.model_at_lod(name, lod)
+        return (name.removesuffix('.skin')+'_lod'+str(lod)+'.skin' if lod else name), lod
     for identity in selected:
         part = catalog.parts[identity]; attrs = part['attributes']
         families.add(part['family'])
@@ -52,8 +66,10 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
             if catalog.native_roles and native is None:
                 findings.append(finding('unknown_native_role','Clothing role is absent from the selected KCD2 tables.',[identity],'error',role=role))
             elif native:
-                if native['archetype'] != attrs.get('ArmorArchetypeId') or native['gender'] != part['gender']:
-                    findings.append(finding('native_role_mismatch','Archetype or gender differs from the inherited KCD2 role.',[identity],'error',expected=native))
+                archetype = attrs.get('ArmorArchetypeId')
+                valid_archetype = archetype in equipment.types if equipment else native['archetype'] == archetype
+                if not valid_archetype or native['gender'] != part['gender']:
+                    findings.append(finding('native_role_mismatch','Equipment archetype is invalid or gender differs from the inherited KCD2 visual role.',[identity],'error',expected=native))
         for group in attrs.get('HidingGroups','').split():
             if group not in catalog.groups:
                 findings.append(finding('missing_hiding_group','Referenced hiding group is not defined.',[identity],'error',group=group))
@@ -70,15 +86,18 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
                 findings.append(finding('unknown_native_layer','Body layer is absent from the native order table.',[identity],'error',region=region,layer=layer))
             if native_default and geometry:
                 findings.append(finding('native_default_layer','The native template leaves this part unnumbered; numeric layer-order geometry tests are not applied.',[identity],region=region))
-            if native and (region,layer) not in native['layers']:
-                findings.append(finding('native_layer_difference','The converted part/layer differs from its native role template; inspect replacement behaviour.',[identity],region=region,layer=layer,native_layers=native['layers']))
+            native_layers = (sorted(equipment.layers.get(attrs.get('ArmorArchetypeId'), set()))
+                             if equipment else native['layers'] if native else [])
+            if native and not native_default and (region,layer) not in native_layers:
+                findings.append(finding('native_layer_difference','The converted part/layer differs from its native equipment occupancy; inspect replacement behaviour.',[identity],region=region,layer=layer,native_layers=native_layers))
             if part['kind']=='Clothing' and element.get('KeepBodyLayer','false') != 'true':
                 findings.append(finding('body_layer_replacement','This element can replace the body region beneath it; check exposed skin.',[identity],region=region))
             if not inspect_assets:
                 continue
             name = element.get('ModelResolved','')
-            if lod: name = name.removesuffix('.skin')+'_lod'+str(lod)+'.skin'
             try:
+                name, effective_lod = loaded_model(element)
+                lod_selections.append(dict(component=identity, model=name, requested=lod, effective=effective_lod))
                 mesh = catalog.mesh(name)
                 if not np.isfinite(mesh.vertices).all() or np.any(mesh.faces < 0) or np.any(mesh.faces >= mesh.n):
                     raise ValueError('Non-finite vertices or indices outside mesh')
@@ -100,6 +119,12 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
     for role, identities in roles.items():
         if len(identities)>1:
             findings.append(finding('shared_armor_archetype','Multiple garments use one native equipment archetype. Check native equip replacement.',identities,archetype=role))
+    if equipment:
+        for a, b in combinations(roles, 2):
+            conflict = equipment.exclusive.get(a, set()) & equipment.exclusive.get(b, set())
+            if conflict:
+                findings.append(finding('exclusive_equipment_overlap', 'Different archetypes occupy the same exclusive native equipment slots.',
+                    roles[a]+roles[b], 'error', slots=sorted(conflict)))
     private = getattr(catalog, 'private_groups', set(catalog.groups))
     if len(families)>1 and any(private.intersection(catalog.parts[i]['attributes'].get('HidingGroups','').split()) for i in selected):
         findings.append(finding('cross_outfit_masks','This combination mixes outfit-specific hiding masks; matching bit numbers do not prove compatible coverage.',selected))
@@ -111,8 +136,7 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
             if catalog.parts[identity]['kind'] != 'Clothing': continue
             try:
                 if hasattr(catalog,'coverage_surface'):
-                    model=element['ModelResolved']
-                    if lod:model=model.removesuffix('.skin')+'_lod'+str(lod)+'.skin'
+                    model,_=loaded_model(element)
                     mask=masks.get(element.get('EquipmentPart'),0)
                     surface=catalog.coverage_surface(model,element['MaterialResolved'],mask)
                     covers.append((identity,element,(surface,model,element['MaterialResolved'],mask)))
@@ -134,23 +158,27 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
         def hits(mesh,element,surface,inward=.06,outward=.12):
             if isinstance(surface,tuple):
                 _,cover,material,mask=surface
-                source=element['ModelResolved']
-                if lod:source=source.removesuffix('.skin')+'_lod'+str(lod)+'.skin'
+                source,_=loaded_model(element)
                 return catalog.coverage_hits(source,cover,material,mask,inward,outward)
             return surface.covers(mesh.vertices,normals(mesh),inward,outward)
         for identity,element,mesh,hidden,_ in meshes:
             if catalog.parts[identity]['kind'] != 'Body': continue
             region = element.get('EquipmentPart'); covered = np.zeros(mesh.n,bool)
             referenced = np.zeros(mesh.n,bool); referenced[np.unique(mesh.faces)] = True
-            directions=normals(mesh)
+            # An inner shirt behind skin is not a visible defect when an
+            # opaque outer garment covers that skin. Test the exposed surface,
+            # retaining alpha cutouts and the same bounded normal segments.
+            occluded = np.zeros(mesh.n,bool)
+            for _,_,surface in covers:
+                occluded |= hits(mesh,element,surface,inward=0,outward=.12)
             for other,cover_element,surface in covers:
                 # Female torso meshes can span arms and legs; spatial rays decide coverage.
                 covered |= hits(mesh,element,surface)
                 inside=np.zeros(mesh.n,bool)
-                visible_vertices = ~hidden & referenced
+                visible_vertices = rendered_vertices(mesh, hidden) & ~occluded
                 if visible_vertices.any():inside=hits(mesh,element,surface,inward=.025,outward=0) & visible_vertices
-                if inside.any(): findings.append(finding('cloth_under_visible_skin','Garment intersects inward normal segments of visible skin.',[identity,other],vertices=int(inside.sum()),inward_metres=.025))
-            exposed = hidden & ~covered & referenced
+                if inside.any(): findings.append(finding('cloth_under_visible_skin','Garment intersects inward normal segments of skin with no opaque outward cover.',[identity,other],vertices=int(inside.sum()),sample_vertices=np.flatnonzero(inside)[:32].tolist(),inward_metres=.025))
+            exposed = ~rendered_vertices(mesh, hidden) & ~covered & referenced
             if exposed.any():
                 findings.append(finding('hidden_skin_without_cover','Body vertices are hidden without an opaque garment surface along their normal.',[identity],vertices=int(exposed.sum()),sample_vertices=np.flatnonzero(exposed)[:32].tolist(),inward_metres=.06,outward_metres=.12))
         # Layer-on-layer rays expose inverted layering without claiming a cloth simulation.
@@ -162,10 +190,10 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
                 if il is None or ol is None:continue
                 if ie.get('EquipmentPart') != oe.get('EquipmentPart') or il >= ol: continue
                 referenced = np.zeros(im.n,bool); referenced[np.unique(im.faces)] = True
-                inverted = hits(im,ie,surface,inward=.015,outward=0) & ~ih & referenced
-                if inverted.any(): findings.append(finding('outer_layer_under_inner','Higher layer intersects inward normal segments of the lower garment.',[inner,outer],vertices=int(inverted.sum()),inward_metres=.015))
+                inverted = hits(im,ie,surface,inward=.015,outward=0) & rendered_vertices(im, ih)
+                if inverted.any(): findings.append(finding('outer_layer_under_inner','Higher layer intersects inward normal segments of the lower garment.',[inner,outer],vertices=int(inverted.sum()),sample_vertices=np.flatnonzero(inverted)[:32].tolist(),inward_metres=.015))
     status = 'error' if any(f['severity']=='error' for f in findings) else 'review' if findings else 'checked'
-    return dict(status=status,selected=selected,lod=lod,geometry_checked=geometry,findings=findings,meshes=stats,
+    return dict(status=status,selected=selected,lod=lod,lod_selections=lod_selections,geometry_checked=geometry,findings=findings,meshes=stats,
                 native_rules_checked=bool(catalog.native_roles and catalog.layer_order),assets_checked=inspect_assets,runtime_verified=False)
 
 

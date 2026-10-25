@@ -19,14 +19,33 @@ def garment_layout(part):
     return sex, region, layer
 
 
-def female_role(part):
-    sex, region, layer = garment_layout(part)
+def female_role(part, tables=None):
+    if tables is None:
+        sex, region, _ = garment_layout(part)
+    else:
+        sex = int(part['gender_id'])
+        equipment = {r['equipment_part_id']: r['equipment_part_name'] for r in tables.get('item/equipment_part')['rows']}
+        subparts = {r['body_subpart_id']: equipment[r['equipment_part_id']] for r in tables.get('item/body_subpart')['rows']}
+        covered = {subparts[r['body_subpart_id']] for r in tables.get('item/armor_archetype2body_subpart')['rows']
+                   if r['armor_archetype_id'] == part['armor_archetype_id']}
+        # A full dress also spans arms/legs. Its torso occupancy defines the
+        # visual family, including source meshes without modular filenames.
+        if 'torso' in covered and covered <= {'torso', 'waist', 'arms', 'legs'}:
+            region = 2
+        elif covered == {'head'}:
+            region = 1
+        elif covered == {'feet'}:
+            region = 4
+        else:
+            raise ValueError('No native female clothing family for source equipment regions: ' + str(sorted(covered)))
     if sex != 2:
         raise ValueError('Female garment policy requires a female source mesh')
     # Match the native female equipment roles; retain the complete source dress
     # instead of applying the male torso/waist/sleeve partition to its skirt.
-    roles = {1: ('F_Veil', 'head', 7), 2: ('F_SimpleDress', 'torso', 5 if layer == 1 else 9),
-             4: ('F_Shoes', 'feet', 2)}
+    # This selects only the visual family. Equipment occupancy and layer come
+    # from the source archetype's counterpart in the installed native tables.
+    roles = {1: ('F_Veil', 'head'), 2: ('F_SimpleDress', 'torso'),
+             4: ('F_Shoes', 'feet')}
     if region not in roles:
         raise ValueError('No native female clothing role for source part ' + str(region))
     return roles[region]

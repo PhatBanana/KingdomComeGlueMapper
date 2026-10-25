@@ -126,7 +126,7 @@
     initRenderer();
     rebuild();
     status(
-      `${r.scene.meshes.length} meshes loaded · ${r.scene.errors.length} asset errors · ${r.validation.status || "preview"}. ${r.scene.errors.map((e) => e.error).join(" ")}`,
+      `${r.scene.meshes.length} meshes loaded · ${r.scene.errors.length} asset errors · ${r.validation.status || "preview"}. ${r.scene.meshes.filter((m) => m.effective_lod < m.requested_lod).length} parts retain their last authored LOD. ${r.scene.errors.map((e) => e.error).join(" ")}`,
     );
   }
   async function restore() {

@@ -5,11 +5,14 @@ import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
+import xml.etree.ElementTree as ET
 
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections, native_alpha_surfaces
+from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections, native_alpha_surfaces, triangle_safe_membership, register_coverage
+from clothing_regions import split_skin_regions
 from npc_effects import write_float_dds
 from character_skin_upgrade import CompiledSkin, upgrade_skin
 from test_character_upgrade import sample_skin
@@ -140,6 +143,48 @@ class ClothingCoverageTests(unittest.TestCase):
             self.assertEqual(before.streams[stream].data, result.streams[stream].data)
         for i, remap in enumerate(result.remap):
             self.assertEqual(result.internal.data[32+int(remap)*64+63], alpha[i])
+
+    def test_covered_vertex_does_not_erase_uncovered_neighbour_triangle(self):
+        skin=SimpleNamespace(n=5,ninternal=5,remap=np.arange(5),faces=np.array([[0,1,2],[1,3,2],[0,2,4]]))
+        covered=np.array([1,1,1,0,1],bool)
+        safe=triangle_safe_membership(skin,covered)
+        culled=safe[skin.faces].any(axis=1)
+        self.assertTrue(culled.any())
+        self.assertFalse(culled[1])
+        self.assertTrue(covered[skin.faces[culled]].all())
+
+    def test_exposed_render_copy_preserves_the_shared_seam(self):
+        skin=SimpleNamespace(n=6,ninternal=5,remap=np.array([0,1,2,0,3,4]),faces=np.array([[0,1,2],[3,4,5]]))
+        safe=triangle_safe_membership(skin,np.array([1,1,1,0,1,1],bool))
+        self.assertFalse(safe[0]);self.assertFalse(safe[3])
+        self.assertFalse(safe.any())
+
+    def test_authored_lods_get_their_own_mask_topology(self):
+        blob,_=upgrade_skin(sample_skin(),sample_skin(),clear_hiding=True)
+        lower=split_skin_regions(blob,['keep','discard','discard','discard'])['keep']
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp);folder=output/'objects/characters/example';folder.mkdir(parents=True)
+            (output/'Libs/Tables/Character').mkdir(parents=True)
+            for stem in ('body','dress'):
+                (folder/(stem+'.skin')).write_bytes(blob)
+                (folder/(stem+'_lod1.skin')).write_bytes(lower)
+            component=ET.fromstring('<Component FilePath="example"><DerivedComponents>'
+                '<Body><Elements><SkinElement EquipmentPart="torso" Model="body.skin"/></Elements></Body>'
+                '<Clothing Name="test_dress"><Elements><SkinElement EquipmentPart="torso" Model="dress.skin"/></Elements></Clothing>'
+                '</DerivedComponents></Component>')
+            tables={'item/body_layer':[dict(body_layer_id='1',layer_order='1')],
+                    'item/armor_archetype2body_subpart':[dict(armor_archetype_id='a',body_layer_id='1',body_subpart_id='torso')],
+                    'item/clothing_raycast':[dict(skin='source.skin',material='source.mtl',opaque_triangle_mask=encoded([1,1,1,1]),not_culled_triangle_mask=encoded([1,1,1,1]))]}
+            garment=dict(part=dict(kind='cloth',gender_id='2',armor_archetype_id='a'),stem='dress',
+                         source_model='source.skin',source_material='source.mtl')
+            with patch('clothing_coverage.native_alpha_surfaces',return_value=([(0,[np.ones((1,1))])]*10,[])), \
+                 patch('clothing_coverage.covered_points',side_effect=lambda points,*args,**kwargs: np.ones(len(points),bool)):
+                result=register_coverage(output,component,[garment],SimpleNamespace(get=lambda key:dict(rows=tables[key])),'test')
+            self.assertEqual([(r['lod'],r['candidate_triangles']) for r in result['layers']],[(0,4),(1,1)])
+            for name in ('body.skin','body_lod1.skin'):
+                skin=CompiledSkin((folder/name).read_bytes())
+                alpha=np.frombuffer(skin.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
+                self.assertTrue(((255^alpha)&16).all())
 
 
 if __name__ == '__main__':

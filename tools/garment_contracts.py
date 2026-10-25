@@ -3,7 +3,7 @@ from character_source_clothing import female_role
 
 
 def clothing_role(tables, armor, part):
-    if part.get('gender_id') == '2': return female_role(part)[0]
+    if part.get('gender_id') == '2': return female_role(part, tables)[0]
     name = tables.row('item/armor_archetype', 'armor_archetype_id', part['armor_archetype_id'])['armor_archetype_name']
     exact = {'HeadClothCap':'Cap', 'HeadClothFullMask':'CoifLarge', 'HeadChainCap':'CoifMail',
         'HeadChainCap_collarOnly':'CollarMail', 'HeadChainCap_withCollar':'CoifMail',

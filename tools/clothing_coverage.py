@@ -15,7 +15,6 @@ import numpy as np
 
 from character_skin_upgrade import CompiledSkin
 from clothing_regions import write_chunks
-from character_source_clothing import garment_layout
 from upgrade_map import xml
 
 
@@ -233,9 +232,10 @@ def apply_membership(blob, memberships):
     for bit, covered in memberships.items():
         if bit not in range(4, 8) or len(covered) != skin.n:
             raise ValueError('Invalid native coverage allocation')
-        # Every render copy must agree, otherwise a seam can appear in animation.
-        shared = np.zeros(skin.ninternal, dtype=bool)
-        np.logical_or.at(shared, skin.remap, covered)
+        # A shared vertex remains exposed if any render copy lacks coverage.
+        # OR here used to turn an uncertain UV seam into a hole in the body.
+        shared = np.ones(skin.ninternal, dtype=bool)
+        np.logical_and.at(shared, skin.remap, covered)
         alpha[shared[skin.remap]] &= np.uint8(255 ^ (1 << bit))
     payload = bytearray(colors.data)
     payload[27::4] = alpha.tobytes()
@@ -245,70 +245,160 @@ def apply_membership(blob, memberships):
     return write_chunks(skin.chunks, {colors.id: bytes(payload), skin.internal.id: bytes(internal)})
 
 
+def triangle_safe_membership(skin, covered):
+    """Never cull an adjacent triangle whose vertices lack coverage evidence.
+
+    Native hiding is encoded on vertices, while the preview culls a triangle
+    when any of its vertices is hidden. Erode uncertain boundary vertices so
+    that this conservative culling cannot erase an uncovered neighbour.
+    This is a vertex-boundary guarantee, not continuous surface certification.
+    """
+    covered = np.asarray(covered, dtype=bool).copy()
+    if covered.shape != (skin.n,):
+        raise ValueError('Coverage topology differs from target mesh')
+    shared = np.ones(skin.ninternal, bool)
+    np.logical_and.at(shared, skin.remap, covered)
+    covered = shared[skin.remap]
+    unsafe = skin.faces[~covered[skin.faces].all(axis=1)]
+    shared[skin.remap[unsafe].ravel()] = False
+    return shared[skin.remap]
+
+
+def register_fixed_body_coverage(output, component, namespace):
+    """Retain exposed skin under merged outfits instead of replacing regions."""
+    from character_lods import source_lods
+    folder = output / 'objects/characters' / component.get('FilePath')
+    index = {p.name.lower(): p for p in folder.glob('*.skin')}
+    derived = component.find('DerivedComponents')
+    outfit = derived.find('Clothing')
+    group_path = output / ('Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml')
+    groups = ET.parse(group_path).getroot()
+    definitions = groups.find('ClothingHidingGroups')
+    names = set(outfit.get('HidingGroups', '').split())
+    def family(element):
+        model = element.get('Model')
+        return {0: folder / model, **{lod: index[name] for lod, name in source_lods(index, model).items()}}
+    covers = []
+    for element in outfit.findall('Elements/SkinElement'):
+        surfaces, _ = native_alpha_surfaces(output, folder / element.get('Material'))
+        levels = {}
+        for level, path in family(element).items():
+            skin = CompiledSkin(path.read_bytes())
+            alpha = np.frombuffer(skin.streams[3].data[24:], np.uint8).reshape(-1, 4)[:, 3]
+            visible = ~(((255 ^ alpha) & 16) != 0)[skin.faces].any(axis=1)
+            levels[level] = (skin.vertices[skin.faces[visible]], alpha_intersections(skin, surfaces, visible))
+        covers.append(levels)
+    report = []
+    for element in derived.findall('Body/Elements/SkinElement'):
+        region = element.get('EquipmentPart')
+        name = namespace + '_outfit_covers_' + region
+        for level, path in family(element).items():
+            skin = CompiledSkin(path.read_bytes())
+            covered = np.zeros(skin.n, bool)
+            direction = normals(skin)
+            for levels in covers:
+                triangles, accept = levels[min(level, max(levels))]
+                covered |= covered_points(skin.vertices, direction, triangles, accept_hit=accept)
+            covered = triangle_safe_membership(skin, covered)
+            path.write_bytes(apply_membership(path.read_bytes(), {4: covered}))
+            report.append(dict(target=path.name, lod=level, covered_vertices=int(covered.sum()), total_vertices=skin.n))
+        if name not in names:
+            ET.SubElement(definitions, 'HidingGroup', Name=name, Index='4', EquipmentPart=region)
+            names.add(name)
+    outfit.set('HidingGroups', ' '.join(sorted(names)))
+    group_path.write_bytes(xml(groups))
+    return dict(policy='Visible merged outfit surfaces with opaque alpha; preserve exposed body regions',
+                layers=report, runtime_verified=False)
+
+
 def register_coverage(output, component, garments, tables, namespace):
+    from character_lods import source_lods
+    from clothing_fitting import source_layer_contracts, higher_layers
     folder = output / 'objects/characters' / component.get('FilePath')
     derived = component.find('DerivedComponents')
     rows = tables.get('item/clothing_raycast')['rows']
-    ordered = sorted(garments, key=lambda g: (garment_layout(g['part'])[1:]))
-    if len(ordered) > 4:
+    parts = [g['part'] for g in garments]
+    contracts = source_layer_contracts(parts, tables)
+    higher = {i: higher_layers(i, parts, contracts) for i in range(len(parts))}
+    # Higher garments are processed first, so hidden inner triangles cannot
+    # subsequently be used as proof of opaque body coverage.
+    order = sorted(range(len(garments)), key=lambda i: (len(higher[i]), garments[i]['stem']))
+    if len(order) > 4:
         raise ValueError('Outfit needs more than four independent native hiding groups')
     groups = ET.Element('database', name='barbora')
     definitions = ET.SubElement(groups, 'ClothingHidingGroups', version='2')
-    targets = []
-    for element in derived.find('Body/Elements'):
-        targets.append(dict(element=element, rank=0, region=None, component=derived.find('Body')))
-    for garment in ordered:
+    index = {p.name.lower(): p for p in folder.glob('*.skin')}
+    def family(element):
+        model = element.get('Model')
+        return {0: folder / model, **{lod: index[name] for lod, name in source_lods(index, model).items()}}
+    targets = [(None, element, family(element)) for element in derived.find('Body/Elements')]
+    nodes = {}
+    families = {}
+    for i, garment in enumerate(garments):
         node = derived.find("Clothing[@Name='" + namespace + '_' + garment['stem'] + "']")
-        _, region, layer = garment_layout(garment['part'])
-        targets.append(dict(element=node.find('Elements/SkinElement'), rank=layer, region=region, component=node))
+        nodes[i] = node
+        element = node.find('Elements/SkinElement')
+        families[i] = family(element)
+        targets.append((i, element, families[i]))
     masks = {}; report = []; used_groups = set(); visibility_sources = []
-    for index, garment in enumerate(ordered):
-        node = derived.find("Clothing[@Name='" + namespace + '_' + garment['stem'] + "']")
-        model = folder / (garment['stem'] + '.skin')
-        cover = CompiledSkin(model.read_bytes())
-        matching = [r for r in rows if r['skin'].replace('\\', '/').lower() == garment['source_model'].replace('\\', '/').lower()
-                    and r['material'].replace('\\', '/').lower() == garment['source_material'].replace('\\', '/').lower()]
-        visibility = (unculled_garment_visibility(cover)
-                      if len(matching) == 1 and not matching[0].get('not_culled_triangle_mask') else None)
-        opaque, accept_hit, evidence = converted_coverage_surface(
-            cover, rows, garment['source_model'], garment['source_material'],
-            output, folder / (garment['stem'] + '.mtl'), visibility)
-        visibility_sources.append(dict(garment=garment['stem'],
-            visibility='source_cache' if matching[0].get('not_culled_triangle_mask') else 'converted_complete_mesh',
+    for i in order:
+        garment = garments[i]; node = nodes[i]
+        surfaces, evidence = native_alpha_surfaces(output, folder / (garment['stem'] + '.mtl'))
+        covers = {}
+        for level, path in families[i].items():
+            cover = CompiledSkin(path.read_bytes())
+            if level == 0:
+                opaque = source_opacity(rows, garment['source_model'], garment['source_material'],
+                    len(cover.faces), rendered_visibility=np.ones(len(cover.faces), bool),
+                    generated_opacity=np.ones(len(cover.faces), bool))
+            else:
+                # Source triangle-cache topology belongs to LOD0 only. Lower
+                # LODs are tested against their own triangles and actual alpha.
+                opaque = np.ones(len(cover.faces), bool)
+            if masks.get(path):
+                hidden = np.logical_or.reduce(list(masks[path].values()))
+                opaque &= ~hidden[cover.faces].any(axis=1)
+            covers[level] = (cover.vertices[cover.faces[opaque]], alpha_intersections(cover, surfaces, opaque), int(opaque.sum()))
+        visibility_sources.append(dict(garment=garment['stem'], lods=sorted(covers),
             opacity='converted_alpha_intersections', evidence=evidence))
-        triangles = cover.vertices[cover.faces[opaque]]
-        _, region, layer = garment_layout(garment['part'])
         names = []
-        for target in targets:
-            if target['rank'] >= layer or (target['region'] is not None and target['region'] != region):
+        for target_index, element, target_family in targets:
+            if target_index is not None and i not in higher[target_index]:
                 continue
-            element = target['element']; path = folder / element.get('Model')
-            skin = CompiledSkin(path.read_bytes())
-            covered = covered_points(skin.vertices, normals(skin), triangles, accept_hit=accept_hit)
-            if not covered.any():
-                continue
-            bit = 4 + index
-            masks.setdefault(path, {})[bit] = covered
-            name = namespace + '_' + garment['stem'] + '_covers_' + element.get('EquipmentPart')
-            if name not in used_groups:
-                ET.SubElement(definitions, 'HidingGroup', Name=name, Index=str(bit), EquipmentPart=element.get('EquipmentPart'))
-                used_groups.add(name)
-            names.append(name)
-            report.append(dict(cover=garment['stem'], target=element.get('Model'),
-                               covered_vertices=int(covered.sum()), total_vertices=skin.n,
-                               candidate_triangles=int(opaque.sum()),
-                               opacity_test='UV_alpha_at_intersection',
-                               hiding_group=name, bit=bit))
+            for level, path in target_family.items():
+                cover_level = min(level, max(covers))
+                triangles, accept_hit, count = covers[cover_level]
+                skin = CompiledSkin(path.read_bytes())
+                covered = covered_points(skin.vertices, normals(skin), triangles, accept_hit=accept_hit)
+                if target_index is not None:
+                    target = garments[target_index]
+                    source_cover = (target.get('source_coverage', {}).get(garment['stem']) if level == 0 else
+                                    target.get('lod_coverage', {}).get(level, {}).get(garment['stem']))
+                    if source_cover is not None:
+                        if np.asarray(source_cover).shape != (skin.n,):
+                            raise ValueError('Pre-fit coverage topology differs from converted garment')
+                        covered |= np.asarray(source_cover, dtype=bool)
+                covered = triangle_safe_membership(skin, covered)
+                if not covered.any():
+                    continue
+                bit = 4 + i
+                masks.setdefault(path, {})[bit] = covered
+                name = namespace + '_' + garment['stem'] + '_covers_' + element.get('EquipmentPart')
+                if name not in used_groups:
+                    ET.SubElement(definitions, 'HidingGroup', Name=name, Index=str(bit), EquipmentPart=element.get('EquipmentPart'))
+                    used_groups.add(name)
+                names.append(name)
+                report.append(dict(cover=garment['stem'], target=path.name, lod=level, cover_lod=cover_level,
+                    covered_vertices=int(covered.sum()), total_vertices=skin.n, candidate_triangles=count,
+                    opacity_test='UV_alpha_at_intersection', hiding_group=name, bit=bit))
         node.set('HidingGroups', ' '.join(sorted(set(names))))
-        # The fallback underwear uses the same mesh and must hide the same body
-        # coverage when no equipped dress is present.
         for other in derived.findall('Clothing'):
-            if other.get('ArmorType') is None and any(e.get('Model') == model.name for e in other.findall('Elements/SkinElement')):
+            if other.get('ArmorType') is None and any(e.get('Model') == garment['stem'] + '.skin' for e in other.findall('Elements/SkinElement')):
                 other.set('HidingGroups', node.get('HidingGroups'))
     for path, membership in masks.items():
         path.write_bytes(apply_membership(path.read_bytes(), membership))
     path = output / ('Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml')
     path.write_bytes(xml(groups))
-    return dict(policy='Source triangle candidates intersected with converted alpha; bounded normal rays after fitting',
+    return dict(policy='Source layer contracts; visible converted surfaces; conservative triangle-boundary coverage at every authored LOD',
                 inward_metres=.06, outward_metres=.12, layers=report,
                 visibility_sources=visibility_sources, runtime_verified=False)

@@ -55,6 +55,8 @@ class FemaleClothingUpgradeTests(unittest.TestCase):
                         '</Clothing></Component>')
                     adapter.parents = {c: p for p in adapter.components.iter() for c in p}
                     adapter.defer = False
+                    adapter.tables = None
+                    adapter.equipment = SimpleNamespace(source_contract=lambda *args: dict(archetype='native-role', layer='9'))
                     part = dict(model=model, material=material, gender_id=gender, clothing_id='source-clothing')
                     plan = ImportPlan(source=dict(part=part, armor={}, role=role))
                     with patch('world_item_clothing.convert_character_materials', return_value={}):

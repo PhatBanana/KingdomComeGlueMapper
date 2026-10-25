@@ -162,7 +162,8 @@ def encode_morphs(chunk, records, linear, internal_linear):
 
 
 def upgrade_skin(blob, target_skeleton, *, variant=None, clear_hiding=True, bone_mapping=None,
-                 discard_unused_variants=False, morph_weights=None, geometry_mode='preserve', geometry_field=None):
+                 discard_unused_variants=False, morph_weights=None, morph_masks=None,
+                 geometry_mode='preserve', geometry_field=None):
     """Return upgraded bytes and evidence; source buffers are never modified.
 
     ``variant`` is the authored source garment shape, baked once before reposing.
@@ -177,6 +178,8 @@ def upgrade_skin(blob, target_skeleton, *, variant=None, clear_hiding=True, bone
     weighted clothing and body seams when the target has different proportions.
     ``geometry_field`` instead uses one anatomical field shared by all parts;
     its Jacobian updates normals, tangents and retained morph deltas together.
+    ``morph_masks`` optionally limits an authored fitting shape to covered
+    vertices. Masks are per-render-vertex weights in [0,1], welded across seams.
     """
     if geometry_mode not in ('preserve','repose'):raise ValueError('Unknown geometry mode')
     if geometry_field is not None and geometry_mode != 'preserve':
@@ -217,13 +220,29 @@ def upgrade_skin(blob, target_skeleton, *, variant=None, clear_hiding=True, bone
     if variant:
         if variant in shapes:raise ValueError('Variant specified twice')
         shapes[variant]=1.
+    masks=dict(morph_masks or {})
+    if set(masks)-set(shapes):raise ValueError('Morph mask requires an applied shape')
+    if variant in masks:raise ValueError('Garment variants cannot be coverage masked')
+    mask_evidence={}
     for name,weight in shapes.items():
         if not math.isfinite(weight):raise ValueError('Nonfinite morph weight')
         selected=[m for m in morphs if m['name']==name]
         if len(selected)!=1:raise ValueError('Requested garment variant missing: '+name)
         m=selected[0]
         if np.any(m['ids']>=skin.n):raise ValueError('Variant vertex out of range')
-        vertices[m['ids']]+=m['delta']*weight
+        if name in masks:
+            mask=np.asarray(masks[name],dtype=float)
+            if mask.shape!=(skin.n,) or not np.isfinite(mask).all() or np.any((mask<0)|(mask>1)):
+                raise ValueError('Invalid fitting morph mask')
+            low=np.full(skin.ninternal,np.inf);high=np.full(skin.ninternal,-np.inf)
+            np.minimum.at(low,skin.remap,mask);np.maximum.at(high,skin.remap,mask)
+            if np.any(high[skin.remap]-low[skin.remap]>1e-8):
+                raise ValueError('Fitting mask disagrees across a shared internal vertex')
+            factor=mask[m['ids'],None]*weight
+            mask_evidence[name]=dict(fitted_vertices=int(np.count_nonzero(mask)),
+                                    exposed_vertices=int(np.count_nonzero(mask==0)))
+        else:factor=weight
+        vertices[m['ids']]+=m['delta']*factor
     updated=np.einsum('nij,nj->ni',linear,vertices)+blended[:,:3,3]
     if geometry_field is not None:
         updated, linear = geometry_field.transform(vertices)
@@ -317,6 +336,7 @@ def upgrade_skin(blob, target_skeleton, *, variant=None, clear_hiding=True, bone
         raise AssertionError('Bind conversion changed skin influences')
     if not np.array_equal(checked.faces,skin.faces):raise AssertionError('Bind conversion changed topology')
     return output,dict(vertices=skin.n,triangles=len(skin.faces),variant=variant,baked_morphs=shapes,
+        fitting_masks=mask_evidence,
         geometry_mode='anatomical_landmarks' if geometry_field is not None else geometry_mode,
         anatomical_landmarks=len(geometry_field.source) if geometry_field is not None else 0,
         bone_mapping=mapping,extra_influenced_vertices=skin.info['extra_influenced_vertices'],

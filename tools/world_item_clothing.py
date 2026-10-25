@@ -76,6 +76,8 @@ class ClothingAdapter:
         self.native = Assets(target, stack)
         with zipfile.ZipFile(target/'Data/Tables.pak') as z:
             self.components = native_xml(read(z, 'Libs/Tables/Character/CharacterComponent.xml'))
+            from clothing_equipment import NativeEquipment
+            self.equipment = NativeEquipment.from_archive(z)
         self.parents = {c:p for p in self.components.iter() for c in p}
         self.stack, self.defer, self.pool, self.pending = stack, defer_bakes, None, deque()
 
@@ -124,12 +126,19 @@ class ClothingAdapter:
         root = ET.Element('database', name='barbora')
         horse = role in ('HorseShoe','Saddle','Bridle','Caparison')
         sex = 'female' if part.get('gender_id') == '2' else 'male'
+        equipment_contract = None
+        armor_archetype = ancestor.get('ArmorArchetypeId')
+        if sex == 'female':
+            region = female_role(part, self.tables)[1]
+            equipment_contract = self.equipment.source_contract(part, self.tables, armor_archetype, region)
+            armor_archetype = equipment_contract['archetype']
+            native_layers = {region: equipment_contract['layer']}
         component = ET.SubElement(ET.SubElement(root,'CharacterComponents',version='6'),'Component',
             Name=name+'_root', Race='Horse' if horse else 'Human',
             FilePath=prefix.removeprefix('objects/characters/'))
         if not horse: component.set('Gender',sex.title())
         node = ET.SubElement(ET.SubElement(component,'DerivedComponents'),'Clothing',
-            Name=name, ArmorType=role, ArmorArchetypeId=ancestor.get('ArmorArchetypeId'))
+            Name=name, ArmorType=role, ArmorArchetypeId=armor_archetype)
         files = {}
         missing_variant = None
         internal_offset = None
@@ -159,7 +168,7 @@ class ClothingAdapter:
             blob,_ = limit_skin_influences(blob)
             region = 'head'
             if horse: region = 'horse_back' if role in ('Saddle','Caparison') else 'horse_head'
-            elif sex == 'female': region = female_role(part)[1]
+            elif sex == 'female': region = female_role(part, self.tables)[1]
             elif role in ('HoseJoined','HoseSeparate','LegsChain','LegsPlate','LegsBrigandine','LegsPadded'): region = 'legs'
             elif role in ('Shoes','BootsAnkle','BootsKnee'): region = 'feet'
             elif role in ('Gauntlets','Gloves'): region = 'hands'
@@ -235,4 +244,5 @@ class ClothingAdapter:
         elif role not in ('HorseShoe','Ring','Necklace','Spurs'): raise ValueError('Source wearable is missing a model')
         files['Libs/Tables/Character/CharacterComponent__'+name+'.xml'] = xml(root)
         return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=True,
-            missing_source_variant=missing_variant, internal_translation=internal_offset, fitting_runtime_verified=False)
+            missing_source_variant=missing_variant, internal_translation=internal_offset,
+            equipment=equipment_contract, fitting_runtime_verified=False)

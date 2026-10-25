@@ -14,19 +14,24 @@ from clothing_regions import Skin, Chunk, write_chunks
 def read_dds_family(path):
     """Decode a CryEngine DDS with its numbered high-resolution mip payloads."""
     path = Path(path)
-    data = bytearray(path.read_bytes())
+    members = {int(p.suffix[1:]): p.read_bytes() for p in path.parent.glob(path.name+'.*')
+               if p.suffix[1:].isdigit()}
+    return decode_dds_family(path.read_bytes(), members)
+
+
+def decode_dds_family(data, members):
+    """Decode staged/package bytes without depending on their disk filenames."""
+    data = bytearray(data)
     if data[:4] != b'DDS ' or len(data) < 128:
         raise ValueError('Invalid DDS')
     header_size = 148 if data[84:88] == b'DX10' else 128
     if len(data) < header_size:
         raise ValueError('Truncated DDS header')
-    members = sorted((p for p in path.parent.glob(path.name+'.*') if p.suffix[1:].isdigit()),
-                     key=lambda p: int(p.suffix[1:]), reverse=True)
     if members:
-        numbers = sorted(int(p.suffix[1:]) for p in members)
+        numbers = sorted(members)
         if numbers != list(range(1, max(numbers)+1)):
             raise ValueError('Incomplete split DDS mip family')
-        data = data[:header_size]+b''.join(p.read_bytes() for p in members)+data[header_size:]
+        data = data[:header_size]+b''.join(members[i] for i in reversed(numbers))+data[header_size:]
     if header_size == 148:
         # Pillow supports the identical block layout under the UNORM enum. This
         # preserves encoded channel bytes; mask channels are not colour-managed.
@@ -65,18 +70,22 @@ def native_skin_material(source, mask_path, native_reference):
     return result
 
 
-def native_vertex_features(blob, feature=0):
+def native_vertex_features(blob, feature=0, *, preserve_hiding=False):
     """Use per-mesh macro textures and a native feature; keep skinning untouched.
 
     KCD2 encodes macro index in blue's upper three bits. Index 7 selects the
-    material's own maps. Alpha 255 disables hiding groups for this fixed outfit.
+    material's own maps. Legacy hiding defaults to disabled. A converter may
+    explicitly retain masks it has generated for the native clothing system.
     """
     if not 0 <= feature < 27:
         raise ValueError('Native feature must be in 0..26')
     skin = Skin(blob)
     colors = skin.streams.get(3)
     payload = struct.pack('<6I', 0, 3, skin.vertex_count, 4, 0, 0)
-    payload += bytes((255, 255, 224 + feature, 255)) * skin.vertex_count
+    rgba = np.tile(np.array([255, 255, 224 + feature, 255], dtype=np.uint8), (skin.vertex_count, 1))
+    if preserve_hiding and colors:
+        rgba[:, 3] = np.frombuffer(colors.data[24:], np.uint8).reshape(-1,4)[:,3]
+    payload += rgba.tobytes()
     if colors:
         if struct.unpack_from('<I', colors.data, 12)[0] != 4:
             raise ValueError('Expected four-byte vertex colours')

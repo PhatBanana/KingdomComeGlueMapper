@@ -26,7 +26,7 @@ from static_assets import asset_pack
 from upgrade_map import read, xml
 from character_person import native_xml
 from character_clothing_variant import resolve_variant
-from character_source_clothing import female_role, native_role, source_item, garment_layout
+from character_source_clothing import female_role, native_role, source_item
 from character_native_materials import convert_character_materials
 from character_lods import source_lods, filename as lod_filename, emit_regions, validate_chain
 from bake_pool import Bakes
@@ -52,9 +52,9 @@ def write_staged(output, files):
 
 
 def keep_body_under_outfit(sex, region):
-    # A region is not a coverage mask: sleeves occupy arms but do not cover
-    # bare forearms. Keep source arms/hands underneath the fixed outfit.
-    return sex == 'female' or region in ('arms', 'hands')
+    # Equipment regions do not prove skin coverage (necklines, cuffs, hems).
+    # Converted opaque surfaces supply conditional body masks for every region.
+    return True
 
 
 def source_default_body(actor, assets):
@@ -150,6 +150,8 @@ def _build_appearance(source, target, person, namespace, output):
         skeleton, rig = native.get(f'objects/characters/humans/{sex}/skeleton/{sex}.chr')
         cache = stack.enter_context(tempfile.TemporaryDirectory(prefix='person-assets-', dir=output.parent))
         index, emitted, material, mesh = asset_pack(stack, Path(source).parent, prefix, cache)
+        from clothing_fitting import OutfitFitting
+        outfit_fitting = OutfitFitting(parts, index, mesh, material, emitted, tables)
         geometry_field = None
         if sex == 'female':
             source_body = next(p for p in parts if p['kind'] == 'body')
@@ -178,24 +180,23 @@ def _build_appearance(source, target, person, namespace, output):
             fitting = None
             morphs = [m['name'] for c in read_chunks(blob) if c.kind == 0x2002 for m in read_morphs(c)]
             if sex == 'female' and kind == 'body' and any(
-                    p['kind'] == 'cloth' and garment_layout(p)[1] == 2 for p in parts):
+                    p['kind'] == 'cloth' and female_role(p, tables)[1] == 'torso' for p in parts):
                 # Use the source's authored chest fit, not a larger native body.
                 chest = [name for name in morphs if name.split(':')[-1].lstrip('#') == 'A_Chest']
                 if len(chest) > 1:
                     raise ValueError('Ambiguous source chest fitting morph')
                 if chest:
                     fitting = {chest[0]: 1.0}
-            if sex == 'female' and kind == 'cloth':
-                _, source_region, source_layer = garment_layout(part)
-                covered = any(p['kind'] == 'cloth' and garment_layout(p)[1] == source_region
-                              and garment_layout(p)[2] > source_layer for p in parts)
-                if covered and '#A_Shrink' in morphs:
-                    fitting = {'#A_Shrink': 1.0}
             variant, variant_evidence = resolve_variant(part, morphs,
                 tables.get('item/clothing')['rows'] if kind == 'cloth' else [])
+            fitting_masks = None
+            if kind in ('body', 'cloth'):
+                authored_fit, fitting_masks = outfit_fitting.weights(number, blob, variant)
+                fitting = {**(fitting or {}), **authored_fit}
             blob, detail = upgrade_skin(blob, skeleton, variant=variant,
                 discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=fitting,
-                clear_hiding=kind != 'cloth' or sex == 'female', geometry_field=geometry_field)
+                morph_masks=fitting_masks,
+                clear_hiding=True, geometry_field=geometry_field)
             blob, _ = limit_skin_influences(blob)
             lods = {}
             for level, lod_model in source_lods(index, model).items():
@@ -203,9 +204,18 @@ def _build_appearance(source, target, person, namespace, output):
                 if lower_mat != mat:
                     raise ValueError('Character LOD requires another material binding: ' + lod_model)
                 lower, _ = align_internal_translation(lower)
+                if kind in ('body', 'cloth'):
+                    lower_fit, lower_masks = outfit_fitting.weights(number, lower, variant, level)
+                    # Non-shrink source body fits (such as the authored chest
+                    # fit) retain their existing weights at each source LOD.
+                    lower_fit = {**{k: v for k, v in (fitting or {}).items()
+                                    if k.split(':')[-1].lstrip('#').casefold() != 'a_shrink'}, **lower_fit}
+                else:
+                    lower_fit, lower_masks = fitting, None
                 lower, _ = upgrade_skin(lower, skeleton, variant=variant,
-                    discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=fitting,
-                    clear_hiding=kind != 'cloth' or sex == 'female', geometry_field=geometry_field)
+                    discard_unused_variants=kind == 'cloth', geometry_mode='preserve', morph_weights=lower_fit,
+                    morph_masks=lower_masks,
+                    clear_hiding=True, geometry_field=geometry_field)
                 lower, _ = limit_skin_influences(lower)
                 lods[level] = lower
             try:
@@ -216,10 +226,16 @@ def _build_appearance(source, target, person, namespace, output):
             emitted[prefix + stem + '.mtl'] = emitted[mat + '.mtl'].read_bytes()
             if kind == 'cloth':
                 match = re.match(r's[12]_p([1-4])_', Path(part['model']).name, re.I)
-                if not match:
+                if sex == 'female':
+                    region = female_role(part, tables)[1]
+                elif not match:
                     raise ValueError('Unmapped source garment body part: ' + part['model'])
-                region = {'1': 'head', '2': 'torso', '3': 'legs', '4': 'feet'}[match[1]]
+                else:
+                    region = {'1': 'head', '2': 'torso', '3': 'legs', '4': 'feet'}[match[1]]
                 garments.append(dict(name=part['clothing_name'], skin=blob, lods=lods, region=region, part=part, stem=stem,
+                    source_coverage={'part'+str(i): mask for i, mask in outfit_fitting.memberships.get((number, 0), {}).items()},
+                    lod_coverage={level: {'part'+str(i): mask for i, mask in
+                                  outfit_fitting.memberships.get((number, level), {}).items()} for level in lods},
                     source_model=model, source_material=source_material,
                     material=ET.parse(emitted[prefix + stem + '.mtl']).getroot()))
             else:
@@ -248,9 +264,18 @@ def _build_appearance(source, target, person, namespace, output):
             result = finish_female(source, target, tables, namespace, output, prefix, emitted,
                                  document, derived, appearance, garments, evidence, rig, native)
             result['nonvisual_equipment'] = accessories
+            result['fitting'] = outfit_fitting.evidence()
             return result
         # Canonical palette and native body regions are shared with the accepted
         # generic character upgrade, preserving source geometry across all parts.
+        from clothing_coverage import apply_membership
+        for garment in garments:
+            membership = garment['source_coverage']
+            if membership:
+                garment['skin'] = apply_membership(garment['skin'], {4: np.maximum.reduce(list(membership.values())).astype(bool)})
+            for level, membership in garment['lod_coverage'].items():
+                if membership:
+                    garment['lods'][level] = apply_membership(garment['lods'][level], {4: np.maximum.reduce(list(membership.values())).astype(bool)})
         canonical = canonicalize_skin_skeletons([g['skin'] for g in garments])
         from character_skin_upgrade import CompiledSkin, matrix
         bones = CompiledSkin(canonical[0]).info['bones']
@@ -296,11 +321,19 @@ def _build_appearance(source, target, person, namespace, output):
         node = ET.SubElement(derived, 'Clothing', Name=outfit_name, ArmorType=template.get('ArmorType'),
                              ArmorArchetypeId=armor_archetype)
         elements = ET.SubElement(node, 'Elements')
+        hiding_root = ET.Element('database', name='barbora')
+        hiding_groups = ET.SubElement(hiding_root, 'ClothingHidingGroups', version='2')
+        group_names = []
         for region, value in outfit.items():
             stem = 'outfit_' + region
             emitted[prefix + stem + '.skin'] = value['skin']; emitted[prefix + stem + '.mtl'] = xml(value['material'])
             ET.SubElement(elements, 'SkinElement', EquipmentPart=region, Model=stem + '.skin', Material=stem + '.mtl',
                           BodyLayerId='9', KeepBodyLayer=str(keep_body_under_outfit(sex, region)).lower(), IsFinalLayer='true')
+            group = namespace + '_outfit_covers_' + region
+            ET.SubElement(hiding_groups, 'HidingGroup', Name=group, Index='4', EquipmentPart=region)
+            group_names.append(group)
+        node.set('HidingGroups', ' '.join(group_names))
+        emitted['Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml'] = xml(hiding_root)
         item_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'gluemapper/travel/merchant-outfit/' + person['soul']['soul_id']))
         item_root = ET.Element('database', name='barbora')
         item = copy.deepcopy(outfit_item_template)
@@ -326,11 +359,15 @@ def _build_appearance(source, target, person, namespace, output):
         # (or, on failure, cancels and joins them) before anything reads the outputs.
         with Bakes() as bakes:
             material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
-                                                          native, namespace, sex, bakes)
+                                                          native, namespace, sex, bakes, preserve_hiding=True)
+        from clothing_coverage import register_fixed_body_coverage
+        coverage = register_fixed_body_coverage(output, component, namespace)
         (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender=sex,
                 archetype=native_soul_archetype(archetypes, sex.title()), parts=evidence, rig=rig,
                 nonvisual_equipment=accessories, materials=material_report,
+                coverage=coverage,
+                fitting=outfit_fitting.evidence(),
                 outfit_mode='Fixed source outfit, using the existing skin upgrader', runtime_verified=False)
 
 
@@ -338,6 +375,8 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
                   document, derived, appearance, garments, evidence, rig, native):
     """Register female source garments separately using native female roles."""
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
+        from clothing_equipment import NativeEquipment
+        equipment = NativeEquipment.from_archive(archive)
         components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
         native_items = native_xml(read(archive, 'Libs/Tables/item/item.xml'))
         archetypes = native_xml(read(archive, 'Libs/Tables/rpg/soul_archetype.xml'))
@@ -356,8 +395,10 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         if part['armor_id'] in registered:
             raise ValueError('Multi-component source garment requires an explicit grouped registration')
         registered.add(part['armor_id'])
-        armor_type, region, layer = female_role(part)
-        archetype, template = native_role(components, native_items, armor_type)
+        armor_type, region = female_role(part, tables)
+        default_archetype, template = native_role(components, native_items, armor_type)
+        contract = equipment.source_contract(part, tables, default_archetype, region)
+        archetype, layer = contract['archetype'], contract['layer']
         name = namespace + '_' + stem
         node = ET.SubElement(derived, 'Clothing', Name=name, ArmorType=armor_type, ArmorArchetypeId=archetype)
         emitted[prefix + stem + '.skin'] = garment['skin']
@@ -370,13 +411,16 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         items.append(item); localization.extend(texts)
         ET.SubElement(ids, 'Guid').text = item.get('Id')
         item_report.append(dict(source_id=part['armor_id'], item_id=item.get('Id'), component=name,
-            source_model=part['model'], source_material=part['material'], native_role=armor_type))
+            source_model=part['model'], source_material=part['material'], native_role=armor_type,
+            equipment=contract))
     # Retain the source innermost dress as underwear. The complete source body
     # is converted with the same field as the garments; underwear must not be
     # relied upon to supply skin exposed by an outer garment's neckline.
-    torso = [g for g in garments if garment_layout(g['part'])[1] == 2]
+    torso = [g for g in garments if g['region'] == 'torso']
     if torso:
-        inner = min(torso, key=lambda g: garment_layout(g['part'])[2])
+        from clothing_fitting import source_layer_contracts
+        layers = source_layer_contracts([g['part'] for g in torso], tables)
+        inner = torso[min(layers, key=lambda i: max(layers[i].values()))]
         appearance['underwear'] = namespace + '_underwear'
         underwear = ET.SubElement(derived, 'Clothing', Name=appearance['underwear'])
         ET.SubElement(ET.SubElement(underwear, 'Elements'), 'SkinElement', EquipmentPart='torso',

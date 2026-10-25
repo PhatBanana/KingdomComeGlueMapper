@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import unittest
+from types import SimpleNamespace
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
@@ -9,13 +10,24 @@ from character_native_materials import native_surface
 
 
 class FemaleSourceClothingTests(unittest.TestCase):
+    def test_equipment_regions_classify_non_modular_filenames(self):
+        data={'item/equipment_part':[dict(equipment_part_id='1',equipment_part_name='torso'),dict(equipment_part_id='2',equipment_part_name='arms')],
+              'item/body_subpart':[dict(body_subpart_id='11',equipment_part_id='1'),dict(body_subpart_id='22',equipment_part_id='2')],
+              'item/armor_archetype2body_subpart':[dict(armor_archetype_id='42',body_subpart_id=n) for n in ('11','22')]}
+        tables=SimpleNamespace(get=lambda name:dict(rows=data[name]))
+        for model in ('bespoke_dress','completely_different_name','s2_p2_l2_v0'):
+            self.assertEqual(female_role(dict(model=model,gender_id='2',armor_archetype_id='42'),tables),('F_SimpleDress','torso'))
+        data['item/equipment_part'][1]['equipment_part_name']='head'
+        with self.assertRaisesRegex(ValueError,'No native female clothing family'):
+            female_role(dict(model='bespoke',gender_id='2',armor_archetype_id='42'),tables)
+
     def test_roles_come_from_authored_part_and_layer_not_actor_or_item_name(self):
         for name in ('arbitrary_a', 'unrelated_b'):
             self.assertEqual(female_role(dict(model='folder/s2_p2_l1_v9.skin', clothing_name=name)),
-                             ('F_SimpleDress', 'torso', 5))
+                             ('F_SimpleDress', 'torso'))
             self.assertEqual(female_role(dict(model='s2_p2_l2_v0', clothing_name=name)),
-                             ('F_SimpleDress', 'torso', 9))
-        self.assertEqual(female_role(dict(model='s2_p4_l1_v0')), ('F_Shoes', 'feet', 2))
+                             ('F_SimpleDress', 'torso'))
+        self.assertEqual(female_role(dict(model='s2_p4_l1_v0')), ('F_Shoes', 'feet'))
         with self.assertRaisesRegex(ValueError, 'female source'):
             female_role(dict(model='s1_p2_l1_v0'))
         with self.assertRaisesRegex(ValueError, 'No native female'):

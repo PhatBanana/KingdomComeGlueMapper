@@ -55,9 +55,16 @@ class Catalog:
         self.parts, self.presets, self.groups, self.souls, self.errors = {}, {}, {}, {}, []
         self.private_groups = set()
         self.native_roles, self.rule_evidence, self.layer_order = {}, [], {}
+        self.equipment = None
         if target:
             path = Path(target)/'Data/Tables.pak'
             with zipfile.ZipFile(path) as archive:
+                from clothing_equipment import NativeEquipment
+                self.equipment = NativeEquipment.from_archive(archive)
+                for table in ('armor_archetype', 'armor_archetype2body_subpart', 'body_subpart', 'equipment_part'):
+                    member = 'Libs/Tables/item/' + table + '.xml'
+                    self.rule_evidence.append(dict(file=str(path), member=member,
+                        sha256=hashlib.sha256(read(archive, member)).hexdigest()))
                 name = 'Libs/Tables/Character/CharacterComponent.xml'
                 data = read(archive, name)
                 for part in resolved_nodes(native_xml(data), roles_only=True):
@@ -128,6 +135,18 @@ class Catalog:
     def mesh(self, name):
         return CompiledSkin(self.assets.read(name))
 
+    @lru_cache(maxsize=2048)
+    def model_at_lod(self, name, requested):
+        """Preview authored per-part LODs, explicitly retaining a shorter chain."""
+        from character_lods import source_lods
+        if requested not in range(5):
+            raise ValueError('Invalid LOD')
+        if name not in self.assets.index:
+            raise ValueError('Missing base skin: ' + name)
+        family = {0: name, **source_lods(self.assets.index, name)}
+        effective = min(requested, max(family))
+        return family[effective], effective
+
     @lru_cache(maxsize=256)
     def materials(self, name, textures=False):
         if not name: raise ValueError('Component has no resolved material')
@@ -188,14 +207,15 @@ class Catalog:
             part = self.parts[identity]
             for e in part['elements']:
                 name = e.get('ModelResolved','')
-                if lod: name = name.removesuffix('.skin')+'_lod'+str(lod)+'.skin'
                 try:
+                    name, effective_lod = self.model_at_lod(name, lod)
                     skin = self.mesh(name)
                     uv = np.frombuffer(skin.streams[2].data[24:], '<f4').reshape(-1,2)
                     alpha = np.frombuffer(skin.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
                     if len(uv) != skin.n or len(alpha) != skin.n: raise ValueError('Invalid vertex stream size')
                     def buffer(a, dtype): return base64.b64encode(np.asarray(a,dtype=dtype).tobytes()).decode()
-                    rows.append(dict(id=identity, kind=part['kind'], element=e, model=name, replaced=body_replaced(self,selected,part,e), provenance=self.assets.provenance(name),
+                    rows.append(dict(id=identity, kind=part['kind'], element=e, model=name, requested_lod=lod,
+                        effective_lod=effective_lod, replaced=body_replaced(self,selected,part,e), provenance=self.assets.provenance(name),
                         positions=buffer(skin.vertices,'<f4'), normals=buffer(normals(skin),'<f4'), uv=buffer(uv,'<f4'),
                         indices=buffer(skin.faces,'<u4'), alpha=buffer(alpha,'u1'), bones=skin.info['bones'],
                         weights=buffer(skin.weights,'<f4'), joints=buffer(skin.ids,'<u2'), influences=skin.ids.shape[1],

@@ -2,6 +2,12 @@
 
 This is a developer audit of the **converted package**, not certification by the KCD2 runtime. A checked combination below has exact native role/gender/layer matches, no reported slot/archetype conflicts, and no findings from the enabled bind-pose geometry checks. It was not tested in native animation or cloth physics.
 
+The subsequent [source fitting and composition correction](clothing-fitting-conversion.md)
+and native equipment/body coverage follow-up have their own candidate, render
+evidence and remaining review findings. The counts
+and confirmed CSV below continue to describe the original signature, not that
+new candidate.
+
 Package signature: `7c0360e1d72ae865526a2db1f32993ca560ff745eb65730d099205254a30fdef`.
 Native rule-table hashes:
 
