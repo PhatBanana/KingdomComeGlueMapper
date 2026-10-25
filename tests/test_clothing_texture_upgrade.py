@@ -133,7 +133,7 @@ class Migration(unittest.TestCase):
             before = members(shards)
             travel = unrelated.read_bytes()
             keep = Path(t) / 'linked.pak'; os.link(shards[1], keep)
-            with patch.object(upgrade_module, '_mod_tools_rc', return_value='rc.exe'):
+            with patch.object(upgrade_module, '_encoder', return_value=('rc', 'rc.exe')):
                 files, report = upgrade_module.upgrade(root, None, workers=1)
             self.assertEqual(sorted(files), sorted('Data/' + p.name for p in shards))
             self.assertEqual(report['converted'], dict(colour=2, mask=1))
@@ -159,7 +159,7 @@ class Migration(unittest.TestCase):
                              {n: d for n, (s, d) in before.items() if s == shards[1].name})
             self.assertFalse(list((root / 'Data').glob('*pending*')))
             # A second run finds nothing to convert and never needs the compiler.
-            with patch.object(upgrade_module, '_mod_tools_rc', side_effect=AssertionError('rc used')):
+            with patch.object(upgrade_module, '_encoder', side_effect=AssertionError('rc used')):
                 again, second = upgrade_module.upgrade(root, None, workers=1)
             self.assertEqual(again, {})
             self.assertEqual(second['converted'], dict(colour=0, mask=0))
@@ -177,7 +177,7 @@ class Migration(unittest.TestCase):
     def test_a_failed_encode_leaves_every_archive_unchanged(self):
         def broken(pixels, rc=None): raise ValueError('rc failed')
         with tempfile.TemporaryDirectory() as t, patch.object(texture_encode, 'encode_colour', broken), \
-                patch.object(upgrade_module, '_mod_tools_rc', return_value='rc.exe'):
+                patch.object(upgrade_module, '_encoder', return_value=('rc', 'rc.exe')):
             root = Path(t) / 'package'
             shards, _ = self.package(root)
             before = [p.read_bytes() for p in shards]
