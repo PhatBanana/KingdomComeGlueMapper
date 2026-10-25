@@ -116,7 +116,7 @@ vertices (render 224, internal 255). Its alpha hiding bytes agreed. The repair
 therefore corrects material-feature input, not a demonstrated dimensional shrink.
 The selected source variant is `#V_006`, no `A_Shrink` is applied to the dress,
 and all garment vertex positions are unchanged by this rebuild. Existing rig
-fitting narrows measured torso sections by roughly 2–6 percent relative to the
+fitting narrows measured torso sections by roughly 2â€“6 percent relative to the
 source variant; a render-buffer repair alone cannot certify that silhouette.
 No per-NPC or per-dress widening has been added.
 
@@ -128,3 +128,54 @@ rendered during sweeping. Captures are `runtime/woman6-sleeves.png` and
 `runtime/woman9-sweeping.png`; both are limited by interior lighting and are
 not silhouette approval. Fly mode was disabled and AI updates restored after
 testing. The remaining proportion and seam reviews stay open.
+
+## Attachment and masking audit, 26 October
+
+The additional screenshots exposed a separate missing dependency. KCD1's
+`armor2clothing_attachment` table links armour to separate skinned details.
+Resolving only `armor.clothing_id` and `armor.clothing2_id` omits these pieces.
+Father's source outfit has separate apron bands/knot, sleeves and belts;
+other source outfits use the same relationship for collars and dress details.
+
+The general importer now joins those details into their owning garment before
+native region composition, with source gender, tint, material and every LOD.
+No extra inventory slot or named-character exception is introduced. Equivalent
+material slots are deduplicated without changing faces or surface bindings.
+Older 260-byte version-0x801 mesh headers are normalized to the standard header
+only when their reserved extension is zero; unknown layouts still fail.
+
+Male fitted-underlayer masks now protect exposed triangles sharing a covered
+vertex, rather than erasing the whole triangle. Conditional opaque coverage also
+includes head, hair and beard, so hats and hoods can hide covered hair while
+removing the headwear restores it. The lab's validation contract is now 5, with
+culled-garment and unmasked-hair review diagnostics. These are normal-ray tests
+in the bind pose, not native animation certification.
+
+The rebuilt Father workbench capture in
+`outputs/father-final-20261026/workbench-front.png` shows his source apron straps
+and belt, restored shoulder fabric, and cap. The installed-package comparison
+is `outputs/father-comparison-20261026/workbench-front.png`. Both are developer
+renderer captures. This audit does not establish that the reported narrow dress
+silhouette is corrected; source variant, rig fitting and a native comparison
+remain separate evidence requirements.
+
+The completed developer audit is
+`outputs/clothing-complete-audit-20261026/index.html`, with exact selections in
+`checklist.csv` and detailed findings in `converted-outfits.json`.
+
+- [x] Rebuild all 61 imported outfits: 20 female and 41 male.
+- [x] Restore 121 source clothing details across 56 outfits.
+- [x] Remove duplicate legacy appearance registrations; no catalog errors.
+- [x] Reduce structurally failing outfit cases from 55 to zero.
+- [x] Enumerate all 5,025 source soul records; 4,964 are not converted in this package.
+- [x] Capture Father, Bianca, the olive dress, the green-dress trader and male layered outfits in the developer renderer.
+- [x] Run 2,176 regression tests successfully, with 17 skipped.
+- [ ] Resolve or validate the remaining 58 outfit review cases; three pass every current bind-pose check.
+- [ ] Verify the candidate in native animation, including narrow dress silhouettes and hair through headwear.
+
+The batch preserves all unresolved layer and geometry findings. The 61-person
+candidate is a separate developer overlay, not an installed or installable mod.
+The full-package upgrader also retires owned character paths from legacy shared
+asset archives before writing per-person shards; unrelated assets and recovery
+hardlinks are preserved. This prevents old and new clothing assets from competing
+under the same virtual path during a later installation.

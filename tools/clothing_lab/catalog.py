@@ -2,6 +2,7 @@
 import base64
 from functools import lru_cache
 import hashlib
+import json
 import posixpath
 from pathlib import Path
 import struct
@@ -89,6 +90,22 @@ class Catalog:
                     raise ValueError('Native body-layer order table is empty')
                 self.rule_evidence.append(dict(file=str(path), member=name, sha256=hashlib.sha256(data).hexdigest()))
         names = list(self.assets.index)
+        imported_people = {}
+        for name in names:
+            if not name.startswith('libs/gluemapper/personimport/') or not name.endswith('.json'):
+                continue
+            try:
+                receipt = json.loads(self.assets.read(name))
+                namespace, person = receipt.get('namespace'), receipt.get('person')
+                if not isinstance(namespace,str) or not isinstance(person,str) or not person:
+                    raise ValueError('Missing imported appearance identity')
+                if name != 'libs/gluemapper/personimport/'+namespace.lower()+'.json':
+                    raise ValueError('Imported appearance receipt name differs')
+                if namespace in imported_people and imported_people[namespace] != person:
+                    raise ValueError('Conflicting imported appearance identity')
+                imported_people[namespace] = person
+            except (ValueError, OSError) as exc:
+                self.errors.append(dict(asset=name,error=str(exc)))
         for name in names:
             if not name.startswith('libs/tables/') or not name.endswith('.xml'): continue
             try:
@@ -109,7 +126,8 @@ class Catalog:
             except (ValueError, ET.ParseError) as exc: self.errors.append(dict(asset=name, error=str(exc)))
         for part in self.parts.values():
             identity = part['family'].removesuffix('_root').removeprefix('gm_person_')
-            actor = self.souls.get(identity, {}).get('soul_name', part['family'].removesuffix('_root'))
+            actor = imported_people.get(part['family'].removesuffix('_root'),
+                self.souls.get(identity, {}).get('soul_name', part['family'].removesuffix('_root')))
             part['actor'] = actor
             part['label'] = actor+' · '+part['id'].removeprefix(part['family'].removesuffix('_root')+'_')
             self.presets.setdefault(part['family'], dict(id=part['family'], label=actor, gender=part['gender'], parts=[]))['parts'].append(part['id'])

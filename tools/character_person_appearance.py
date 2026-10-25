@@ -88,8 +88,17 @@ def align_internal_translation(blob, *, max_translation=.01):
     from every corresponding render position. Only a uniform translation is
     supported; deformed, ambiguous or large discrepancies still fail closed.
     """
-    _, vertices, _ = inspect_mesh(blob)
     chunks = read_chunks(blob)
+    # Older 0x801 exports omit the final reserved word. The streams and bounds
+    # have the same layout; normalize only the known zero-reserved extension.
+    meshes = [c for c in chunks if c.kind == 0x1000]
+    if len(meshes) == 1 and meshes[0].version == 0x801 and len(meshes[0].data) == 260:
+        mesh = meshes[0]
+        if any(mesh.data[136:]):
+            raise ValueError('Unsupported legacy mesh reserved data')
+        blob = write_chunks(chunks, {mesh.id: mesh.data + bytes(4)})
+        chunks = read_chunks(blob)
+    _, vertices, _ = inspect_mesh(blob)
     internal = [c for c in chunks if c.kind == 0x2005]
     remaps = [c for c in chunks if c.kind == 0x2006]
     if len(internal) != 1 or len(remaps) != 1:
@@ -260,22 +269,26 @@ def _build_appearance(source, target, person, namespace, output):
         if 'beard' not in appearance:
             appearance['beard'] = namespace + '_empty_beard'
             ET.SubElement(derived, 'Beard', Name=appearance['beard'])
+        from character_clothing_attachments import attach_source_details
+        attachment_report = attach_source_details(garments, tables, index, mesh, material, emitted,
+                                                  prefix, skeleton, geometry_field)
         if sex == 'female':
             result = finish_female(source, target, tables, namespace, output, prefix, emitted,
                                  document, derived, appearance, garments, evidence, rig, native)
             result['nonvisual_equipment'] = accessories
             result['fitting'] = outfit_fitting.evidence()
+            result['clothing_attachments'] = attachment_report
             return result
         # Canonical palette and native body regions are shared with the accepted
         # generic character upgrade, preserving source geometry across all parts.
-        from clothing_coverage import apply_membership
+        from clothing_coverage import apply_fitted_membership
         for garment in garments:
             membership = garment['source_coverage']
             if membership:
-                garment['skin'] = apply_membership(garment['skin'], {4: np.maximum.reduce(list(membership.values())).astype(bool)})
+                garment['skin'] = apply_fitted_membership(garment['skin'], membership)
             for level, membership in garment['lod_coverage'].items():
                 if membership:
-                    garment['lods'][level] = apply_membership(garment['lods'][level], {4: np.maximum.reduce(list(membership.values())).astype(bool)})
+                    garment['lods'][level] = apply_fitted_membership(garment['lods'][level], membership)
         canonical = canonicalize_skin_skeletons([g['skin'] for g in garments])
         from character_skin_upgrade import CompiledSkin, matrix
         bones = CompiledSkin(canonical[0]).info['bones']
@@ -367,7 +380,7 @@ def _build_appearance(source, target, person, namespace, output):
                 archetype=native_soul_archetype(archetypes, sex.title()), parts=evidence, rig=rig,
                 nonvisual_equipment=accessories, materials=material_report,
                 coverage=coverage,
-                fitting=outfit_fitting.evidence(),
+                fitting=outfit_fitting.evidence(), clothing_attachments=attachment_report,
                 outfit_mode='Fixed source outfit, using the existing skin upgrader', runtime_verified=False)
 
 

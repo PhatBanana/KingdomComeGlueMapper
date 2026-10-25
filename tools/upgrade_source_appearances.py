@@ -1,15 +1,18 @@
 """Developer-only rebuild of receipt-owned source NPC appearances.
 
-Builds a separate complete package for desktop_setup.install_transaction. It
-does not install, change gameplay, or expose diagnostic controls in Setup UI.
+Builds a separate complete package for desktop_setup.install_transaction, or a
+smaller developer-only overlay. It does not install, change gameplay, or expose
+diagnostic controls in Setup UI.
 """
 import argparse
 import copy
 import json
 from pathlib import Path
 import re
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 
 from setup_campaign import RECEIPT, digest, verify_package
 from setup_package_upgrade import rewrite
@@ -18,33 +21,214 @@ TRAVEL = 'Data/gluemappertravel.pak'
 LOCALE = 'Localization/English_xml.pak'
 
 
-def imports(archive, selected):
-    """Resolve explicit source identities from importer receipts, never names guessed from meshes."""
+def retire_shared_definitions(resources, namespaces):
+    """Migrate receipt-owned definitions out of older shared appearance tables.
+
+    Each shared file is rewritten once for the entire selection. Removing a
+    sibling belonging to another character, or a reference to one, is forbidden.
+    New per-person tables retain the original equipment and Storm identities.
+    """
+    namespaces = tuple(namespaces)
+    definitions = {
+        'charactercomponent': {'Component', 'Body', 'Head', 'Hair', 'Beard', 'Clothing'},
+        'clothinghidinggroup': {'HidingGroup'}, 'clothingmaterial': {'Material'},
+        'inventorypreset': {'InventoryPreset'}, 'clothing_preset': {'clothing_preset'},
+        'item': {'Armor', 'Helmet', 'Hood'},
+    }
+    replacements = {}; removed = []
+    for name, blob in resources.items():
+        match = re.fullmatch(r'libs/tables/(?:character|item)/([a-z_]+)__([a-z0-9_]+)\.xml', name.lower())
+        if not match or match[1] not in definitions:
+            continue
+        root = ET.fromstring(blob); changed = False
+        for parent in list(root.iter()):
+            for node in list(parent):
+                if node.tag not in definitions[match[1]]:
+                    continue
+                identity = node.get('Name') or node.get('clothing_preset_name') or ''
+                owners = [ns for ns in namespaces if identity.startswith(ns+'_')]
+                # Longest namespace wins when legacy names share a prefix.
+                owner = max(owners, key=len) if owners else None
+                if owner and match[2] not in (owner, owner+'_clothes'):
+                    parent.remove(node); changed = True
+                    removed.append(dict(resource=name, namespace=owner, definition=identity, kind=node.tag))
+        if changed:
+            replacements[name] = ET.tostring(root, encoding='utf-8', xml_declaration=True)
+    return replacements, removed
+
+
+def shared_overlay(baseline, destination, namespaces):
+    # PersonImport receipts and their table registrations are owned by TRAVEL.
+    # Other world shards can contain independent loot tables with colliding
+    # names; they are not appearance resources and must not be migrated here.
+    with zipfile.ZipFile(baseline.root / TRAVEL) as archive:
+        resources = {name: archive.read(name) for name in archive.namelist()
+                     if name.lower().startswith('libs/tables/') and '__' in name and name.endswith('.xml')}
+    replacements, removed = retire_shared_definitions(resources, namespaces)
+    if replacements:
+        pending = destination.with_suffix('.pending')
+        with zipfile.ZipFile(pending, 'x', zipfile.ZIP_DEFLATED) as archive:
+            for name, blob in replacements.items():
+                archive.writestr(name, blob)
+        pending.replace(destination)
+    return removed
+
+
+def imports(archive, selected=None):
+    """Resolve source identities from importer receipts, never names guessed from meshes."""
     found = {}
     for name in archive.namelist():
         if not name.startswith('Libs/GlueMapper/PersonImport/') or not name.endswith('.json'):
             continue
         row = json.loads(archive.read(name))
         person = row.get('person')
-        if person not in selected:
+        if selected is not None and person not in selected:
             continue
+        if not isinstance(person, str) or not person:
+            raise ValueError('Missing source person identity')
         namespace = row.get('namespace', '')
-        if not re.fullmatch(r'gm_person_[0-9a-f]{32}', namespace):
+        if not re.fullmatch(r'[a-z][a-z0-9_]{0,79}', namespace):
             raise ValueError('Unsupported appearance ownership: ' + person)
         if name != 'Libs/GlueMapper/PersonImport/' + namespace + '.json' or person in found:
             raise ValueError('Ambiguous source appearance: ' + person)
         if row.get('appearance') != 'character_person_appearance':
             raise ValueError('Unsupported appearance adapter: ' + person)
         found[person] = namespace
-    if set(found) != set(selected):
+    if selected is not None and set(found) != set(selected):
         raise ValueError('No imported appearance receipt for: ' + ', '.join(sorted(set(selected) - set(found))))
     return found
 
 
-def owned_shards(package, files, namespace):
+def write_delta(appearance, destination, namespace, baseline, native=None):
+    """Store only changed assets, after the same streaming conversion as full builds.
+
+    The result is a developer overlay requiring the recorded base package. It
+    has no installer receipt and must not be installed as a standalone mod.
+    """
+    from texture_streaming import checked_entries, generated_entries
+    resources = {p.relative_to(appearance).as_posix(): p.read_bytes() for p in appearance.rglob('*')
+                 if p.is_file() and p.relative_to(appearance).parts[0] == 'Libs'}
+    validate_resources(resources, namespace)
+    def entries():
+        for name, path in appearance_objects(appearance, resources, native).items():
+            yield name, path.read_bytes()
+    pending = destination.with_suffix('.pending')
+    count = total = 0
+    from itertools import chain
+    with zipfile.ZipFile(pending, 'x', zipfile.ZIP_DEFLATED, compresslevel=1) as archive:
+        for name, blob in chain(checked_entries(generated_entries(entries())), resources.items()):
+            if name.lower() in getattr(baseline, 'collisions', ()):
+                raise ValueError('Conflicting source appearance entry: '+name)
+            old = baseline.index.get(name.lower())
+            if old and old[2:] == (zlib.crc32(blob), len(blob)):
+                continue
+            archive.writestr(name, blob)
+            count += 1; total += len(blob)
+    pending.replace(destination)
+    return dict(changed_assets=count, uncompressed_bytes=total, archive_bytes=destination.stat().st_size)
+
+
+def appearance_objects(appearance, resources, native=None):
+    """Follow final component bindings; conversion intermediates are not runtime assets."""
+    from clothing_lab.catalog import resolved_nodes
+    from character_lods import source_lods
+    from clothing_lab.assets import key
+    index = {key(p.relative_to(appearance).as_posix()):p for p in (appearance/'objects').rglob('*') if p.is_file()}
+    wanted = set(); materials = set()
+    for name, blob in resources.items():
+        if '/CharacterComponent__' not in name:
+            continue
+        for part in resolved_nodes(ET.fromstring(blob)):
+            for element in part['elements']:
+                model = element.get('ModelResolved')
+                mat = element.get('MaterialResolved')
+                if model:
+                    wanted.add(model); wanted.update(source_lods(index, model).values())
+                if mat:
+                    materials.add(mat)
+    wanted.update(materials)
+    for name in materials:
+        if name not in index:
+            raise ValueError('Missing final appearance material: '+name)
+        for texture in ET.parse(index[name]).getroot().iter('Texture'):
+            value = texture.get('File')
+            if not value:
+                continue
+            base = key(value)
+            if base in ('nearest_cubemap', 'nearest_cubemap.dds'):
+                continue  # Engine-provided reflection probe, not a disk image.
+            if base.endswith('.tif'):
+                base = base[:-4]+'.dds'
+            if base not in index and native is not None and base in native.index:
+                continue  # Native material donors retain their shipped detail maps.
+            wanted.add(base)
+            wanted.update(n for n in index if n.startswith(base+'.') and n[len(base)+1:].isdigit())
+    missing = wanted-set(index)
+    if missing:
+        raise ValueError('Missing final appearance assets: '+', '.join(sorted(missing)))
+    return {name:index[name] for name in sorted(wanted)}
+
+
+def stage_overlay(source, target, installed, output, people=None, *, notify=print):
+    """Rebuild receipt-owned people one at a time without duplicating the world."""
+    from clothing_lab.assets import Assets
+    from character_person import resolve_person
+    from character_person_appearance import build_appearance
+    from bake_pool import release
+    from setup_campaign import digest
+    source, target, installed, output = map(lambda p: Path(p).resolve(), (source, target, installed, output))
+    if output.exists() or output.is_relative_to(installed):
+        raise ValueError('Choose a fresh output outside the installed package')
+    baseline = Assets(installed)
+    native = Assets(target)
+    with zipfile.ZipFile(installed/TRAVEL) as archive:
+        selected = imports(archive, people)
+    if not selected:
+        raise ValueError('No imported source appearances')
+    (output/'Data').mkdir(parents=True)
+    report = dict(version=1, scope='developer_source_appearance_overlay', base_package=str(installed),
+                  base_signature=baseline.signature(), runtime_verified=False, complete=False,
+                  requested_people=sorted(selected), people=[],
+                  converter_sources={p.name:digest(p) for p in sorted(Path(__file__).parent.glob('*.py'))})
+    report_path = output/'rebuild-report.json'
+    def save():
+        pending = report_path.with_suffix('.pending')
+        pending.write_text(json.dumps(report,indent=2),encoding='utf-8'); pending.replace(report_path)
+    save()
+    try:
+        for index, (name, namespace) in enumerate(selected.items(), 1):
+            notify(f'Rebuilding {index}/{len(selected)}: {name}')
+            person = resolve_person(source, name, include_ai=False)
+            if namespace.startswith('gm_person_') and 'gm_person_'+person['soul']['soul_id'].replace('-','') != namespace:
+                raise ValueError('Source soul no longer matches import receipt: '+name)
+            # TemporaryDirectory owns only this newly created staging folder.
+            # Keeping the delta and report bounds disk use across a whole cast.
+            with tempfile.TemporaryDirectory(prefix='appearance-', dir=output) as scratch:
+                appearance = Path(scratch)/'converted'
+                character = build_appearance(source, target, person, namespace, appearance)
+                with zipfile.ZipFile(installed/TRAVEL) as archive:
+                    verify_bindings(archive, character, namespace)
+                delta = write_delta(appearance, output/'Data'/(namespace+'.pak'), namespace, baseline, native)
+                (output/(namespace+'.json')).write_text(json.dumps(character,indent=2),encoding='utf-8')
+            report['people'].append(dict(person=name, namespace=namespace, gender=character['gender'], **delta))
+            save()
+        report['retired_shared_definitions'] = shared_overlay(
+            baseline, output/'Data/appearance_shared_tables.pak', selected.values())
+        report['complete'] = True
+        save()
+    except Exception as exc:
+        report['error'] = str(exc); save()
+        raise
+    finally:
+        release()
+    notify('Developer overlay ready: '+str(output))
+    return report
+
+
+def owned_shards(package, files, namespace, *, allow_shared=False):
     pattern = re.compile(re.escape('Data/' + namespace) + r'(?:_\d{2,})?\.pak$')
     paths = sorted(name for name in files if pattern.fullmatch(name))
-    if not paths:
+    if not paths and not allow_shared:
         raise ValueError('Missing source appearance archives: ' + namespace)
     prefix = 'objects/characters/gluetravel/' + namespace + '/'
     for name in paths:
@@ -52,6 +236,40 @@ def owned_shards(package, files, namespace):
             if any(not entry.replace('\\', '/').lower().startswith(prefix) for entry in archive.namelist()):
                 raise ValueError('Appearance archive contains unrelated assets: ' + name)
     return paths
+
+
+def retire_shared_assets(package, files, namespaces, owned):
+    """Detach old appearance assets from shared packs before adding new shards.
+
+    Namespaced virtual paths are ownership evidence from import receipts.
+    Other people and world content stay byte-identical inside the shared pack.
+    """
+    namespaces = set(namespaces)
+    prefix = 'objects/characters/gluetravel/'
+    found = set(); pending = {}
+    owned = set(owned)
+    for relative in files:
+        if relative in owned or not re.fullmatch(r'Data/[^/]+\.pak',relative):
+            continue
+        with zipfile.ZipFile(package/relative) as archive:
+            remove = set()
+            for name in archive.namelist():
+                normalized = name.replace('\\','/').lower()
+                if normalized.startswith(prefix):
+                    namespace, separator, _ = normalized[len(prefix):].partition('/')
+                    if separator and namespace in namespaces:
+                        found.add(namespace); remove.add(name)
+            if remove:
+                pending[relative] = remove
+    missing = {ns for ns in namespaces if not any(
+        re.fullmatch(r'Data/'+re.escape(ns)+r'(?:_\d{2,})?\.pak',name) for name in owned)} - found
+    if missing:
+        raise ValueError('No owned appearance assets: '+', '.join(sorted(missing)))
+    changed = {}
+    for relative, remove in pending.items():
+        rewrite(package,relative,{},remove=remove.__contains__)
+        changed[relative] = digest(package/relative)
+    return changed
 
 
 def validate_resources(resources, namespace):
@@ -91,7 +309,7 @@ def stage(source, target, installed, output, people, *, notify=print):
     require_current(baseline)
     with zipfile.ZipFile(installed / TRAVEL) as archive:
         selected = imports(archive, people)
-    shards = {name: owned_shards(installed, baseline['files'], ns) for name, ns in selected.items()}
+    shards = {name: owned_shards(installed, baseline['files'], ns, allow_shared=True) for name, ns in selected.items()}
     output.mkdir(parents=True)
     # Keep a verified, cheap recovery package. Every changed file is replaced,
     # never written through these links into either checkpoint or installation.
@@ -99,13 +317,19 @@ def stage(source, target, installed, output, people, *, notify=print):
     clone_missing(installed, recovery)
     clone_missing(recovery, package)
     receipt = copy.deepcopy(baseline)
-    resources, labels, converted = {}, [], []
+    receipt['files'].update(retire_shared_assets(package, baseline['files'], selected.values(),
+                                                [path for paths in shards.values() for path in paths]))
+    with zipfile.ZipFile(recovery / TRAVEL) as archive:
+        resources, retired = retire_shared_definitions(
+            {name: archive.read(name) for name in archive.namelist()
+             if name.lower().startswith('libs/tables/') and name.endswith('.xml')}, selected.values())
+    labels, converted = [], []
     try:
         for name in people:
             namespace = selected[name]
             notify('Rebuilding appearance: ' + name)
             person = resolve_person(source, name, include_ai=False)
-            if 'gm_person_' + person['soul']['soul_id'].replace('-', '') != namespace:
+            if namespace.startswith('gm_person_') and 'gm_person_' + person['soul']['soul_id'].replace('-', '') != namespace:
                 raise ValueError('Source soul no longer matches import receipt: ' + name)
             appearance = output / 'people' / namespace
             character = build_appearance(source, target, person, namespace, appearance)
@@ -146,6 +370,7 @@ def stage(source, target, installed, output, people, *, notify=print):
             rewrite(package, LOCALE, {'text_ui_items.xml': blob})
             receipt['files'][LOCALE] = digest(package / LOCALE)
     report = dict(version=1, scope='explicit_imported_source_appearances', people=converted,
+                  retired_shared_definitions=retired,
                   native_texture_streaming=True, runtime_verified=False,
                   recovery_package=str(recovery),
                   changed_files=[n for n, h in receipt['files'].items() if baseline['files'].get(n) != h],
@@ -165,9 +390,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for key in ('source', 'target', 'installed', 'output'):
         parser.add_argument('--' + key, type=Path, required=True)
-    parser.add_argument('--person', action='append', required=True)
+    selection = parser.add_mutually_exclusive_group(required=True)
+    selection.add_argument('--person', action='append')
+    selection.add_argument('--all-imported', action='store_true', help='Rebuild every source-person import receipt')
+    parser.add_argument('--overlay-only', action='store_true', help='Write a small developer overlay, not an installable package')
     args = parser.parse_args()
-    stage(args.source, args.target, args.installed, args.output, args.person, notify=lambda s: print(s, flush=True))
+    people = args.person
+    if args.all_imported and not args.overlay_only:
+        with zipfile.ZipFile(args.installed/TRAVEL) as archive:
+            people = list(imports(archive))
+    operation = stage_overlay if args.overlay_only else stage
+    operation(args.source, args.target, args.installed, args.output, people, notify=lambda s: print(s, flush=True))
 
 
 if __name__ == '__main__':

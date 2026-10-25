@@ -37,7 +37,7 @@ Run every converted outfit through the structural and geometry checks:
   --mode presets --geometry --reports reports/clothing-lab
 ```
 
-Enumerate **every KCD1 soul record**, resolve body/head/hair/beard references and both `clothing_id` and `clothing2_id` attachments, then validate converted outfits where present:
+Enumerate **every KCD1 soul record**, resolve body/head/hair/beard references, both `clothing_id` and `clothing2_id` garment slots, and `armor2clothing_attachment` details, then validate converted outfits where present:
 
 ```powershell
 .venv/Scripts/python.exe tools/clothing_lab_test.py `
@@ -101,8 +101,11 @@ The matrix computes **exact symbolic counts** over full layer selections using
 unary registration checks, declared part/layer occupancy, repeated archetypes,
 and exclusive native body-subpart/layer reservations. Different archetypes can
 reserve the same native inventory slot even when their mesh regions differ.
-Validation contract version 4 includes these reservations and native draw-region
-selection. Lower-layer meshes discarded by the native attachment manager need
+Validation contract version 5 includes these reservations, native draw-region
+selection, culled garment coverage and hair/headwear intersection diagnostics.
+The new geometry checks flag review candidates in the bind pose; they do not
+certify animation or every pixel of an alpha-cut surface.
+Lower-layer meshes discarded by the native attachment manager need
 review; they cannot be counted as confirmed coverage. Old resume/checklist
 evidence is rejected and must be rerun.
 These counts are not rendered tests. Other engine equipment exclusions,
@@ -163,6 +166,30 @@ changed files, and leaves `runtime_verified` false until a separate native test.
 Use a fresh new game to exercise initial outfit selection. Keep native screenshots
 and engine observations separate from WebGL captures and symbolic counts. A
 four-person playtest does not certify every source soul or arbitrary combination.
+
+For a whole-cast developer audit, use `--all-imported --overlay-only` instead of
+`--person`. This resolves every existing `PersonImport` receipt, including the
+older named namespaces, and rebuilds one person at a time. It records source
+code hashes and the base-package signature, writes changed runtime assets only,
+and discards temporary conversion intermediates after each successful person.
+It retains a progress report and completed files if a later conversion fails.
+A failed batch is explicitly incomplete; it is not a successful audit.
+
+The overlay includes a single migration of shared appearance tables, removing
+the rebuilt people's old definitions while preserving other characters and
+references. New per-person definitions retain their original identities.
+This prevents legacy shared tables from selecting stale clothing or registering
+conflicting hiding groups. Open the result through `--overlay` in the workbench
+or audit CLI. It is **not an installable package** and must not be copied into
+the game as a standalone mod.
+
+Source armour-linked straps, belts, collars, sleeves and apron knots are joined
+to their owning garment before native region composition. The importer uses
+the source relationship tables, gender and tint; it preserves source triangles,
+materials and LODs. Exact duplicate material slots are coalesced to avoid
+repeated texture loads. Garment hiding must be safe for every triangle touching
+a masked vertex. Head, hair and beard also receive conditional coverage from
+opaque headwear. These rules apply to source types, without named-NPC exceptions.
 
 ## Regression tests
 

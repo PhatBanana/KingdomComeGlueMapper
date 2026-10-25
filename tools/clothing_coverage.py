@@ -277,6 +277,21 @@ def triangle_safe_membership(skin, covered):
     return shared[skin.remap]
 
 
+def apply_fitted_membership(blob, memberships):
+    """Fitting at a vertex is not permission to erase its exposed neighbours."""
+    if not memberships:
+        return blob
+    skin = CompiledSkin(blob)
+    covered = np.logical_or.reduce([np.asarray(value, dtype=bool) for value in memberships.values()])
+    return apply_membership(blob, {4: triangle_safe_membership(skin, covered)})
+
+
+def appearance_elements(derived):
+    """Skin, scalp, hair and beard all need conditional garment coverage."""
+    return [element for node in derived if node.tag in ('Body', 'Head', 'Hair', 'Beard')
+            for element in node.findall('Elements/SkinElement')]
+
+
 def register_fixed_body_coverage(output, component, namespace):
     """Retain exposed skin under merged outfits instead of replacing regions."""
     from character_lods import source_lods
@@ -302,7 +317,7 @@ def register_fixed_body_coverage(output, component, namespace):
             levels[level] = (skin.vertices[skin.faces[visible]], physical_alpha_intersections(skin, surfaces, visible))
         covers.append(levels)
     report = []
-    for element in derived.findall('Body/Elements/SkinElement'):
+    for element in appearance_elements(derived):
         region = element.get('EquipmentPart')
         name = namespace + '_outfit_covers_' + region
         for level, path in family(element).items():
@@ -343,7 +358,7 @@ def register_coverage(output, component, garments, tables, namespace):
     def family(element):
         model = element.get('Model')
         return {0: folder / model, **{lod: index[name] for lod, name in source_lods(index, model).items()}}
-    targets = [(None, element, family(element)) for element in derived.find('Body/Elements')]
+    targets = [(None, element, family(element)) for element in appearance_elements(derived)]
     nodes = {}
     families = {}
     for i, garment in enumerate(garments):
