@@ -7,8 +7,9 @@ from PIL import Image
 
 from npc_effects import (read_dds_family, legacy_bg_mask, native_skin_material,
                          native_clothing_material, native_vertex_features,
-                         bake_macro_diffuse, write_float_dds)
+                         bake_macro_diffuse)
 from upgrade_map import xml
+from texture_encode import write_colour_dds, write_mask_dds
 
 
 def reference(assets, path):
@@ -51,7 +52,8 @@ def native_surface(source, template):
 
 
 def bake_float_dds(path, image, material, specular=None):
-    write_float_dds(path, bake_macro_diffuse(image, material, specular))
+    """Bake one macro colour texture; stored per GLUEMAPPER_CLOTHING_TEXTURES (BC7 sRGB or RGBA16F)."""
+    write_colour_dds(path, bake_macro_diffuse(image, material, specular))
 
 
 def convert_character_materials(output, components, assets, namespace, sex, bake=bake_float_dds):
@@ -98,7 +100,7 @@ def convert_character_materials(output, components, assets, namespace, sex, bake
                         mask = legacy_bg_mask(pixels('Decal')) if 'Decal' in textures else Image.new('RGBA', (4, 4), (0, 0, 0, 255))
                         if shader == 'illum':
                             r, g, _, a = mask.split(); mask = Image.merge('RGBA', (r, g, Image.new('L', mask.size, 192), a))
-                        mask.save(output / (prefix + '_bgs.dds'))
+                        write_mask_dds(output / (prefix + '_bgs.dds'), mask)
                     if shader == 'illum':
                         spec = pixels('Specular') if 'Specular' in textures else None
                         bake(output / (prefix + '_diff.dds'), pixels('Diffuse'), material, spec)
