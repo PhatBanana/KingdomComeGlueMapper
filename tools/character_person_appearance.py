@@ -394,7 +394,9 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         'Localization/English/text_ui_items.xml': xml(localization),
     }
     write_staged(output, {**emitted, **additions})
-    with Bakes() as bakes:
+    # Coverage below reads the encoded diffuse alpha, so this conversion waits
+    # for its textures even when the caller defers compression.
+    with Bakes(encode_now=True) as bakes:
         material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
                                                       native, namespace, 'female', bakes)
     from clothing_coverage import register_coverage

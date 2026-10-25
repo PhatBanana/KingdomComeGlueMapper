@@ -24,6 +24,12 @@ from upgrade_map import read, xml
 ACTOR_PAK_LIMIT = 900 * 1024**2
 
 
+def actor_libs(appearance):
+    """The Libs/ tables write_actor_paks returns, read without packing the assets."""
+    return {p.relative_to(appearance).as_posix(): p.read_bytes() for p in sorted(appearance.rglob('*'))
+            if p.is_file() and p.relative_to(appearance).as_posix().startswith('Libs/')}
+
+
 def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
     """Pack and validate streamed assets, including families crossing ZIP32 shards."""
     from texture_streaming import checked_entries, generated_entries
@@ -129,56 +135,69 @@ def build(a):
                 ET.fromstring(read(z,'whdata_0')), documents, a.source_profile)
         for actor in profile_actors:
             requested['profile_actor_' + actor['entity_guid']] = dict(soul_id=actor['soul_id'])
-    for aid, row in requested.items():
-        if getattr(a, 'cancelled', lambda: False)():
-            raise InterruptedError('Cancelled before actor conversion')
-        sid = row.get('soul_id')
-        if not sid or row.get('soul_class_id') or row.get('soul_faction_id'):
-            pending.append(dict(asset=aid, reason='Filtered or non-explicit soul')); continue
-        if sid in seen: continue
-        seen.add(sid)
-        if sid in registered:
-            existing.append(dict(soul_id=sid, person=source_souls.get(sid))); continue
-        if sid not in source_souls: raise ValueError('Missing source soul: ' + sid)
-        person = resolve_person(a.source, source_souls[sid], a.source_level)
-        if aid.startswith('profile_actor_') and person['actor'].get('EntityGuid', '').lower() != aid[14:].lower():
-            raise ValueError('Profile actor resolved to a different source placement: ' + person['name'])
-        namespace = 'gm_person_' + sid.replace('-', '')
-        getattr(a, 'notify', print)('Converting source appearance: ' + person['name'])
-        appearance = a.output / 'people' / namespace
-        try:
-            character = build_appearance(a.source, a.target, person, namespace, appearance)
-        except ValueError as error:
-            pending.append(dict(asset=aid, person=person['name'], reason=str(error)))
-            print(json.dumps(pending[-1]), flush=True)
-            continue
-        from character_weapon_inventory import stage as stage_weapons
-        weapon_result = stage_weapons(a.source, a.target, a.mod, person, character, namespace,
-                                      a.output / 'equipment' / namespace)
-        character['source_weapons'] = weapon_result['items']
-        for path, payload in weapon_result['files'].items():
-            if path.startswith('Localization/'):
-                item_tables.append(payload)
-            else:
-                dest = appearance / path; dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(payload)
-        (appearance / 'appearance-result.json').write_text(json.dumps(character, indent=2))
-        resources = actor_resources(a.target, person, character, namespace,
-            role_name=namespace + '_role', native_soul_table='Libs/Tables/rpg/soul__ttac.xml',
-            native_soul_name='ttac_procek', native_role_name='PREVOZNIK_TROSECKO', resources=resources)
-        # Keep each actor's geometry in its own ZIP32 archive. The shared world
-        # archive is already large and must not grow past the engine's limit.
-        resources.update(write_actor_paks(appearance, package / 'Data', namespace)[1])
-        strings = appearance / 'Localization/English/text_ui_items.xml'
-        if strings.exists(): item_tables.append(strings.read_bytes())
-        with zipfile.ZipFile(a.source / 'Localization/English_xml.pak') as z:
-            key = person['instance'].findtext('StaticData/NameStringId')
-            names.append(next(r for r in ET.fromstring(read(z, 'text_ui_soul.xml')) if r.findtext('Cell') == key))
-        placement = getattr(a, "placements", {}).get(person["name"])
-        register_person(add, wh, person, placement)
-        people.append(person); registered.add(sid)
-        converted.append(dict(person=person['name'], soul_id=sid, position=(placement or person['actor']).get('Pos'),
-                              source_level=person['source_level'], namespace=namespace))
+    from bake_pool import deferred_encodes
+    unpacked = []
+    def pack_ready(final=False):
+        while unpacked and (final or unpacked[0][2].done()):
+            folder, space, ticket = unpacked.pop(0)
+            ticket.result()
+            write_actor_paks(folder, package / 'Data', space)
+    with deferred_encodes() as encodes:
+        for aid, row in requested.items():
+            if getattr(a, 'cancelled', lambda: False)():
+                raise InterruptedError('Cancelled before actor conversion')
+            sid = row.get('soul_id')
+            if not sid or row.get('soul_class_id') or row.get('soul_faction_id'):
+                pending.append(dict(asset=aid, reason='Filtered or non-explicit soul')); continue
+            if sid in seen: continue
+            seen.add(sid)
+            if sid in registered:
+                existing.append(dict(soul_id=sid, person=source_souls.get(sid))); continue
+            if sid not in source_souls: raise ValueError('Missing source soul: ' + sid)
+            person = resolve_person(a.source, source_souls[sid], a.source_level)
+            if aid.startswith('profile_actor_') and person['actor'].get('EntityGuid', '').lower() != aid[14:].lower():
+                raise ValueError('Profile actor resolved to a different source placement: ' + person['name'])
+            namespace = 'gm_person_' + sid.replace('-', '')
+            getattr(a, 'notify', print)('Converting source appearance: ' + person['name'])
+            appearance = a.output / 'people' / namespace
+            try:
+                character = build_appearance(a.source, a.target, person, namespace, appearance)
+            except ValueError as error:
+                pending.append(dict(asset=aid, person=person['name'], reason=str(error)))
+                print(json.dumps(pending[-1]), flush=True)
+                continue
+            from character_weapon_inventory import stage as stage_weapons
+            weapon_result = stage_weapons(a.source, a.target, a.mod, person, character, namespace,
+                                          a.output / 'equipment' / namespace)
+            character['source_weapons'] = weapon_result['items']
+            for path, payload in weapon_result['files'].items():
+                if path.startswith('Localization/'):
+                    item_tables.append(payload)
+                else:
+                    dest = appearance / path; dest.parent.mkdir(parents=True, exist_ok=True)
+                    dest.write_bytes(payload)
+            (appearance / 'appearance-result.json').write_text(json.dumps(character, indent=2))
+            resources = actor_resources(a.target, person, character, namespace,
+                role_name=namespace + '_role', native_soul_table='Libs/Tables/rpg/soul__ttac.xml',
+                native_soul_name='ttac_procek', native_role_name='PREVOZNIK_TROSECKO', resources=resources)
+            # Keep each actor's geometry in its own ZIP32 archive. The shared world
+            # archive is already large and must not grow past the engine's limit.
+            # It is written once this actor's textures are; the GPU compresses them
+            # while the next people convert.
+            resources.update(actor_libs(appearance))
+            unpacked.append((appearance, namespace, encodes.ticket()))
+            pack_ready()
+            strings = appearance / 'Localization/English/text_ui_items.xml'
+            if strings.exists(): item_tables.append(strings.read_bytes())
+            with zipfile.ZipFile(a.source / 'Localization/English_xml.pak') as z:
+                key = person['instance'].findtext('StaticData/NameStringId')
+                names.append(next(r for r in ET.fromstring(read(z, 'text_ui_soul.xml')) if r.findtext('Cell') == key))
+            placement = getattr(a, "placements", {}).get(person["name"])
+            register_person(add, wh, person, placement)
+            people.append(person); registered.add(sid)
+            converted.append(dict(person=person['name'], soul_id=sid, position=(placement or person['actor']).get('Pos'),
+                                  source_level=person['source_level'], namespace=namespace))
+    pack_ready(final=True)
     from bake_pool import release
     from static_assets import release_library_index
     release(); release_library_index()  # the people are converted; free the bake workers and archives
