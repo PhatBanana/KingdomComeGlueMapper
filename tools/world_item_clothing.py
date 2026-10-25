@@ -183,7 +183,10 @@ class ClothingAdapter:
                     ancestor = self.parents.get(ancestor)
                 files[prefix+region+'.skin'] = skin
                 element = ET.SubElement(elements,'SkinElement',EquipmentPart=region,Model=region+'.skin',
-                    Material='source.mtl',KeepBodyLayer=str(region not in ('torso','legs','feet')).lower(),IsFinalLayer='true')
+                    # Female bodies contain arms, hands and legs in their torso
+                    # element. A dress cannot replace that whole body layer:
+                    # unlike the split male body, it also removes exposed limbs.
+                    Material='source.mtl',KeepBodyLayer=str(sex == 'female' or region not in ('torso','legs','feet')).lower(),IsFinalLayer='true')
                 if layer is not None: element.set('BodyLayerId',layer)
             files.update({n:a.emitted[n] for n in a.emitted if n not in before})
             files[prefix+'source.mtl'] = a.emitted[mat+'.mtl']

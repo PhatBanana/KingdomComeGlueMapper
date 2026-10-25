@@ -86,6 +86,11 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from setup_section_repair import repair, stale_sections
     if stale_sections(package):
         receipt = repair(package, repair_roots=repair_roots, notify=notify, cancelled=cancelled)
+    # Shared by clean finalization and both resume paths. Repair verified pickup
+    # registrations before another stage can replace archives or their hashes.
+    from setup_female_clothing import upgrade as repair_female_clothing
+    files, report = repair_female_clothing(package, receipt)
+    receipt['files'].update(files); receipt['female_clothing'] = report
     # Recipe 52 already contains the complete world, schedules and training.
     # These revisions repair collision, static gates and lesson handoff, so
     # do not rebuild people, lighting or terrain in a completed saved build.

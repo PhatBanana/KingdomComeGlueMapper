@@ -179,6 +179,9 @@ class UpgradeTests(unittest.TestCase):
             base=p/'Data/Levels/kcd1_rataje';base.mkdir();(base/'terrain.pak').write_bytes(b'base')
             archive('Data/shared.pak',{'shared.bin':b'shared'})
             shared=p/'Data/shared.pak';shared_before=shared.read_bytes()
+            from test_female_clothing_upgrade import table as female_table
+            female_member = 'Libs/Tables/Character/CharacterComponent__worlditems_cloth_example.xml'
+            archive('Data/pickup-clothing.pak', {female_member: female_table()})
             r=dict(schema=1,owner=MOD_ID,travel_bridge={'destination':'kcd1_travel'},build_recipe=dict(version=getattr(self,'source_recipe',3),status='complete',content_validation={'actors':11},streaming_validation={'ok':True},shader_validation={'installation':'mod_private_root'},steps=[{'id':s} for s in STAGE_IDS]))
             if getattr(self, 'baked', False):
                 r['baking'] = dict(preset='buildings', levels=[dict(level='kcd1_travel', tiles=1)])
@@ -254,10 +257,14 @@ class UpgradeTests(unittest.TestCase):
                     lights_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['procedural_lights'], lights_report)
                     encounters.assert_called_once()
+                    self.assertEqual(len(result['female_clothing']['corrected_components']), 1)
+                    with zipfile.ZipFile(p/'Data/pickup-clothing.pak') as z:
+                        self.assertEqual(ET.fromstring(z.read(female_member)).find('.//SkinElement').get('KeepBodyLayer'), 'true')
                     if getattr(self, 'repeat_resume', False):
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             before_lod = z.read('terrain/hlods.dat')
                         result = finalize(p, source=p)
+                        self.assertEqual(result['female_clothing']['corrected_components'], [])
                         with zipfile.ZipFile(p/'Data/Levels/kcd1_travel/level.pak') as z:
                             self.assertEqual(z.read('terrain/hlods.dat'), before_lod)
                     if getattr(self, 'shopkeeper', False):
