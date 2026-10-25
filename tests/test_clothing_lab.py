@@ -16,7 +16,7 @@ import numpy as np
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from clothing_lab.assets import Assets, key
 from clothing_lab.catalog import resolved_nodes, Catalog
-from clothing_lab.validation import active_masks, validate, plan
+from clothing_lab.validation import active_masks, validate, plan, element_replaced
 from clothing_lab.geometry import Surface
 from clothing_coverage import covered_points
 from clothing_lab.service import Lab
@@ -55,6 +55,49 @@ class FakeCatalog:
 
 
 class ClothingLabTests(unittest.TestCase):
+    def test_duplicate_native_material_feature_declarations_fail_validation(self):
+        c=object.__new__(Catalog)
+        c.assets=SimpleNamespace(read=lambda _:b'<Material><SubMaterials><Material><FeatureSlots Slot00="Fabric"/></Material><Material><FeatureSlots Slot00="Fabric"/></Material></SubMaterials></Material>')
+        with self.assertRaisesRegex(ValueError,'multiple submaterials'):
+            c.materials('duplicate.mtl')
+
+    def test_native_selects_one_region_mesh_but_hidden_inner_mask_still_applies(self):
+        c=FakeCatalog()
+        c.parts['outer']=part('outer',layer='6')
+        c.meshes['outer.skin']=mesh(.04)
+        c.meshes['outer.skin'].vertices[:,0]+=5  # Short sleeves leave this skin uncovered.
+        selected=['body','dress','outer']
+        self.assertTrue(element_replaced(c,selected,c.parts['dress'],c.parts['dress']['elements'][0]))
+        self.assertFalse(element_replaced(c,selected,c.parts['outer'],c.parts['outer']['elements'][0]))
+        self.assertEqual(active_masks(c,selected),{'torso':16})
+        result=validate(c,selected,geometry=True)
+        self.assertEqual(next(m for m in result['meshes'] if m['component']=='dress')['visible_triangles'],0)
+        self.assertIn('hidden_skin_without_cover',{f['code'] for f in result['findings']})
+        self.assertNotIn('hidden_skin_without_cover',{f['code'] for f in validate(c,['body','dress'],geometry=True)['findings']})
+
+    def test_native_uses_layer_order_not_id_and_only_winning_keep_body(self):
+        c=FakeCatalog()
+        c.parts['underwear']=part('underwear',layer='8')  # native order 1, below layer 5
+        c.parts['underwear']['elements'][0]['KeepBodyLayer']='false'
+        selected=['body','dress','underwear']
+        self.assertTrue(element_replaced(c,selected,c.parts['underwear'],c.parts['underwear']['elements'][0]))
+        self.assertFalse(element_replaced(c,selected,c.parts['body'],c.parts['body']['elements'][0]))
+
+    def test_material_culling_matches_native_two_sided_flag(self):
+        c=object.__new__(Catalog)
+        c.assets=SimpleNamespace(read=lambda _:b'<Material><SubMaterials><Material Shader="HumanSkin" MtlFlags="524288"/><Material Shader="Illum" MtlFlags="524290"/></SubMaterials></Material>')
+        self.assertEqual([m['two_sided'] for m in c.materials('culling.mtl')],[False,True])
+
+    def test_native_skinning_buffer_disagreement_is_an_error_even_without_geometry_audit(self):
+        c=FakeCatalog()
+        c.meshes['dress.skin'].native_colour_mismatches=lambda:np.array([0,2])
+        result=validate(c,['body','dress'])
+        issue=next(f for f in result['findings'] if f['code']=='native_skinning_colour_mismatch')
+        self.assertEqual(issue['severity'],'error')
+        self.assertEqual(issue['sample_vertices'],[0,2])
+        c.meshes['dress.skin'].native_colour_mismatches=lambda:np.array([],dtype=int)
+        self.assertNotIn('native_skinning_colour_mismatch',{f['code'] for f in validate(c,['body','dress'])['findings']})
+
     def test_lod_selection_uses_each_parts_authored_chain_and_reports_the_effective_level(self):
         catalog=object.__new__(Catalog)
         catalog.assets=SimpleNamespace(index={name:None for name in ('body.skin','head.skin','head_lod1.skin','head_lod2.skin')})

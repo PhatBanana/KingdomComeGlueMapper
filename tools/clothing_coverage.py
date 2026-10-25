@@ -164,6 +164,19 @@ def alpha_intersections(skin, surfaces, selected):
     return accepts
 
 
+def physical_alpha_intersections(skin, surfaces, selected):
+    """Test the authored cut at the finest converted texture level.
+
+    A distant mip averages opaque cloth with unused UV background. Requiring
+    the 1x1 average to pass AlphaTest can reject every surface of a perfectly
+    visible dress. Physical fitting/coverage must use the actual cut, just as
+    source fitting does; distant texture filtering is not a new body opening.
+    Bilinear footprints still have to be opaque, including beside cutouts.
+    """
+    return alpha_intersections(skin, [(threshold, levels[:1])
+                                     for threshold, levels in surfaces], selected)
+
+
 def unculled_garment_visibility(skin):
     """Visibility evidence for complete imported meshes with cleared hiding bits.
 
@@ -286,7 +299,7 @@ def register_fixed_body_coverage(output, component, namespace):
             skin = CompiledSkin(path.read_bytes())
             alpha = np.frombuffer(skin.streams[3].data[24:], np.uint8).reshape(-1, 4)[:, 3]
             visible = ~(((255 ^ alpha) & 16) != 0)[skin.faces].any(axis=1)
-            levels[level] = (skin.vertices[skin.faces[visible]], alpha_intersections(skin, surfaces, visible))
+            levels[level] = (skin.vertices[skin.faces[visible]], physical_alpha_intersections(skin, surfaces, visible))
         covers.append(levels)
     report = []
     for element in derived.findall('Body/Elements/SkinElement'):
@@ -316,7 +329,6 @@ def register_coverage(output, component, garments, tables, namespace):
     from clothing_fitting import source_layer_contracts, higher_layers
     folder = output / 'objects/characters' / component.get('FilePath')
     derived = component.find('DerivedComponents')
-    rows = tables.get('item/clothing_raycast')['rows']
     parts = [g['part'] for g in garments]
     contracts = source_layer_contracts(parts, tables)
     higher = {i: higher_layers(i, parts, contracts) for i in range(len(parts))}
@@ -347,20 +359,17 @@ def register_coverage(output, component, garments, tables, namespace):
         covers = {}
         for level, path in families[i].items():
             cover = CompiledSkin(path.read_bytes())
-            if level == 0:
-                opaque = source_opacity(rows, garment['source_model'], garment['source_material'],
-                    len(cover.faces), rendered_visibility=np.ones(len(cover.faces), bool),
-                    generated_opacity=np.ones(len(cover.faces), bool))
-            else:
-                # Source triangle-cache topology belongs to LOD0 only. Lower
-                # LODs are tested against their own triangles and actual alpha.
-                opaque = np.ones(len(cover.faces), bool)
+            # Legacy caches describe the original renderer's culling state.
+            # Test the complete converted surface at every authored LOD;
+            # actual UV alpha and the newly computed upper-layer masks decide
+            # which surfaces cover skin, not the old renderer's triangle bits.
+            opaque = unculled_garment_visibility(cover)
             if masks.get(path):
                 hidden = np.logical_or.reduce(list(masks[path].values()))
                 opaque &= ~hidden[cover.faces].any(axis=1)
-            covers[level] = (cover.vertices[cover.faces[opaque]], alpha_intersections(cover, surfaces, opaque), int(opaque.sum()))
+            covers[level] = (cover.vertices[cover.faces[opaque]], physical_alpha_intersections(cover, surfaces, opaque), int(opaque.sum()))
         visibility_sources.append(dict(garment=garment['stem'], lods=sorted(covers),
-            opacity='converted_alpha_intersections', evidence=evidence))
+            opacity='converted_finest_alpha_intersections', evidence=evidence))
         names = []
         for target_index, element, target_family in targets:
             if target_index is not None and i not in higher[target_index]:

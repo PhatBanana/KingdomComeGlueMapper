@@ -31,8 +31,12 @@ class NativeLayerTests(unittest.TestCase):
             c.meshes['dress.skin']=mesh(.03)
             c.meshes['coat.skin']=mesh(.02) # outer garment is incorrectly inside inner
             result=validate(c,['body','dress','coat'],True)
-            inverted=[f['components'] for f in result['findings'] if f['code']=='outer_layer_under_inner']
-            self.assertEqual(inverted,[['dress','coat']])
+            # The native attachment selects only the outer mesh, even when it
+            # lies inside the unused lower geometry. Do not diagnose a draw
+            # intersection with a mesh the engine never renders.
+            self.assertEqual(next(m for m in result['meshes'] if m['component']=='dress')['visible_triangles'], 0)
+            self.assertNotIn('outer_layer_under_inner',{f['code'] for f in result['findings']})
+            self.assertEqual([f['components'] for f in result['findings'] if f['code']=='native_region_selection'], [['dress']])
             c.meshes['coat.skin']=mesh(.04)
             self.assertNotIn('outer_layer_under_inner',{f['code'] for f in validate(c,['body','dress','coat'],True)['findings']})
 

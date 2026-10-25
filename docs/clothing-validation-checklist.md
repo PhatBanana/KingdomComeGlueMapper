@@ -1,5 +1,11 @@
 # Clothing combination validation checklist
 
+**Superseded by native selection evidence (25 October 2026).** KCD2 draws
+one clothing mesh per region, while the earlier viewer drew every selected
+layer. The old checked combinations below do not establish visible coverage.
+Contract 4 now models native selection, material culling and render/internal
+colour-buffer parity. See [the native discrepancy report](clothing-native-rendering.md).
+
 This is a developer audit of the **converted package**, not certification by the KCD2 runtime. A checked combination below has exact native role/gender/layer matches, no reported slot/archetype conflicts, and no findings from the enabled bind-pose geometry checks. It was not tested in native animation or cloth physics.
 
 The subsequent [source fitting and composition correction](clothing-fitting-conversion.md)
@@ -7,6 +13,13 @@ and native equipment/body coverage follow-up have their own candidate, render
 evidence and remaining review findings. The counts
 and confirmed CSV below continue to describe the original signature, not that
 new candidate.
+
+This is historical evidence from an older validator contract. The current
+version 3 checked exclusive native subpart/layer reservations in symbolic
+counts. Its historical registration-only rerun covered all 407 garments, 48,865
+pairs and 61 presets; see the linked follow-up for its separate signature and
+15-case geometry check. The confirmed CSV below has not been recertified under
+the new contract and must not be used as current native-equipment approval.
 
 Package signature: `7c0360e1d72ae865526a2db1f32993ca560ff745eb65730d099205254a30fdef`.
 Native rule-table hashes:

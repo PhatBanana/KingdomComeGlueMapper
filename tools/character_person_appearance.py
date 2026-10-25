@@ -373,13 +373,15 @@ def _build_appearance(source, target, person, namespace, output):
 
 def finish_female(source, target, tables, namespace, output, prefix, emitted,
                   document, derived, appearance, garments, evidence, rig, native):
-    """Register female source garments separately using native female roles."""
+    """Resolve native roles, then bundle source layers sharing a draw region."""
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
         from clothing_equipment import NativeEquipment
         equipment = NativeEquipment.from_archive(archive)
         components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
         native_items = native_xml(read(archive, 'Libs/Tables/item/item.xml'))
         archetypes = native_xml(read(archive, 'Libs/Tables/rpg/soul_archetype.xml'))
+        layer_order = {n.get('body_layer_id'): int(n.get('layer_order')) for n in
+                       native_xml(read(archive, 'Libs/Tables/item/body_layer.xml')).iter('body_layer')}
     with zipfile.ZipFile(Path(source) / 'Localization/English_xml.pak') as archive:
         source_strings = ET.fromstring(read(archive, 'text_ui_items.xml'))
     item_root = ET.Element('database', name='barbora')
@@ -443,8 +445,13 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
                                                       native, namespace, 'female', bakes)
     from clothing_coverage import register_coverage
     coverage = register_coverage(output, document.find('CharacterComponents/Component'), garments, tables, namespace)
+    from clothing_native_composition import compose_source_regions
+    composition = compose_source_regions(output, document.find('CharacterComponents/Component'), items, preset, layer_order)
     (output / ('Libs/Tables/Character/CharacterComponent__' + namespace + '.xml')).write_bytes(xml(document))
+    (output / ('Libs/Tables/item/item__' + namespace + '.xml')).write_bytes(xml(item_root))
+    (output / ('Libs/Tables/item/clothing_preset__' + namespace + '.xml')).write_bytes(xml(clothing_root))
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender='female',
         archetype=native_soul_archetype(archetypes, 'Female'), parts=evidence, rig=rig,
-        items=item_report, outfit_mode='Source female items and complete garment meshes', runtime_verified=False,
+        items=item_report, composition=composition,
+        outfit_mode='Source female outfits composed per native draw region', runtime_verified=False,
         localization='Localization/English/text_ui_items.xml', materials=material_report, coverage=coverage)

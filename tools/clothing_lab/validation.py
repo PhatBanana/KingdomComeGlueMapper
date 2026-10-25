@@ -22,14 +22,32 @@ def active_masks(catalog, selected):
     return masks
 
 
+def element_replaced(catalog, selected, part, element):
+    """KCD2 has one clothing attachment per region, plus the retained body.
+
+    BodyLayerId is selection priority, not a request to draw every layer.
+    Hiding groups of equipped but unselected items still apply to that region.
+    Keep skin and VCloth selection separate; neither replaces the other.
+    """
+    if part['kind'] not in ('Body', 'Clothing'): return False
+    region = element.get('EquipmentPart')
+    kind = element.get('element_type', 'SkinElement')
+    candidates = [(catalog.layer_order.get(e.get('BodyLayerId')), e)
+        for identity in selected if catalog.parts[identity]['kind'] == 'Clothing'
+        for e in catalog.parts[identity]['elements']
+        if e.get('EquipmentPart') == region and e.get('element_type', 'SkinElement') == kind]
+    candidates = [(order, e) for order, e in candidates if order is not None]
+    layer = catalog.layer_order.get(element.get('BodyLayerId'))
+    if not candidates or layer is None: return False
+    highest = max(order for order, _ in candidates)
+    if highest <= layer: return False
+    if part['kind'] == 'Clothing': return True
+    return any(e.get('KeepBodyLayer', 'false') != 'true'
+               for order, e in candidates if order == highest)
+
+
 def body_replaced(catalog, selected, part, element):
-    if part['kind']!='Body':return False
-    region=element.get('EquipmentPart');layer=catalog.layer_order.get(element.get('BodyLayerId'))
-    if layer is None:return False
-    return any(other['kind']=='Clothing' and any(e.get('EquipmentPart')==region
-        and catalog.layer_order.get(e.get('BodyLayerId'),-1)>layer
-        and e.get('KeepBodyLayer','false')!='true' for e in other['elements'])
-        for other in (catalog.parts[i] for i in selected))
+    return part['kind'] == 'Body' and element_replaced(catalog, selected, part, element)
 
 
 def rendered_vertices(mesh, hidden):
@@ -77,6 +95,11 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
                 findings.append(finding('invalid_hiding_bit','Hiding-group index cannot be represented by the vertex alpha byte.',[identity],'error',group=group))
         for element in part['elements']:
             region, layer = element.get('EquipmentPart'),element.get('BodyLayerId')
+            replaced = element_replaced(catalog, selected, part, element)
+            if replaced and part['kind'] == 'Clothing':
+                findings.append(finding('native_region_selection',
+                    'A higher layer supplies the single native clothing attachment. This mesh is not drawn; its equipped hiding groups still apply.',
+                    [identity], region=region, layer=layer))
             slots.setdefault((region,layer),[]).append(identity)
             native=catalog.native_roles.get(role)
             native_default=layer is None and native and (region,None) in native['layers']
@@ -99,11 +122,18 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
                 name, effective_lod = loaded_model(element)
                 lod_selections.append(dict(component=identity, model=name, requested=lod, effective=effective_lod))
                 mesh = catalog.mesh(name)
+                if hasattr(mesh, 'native_colour_mismatches'):
+                    mismatches = mesh.native_colour_mismatches()
+                    if len(mismatches):
+                        findings.append(finding('native_skinning_colour_mismatch',
+                            'Render and internal skinning buffers disagree on native material features or hiding bits.',
+                            [identity], 'error', model=name, vertices=len(mismatches),
+                            sample_vertices=mismatches[:32].tolist()))
                 if not np.isfinite(mesh.vertices).all() or np.any(mesh.faces < 0) or np.any(mesh.faces >= mesh.n):
                     raise ValueError('Non-finite vertices or indices outside mesh')
                 alpha = np.frombuffer(mesh.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
                 hidden = ((255 ^ alpha) & masks.get(region,0)) != 0
-                if body_replaced(catalog,selected,part,element):hidden[:]=True
+                if replaced:hidden[:]=True
                 materials = catalog.materials(element.get('MaterialResolved'))
                 for subset in mesh.info['subset_records']:
                     if subset['material_id'] >= len(materials): raise ValueError('Material slot outside material table')
@@ -134,6 +164,7 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
         covers = []
         for identity,element,mesh,hidden,materials in meshes:
             if catalog.parts[identity]['kind'] != 'Clothing': continue
+            if element_replaced(catalog, selected, catalog.parts[identity], element): continue
             try:
                 if hasattr(catalog,'coverage_surface'):
                     model,_=loaded_model(element)

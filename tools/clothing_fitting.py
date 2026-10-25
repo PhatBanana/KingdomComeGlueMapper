@@ -14,7 +14,7 @@ from build_npc_probe import asset_path, bind_material
 from character_clothing_variant import resolve_variant
 from character_lods import source_lods
 from character_skin_upgrade import CompiledSkin, read_morphs, upgrade_skin
-from clothing_coverage import alpha_intersections, covered_points, normals, source_opacity
+from clothing_coverage import alpha_intersections, covered_points, normals, unculled_garment_visibility
 from clothing_regions import read_chunks
 from npc_effects import MAX_FLOAT_SIZE, decode_dds_family
 
@@ -126,7 +126,7 @@ class OutfitFitting:
                            ('item/body_layer', 'item/armor_archetype2body_subpart')},
             relationships=[dict(inner=self.parts[i]['clothing_id'], outer=self.parts[j]['clothing_id'])
                            for i in self.contracts for j in higher_layers(i, self.parts, self.contracts)],
-            fitting_opacity='Finest converted-equivalent alpha mip at each source LOD',
+            fitting_opacity='Complete converted surface with finest converted-equivalent alpha mip at each source LOD; legacy triangle caches are not visibility evidence',
             exposed_vertex_policy='Keep the selected source variant; no fitting displacement',
             native_runtime_verified=False)
 
@@ -155,11 +155,11 @@ class OutfitFitting:
         upper = CompiledSkin(baked)
         if number not in self.alpha:
             self.alpha[number] = source_alpha(ET.parse(self.emitted[staged+'.mtl']).getroot(), self.emitted)
-        # Cached triangle masks are topology-specific; lower LODs use their own
-        # converted complete surface and the same actual diffuse alpha instead.
-        opaque = (source_opacity(self.tables.get('item/clothing_raycast')['rows'], model, mat,
-                  len(upper.faces), np.ones(len(upper.faces), bool), np.ones(len(upper.faces), bool))
-                  if level == 0 else np.ones(len(upper.faces), bool))
+        # upgrade_skin clears legacy hiding. KCD1's cached opaque/not-culled
+        # triangle masks describe a different visibility state and can exclude
+        # opaque rendered surfaces at cuffs, collars and hems. Test the complete
+        # converted surface at every LOD; UV alpha, not an old bit, proves a hit.
+        opaque = unculled_garment_visibility(upper)
         # Fitting is geometric, not a decision to delete/hide skin. The finest
         # rendered surface defines the garment's physical cut. Requiring every
         # distant mip to agree incorrectly exposes whole bands near UV islands.

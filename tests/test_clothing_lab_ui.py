@@ -28,6 +28,7 @@ class ClothingLabUITests(unittest.TestCase):
         parts.append(dict(id='dress',label='Test dress',family='Female',kind='Clothing',gender='Female',attributes=dict(HidingGroups='cover'),elements=[dict(EquipmentPart='torso',BodyLayerId='5')]))
         catalog=dict(parts=parts,presets=[dict(id=g,label=g,gender=g,parts=[g+'_body']+(['dress'] if g=='Female' else [])) for g in ('Female','Male')],groups=dict(cover=dict(index=4,region='torso')),native_rules=True,errors=[])
         row=dict(id='Female_body',kind='Body',element=dict(EquipmentPart='torso'),positions=packed([-.5,0,.1,.5,0,.1,0,0,1.5],'f'),normals=packed([0,1,0]*3,'f'),uv=packed([0,0,1,0,.5,1],'f'),indices=packed([0,1,2],'I'),alpha=packed([239]*3,'B'),subsets=[dict(first_index=0,num_indices=3,material_id=0)],materials=[dict(name='skin',threshold=0,opacity=1,shader='HumanSkin')],bones=[dict(name='leftForeArm',parent_index=None,bind=[1,0,0,0,0,1,0,0,0,0,1,0])],joints=packed([0]*12,'H'),weights=packed([1,0,0,0]*3,'f'),influences=4)
+        row['materials'][0]['two_sided']=True  # This synthetic triangle is viewed from both camera sides.
         self.page.add_init_script('''window.savedView=null;window.pywebview={api:{
         clothing_locations:async()=>({source:'source',target:'target',package:'package'}),
         clothing_open:async()=>('''+json.dumps(catalog)+'''),
@@ -47,7 +48,7 @@ class ClothingLabUITests(unittest.TestCase):
         return self.page.locator('canvas').evaluate("c=>c.toDataURL('image/png')")
 
     def test_rendered_masks_comparison_pose_and_capture(self):
-        masked=self.pixels();self.page.uncheck('#lab-masks');visible=self.pixels();self.assertNotEqual(masked,visible)
+        masked=self.pixels();self.page.uncheck('#lab-masks');visible=self.pixels();self.assertTrue(masked != visible, 'Hiding mask must change rendered pixels')
         self.page.locator('#lab-pose').evaluate("e=>e.value='60'");self.page.locator('#lab-pose').dispatch_event('input');self.assertNotEqual(visible,self.pixels())
         self.page.check('#lab-compare');self.assertTrue(self.page.locator('#lab-legend').is_visible())
         self.page.locator('#lab-capture').click();self.page.wait_for_function('window.savedView!==null')

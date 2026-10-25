@@ -1,4 +1,5 @@
 import sys
+import struct
 from pathlib import Path
 import tempfile
 import unittest
@@ -37,8 +38,26 @@ class NPCEffectsTests(unittest.TestCase):
         for key,stream in a.streams.items():
             if key != 3: self.assertEqual(stream.data,b.streams[key].data)
         self.assertEqual(b.streams[3].data[24:],bytes((255,255,227,255))*a.vertex_count)
+        for render, internal in enumerate(b.remap):
+            start = 32 + internal*64
+            self.assertEqual(b.one(0x2005).data[start:start+60], a.one(0x2005).data[start:start+60])
+            self.assertEqual(b.one(0x2005).data[start+60:start+64], bytes((255,255,227,255)))
         self.assertEqual(native_vertex_features(native_vertex_features(source,3),3),native_vertex_features(source,3))
         with self.assertRaises(ValueError): native_vertex_features(source,27)
+
+    def test_feature_conversion_synchronizes_existing_hiding_in_both_skinning_buffers(self):
+        from clothing_regions import write_chunks
+        original = Skin(native_vertex_features(garment_skin()))
+        colors = bytearray(original.streams[3].data)
+        for i in range(original.vertex_count):
+            colors[24+4*i+3] = 255 ^ (1 << (i % 8))
+        blob = write_chunks(original.chunks, {original.streams[3].id: bytes(colors)})
+        skin = Skin(native_vertex_features(blob, 26, preserve_hiding=True))
+        for i, internal in enumerate(skin.remap):
+            start = 32 + internal*64 + 60
+            expected = bytes((255,255,250,colors[24+4*i+3]))
+            self.assertEqual(skin.streams[3].data[24+4*i:28+4*i], expected)
+            self.assertEqual(skin.one(0x2005).data[start:start+4], expected)
 
     def test_dds_roundtrip_and_incomplete_family(self):
         with tempfile.TemporaryDirectory() as tmp:

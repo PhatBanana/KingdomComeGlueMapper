@@ -16,8 +16,8 @@ from .validation import validate
 
 
 CONTRACT_REVIEW = {'native_rules_unavailable', 'native_layer_difference',
-                   'shared_armor_archetype', 'cross_outfit_masks'}
-VALIDATION_CONTRACT = 2
+                   'shared_armor_archetype', 'cross_outfit_masks', 'native_region_selection'}
+VALIDATION_CONTRACT = 4
 
 
 def contract_passed(result):
@@ -30,7 +30,7 @@ def signature(part):
                          for e in part['elements']}))
 
 
-def count_layer_space(parts, eligible):
+def count_layer_space(parts, eligible, equipment=None):
     """Exact weighted DP over slot/archetype occupancy, not a sampled outfit run.
 
     Every item alternative has weight one, including distinct material variants.
@@ -44,26 +44,41 @@ def count_layer_space(parts, eligible):
     all_roles=sorted({p['attributes']['ArmorArchetypeId'] for p in parts})
     slots={s:1<<i for i,s in enumerate(all_slots)}
     roles={s:1<<i for i,s in enumerate(all_roles)}
+    # Mesh regions/layers are not the inventory's exclusive slots. Different
+    # archetypes can reserve the same native subpart without their declared
+    # mesh signatures overlapping (e.g. a cap and a helmet).
+    native_slots=sorted({slot for p in parts for slot in
+                        equipment.exclusive.get(p['attributes']['ArmorArchetypeId'],set())}) if equipment else []
+    native_bits={slot:1<<(len(slots)+i) for i,slot in enumerate(native_slots)}
+    draw_slots = sorted({(e.get('EquipmentPart', ''), e.get('element_type', 'SkinElement'))
+                         for p in parts for e in p['elements']})
+    draw_bits = {s: 1 << (len(slots) + len(native_bits) + i) for i, s in enumerate(draw_slots)}
     states={(0,0):1}
     for group,items in sorted(groups.items()):
         mask=sum(slots[s] for s in group)
-        choices=Counter(roles[p['attributes']['ArmorArchetypeId']] for p in items if p['id'] in eligible)
+        choices=Counter((roles[p['attributes']['ArmorArchetypeId']],
+            (sum(native_bits[s] for s in equipment.exclusive.get(p['attributes']['ArmorArchetypeId'],set()))
+             if equipment else 0) | sum(draw_bits[s] for s in {
+                 (e.get('EquipmentPart', ''), e.get('element_type', 'SkinElement')) for e in p['elements']}))
+            for p in items if p['id'] in eligible)
         updated=defaultdict(int)
         for (occupied,equipped),weight in states.items():
             updated[occupied,equipped]+=weight  # empty choice
             if occupied & mask:
                 continue
-            for role,count in choices.items():
-                if not equipped & role:
-                    updated[occupied|mask,equipped|role]+=weight*count
+            for (role,native_mask),count in choices.items():
+                if not equipped & role and not occupied & native_mask:
+                    updated[occupied|mask|native_mask,equipped|role]+=weight*count
         states=dict(updated)
     total=math.prod(len(items)+1 for items in groups.values())
     accepted=sum(states.values())
     return dict(cartesian_total=total, registration_constraints_pass=accepted,
                 registration_constraints_reject=total-accepted, exact=True, final_states=len(states),
-                geometry_verified=False,
+                geometry_verified=False, native_exclusive_slots_checked=equipment is not None,
                 constraints=['Unary native role/region/layer and asset checks',
-                             'No repeated equipment-part/layer slot', 'No repeated armor archetype'],
+                             'No repeated equipment-part/layer slot', 'No repeated armor archetype',
+                             'No lower clothing mesh discarded by native region selection']+
+                             (['No overlapping exclusive native body-subpart/layer slots'] if equipment else []),
                 exclusions=['Body-dependent masks', 'Geometry and cloth physics',
                             'Native inventory arbitration', 'Other engine equipment exclusions'])
 
@@ -155,7 +170,7 @@ def run_matrix(catalog, destination, geometry=True, progress=print, resume_from=
                 counts['singles']+=1;counts['single_'+result['status']]+=1
                 if index%10==0:progress(f'{gender} single {index+1}/{len(parts)}')
             summary['genders'][gender]=dict(garments=len(parts),body_preset=body['id'],
-                full_layer_space=count_layer_space(parts,eligible),counts=dict(counts))
+                full_layer_space=count_layer_space(parts,eligible,getattr(catalog,'equipment',None)),counts=dict(counts))
             progress(f'{gender} starting {math.comb(len(parts),2)} pairs')
             for index,(a,b) in enumerate(combinations(parts,2)):
                 if pair_range and not pair_range[0] <= index < pair_range[1]:

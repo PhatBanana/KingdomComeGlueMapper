@@ -46,7 +46,8 @@ class EquipmentTests(unittest.TestCase):
         c.parts['outer']['attributes']['ArmorArchetypeId']='72'
         c.meshes['outer.skin']=mesh(.06)
         result=validate(c,['body','dress','outer'])
-        self.assertEqual(result['status'],'checked')
+        self.assertEqual({f['code'] for f in result['findings']}, {'native_region_selection'})
+        self.assertEqual(next(m for m in result['meshes'] if m['component']=='dress')['visible_triangles'], 0)
         # Different archetype numbers can still occupy one exclusive slot.
         c.parts['outer']['attributes']['ArmorArchetypeId']='99'
         codes={f['code'] for f in validate(c,['body','dress','outer'])['findings']}

@@ -12,6 +12,34 @@ from test_clothing_lab import FakeCatalog, part, mesh
 
 
 class ClothingMatrixTests(unittest.TestCase):
+    def test_symbolic_native_exclusivity_matches_validator_for_every_stack(self):
+        from test_clothing_equipment import equipment
+        c=FakeCatalog();c.equipment=equipment()
+        # These are different declared mesh regions and different archetypes,
+        # but the native inventory reserves the same exclusive body subpart.
+        parts=[part('inner'),part('inner_variant'),part('sleeves'),part('outer',layer='6')]
+        for p,archetype in zip(parts,('51','51','99','72')):
+            p['attributes']['ArmorArchetypeId']=archetype
+            c.parts[p['id']]=p
+        parts[2]['elements'][0]['EquipmentPart']='arms'
+        c.equipment.layers['99']={('arms','5')}
+        groups={}
+        for p in parts:groups.setdefault(signature(p),[None]).append(p)
+        accepted=0
+        for selection in product(*groups.values()):
+            selected=['body']+[p['id'] for p in selection if p]
+            accepted+=contract_passed(validate(c,selected,inspect_assets=False))
+        result=count_layer_space(parts,{p['id'] for p in parts},c.equipment)
+        self.assertEqual(result['cartesian_total'],12)
+        self.assertEqual(result['registration_constraints_pass'],accepted)
+        self.assertEqual(accepted,6)  # Also exclude lower meshes discarded by native region selection.
+        self.assertTrue(result['native_exclusive_slots_checked'])
+        # Legacy evidence would incorrectly accept all twelve. Absence of the
+        # native rules is explicit and must not claim the exclusive-slot check.
+        legacy=count_layer_space(parts,{p['id'] for p in parts})
+        self.assertEqual(legacy['registration_constraints_pass'],8)
+        self.assertFalse(legacy['native_exclusive_slots_checked'])
+
     def test_checklist_requires_complete_matching_current_evidence(self):
         with tempfile.TemporaryDirectory() as folder:
             folder=Path(folder);c=FakeCatalog();c.assets.root=folder;c.assets.overlay=None
@@ -52,11 +80,13 @@ class ClothingMatrixTests(unittest.TestCase):
         for p in parts:groups.setdefault(signature(p),[None]).append(p)
         count=0;total=0
         for group in product(*groups.values()):
-            total+=1;slots=set();roles=set();valid=True
+            total+=1;slots=set();roles=set();draws=set();valid=True
             for p in filter(None,group):
                 used=set(signature(p));role=p['attributes']['ArmorArchetypeId']
-                if slots & used or role in roles:valid=False
+                draw={(e.get('EquipmentPart'), e.get('element_type','SkinElement')) for e in p['elements']}
+                if slots & used or role in roles or draws & draw:valid=False
                 slots|=used;roles.add(role)
+                draws|=draw
             count+=valid
         result=count_layer_space(parts,{p['id'] for p in parts})
         self.assertEqual(result['cartesian_total'],total)
@@ -88,7 +118,7 @@ class ClothingMatrixTests(unittest.TestCase):
             self.assertEqual(before['enumerated_cases'],after['enumerated_cases'])
             self.assertGreater(after['reusable_cases'],0)
             manifest=Path(folder)/'before/summary.json'
-            data=json.loads(manifest.read_text());data['validation_contract']=1
+            data=json.loads(manifest.read_text());data['validation_contract']=2
             manifest.write_text(json.dumps(data))
             with self.assertRaisesRegex(ValueError,'validator contract'):load_resume(Path(folder)/'before',c)
             c.assets.signature=lambda:'changed'

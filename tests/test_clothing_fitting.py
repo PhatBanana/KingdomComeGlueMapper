@@ -5,6 +5,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
+import xml.etree.ElementTree as ET
 
 import numpy as np
 from PIL import Image
@@ -19,6 +20,44 @@ from test_character_upgrade import sample_skin
 
 
 class OutfitFittingTests(unittest.TestCase):
+    def test_converted_fitting_ignores_stale_source_cache_but_respects_texture_cutouts(self):
+        # The source cache excludes every triangle, while the converted mesh
+        # has cleared hiding. Its real material must decide coverage at LOD0
+        # and at a lower authored LOD, even if that cache no longer exists.
+        skin=CompiledSkin(sample_skin())
+        positions=np.array([[0,0,1],[1,0,1],[0,1,1],[1,1,1],[0,2,1],[1,2,1.]],dtype='<f4')
+        internal=bytearray(skin.internal.data)
+        for i,j in enumerate(skin.remap):
+            struct.pack_into('<3f',internal,32+64*int(j)+12,*positions[i])
+        blob=write_chunks(skin.chunks,{skin.streams[0].id:skin.streams[0].data[:24]+positions.tobytes(),
+                                      skin.internal.id:bytes(internal)})
+        from test_clothing_coverage import encoded
+        rows={'item/body_layer':[dict(body_layer_id='1',layer_order='1')],
+              'item/armor_archetype2body_subpart':[dict(armor_archetype_id='7',body_subpart_id='torso',body_layer_id='1')],
+              'item/clothing':[],
+              'item/clothing_raycast':[dict(skin='cloth.skin',material='cloth.mtl',
+                  opaque_triangle_mask=encoded([0]*len(skin.faces)),not_culled_triangle_mask=encoded([0]*len(skin.faces)))]}
+        part=dict(kind='cloth',gender_id='2',armor_archetype_id='7',model='cloth.skin',material='cloth.mtl')
+        with tempfile.TemporaryDirectory() as tmp:
+            material=Path(tmp)/'cloth.mtl';texture=Path(tmp)/'texture.dds'
+            root=ET.Element('Material');slots=ET.SubElement(root,'SubMaterials')
+            for _ in range(10):
+                node=ET.SubElement(slots,'Material',Shader='Illum',AlphaTest='0.1')
+                ET.SubElement(ET.SubElement(node,'Textures'),'Texture',Map='Diffuse',File='texture.dds')
+            ET.ElementTree(root).write(material)
+            emitted={str(material):material,'texture.dds':texture}
+            for alpha in (255,0):
+                Image.new('RGBA',(4,4),(255,255,255,alpha)).save(texture)
+                for cache in (rows['item/clothing_raycast'],[]):
+                    tables=SimpleNamespace(get=lambda name:dict(rows=cache if name=='item/clothing_raycast' else rows[name]))
+                    fitter=OutfitFitting([part],{'cloth.skin':None,'cloth_lod1.skin':None,'cloth.mtl':None},
+                        lambda name:blob,lambda name:str(material.with_suffix('')),emitted,tables)
+                    for lod in (0,1):
+                        upper,visible,accept=fitter.cover(0,lod)
+                        self.assertTrue(visible.all())
+                        covered=accept(np.arange(len(upper.faces)),np.full(len(upper.faces),.2),np.full(len(upper.faces),.2))
+                        np.testing.assert_array_equal(covered,np.full(len(upper.faces),alpha!=0))
+
     def test_authored_body_fit_uses_only_same_gender_cover_and_preserves_exposed_skin(self):
         source=sample_skin(morph=True)
         chunks=read_chunks(source);chunk=next(c for c in chunks if c.kind==0x2002)

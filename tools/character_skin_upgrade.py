@@ -52,6 +52,19 @@ class CompiledSkin:
         if len(matches)!=1:raise ValueError(f'Expected one {kind:#x} chunk')
         return matches[0]
 
+    def native_colour_mismatches(self):
+        """Vertices whose native skinning paths receive different shader inputs.
+
+        Source assets may legitimately need conversion, so this is an explicit
+        output validation rather than a restriction on loading KCD1 meshes.
+        """
+        colors = self.streams.get(3)
+        if colors is None or struct.unpack_from('<I', colors.data, 12)[0] != 4:
+            raise ValueError('Expected four-byte vertex colours')
+        render = np.frombuffer(colors.data[24:], np.uint8).reshape(self.n, 4)
+        internal = np.frombuffer(self.internal.data[32:], np.uint8).reshape(self.ninternal, 64)[:,60:64]
+        return np.flatnonzero(np.any(render != internal[self.remap], axis=1))
+
 
 def matrix(values):
     m=np.eye(4);m[:3]=np.asarray(values).reshape(3,4)

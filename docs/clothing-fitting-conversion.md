@@ -1,5 +1,10 @@
 # Source clothing fitting and composition
 
+The later [native renderer discrepancy report](clothing-native-rendering.md)
+supersedes the earlier workbench-only approval below. Native attachment
+inspection proved that independently registered lower dress meshes were not
+drawn. Region composition and validator contract 4 now address that mismatch.
+
 This conversion is shared by source-person appearance builds. It contains no
 NPC-name, soul-ID, outfit-ID, coordinate, or per-dress scale exceptions. The
 developer workbench remains under `tools/clothing_lab`; consumer Setup has no
@@ -36,6 +41,15 @@ physical cut. Requiring every distant mip to agree was found to leave large
 unfitted bands near UV islands. Body visibility retains its separate conservative
 opacity checks. Mixed ordering across shared body subparts is not given an
 arbitrary global winner; it still needs a per-subpart solution and review.
+
+The follow-up also removes KCD1's cached triangle masks from the fitting decision.
+Those masks describe source visibility, while the importer clears source hiding
+and supplies converted materials. In the layered female fixture, the old cache
+excluded the opaque surfaces above all 3 flagged body vertices and all 22 flagged
+inner-dress vertices. Testing the complete converted mesh with its actual UV
+alpha lets the authored fitting morph apply there. Transparent openings still
+reject hits. This applies to both sexes and every authored LOD; no garment or
+actor IDs select the correction.
 
 ## Native equipment and body coverage follow-up
 
@@ -80,7 +94,7 @@ report, not evidence of generated garment LODs.
 ## Validation on 2026-10-25
 
 Current developer overlay signature:
-`b8f2b80c6ec239cc7eb818596f652758a6003d80c9c67944ab16d16e5b35abcd`.
+`29e16ed453d9bfaeb26c01dad6dca8c8b9a200415b0d6544985c05eaa301c0e4`.
 
 - [x] Resolved source layer contracts for all 381 male/female clothing records
   in the previous pass (354 male, 27 female; table coverage only).
@@ -91,16 +105,23 @@ Current developer overlay signature:
 - [x] Validated those five outfits at requested LODs 0, 1 and 2: 15 cases,
   zero catalog errors and zero asset errors. Effective per-part LODs are recorded.
 - [x] Captured front, back, side, synthetic 60-degree forearm bend, requested
-  LOD 2, and masks-on/off views for all five rebuilt outfits. Reviewed the
-  assembled female sleeves and male front views. A separate body-on/off render
+  LOD 2, and masks-on/off views for all five rebuilt outfits: 30 images, zero
+  viewer JavaScript errors. Reviewed the female front, side and bent-arm views
+  and male innkeeper front view. A separate body-on/off render in the preceding v4 pass
   confirms the guard's skin-coloured boot details and Father's apron-top strip
   belong to the clothing; they remain when the body component is disabled.
 - [x] Eliminated shared-archetype conflicts in the layered female fixture and
   hidden-skin-without-cover/body-region-replacement findings in all five cases.
-- [x] Passed 129 targeted tests, including native occupancy, arbitrary source
+- [x] Passed 131 targeted tests, including native occupancy, arbitrary source
   filenames, exposed seams, coverage at different LOD topologies, body fitting,
-  actual triangle visibility and opaque outer-cover diagnostics.
-- [ ] Resolve the remaining layered female intersection candidates.
+  actual triangle visibility and opaque outer-cover diagnostics. New regressions
+  cover stale/absent source caches, transparent materials at LOD0/LOD1, and exact
+  agreement between symbolic combination counts and native slot validation.
+- [x] Resolved the remaining layered female intersection candidates: zero
+  geometry findings in all 15 requested-LOD cases across the five outfits.
+- [x] Re-ran registration checks for all 407 garments, 48,865 same-sex pairs,
+  and 61 converted presets in the current overlay (49,333 cases). This run
+  inspected assets and registration; it did not rerun geometry on every pair.
 - [ ] Replace or validate male fixed-outfit registration against independent
   native equipment contracts. It still spans several regions under one Coat role.
 - [ ] Rerun the full combination matrix on a fully rebuilt package.
@@ -109,25 +130,27 @@ Current developer overlay signature:
 | Source outfit | Equipment checks | Geometry at requested LODs 0 / 1 / 2 | Status |
 | --- | --- | --- | --- |
 | `ska_woman27` | Pass | No findings | Checked by the developer validator |
-| `ska_blanka` | Pass; distinct dress occupancy | 3 skin samples and 22 inner/outer garment samples flagged at each requested LOD | Review |
+| `ska_blanka` | Pass; distinct dress occupancy | No findings (previously 3 skin and 22 garment samples) | Checked by the developer validator |
 | `rato_innkeeper1` (`gluemapper_rattay`) | 6 fixed-outfit layer differences | No skin coverage/intersection findings | Review |
 | `ska_guard2` | 6 fixed-outfit layer differences | No skin coverage/intersection findings | Review |
 | `ska_fatherOfHenry` | 6 fixed-outfit layer differences | No skin coverage/intersection findings | Review |
 
-These are normal-ray diagnostic samples, not measured visible pixels or proof
-of a native animation defect. They remain in the report. None of these cases is
+These are normal-ray diagnostics, not measured visible pixels or proof
+of native animation correctness. Native registration findings remain in the male reports. None of these cases is
 certified by the KCD2 runtime. The old confirmed-combination CSV belongs to its
 original package signature and has not been re-certified by this candidate.
 
 Local evidence (generated game assets are excluded from Git):
 
-- `reports/clothing-lab/equipment-overlay-v4-20261025/geometry.json`
-- `reports/clothing-lab/equipment-overlay-v4-20261025/source-equipment.json`
-- `reports/clothing-lab/rendered-equipment-v4-20261025/capture.json`
+- `reports/clothing-lab/equipment-overlay-v5-20261025/geometry.json`
+- `reports/clothing-lab/equipment-overlay-v5-20261025/male-native-contract-audit.json`
+- `reports/clothing-lab/equipment-rules-v5-20261025/summary.json`
+- `reports/clothing-lab/equipment-rules-v5-20261025/checklist.csv`
+- `reports/clothing-lab/rendered-equipment-v5-20261025/capture.json`
 - `reports/clothing-lab/rendered-equipment-v4-20261025/body-isolation.json`
-- `reports/clothing-lab/rendered-equipment-v4-20261025/`
-- `reports/clothing-lab/equipment-candidate-v4-20261025/`
-- `reports/clothing-lab/equipment-regressions-v4-20261025/`
+- `reports/clothing-lab/rendered-equipment-v5-20261025/`
+- `reports/clothing-lab/equipment-candidate-v5-20261025/`
+- `reports/clothing-lab/equipment-regressions-v5-20261025/`
 
 The developer overlay replaces existing component definitions by identity,
 including entries in shared tables. It does not add duplicate definitions. This
@@ -137,10 +160,36 @@ candidate has not been installed. To inspect it in the developer tool:
 .venv\Scripts\python.exe tools/clothing_lab_app.py `
   --package "D:\SteamLibrary\steamapps\common\KingdomComeDeliverance2\Mods\kingdomcomegluemapper" `
   --target "D:\SteamLibrary\steamapps\common\KingdomComeDeliverance2" `
-  --overlay "reports/clothing-lab/equipment-overlay-v4-20261025"
+  --overlay "reports/clothing-lab/equipment-overlay-v5-20261025"
 ```
 
 The **masks disabled** comparison intentionally reveals normally hidden surfaces.
 Acceptance uses the assembled masked view, geometry diagnostics and ultimately
 the native runtime. Arm-bend preview poses are synthetic deformation checks;
 they are not KCD2 animation or cloth simulation.
+
+## Remaining independent equipment work
+
+The male geometry is still a merged fixed outfit. Auditing its original pieces
+against the actual KCD2 inventory tables identifies constraints that a simple
+split into separate items would violate:
+
+| Fixture | Source pieces | Native contract finding |
+| --- | --- | --- |
+| `rato_innkeeper1` | `cap_001`, `hat_010` | Distinct archetypes reserve the same exclusive subpart 24, layer 7 |
+| `ska_guard2` | `cap_002`, `pa_helmet_010` | Distinct archetypes reserve the same exclusive subparts 24/25/26, layer 7 |
+| `ska_guard2` | `qa_legs_001` | The `LegsChain` role has no complete native item template |
+| `ska_fatherOfHenry` | Seven source pieces | No pairwise exclusive-slot conflict in this mapping; independent region selection still unverified |
+
+These are audit fixtures, not conversion exceptions. The general next stage
+must resolve source equipment semantics, shared native region geometry, material
+features and coverage together. Merely giving each piece a native role does not
+prove that KCD2 will retain both meshes or equip the complete outfit.
+
+The developer matrix now includes exclusive native subpart/layer reservations
+in its symbolic counts, in addition to declared mesh slots and repeated
+archetypes. Previously, its pair validator could reject such a conflict while
+the symbolic counter accepted it. Validation contract version 3 invalidates old
+resume/checklist evidence, and the regression test compares every small
+Cartesian selection directly against the validator. Runtime arbitration and
+geometry remain outside the symbolic proof.

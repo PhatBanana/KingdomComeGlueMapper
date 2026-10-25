@@ -81,20 +81,42 @@ def native_vertex_features(blob, feature=0, *, preserve_hiding=False):
         raise ValueError('Native feature must be in 0..26')
     skin = Skin(blob)
     colors = skin.streams.get(3)
+    if colors and struct.unpack_from('<I', colors.data, 12)[0] != 4:
+        raise ValueError('Expected four-byte vertex colours')
     payload = struct.pack('<6I', 0, 3, skin.vertex_count, 4, 0, 0)
     rgba = np.tile(np.array([255, 255, 224 + feature, 255], dtype=np.uint8), (skin.vertex_count, 1))
     if preserve_hiding and colors:
         rgba[:, 3] = np.frombuffer(colors.data[24:], np.uint8).reshape(-1,4)[:,3]
     payload += rgba.tobytes()
+    # The software/skinned stream is rebuilt from compiled internal vertices.
+    # Updating only the render stream leaves native feature and hiding inputs
+    # dependent on which skinning path the engine selects.
+    internal = skin.one(0x2005)
+    if internal.version != 0x800 or (len(internal.data)-32) % 64:
+        raise ValueError('Unsupported internal skin vertices')
+    count = (len(internal.data)-32)//64
+    remap = np.asarray(skin.remap)
+    if np.any(remap >= count):
+        raise ValueError('Invalid internal remap')
+    mapped = {}
+    for i, target in enumerate(remap):
+        value = rgba[i].tobytes()
+        if target in mapped and mapped[target] != value:
+            raise ValueError('Render seam copies disagree on native vertex colours')
+        mapped[target] = value
+    data = bytearray(internal.data)
+    for target, value in mapped.items():
+        start = 32 + int(target)*64 + 60
+        data[start:start+4] = value
+    replacements = {internal.id: bytes(data)}
     if colors:
-        if struct.unpack_from('<I', colors.data, 12)[0] != 4:
-            raise ValueError('Expected four-byte vertex colours')
-        return write_chunks(skin.chunks, {colors.id: payload})
+        replacements[colors.id] = payload
+        return write_chunks(skin.chunks, replacements)
     ident = max(c.id for c in skin.chunks) + 1
     mesh = bytearray(skin.mesh.data)
     struct.pack_into('<I', mesh, 28 + 3 * 4, ident)
-    return write_chunks(skin.chunks + [Chunk(0x1016, 0x800, ident, payload)],
-                        {skin.mesh.id: bytes(mesh)})
+    replacements[skin.mesh.id] = bytes(mesh)
+    return write_chunks(skin.chunks + [Chunk(0x1016, 0x800, ident, payload)], replacements)
 
 
 def transform_hsv(rgb, hue=0, saturation=1, brightness=1):

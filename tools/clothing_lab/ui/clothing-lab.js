@@ -292,7 +292,7 @@
     const materials = row.materials.map((m) => {
       const material = new T.MeshStandardMaterial({
         color: mode === "layers" ? colours[index % colours.length] : 0xffffff,
-        side: T.DoubleSide,
+        side: m.two_sided ? T.DoubleSide : T.FrontSide,
         roughness: 0.9,
         wireframe: mode === "wireframe",
         alphaTest: m.threshold,
@@ -340,10 +340,10 @@
           row,
           i,
           q("#lab-masks").checked ? masks[row.element.EquipmentPart] || 0 : 0,
-          q("#lab-masks").checked && row.replaced,
+          row.replaced,
         ),
       );
-      unmasked.add(makeMesh(row, i, 0));
+      unmasked.add(makeMesh(row, i, 0, row.replaced));
     });
     q("#lab-legend").hidden = !q("#lab-compare").checked;
   }

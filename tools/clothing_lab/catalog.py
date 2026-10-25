@@ -152,10 +152,18 @@ class Catalog:
         if not name: raise ValueError('Component has no resolved material')
         root = ET.fromstring(self.assets.read(name))
         nodes = list(root.find('SubMaterials')) if root.find('SubMaterials') is not None else [root]
+        features = set()
+        for node in nodes:
+            for declaration in node.findall('FeatureSlots'):
+                duplicate = features.intersection(declaration.attrib)
+                if duplicate:
+                    raise ValueError('Native feature slot declared in multiple submaterials: ' + ', '.join(sorted(duplicate)))
+                features.update(declaration.attrib)
         output = []
         for node in nodes:
             diffuse = node.find("Textures/Texture[@Map='Diffuse']")
             item = dict(name=node.get('Name',''), shader=node.get('Shader',''), threshold=float(node.get('AlphaTest','0')),
+                        two_sided=bool(int(node.get('MtlFlags','0')) & 2),
                         opacity=float(node.get('Opacity','1')), texture=diffuse.get('File') if diffuse is not None else None)
             if textures and item['texture']:
                 macro='CLOTHING_SYSTEM' in node.get('StringGenMask','')
@@ -199,7 +207,7 @@ class Catalog:
         return result
 
     def scene(self, selected, lod=0):
-        from .validation import body_replaced
+        from .validation import element_replaced
         if not isinstance(selected,list) or not 1 <= len(selected) <= 64: raise ValueError('Select 1–64 components')
         if lod not in range(5): raise ValueError('Invalid LOD')
         rows, errors = [], []
@@ -215,7 +223,7 @@ class Catalog:
                     if len(uv) != skin.n or len(alpha) != skin.n: raise ValueError('Invalid vertex stream size')
                     def buffer(a, dtype): return base64.b64encode(np.asarray(a,dtype=dtype).tobytes()).decode()
                     rows.append(dict(id=identity, kind=part['kind'], element=e, model=name, requested_lod=lod,
-                        effective_lod=effective_lod, replaced=body_replaced(self,selected,part,e), provenance=self.assets.provenance(name),
+                        effective_lod=effective_lod, replaced=element_replaced(self,selected,part,e), provenance=self.assets.provenance(name),
                         positions=buffer(skin.vertices,'<f4'), normals=buffer(normals(skin),'<f4'), uv=buffer(uv,'<f4'),
                         indices=buffer(skin.faces,'<u4'), alpha=buffer(alpha,'u1'), bones=skin.info['bones'],
                         weights=buffer(skin.weights,'<f4'), joints=buffer(skin.ids,'<u2'), influences=skin.ids.shape[1],

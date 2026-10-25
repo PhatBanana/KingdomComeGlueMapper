@@ -18,8 +18,9 @@ The viewer supports:
 
 - Male and female character presets, every registered clothing component, and custom layer stacks.
 - Individual part visibility, textured/layer-colour/wireframe views, orbit, pan, zoom, front/back/side views, and separated layers.
-- Declared body-layer replacement and per-equipment-part vertex hiding, with a side-by-side comparison against unhidden geometry.
-- Available mesh LODs; missing requested LODs are errors, never silently replaced with LOD 0.
+- Native highest-layer selection of one clothing mesh per equipment region, retained body layers, and per-region vertex hiding. The masks-disabled comparison keeps the same native mesh selection.
+- Material two-sided flags and agreement between render/internal skinning colour buffers, including native hiding bits.
+- Available mesh LODs; each part retains its last authored LOD when the requested level is farther away. The report records the effective level. Missing base meshes and broken LOD chains are errors.
 - A weighted arm-bend stress pose and saved PNG views accompanied by JSON selections, camera state, package signature, and findings.
 - Audit results that open their exact component combination in the viewer.
 
@@ -97,7 +98,13 @@ original package is never changed. Pass an existing candidate with `--overlay`.
 This candidate does not rebuild skin-hiding masks or repair equipment arbitration.
 
 The matrix computes **exact symbolic counts** over full layer selections using
-unary registration checks, part/layer occupancy, and armor-archetype exclusivity.
+unary registration checks, declared part/layer occupancy, repeated archetypes,
+and exclusive native body-subpart/layer reservations. Different archetypes can
+reserve the same native inventory slot even when their mesh regions differ.
+Validation contract version 4 includes these reservations and native draw-region
+selection. Lower-layer meshes discarded by the native attachment manager need
+review; they cannot be counted as confirmed coverage. Old resume/checklist
+evidence is rejected and must be rerun.
 These counts are not rendered tests. Other engine equipment exclusions,
 body-dependent masks, cloth simulation, and full-outfit geometry are outside
 that proof. In particular, passing every pair cannot establish that a complete
@@ -126,6 +133,36 @@ and geometry checks. It rejects incomplete matrix/full-layer reports and
 mismatched candidate signatures. Unclothed baselines are counted separately.
 Optional `source_report` and `captures` arguments include a completed soul audit
 and developer-renderer examples, provided their candidate and rule hashes match.
+
+## Native appearance playtests
+
+`upgrade_source_appearances.py` rebuilds explicitly selected, already imported
+source people through the same general appearance converter. It reads their
+identity and namespace from `PersonImport` receipts. It does not contain actor
+or garment exceptions and is a developer command, separate from Setup UI.
+
+```powershell
+python tools/upgrade_source_appearances.py `
+  --source "D:/Games/KingdomComeDeliverance" `
+  --target "D:/Games/KingdomComeDeliverance2" `
+  --installed "D:/Games/KingdomComeDeliverance2/Mods/kingdomcomegluemapper" `
+  --output "reports/clothing-lab/native-candidate" `
+  --person ska_blanka --person ska_guard2
+```
+
+This verifies the installed receipt, retains a recovery package at `baseline/`,
+and produces a complete candidate at `package/`. The native actor packer builds
+streamed textures and bounded PAK shards; the workbench overlay itself must not
+be copied into the game. Changed files use replacement writes so hard-linked
+checkpoints remain intact. Unrelated quests, schedules, inventory and equipment
+bindings stay byte-identical. Unknown ownership or changed appearance identities
+stop the migration. The ordinary `desktop_setup.install_transaction` then
+verifies and installs the candidate. The report records selected people and
+changed files, and leaves `runtime_verified` false until a separate native test.
+
+Use a fresh new game to exercise initial outfit selection. Keep native screenshots
+and engine observations separate from WebGL captures and symbolic counts. A
+four-person playtest does not certify every source soul or arbitrary combination.
 
 ## Regression tests
 

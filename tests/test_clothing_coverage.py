@@ -159,6 +159,17 @@ class ClothingCoverageTests(unittest.TestCase):
         self.assertFalse(safe[0]);self.assertFalse(safe[3])
         self.assertFalse(safe.any())
 
+    def test_physical_cut_does_not_disappear_when_distant_mip_averages_below_threshold(self):
+        from clothing_coverage import physical_alpha_intersections
+        uv = np.array([[.2,.2],[.3,.2],[.2,.3],[.7,.7],[.8,.7],[.7,.8]], '<f4')
+        skin = SimpleNamespace(n=6, streams={2:SimpleNamespace(data=struct.pack('<6I',0,2,6,8,0,0)+uv.tobytes())},
+            faces=np.array([[0,1,2],[3,4,5]]), info={'subset_records':[dict(first_index=0,num_indices=6,material_id=0)]})
+        alpha = np.ones((16,16)); alpha[9:,9:] = 0
+        surfaces=[(.75,[alpha,np.array([[.47]])])]
+        arguments=(np.array([0,1]),np.array([.2,.2]),np.array([.2,.2]))
+        np.testing.assert_array_equal(alpha_intersections(skin,surfaces,np.ones(2,bool))(*arguments),[False,False])
+        np.testing.assert_array_equal(physical_alpha_intersections(skin,surfaces,np.ones(2,bool))(*arguments),[True,False])
+
     def test_authored_lods_get_their_own_mask_topology(self):
         blob,_=upgrade_skin(sample_skin(),sample_skin(),clear_hiding=True)
         lower=split_skin_regions(blob,['keep','discard','discard','discard'])['keep']
@@ -174,7 +185,7 @@ class ClothingCoverageTests(unittest.TestCase):
                 '</DerivedComponents></Component>')
             tables={'item/body_layer':[dict(body_layer_id='1',layer_order='1')],
                     'item/armor_archetype2body_subpart':[dict(armor_archetype_id='a',body_layer_id='1',body_subpart_id='torso')],
-                    'item/clothing_raycast':[dict(skin='source.skin',material='source.mtl',opaque_triangle_mask=encoded([1,1,1,1]),not_culled_triangle_mask=encoded([1,1,1,1]))]}
+                    'item/clothing_raycast':[dict(skin='source.skin',material='source.mtl',opaque_triangle_mask=encoded([0,0,0,0]),not_culled_triangle_mask=encoded([0,0,0,0]))]}
             garment=dict(part=dict(kind='cloth',gender_id='2',armor_archetype_id='a'),stem='dress',
                          source_model='source.skin',source_material='source.mtl')
             with patch('clothing_coverage.native_alpha_surfaces',return_value=([(0,[np.ones((1,1))])]*10,[])), \
