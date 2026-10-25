@@ -51,16 +51,21 @@ def native_surface(source, template):
     return result
 
 
-def bake_float_dds(path, image, material, specular=None):
-    """Bake one macro colour texture; stored per GLUEMAPPER_CLOTHING_TEXTURES (BC7 sRGB or RGBA16F)."""
-    write_colour_dds(path, bake_macro_diffuse(image, material, specular))
+def bake_float_dds(path, image, material, specular=None, staging=None):
+    """Bake one macro colour texture; stored per GLUEMAPPER_CLOTHING_TEXTURES (BC7 sRGB or RGBA16F).
+
+    With `staging` the texture may be returned as a texture_encode.Staged job
+    for the caller's texture_encode.Batches to encode.
+    """
+    return write_colour_dds(path, bake_macro_diffuse(image, material, specular), staging=staging)
 
 
 def convert_character_materials(output, components, assets, namespace, sex, bake=bake_float_dds, *, preserve_hiding=False):
     """Convert only materials selected by this character; no global replacements.
 
     `bake(path, image, material, specular=None)` writes each float macro texture;
-    callers may defer it, since nothing here reads those files back.
+    callers may defer it, since nothing here reads those files back. An optional
+    `bake.mask(path, image)` likewise writes each effect mask (else written now).
     """
     body_ref = reference(assets, f'objects/characters/humans/{sex}/body/' +
                          ('female_body_01.mtl' if sex == 'female' else 'male_body_mat.mtl'))
@@ -78,6 +83,7 @@ def convert_character_materials(output, components, assets, namespace, sex, bake
         Specular='#FFFFFF', Smoothness='128', ScratchTextureId='0', ScratchHue='0',
         ScratchSaturation='1', ScratchBrightness='1.25', GrimeDiffuse='#493528',
         GrimeSpecular='#161616', GrimeGloss='0.04')
+    write_mask = getattr(bake, 'mask', write_mask_dds)
     folder = 'objects/characters/' + components.get('FilePath')
     materials = {e.get('Material'): ET.parse(output / folder / e.get('Material')).getroot()
                  for e in components.findall('DerivedComponents/*/Elements/SkinElement')}
@@ -137,7 +143,7 @@ def convert_character_materials(output, components, assets, namespace, sex, bake
                             if shader == 'illum':
                                 r, g, _, a = mask.split(); mask = Image.merge('RGBA', (r, g, Image.new('L', mask.size, 192), a))
                             effect_masks[mask_key] = prefix + '_bgs.dds'
-                            write_mask_dds(output / effect_masks[mask_key], mask)
+                            write_mask(output / effect_masks[mask_key], mask)
                         mask_path = effect_masks[mask_key]
                     if shader == 'illum':
                         spec = source_pixels('Specular') if 'Specular' in textures else None

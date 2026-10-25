@@ -21,6 +21,7 @@ from character_source_clothing import female_role
 from character_layer_contract import region_layers, project_regions, source_mesh_regions, source_mesh_region
 from upgrade_map import read, xml
 from character_native_materials import bake_float_dds, convert_character_materials
+from texture_encode import Batches, write_mask_dds
 
 
 def material_inputs(emitted, files):
@@ -80,6 +81,9 @@ class ClothingAdapter:
             self.equipment = NativeEquipment.from_archive(z)
         self.parents = {c:p for p in self.components.iter() for c in p}
         self.stack, self.defer, self.pool, self.pending = stack, defer_bakes, None, deque()
+        # BC7 bakes and masks are staged by the workers and compressed by texconv in batches.
+        self.batches = Batches()
+        stack.callback(self.batches.abort)
 
     def deferred_bake(self, folder, names):
         """Float macro bakes dominate the loot import and are pure; with
@@ -87,7 +91,7 @@ class ClothingAdapter:
         The caller must then call finish() before reading any payload."""
         reserve = getattr(self.assets.emitted, 'reserve', None)
         if not self.defer or reserve is None: return bake_float_dds
-        def bake(path, image, material, specular=None):
+        def submit(path, function, *args):
             name = path.relative_to(folder).as_posix(); names.append(name)
             if self.pool is None:
                 # A 2048px bake holds several float32 RGBA copies and its mips.
@@ -95,19 +99,25 @@ class ClothingAdapter:
                 self.pool = self.stack.enter_context(ProcessPoolExecutor(max_workers=self.workers))
             # Bound queued texture copies; arguments are pickled after submit().
             while len(self.pending) >= 2*self.workers: self.wait(*self.pending.popleft())
-            args = (image.copy(), copy.deepcopy(material), None if specular is None else specular.copy())
-            self.pending.append((name, self.pool.submit(bake_float_dds, reserve(name), *args)))
+            staging = self.batches.staging()
+            extra = {} if staging is None else {'staging': staging}
+            self.pending.append((name, self.pool.submit(function, reserve(name), *args, **extra)))
+        def bake(path, image, material, specular=None):
+            submit(path, bake_float_dds, image.copy(), copy.deepcopy(material),
+                   None if specular is None else specular.copy())
+        bake.mask = lambda path, image: submit(path, write_mask_dds, image.copy())
         return bake
 
-    @staticmethod
-    def wait(name, future):
+    def wait(self, name, future):
         # Not ValueError: the importer would charge it to the item converting now.
-        try: future.result()
+        try: self.batches.add(future.result())
         except Exception as error: raise RuntimeError('Wearable texture bake '+name+': '+str(error)) from error
 
     def finish(self):
         """Wait until every deferred texture has been written to its staged path."""
         while self.pending: self.wait(*self.pending.popleft())
+        try: self.batches.finish()
+        except Exception as error: raise RuntimeError('Wearable texture encode: '+str(error)) from error
 
     def plan(self, identity):
         armor = self.tables.row('item/armor', 'item_id', identity)
