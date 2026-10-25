@@ -507,7 +507,8 @@ def write_colour_dds(path, pixels, max_size=None, staging=None):
 def write_mask_dds(path, image, staging=None):
     """Write one byte-channel effect mask (PIL image) in the configured storage (see write_colour_dds)."""
     if mode() == 'float' or not encodable(*image.size):
-        image.save(path)
+        # Pool callers pass reserved paths without a .dds suffix.
+        image.save(path, format='DDS')
         return None
     rgba = np.asarray(image.convert('RGBA'))
     if staging is not None:
