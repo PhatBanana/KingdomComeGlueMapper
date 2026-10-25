@@ -83,7 +83,8 @@ does not modify unrelated world/schedule resources.
 - [x] Native v8 capture: Father's coat and under-sleeves are present (front/animated seam coverage remains limited).
 - [x] 342 focused tests pass: 87 clothing, 242 character, 8 material-effects and 5 appearance-upgrade tests.
 - [ ] Review the trader's remaining nine bind-pose intersection vertices; do not certify all poses from the front screenshot.
-- [ ] Identify and verify the separate green long-sleeved woman with the reported narrow silhouette.
+- [x] Identify the olive long-sleeved outfit as `ska_woman9`, source `s2_cotte_007` / `#V_006`.
+- [ ] Confirm the reported narrow silhouette against a native source-game comparison; do not treat buffer repair as a proven proportion fix.
 - [ ] Rebuild and verify the entire remaining wardrobe with contract 4.
 - [ ] Separately resolve the reported missing gate guards.
 
@@ -100,3 +101,30 @@ does not imply that every already-installed NPC has been rebuilt.
 
 Earlier workbench screenshots and passing geometry counts are historical
 evidence, not native visual approval of this package.
+
+## Additional native candidate, 26 October
+
+`reports/clothing-lab/native-regions-v9-20261026/` extends the installed v8
+package by rebuilding `ska_woman9` and `ska_woman6` through the same converter.
+The other four rebuilt fixtures remain installed. Its 16 new mesh files have
+matching render/internal RGBA. The olive outfit passes the bind-pose geometry
+checks; the layered green outfit retains the same nine conservative skin
+intersection findings as the trader. These are reviews, not visual approvals.
+
+The old olive dress had a blue material-feature byte mismatch at all 1,319
+vertices (render 224, internal 255). Its alpha hiding bytes agreed. The repair
+therefore corrects material-feature input, not a demonstrated dimensional shrink.
+The selected source variant is `#V_006`, no `A_Shrink` is applied to the dress,
+and all garment vertex positions are unchanged by this rebuild. Existing rig
+fitting narrows measured torso sections by roughly 2–6 percent relative to the
+source variant; a render-buffer repair alone cannot certify that silhouette.
+No per-NPC or per-dress widening has been added.
+
+The v9 native test used another fresh Skalitz game in the public Modding Tools
+(35.13 seconds level load). Reflection selected `outfit_torso.skin` for
+`ska_woman6` and the original single-garment `part3.skin` for `ska_woman9`.
+The layered outfit's inner sleeves/hands rendered, and the olive outfit
+rendered during sweeping. Captures are `runtime/woman6-sleeves.png` and
+`runtime/woman9-sweeping.png`; both are limited by interior lighting and are
+not silhouette approval. Fly mode was disabled and AI updates restored after
+testing. The remaining proportion and seam reviews stay open.
