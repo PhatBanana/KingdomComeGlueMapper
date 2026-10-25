@@ -106,6 +106,9 @@ class Writers(unittest.TestCase):
             texture_encode.write_colour_dds(root / 'c.dds', np.ones((4, 4, 4), np.float16))
             texture_encode.write_mask_dds(root / 'm.dds', Image.new('RGBA', (4, 4), (0, 0, 0, 255)))
             self.assertEqual((root / 'c.dds').read_bytes()[84:88], b'DX10')
+            # Bake pools pass reserved paths without a suffix; the bytes must not depend on the name.
+            texture_encode.write_mask_dds(root / 'reserved', Image.new('RGBA', (4, 4), (0, 0, 0, 255)))
+            self.assertEqual((root / 'reserved').read_bytes(), (root / 'm.dds').read_bytes())
 
     def test_bc7_mode_encodes_the_capped_srgb_bytes(self):
         seen = []
