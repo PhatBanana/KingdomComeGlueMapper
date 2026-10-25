@@ -86,7 +86,7 @@ def encode_family(job):
     """
     import texture_encode
     from texture_streaming import generated_entries
-    name, kind, locations, rc, output = job
+    name, kind, locations, tool, output = job
     parts = {}
     for suffix, shard in locations.items():
         with zipfile.ZipFile(shard) as archive:
@@ -96,9 +96,9 @@ def encode_family(job):
     if not texture_encode.encodable(width, height):
         return name, None, 'small'
     if kind == 'colour':
-        encoded = texture_encode.encode_colour(decode_float(blob), rc)
+        encoded = texture_encode.encode_colour(decode_float(blob), tool)
     else:
-        encoded = texture_encode.encode_mask(decode_mask(blob), rc)
+        encoded = texture_encode.encode_mask(decode_mask(blob), tool)
     files = {}
     folder = Path(output)
     folder.mkdir(parents=True, exist_ok=True)
@@ -207,12 +207,15 @@ def upgrade(package, target_or_mod_tools=None, notify=lambda *a: None, cancelled
     total = sum(len(f) for _, _, f in scanned.values())
     if not total:
         return {}, report
-    rc = str(_mod_tools_rc(target_or_mod_tools))
+    tool = _encoder(target_or_mod_tools)
+    report['encoder'] = tool[0]
     changed = {}
     started = time.monotonic()
-    # rc's BC7 compressor already uses every core (about 4 s per 2048px texture
-    # whatever the worker count); a few workers only overlap decoding and I/O.
-    count = workers or worker_count(min(total, 4), 512 * 1024 ** 2, 'GLUEMAPPER_BAKE_WORKERS')
+    # Measured per 2048px texture: texconv (GPU) 2.0 s with one worker, 0.93 s
+    # with four, 0.79 s with eight. rc's compressor already uses every core
+    # (about 4 s whatever the worker count); a few workers overlap decoding.
+    limit = 8 if tool[0] == 'texconv' else 4
+    count = workers or worker_count(min(total, limit), 512 * 1024 ** 2, 'GLUEMAPPER_BAKE_WORKERS')
     with tempfile.TemporaryDirectory(prefix='clothing-bc7-', dir=package.parent) as temporary, \
             (ProcessPoolExecutor(max_workers=count) if count > 1 else ThreadPoolExecutor(1)) as pool, \
             ThreadPoolExecutor(max_workers=2) as writers:
@@ -225,7 +228,7 @@ def upgrade(package, target_or_mod_tools=None, notify=lambda *a: None, cancelled
             for base, kind in families.items():
                 locations = {n[len(base):]: str(owners[n]) for n in owners
                              if n == base or (n.startswith(base + '.') and n[len(base) + 1:].isdigit())}
-                job = (base, kind, locations, rc, str(work / f'{index:06d}'))
+                job = (base, kind, locations, tool, str(work / f'{index:06d}'))
                 futures[pool.submit(encode_family, job)] = group
                 index += 1
         done = 0
@@ -264,17 +267,21 @@ def upgrade(package, target_or_mod_tools=None, notify=lambda *a: None, cancelled
     return changed, report
 
 
-def _mod_tools_rc(target_or_mod_tools):
-    """Accept the mod-tools folder, rc.exe, or the KCD2 game folder (as finalize passes)."""
+def _encoder(target_or_mod_tools):
+    """texture_encode.encoder(); for rc, accept the mod-tools folder, rc.exe or the
+    KCD2 game folder (as finalize passes), whose Modding Tools may sit beside it."""
     import texture_encode
+    choice = (os.environ.get(texture_encode.ENCODER_SETTING) or 'auto').strip().lower()
+    if choice != 'rc' and texture_encode.texconv_executable():
+        return texture_encode.encoder()
     if target_or_mod_tools is not None:
         path = Path(target_or_mod_tools)
         if path.suffix.lower() == '.exe' or (path / 'Tools/rc/rc.exe').is_file():
-            return texture_encode.rc_executable(path)
+            return texture_encode.encoder(path)
         if not os.environ.get('KCD2_MOD_TOOLS'):
             from setup_shaders import tool_root
             try:
-                return texture_encode.rc_executable(tool_root(path))
+                return texture_encode.encoder(tool_root(path))
             except ValueError:
                 pass
-    return texture_encode.rc_executable()
+    return texture_encode.encoder()
