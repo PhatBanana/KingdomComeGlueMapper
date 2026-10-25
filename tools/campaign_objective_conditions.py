@@ -24,8 +24,6 @@ def bind(nodes, model):
     outputs = {objective_identifier(r['objective_name']) + '_' + status:
                'objective_' + r['objective_id'] + '.' + status
                for r in rows for status in ('Started', 'Completed', 'Canceled', 'Unchanged')}
-    functions = {r['function_name']: r['expression']
-                 for r in model['tables'].get('quest_function', {}).get('rows', [])}
     tracked = model['tables'].get('quest_tracked_asset', {}).get('rows', [])
     converted = []
     for row in rows:
@@ -37,7 +35,8 @@ def bind(nodes, model):
                 or row.get('time', '0') not in ('', '0')
                 or any(t['objective_id'] == row['objective_id'] and counted_asset(t) for t in tracked)):
             continue
-        compiler = QuestConditions([model], functions)
+        # quest_function contains objective callbacks, not predicate aliases.
+        compiler = QuestConditions([model])
         try:
             tree = predicate(compiler.compile(expression))
         except ValueError:

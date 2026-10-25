@@ -270,9 +270,12 @@ def attach_dialogue(files, project, dialogue_blob, report, activation, container
             if assets.get(binding.get('asset')) != 'Soul' or assets.get(binding.get('area')) != 'Area':
                 raise ValueError('Missing or incompatible dialogue area/subject assets')
         elif binding.get('kind') == 'inventory_comparison':
-            assets = {n.get('Name') for n in host.findall('Assets/*')}
-            if binding.get('asset') not in assets:
-                raise ValueError('Missing dialogue inventory subject asset: ' + str(binding.get('asset')))
+            matches = [n for n in host.findall('Assets/*') if n.get('Name') == binding.get('asset')]
+            # This binding feeds ObjectProperties(I_Soul), not an arbitrary
+            # entity or the inventory itself. A matching alias alone is unsafe.
+            target = (matches[0].get('Target') or {'SoulAsset': 'Soul'}.get(matches[0].tag)) if len(matches) == 1 else None
+            if target != 'Soul':
+                raise ValueError('Missing, ambiguous or incompatible dialogue inventory subject asset: ' + str(binding.get('asset')))
         else:
             node_port(binding['quest'], binding['output'], 'Out', 'bool')
     declared = {p.get('Name') for p in native.findall('Ports/Port') if p.get('Direction') == 'Out'}

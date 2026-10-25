@@ -307,6 +307,13 @@ C++ toolchain for xatlas, as described under
 
 ### Developer tools
 
+The [Quest & NPC Tests emulator](tools/quest_lab/README.md) runs converted quest
+and controller logic offline, with deterministic timers, explicit engine
+outcomes, save/replay, and searchable HTML/JSON/JUnit reports. Start with
+`.venv/Scripts/python.exe tools/quest_lab_test.py demo --output outputs/quest-lab-demo`.
+It is separate from consumer Setup; unsupported operations remain visible and
+native gameplay still requires engine verification.
+
 The [Clothing & Body Test workbench](tools/clothing_lab/README.md) provides a standalone 3D viewer and repeatable audits for male/female clothing, layer combinations, and all KCD1 soul records. It is a developer tool, separate from the consumer setup application. Launch it with `.venv/Scripts/python.exe tools/clothing_lab_app.py`.
 
 ## Documentation and issue reports

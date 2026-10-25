@@ -74,7 +74,11 @@ class QuestImportTests(unittest.TestCase):
             with patch('quest_import.retail_sources', side_effect=resolve):
                 model, raw = import_quest(game, 'q_test')
                 documents['Libs/Tables/quest/quest_objective.xml'] = documents['Libs/Tables/quest/quest_objective.xml'].replace(b'speakWithFather', b'wrong')
-                with self.assertRaisesRegex(ValueError, 'objectives disagree'): import_quest(game, 'q_test')
+                renamed, _ = import_quest(game, 'q_test')
+                self.assertEqual(renamed['graph']['objective_table_differences']['name_mismatches'],
+                    [dict(id='5', graph='speakWithFather', table='wrong')])
+                self.assertEqual(renamed['graph']['nodes']['5']['payload'][0]['attributes']['Name'], 'speakWithFather')
+                self.assertEqual(renamed['tables']['quest_objective']['rows'][0]['objective_name'], 'wrong')
         self.assertEqual(len(raw), 5)
         self.assertEqual(model['quest_id'], '7')
         self.assertEqual(len(model['tables']['quest_objective']['rows']), 1)
@@ -170,6 +174,38 @@ class QuestImportTests(unittest.TestCase):
         graph = parse_graph(data, 'q_test'); row['quest_asset_id'] = '9'
         resolve_null_tracking_edges(graph, {'quest_tracked_asset': {'rows': [row]}})
         self.assertEqual(len(graph['unresolved_edges']), 1)
+
+    def test_null_tracking_uses_verified_runtime_marker_or_explicit_empty_placeholder(self):
+        import copy
+        data = b'''<Graph><Nodes><Node Id="2" Class="Quest:Begin"><Inputs Name="q_test"/></Node>
+<Node Id="9" Class="Quest:AssetPlace"/><Node Id="4" Class="Quest:Objective"/>
+<Node Id="7" Class="Quest:AssetTracked"><Inputs Asset="" MapAsset="9" TrackCnt="1" User="0" OnMap="1"/></Node>
+</Nodes><Edges><Edge nodeOut="0" nodeIn="7" portOut="Out" portIn="Asset" enabled="1"/>
+<Edge nodeOut="7" nodeIn="4" portOut="Objective" portIn="Tracked" enabled="1"/></Edges></Graph>'''
+        row = dict(quest_id='42', objective_id='4', quest_asset_id='', map_asset_id='99', count='1', user_id='0', on_map='True')
+        tables = dict(quest_tracked_asset=dict(rows=[row]), quest_asset=dict(rows=[dict(quest_id='42',quest_asset_id='99')]))
+        g = parse_graph(data, 'q_test'); resolve_null_tracking_edges(g, tables)
+        self.assertFalse(g['unresolved_edges'])
+        self.assertEqual(g['null_tracking_edges'][0]['graph_map_asset'], '9')
+        self.assertEqual(g['null_tracking_edges'][0]['runtime_map_asset'], '99')
+        self.assertEqual(g['nodes']['7']['payload'][0]['attributes']['MapAsset'], '9')
+        for change in ('missing_asset', 'wrong_quest', 'ambiguous_asset', 'ambiguous_tracking', 'counted_asset'):
+            t = copy.deepcopy(tables)
+            if change == 'missing_asset': t['quest_asset']['rows'] = []
+            if change == 'wrong_quest': t['quest_asset']['rows'][0]['quest_id'] = 'other'
+            if change == 'ambiguous_asset': t['quest_asset']['rows'] *= 2
+            if change == 'ambiguous_tracking': t['quest_tracked_asset']['rows'] *= 2
+            if change == 'counted_asset': t['quest_tracked_asset']['rows'][0]['quest_asset_id'] = '99'
+            g = parse_graph(data, 'q_test'); resolve_null_tracking_edges(g, t)
+            self.assertEqual(len(g['unresolved_edges']), 1, change)
+        row.update(map_asset_id='', count='0'); tables['quest_asset']['rows'] = []
+        null_data = data.replace(b'MapAsset="9" TrackCnt="1"', b'MapAsset="0" TrackCnt="0"')
+        g = parse_graph(null_data, 'q_test'); resolve_null_tracking_edges(g, tables)
+        self.assertFalse(g['unresolved_edges'])
+        row['count'] = '1'
+        g = parse_graph(null_data.replace(b'TrackCnt="0"', b'TrackCnt="1"'), 'q_test')
+        resolve_null_tracking_edges(g, tables)
+        self.assertEqual(len(g['unresolved_edges']), 1)
 
     def test_profile_transition_discovers_both_populations_and_their_work(self):
         documents = {

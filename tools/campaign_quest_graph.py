@@ -14,6 +14,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from skald_state_probe import project_entities
+from campaign_objective_source import objective_differences
 
 
 IDENTIFIER = re.compile(r'[A-Za-z_][A-Za-z0-9_]*\Z')
@@ -70,20 +71,13 @@ def validate_model(model):
         by_id[i] = row
         names.add(n)
     graph = model['graph']
-    declared = {}
+    objective_differences(graph, model['tables'])
     begin, end = [], []
     for i, node in graph['nodes'].items():
         cls = node['attributes'].get('Class')
-        if cls == 'Quest:Objective':
-            inputs = next(p['attributes'] for p in node['payload'] if p['op'] == 'Inputs')
-            declared[i] = inputs['Name']
-            if i in by_id:
-                for a, b in [('IsHidden', 'is_hidden'), ('IsExclusive', 'is_exclusive')]:
-                    if (inputs[a] == '1') != (by_id[i][b] == 'True'):
-                        raise ValueError('Objective graph/table flags disagree')
-        elif cls == 'Quest:Begin': begin.append(i)
+        if cls == 'Quest:Begin': begin.append(i)
         elif cls == 'Quest:End': end.append(i)
-    if any(i in by_id and by_id[i]['objective_name'] != n for i, n in declared.items()) or len(begin) != 1 or len(end) != 1:
+    if len(begin) != 1 or len(end) != 1:
         raise ValueError('Objective graph/table declarations disagree')
     if graph.get('unresolved_edges'):
         raise ValueError('Unresolved source graph edges')
@@ -143,7 +137,10 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
     report['transition_provenance'] = model['tables']['quest_transition'].get('provenance', [])
     report['graph_transition_differences'] = dict(table_only=sorted(table_edges - graph_edges),
                                                 graph_only=sorted(graph_edges - table_edges))
-    report['objective_table_differences'] = model['graph'].get('objective_table_differences', {})
+    report['objective_source'] = 'effective retail quest_objective table'
+    report['objective_provenance'] = model['tables']['quest_objective'].get('provenance', [])
+    report['objective_table_differences'] = objective_differences(model['graph'], model['tables'])
+    report['null_tracking_edges'] = model['graph'].get('null_tracking_edges', [])
 
     def port(name, direction='In', typ='trigger'):
         ET.SubElement(ports, 'Port', Name=name, Direction=direction, Type=typ)
@@ -302,6 +299,9 @@ def emit_quest(model, progress_type, localization=None, diagnostics=False):
     for table, payload in model['tables'].items():
         if table.startswith('quest_reward') and payload['rows']:
             report['unsupported'].append(dict(kind='rewards', table=table, rows=payload['rows']))
+        if table == 'quest_function' and payload['rows']:
+            report['unsupported'].append(dict(kind='objective_callbacks', table=table,
+                rows=payload['rows'], reason='Source callback scripts require an execution adapter'))
     from campaign_objective_conditions import bind as bind_conditions
     report['converted_conditions'] = bind_conditions(nodes, model)
     from campaign_objective_events import bind as bind_events

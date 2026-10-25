@@ -30,11 +30,9 @@ def predicate_references(expression, functions=None):
 
 
 def objective_dependencies(model):
-    functions = {r['function_name']: r['expression'] for r in
-                 model['tables'].get('quest_function', {}).get('rows', [])}
     for row in model['tables']['quest_objective']['rows']:
         expression = row.get('condition', '')
-        for reference in predicate_references(expression, functions):
+        for reference in predicate_references(expression):
             if reference['quest'] == model['quest']:
                 continue
             yield dict(quest=reference['quest'], dynamic=reference['dynamic'],

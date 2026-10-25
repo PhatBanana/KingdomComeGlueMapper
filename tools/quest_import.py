@@ -94,7 +94,8 @@ def resolve_null_tracking_edges(graph, tables):
     """Recognize the exporter's null asset only with a matching database row.
 
     Preserve the original edge: map-only tracking has no counted quest asset.
-    Zero is not globally a valid node and must never be rewritten to MapAsset.
+    A patched runtime marker may differ from its editor counterpart, but must
+    resolve uniquely in the effective asset table. Zero is not a real node.
     """
     resolved, unresolved = [], []
     for edge in graph['unresolved_edges']:
@@ -105,17 +106,32 @@ def resolve_null_tracking_edges(graph, tables):
                            and e.get('enabled') == '1']
         matches = []
         if (edge.get('nodeOut') == '0' and edge.get('portIn') == 'Asset' and edge.get('portOut') == 'Out'
+                and edge.get('enabled') == '1' and inputs.get('Asset', '') == ''
                 and node.get('attributes', {}).get('Class') == 'Quest:AssetTracked'
-                and len(objective_edges) == 1 and inputs.get('MapAsset') in graph['nodes']):
+                and len(objective_edges) == 1):
             matches = [r for r in tables.get('quest_tracked_asset', {}).get('rows', [])
                        if r.get('objective_id') == objective_edges[0]['nodeIn']
-                       and r.get('quest_asset_id') == '' and r.get('map_asset_id') == inputs['MapAsset']
+                       and r.get('quest_asset_id') == ''
                        and r.get('count') == inputs.get('TrackCnt')
                        and r.get('user_id') == inputs.get('User')
                        and (r.get('on_map') == 'True') == (inputs.get('OnMap') == '1')]
+        marker_valid = False
         if len(matches) == 1:
-            resolved.append({'edge': edge, 'meaning': 'null counted asset with separate map marker',
-                             'table': 'quest_tracked_asset', 'row': matches[0]})
+            row = matches[0]
+            marker = row.get('map_asset_id')
+            assets = [a for a in tables.get('quest_asset', {}).get('rows', [])
+                      if a.get('quest_asset_id') == marker and a.get('quest_id') == row.get('quest_id')]
+            marker_valid = bool(marker) and (
+                marker == inputs.get('MapAsset') and marker in graph['nodes'] or len(assets) == 1)
+            # An explicit zero-count, null/null record is a placeholder, not a
+            # missing counted item or permission to invent a map destination.
+            marker_valid = marker_valid or (marker == '' and inputs.get('MapAsset') == '0' and row.get('count') == '0')
+        if len(matches) == 1 and marker_valid:
+            resolved.append({'edge': edge, 'meaning': ('null counted asset with separate map marker'
+                             if matches[0].get('map_asset_id') else 'explicit empty zero-count tracking placeholder'),
+                             'table': 'quest_tracked_asset', 'row': matches[0],
+                             'graph_map_asset': inputs.get('MapAsset'),
+                             'runtime_map_asset': matches[0].get('map_asset_id')})
         else: unresolved.append(edge)
     graph['null_tracking_edges'] = resolved
     graph['unresolved_edges'] = unresolved
@@ -142,19 +158,11 @@ def import_quest(game, quest, bootstrap=(), source_reader=None, require_behavior
         names = [n for n in archive.namelist() if key(n).startswith('libs/tables/quest/') and n.lower().endswith('.xml')]
     table_sources = resolve(game, {n: ('Tables.pak', n) for n in names})
     identity, tables = select_quest_tables(table_sources, quest)
-    graph_objectives = {node_id: next(c['attributes'].get('Name') for c in node['payload'] if c['op'] == 'Inputs')
-                        for node_id, node in graph['nodes'].items() if node['attributes'].get('Class') == 'Quest:Objective'}
-    table_objectives = {r['objective_id']: r['objective_name'] for r in tables['quest_objective']['rows']}
-    if len(table_objectives) != len(tables['quest_objective']['rows']): raise ValueError('Duplicate database objective ID')
-    renamed = {i: (name, table_objectives[i]) for i, name in graph_objectives.items()
-               if i in table_objectives and name != table_objectives[i]}
-    if renamed: raise ValueError('Effective quest graph and database objectives disagree')
     # Shipped editor graphs can predate runtime table additions/removals. Keep
     # both inputs, but register every runtime objective, including table-only
     # DLC/tutorial nodes. Never discard a row to fit an older authoring graph.
-    graph['objective_table_differences'] = dict(
-        graph_only={i: n for i, n in graph_objectives.items() if i not in table_objectives},
-        table_only={i: n for i, n in table_objectives.items() if i not in graph_objectives})
+    from campaign_objective_source import objective_differences
+    graph['objective_table_differences'] = objective_differences(graph, tables)
     resolve_null_tracking_edges(graph, tables)
     documents = {}
     work_calls, work_tables, missing_documents, work_table_rows = [], {}, {}, {}

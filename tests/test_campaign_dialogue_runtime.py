@@ -9,6 +9,33 @@ from test_dialogue_dubbing import ogg
 
 
 class RuntimeDialogueTests(unittest.TestCase):
+    def test_inventory_condition_requires_one_soul_asset_not_just_a_matching_alias(self):
+        from campaign_dialogue_conditions import QuestConditions
+        item = '00000000-0000-0000-0000-000000000001'
+        conditions = QuestConditions([], registered_items=[item], participant_assets={'buyer':'buyer_asset'})
+        conditions.compile("CountOfActorItems('" + item + "')['buyer'] >= 2")
+        key = next(iter(conditions.bindings))
+        dialogue = self.sample()[0].replace(b'</Ports>', ('<Port Name="'+key+'" Direction="In" Type="bool"/></Ports>').encode())
+        report = dict(actions={}, active_port='active', conditions=conditions.bindings)
+        quest = b'<Database><Skald><Quest Name="quest"><Ports><Port Name="ready" Direction="Out" Type="bool"/></Ports></Quest></Skald></Database>'
+        for asset, good in [('<SoulAsset Name="buyer_asset"/>',True),
+                ('<Asset Name="buyer_asset" Target="Soul"/>',True),
+                ('<AnimDoorAsset Name="buyer_asset"/>',False),
+                ('<Asset Name="buyer_asset" Target="Inventory"/>',False),
+                ('<SoulAsset Name="buyer_asset"/><SoulAsset Name="buyer_asset"/>',False), ('',False)]:
+            files = {'world.xml': ('<Database><Skald><Project><Definitions><Definition File="quest.xml"/></Definitions><Assets>'+asset+
+                '</Assets><Nodes><quest Name="quest"/></Nodes></Project></Skald></Database>').encode(), 'quest.xml':quest}
+            before = dict(files)
+            with self.subTest(asset=asset):
+                if good:
+                    result=attach_dialogue(files,'world',dialogue,report,'quest.ready')
+                    prop=ET.fromstring(result['world.xml']).find('.//ObjectProperties')
+                    self.assertEqual(prop.find('Asset').get('Alias'),'buyer_asset')
+                else:
+                    with self.assertRaisesRegex(ValueError,'inventory subject asset'):
+                        attach_dialogue(files,'world',dialogue,report,'quest.ready')
+                self.assertEqual(files,before)
+
     def test_audio_uses_runtime_level_scope_not_definition_directory(self):
         files = {'project.xml': b'<Database><Skald><Project Name="project"><Definitions><Definition File="somewhere/map.xml"/></Definitions><Nodes><map Name="map"/></Nodes></Project></Skald></Database>',
                  'somewhere/map.xml': b'<Database><Skald><Level Name="map"><Definitions/><Nodes/></Level></Skald></Database>'}

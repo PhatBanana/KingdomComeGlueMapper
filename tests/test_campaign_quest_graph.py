@@ -28,6 +28,51 @@ def model():
 
 
 class QuestGraphTests(unittest.TestCase):
+    def test_stale_editor_names_and_flags_use_runtime_identity_with_evidence(self):
+        m = model()
+        rows = m['tables']['quest_objective']['rows']
+        rows[0].update(objective_name='patchedIntro', is_hidden='False')
+        rows[1]['is_exclusive'] = rows[2]['is_exclusive'] = 'True'
+        m['tables']['quest_objective']['provenance'] = [{'sha256': 'runtime-patch'}]
+        before = copy.deepcopy(m)
+        files, report = emit_project([m], 'Example')
+        root = E.fromstring(files['Example/arbitrary_quest.xml'])
+        self.assertIsNotNone(root.find(".//Objective[@Name='patchedIntro']"))
+        self.assertIsNotNone(root.find(".//Port[@Name='start_patchedIntro']"))
+        self.assertIsNone(root.find(".//Port[@Name='start_intro']"))
+        details = report['quests'][0]
+        self.assertEqual(details['objective_table_differences']['name_mismatches'],
+                         [dict(id='3', graph='intro', table='patchedIntro')])
+        self.assertEqual(len(details['objective_table_differences']['flag_mismatches']), 3)
+        self.assertEqual(len(details['exclusive_cancellations']), 2)
+        self.assertEqual(details['objective_provenance'], [{'sha256': 'runtime-patch'}])
+        self.assertEqual(m, before)
+
+    def test_reconciliation_does_not_accept_invalid_flags_or_duplicate_identity(self):
+        for update in (dict(is_hidden='Maybe'), dict(is_exclusive='2'), dict(objective_id='4')):
+            with self.subTest(update=update):
+                m = model()
+                m['tables']['quest_objective']['rows'][0].update(update)
+                with self.assertRaises(ValueError): emit_project([m], 'Example')
+
+    def test_objective_callbacks_are_not_condition_aliases_or_silent_success(self):
+        from campaign_quest_dependencies import objective_dependencies
+        m = model()
+        callback = dict(quest_id='42', objective_id='4', objective_function_id='1',
+                        objective_function_type_id='2', function='SomeCallback()',
+                        call_script='True', context_soul_id='')
+        m['tables']['quest_function'] = dict(rows=[callback])
+        m['tables']['quest_objective']['rows'][1]['condition'] = "IsObjectiveCompleted('arbitrary_quest','second')"
+        m['tables']['quest_objective']['rows'][2]['condition'] = "IsQuestStarted('external') AND SomeCallback()"
+        self.assertEqual([r['quest'] for r in objective_dependencies(m)], ['external'])
+        files, report = emit_project([m], 'Example')
+        details = report['quests'][0]
+        self.assertIn('first', details['converted_conditions'])
+        self.assertNotIn('second', details['converted_conditions'])
+        unsupported = [r for r in details['unsupported'] if r['kind'] == 'objective_callbacks']
+        self.assertEqual(unsupported[0]['rows'], [callback])
+        self.assertIsNone(E.fromstring(files['Example/arbitrary_quest.xml']).find(".//Timer[@Name='source_condition_5']"))
+
     def test_source_end_completes_only_active_quest_after_its_predecessor(self):
         files, report = emit_project([model()], 'Example')
         root = E.fromstring(files['Example/arbitrary_quest.xml'])

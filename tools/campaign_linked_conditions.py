@@ -32,8 +32,6 @@ def bind(files, project, models, nodes):
     changed = set()
     reports = []
     for model in models:
-        functions = {r['function_name']: r['expression'] for r in
-                     model['tables'].get('quest_function', {}).get('rows', [])}
         tracked = model['tables'].get('quest_tracked_asset', {}).get('rows', [])
         for row in model['tables']['quest_objective']['rows']:
             expression = row.get('condition', '').strip()
@@ -44,7 +42,7 @@ def bind(files, project, models, nodes):
                     or row.get('time', '0') not in ('', '0')
                     or any(t['objective_id'] == row['objective_id'] and counted_asset(t) for t in tracked)):
                 continue
-            compiler = QuestConditions(models, functions)
+            compiler = QuestConditions(models)
             try:
                 tree = predicate(compiler.compile(expression))
             except ValueError:
