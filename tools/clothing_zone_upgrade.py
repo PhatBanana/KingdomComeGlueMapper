@@ -19,6 +19,9 @@ from upgrade_map import read
 
 VERSION = 1
 SRGB_FORMATS = (72, 75, 78, 99)
+# Many masks move a stray edge texel between differently tinted zones. Below
+# this share of the mask the rebake is invisible and costs two 2048px bakes.
+MIN_VISIBLE_SHARE = 0.001
 
 
 def srgb_dds(blob):
@@ -30,11 +33,12 @@ def textures(material):
 
 
 def zone_moves(spec):
-    """Distinct (encoded zone, decoded zone) pairs where decoding moves a texel."""
-    green = np.asarray(spec.convert('RGB'))[..., 1] / 255
+    """({(encoded zone, decoded zone): texels} where decoding moves a texel, texel count)."""
+    green = np.asarray(spec.convert('RGB'))[..., 1].astype(np.float32) / 255
     decoded = np.where(green <= .04045, green / 12.92, ((green + .055) / 1.055) ** 2.4)
-    pairs = np.unique(np.stack([np.floor(green * 3.9999), np.floor(decoded * 3.9999)], -1).reshape(-1, 2), axis=0)
-    return {(int(a), int(b)) for a, b in pairs if a != b}
+    pairs = np.floor(green * 3.9999).astype(np.int64) * 4 + np.floor(decoded * 3.9999).astype(np.int64)
+    counts = np.bincount(pairs.ravel(), minlength=16)
+    return {(a, b): int(counts[a * 4 + b]) for a in range(4) for b in range(4) if a != b and counts[a * 4 + b]}, green.size
 
 
 def tint(material, zone):
@@ -46,8 +50,10 @@ def tint(material, zone):
 
 
 def recolours(material, moves):
-    """Only a move between differently tinted zones changes the bake."""
-    return any(tint(material, a) != tint(material, b) for a, b in moves)
+    """Only a visible share of moves between differently tinted zones is worth a rebake."""
+    counts, total = moves
+    visible = sum(n for (a, b), n in counts.items() if tint(material, a) != tint(material, b))
+    return visible > 0 and visible >= MIN_VISIBLE_SHARE * total
 
 
 def inputs(material, maps):
@@ -169,32 +175,62 @@ def apply(package, receipt, notify=lambda *a: None, cancelled=lambda: False):
     receipt['clothing_zone_mask'] = report
 
 
-def upgrade(package, notify=lambda *a: None, cancelled=lambda: False):
+def upgrade_person(archives, work):
+    """Rebake and rewrite one person's archives; runs in a worker process.
+
+    Returns ({'Data/<pak>': sha256}, fixed, unmatched).
+    """
     from control_retail_package import rewrite_pak
     from setup_campaign import digest
+    archives = [Path(p) for p in archives]
+    with tempfile.TemporaryDirectory(prefix='zone-upgrade-', dir=work) as temporary:
+        with Actor(archives, Path(temporary)) as actor:
+            replacements, fixed, unmatched = upgrade_actor(actor)
+    changed, by_archive = {}, {}
+    for name, blob in replacements.items():
+        path, entry = actor.members[name]
+        by_archive.setdefault(path, {})[entry] = blob
+    for path, entries in by_archive.items():
+        rewrite_pak(path, entries)
+        # Untouched records keep their offsets; check only what was written.
+        with zipfile.ZipFile(path) as check:
+            for entry, blob in entries.items():
+                if read(check, entry) != blob: raise ValueError('Invalid upgraded actor archive: ' + path.name)
+        changed['Data/' + path.name] = digest(path)
+    return changed, fixed, unmatched
+
+
+def upgrade(package, notify=lambda *a: None, cancelled=lambda: False):
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from bounded_pool import worker_count
     package = Path(package).resolve()
     families = {}
     for path in sorted((package / 'Data').glob('gm_person_*.pak')):
         match = re.fullmatch(r'(gm_person_[0-9a-f]+)(?:_\d+)?\.pak', path.name)
-        if match: families.setdefault(match[1], []).append(path)
+        if match: families.setdefault(match[1], []).append(str(path))
     changed, report = {}, dict(version=VERSION, scanned=len(families), textures=[], unmatched=[],
                                runtime_verified=False)
-    for index, (namespace, archives) in enumerate(families.items()):
-        if cancelled(): raise InterruptedError('Cancelled before clothing zone upgrade')
-        notify('Rebake two-colour clothing zones', index, len(families), namespace)
-        with tempfile.TemporaryDirectory(prefix='zone-upgrade-', dir=package.parent) as temporary:
-            with Actor(archives, Path(temporary)) as actor:
-                replacements, fixed, unmatched = upgrade_actor(actor)
-            report['unmatched'] += [dict(namespace=namespace, **u) for u in unmatched]
-            if not replacements: continue
-            by_archive = {}
-            for name, blob in replacements.items():
-                path, entry = actor.members[name]
-                by_archive.setdefault(path, {})[entry] = blob
-            for path, entries in by_archive.items():
-                rewrite_pak(path, entries)
-                with zipfile.ZipFile(path) as check:
-                    if check.testzip() is not None: raise ValueError('Invalid upgraded actor archive: ' + path.name)
-                changed['Data/' + path.name] = digest(path)
-            report['textures'] += [dict(namespace=namespace, **f) for f in fixed]
+    if not families: return changed, report
+    # A person holds a few 2048px float images and bakes; archives differ per person.
+    workers = worker_count(len(families), 1536 * 1024**2, 'GLUEMAPPER_ZONE_WORKERS', limit=8)
+    done = 0
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        pending = {pool.submit(upgrade_person, archives, str(package.parent)): namespace
+                   for namespace, archives in families.items()}
+        try:
+            for future in as_completed(pending):
+                namespace = pending[future]
+                files, fixed, unmatched = future.result()
+                changed.update(files)
+                report['textures'] += [dict(namespace=namespace, **f) for f in fixed]
+                report['unmatched'] += [dict(namespace=namespace, **u) for u in unmatched]
+                done += 1
+                notify('Rebake two-colour clothing zones', done, len(families), namespace)
+                if cancelled(): raise InterruptedError('Cancelled during clothing zone upgrade')
+        except BaseException:
+            for future in pending: future.cancel()
+            raise
+    # Completion order varies with workers; keep the report stable.
+    for key in ('textures', 'unmatched'):
+        report[key].sort(key=lambda r: (r['namespace'], r.get('texture', ''), r.get('source', '')))
     return changed, report
