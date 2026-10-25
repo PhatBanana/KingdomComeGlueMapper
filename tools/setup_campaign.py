@@ -324,8 +324,12 @@ def update_runtime(package, backup, diagnostics=False, start_probe=False):
             for name in changed:
                 (stage / name).replace(package / name)
         except OSError:
+            # Restore through a new file: an untouched original may share its
+            # inode with an installed mod and must not be truncated in place.
             for name in changed:
-                shutil.copyfile(backup / name, package / name)
+                restored = (package / name).with_name((package / name).name + '.rollback')
+                shutil.copyfile(backup / name, restored)
+                restored.replace(package / name)
             raise
     return receipt
 
