@@ -146,6 +146,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from setup_world_encounters import upgrade as upgrade_encounters
         files, report = upgrade_encounters(package, source, target)
         receipt['files'].update(files); receipt['world_encounters'] = report
+        from region_travel_ui_gate import upgrade as upgrade_arrival_ui
+        files, report = upgrade_arrival_ui(package)
+        receipt['files'].update(files); receipt['arrival_ui_gate'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -289,6 +292,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         format_level_changes.update(quest_level)
         receipt['source_quest_inventories'] = quest_report
     rewrite(package, travel, changes, lambda n: n == legacy_world)
+    from region_travel_ui_gate import upgrade as upgrade_arrival_ui
+    arrival_files, receipt['arrival_ui_gate'] = upgrade_arrival_ui(package)
+    receipt['files'].update(arrival_files)
     from world_speech_audio import upgrade as upgrade_world_speech
     speech_files, speech_report = upgrade_world_speech(package, target, notify)
     receipt['files'].update(speech_files)
