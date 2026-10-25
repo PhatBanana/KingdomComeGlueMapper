@@ -14,7 +14,8 @@ import zipfile
 
 from PIL import Image
 from npc_effects import (read_dds_family, legacy_bg_mask, native_skin_material,
-                         native_vertex_features, bake_macro_diffuse, native_clothing_material, write_float_dds)
+                         native_vertex_features, bake_macro_diffuse, native_clothing_material)
+from texture_encode import write_colour_dds, write_mask_dds
 from upgrade_map import read, xml
 
 
@@ -98,7 +99,7 @@ def build(data, namespace, revision, install=False):
                     channels[2] = Image.new('L', mask.size, 192)
                     mask = Image.merge('RGBA',channels)
                 mask_name = stem+'_bgs.dds'
-                mask.save(output/mask_name)
+                write_mask_dds(output/mask_name,mask)
                 if shader == 'humanskin':
                     reference = head_ref if material.get('Name','').lower()=='head' else skin_ref
                     converted_material = native_skin_material(material,prefix+mask_name,reference)
@@ -108,7 +109,7 @@ def build(data, namespace, revision, install=False):
                     spec = textures.get('Specular')
                     spec_image = read_dds_family(texture_path(spec)) if spec is not None else None
                     diffuse_name = stem+'_macro_diff.dds'
-                    write_float_dds(output/diffuse_name,bake_macro_diffuse(read_dds_family(texture_path(diffuse)),material,spec_image))
+                    write_colour_dds(output/diffuse_name,bake_macro_diffuse(read_dds_family(texture_path(diffuse)),material,spec_image))
                     converted_material = native_clothing_material(material,prefix+diffuse_name,prefix+mask_name,cloth_ref,'GarmentBase')
                     if spec_image is None:
                         spec_image = Image.new('RGBA',(4,4),(255,255,255,255))
@@ -117,7 +118,7 @@ def build(data, namespace, revision, install=False):
                         spec_image = Image.merge('RGBA',(r,r,r,a))
                     spec_name = stem+'_macro_spec.dds'
                     spec_settings = ET.Element('Material',Diffuse=material.get('Specular','1,1,1'))
-                    write_float_dds(output/spec_name,bake_macro_diffuse(spec_image,spec_settings))
+                    write_colour_dds(output/spec_name,bake_macro_diffuse(spec_image,spec_settings))
                     spec_binding = converted_material.find('Textures/Texture[@Map="Specular"]')
                     if spec_binding is None:
                         spec_binding = ET.SubElement(converted_material.find('Textures'),'Texture',Map='Specular')
