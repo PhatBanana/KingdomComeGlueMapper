@@ -156,6 +156,8 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from setup_world_ledges import upgrade as upgrade_ledges
         files, report = upgrade_ledges(package, source, target)
         receipt['files'].update(files); receipt['world_ledges'] = report
+        from clothing_zone_upgrade import apply as rebake_clothing_zones
+        rebake_clothing_zones(package, receipt, notify, cancelled)
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -433,6 +435,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     for name in actor_removed: receipt['files'].pop(name, None)
     if actor_report['actors'] or 'actor_material_upgrade' not in receipt:
         receipt['actor_material_upgrade'] = actor_report
+    # After the male re-conversion above, which already bakes decoded zones.
+    from clothing_zone_upgrade import apply as rebake_clothing_zones
+    rebake_clothing_zones(package, receipt, notify, cancelled)
     from item_icons import upgrade as upgrade_item_icons
     icon_files, icon_report = upgrade_item_icons(package, source)
     receipt['files'].update(icon_files)
