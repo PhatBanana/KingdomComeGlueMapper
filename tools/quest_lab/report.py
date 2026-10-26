@@ -26,6 +26,8 @@ def write(reports, output):
             + '<h3>Assertions</h3>' + table((a['label'], a) for a in r['assertions'])
             + '<details><summary>Coverage, source hashes and external contracts</summary>'
             + table([('Graph',r.get('graph',{})),('Behaviors',r.get('behaviors',{}))]) + '</details>'
+            + ('<details open><summary>Action-filter gate: native unknowns and scenario assumptions</summary>'
+               + table(r['filter_gate'].items()) + '</details>' if r.get('filter_gate') else '')
             + '<details open><summary>Execution timeline</summary><div class="timeline">'
             + table((f"{e['time_us']/1000000:g}s · {e['kind']}", e) for e in r['timeline'])+'</div></details></section>')
     html = '''<!doctype html><html lang="en"><meta charset="utf-8"><title>Quest & NPC Tests</title>

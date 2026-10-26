@@ -123,6 +123,7 @@ internal event through scenario input commands.
 | Time | Deterministic microsecond GameTime clock, Timer start/restart/stop and ordered deadlines | RealTime and native time-skip/LOD policies are not emulated |
 | Controller behavior | Root/OnInit, sequences/selectors, conditionals/switches, loops, assignments, GameTime waits | Unsupported trees are not silently bypassed |
 | NPC requests | Actual emitted mailbox consumer, availability updates and release callback logic | Native job arbitration, priority/preemption and physical acquire/release are external |
+| Input-filter gates | `FilterInput` unions of active filters, `Timer.Running`, Level `OnWake`/`OnLevelSwitched` as explicit stimuli, action blocking from a supplied retail profile | Engine delivery of those events, the GameTime-to-real-time scale and script-initiated interactions are explicit unknowns |
 | Native messages | `InstantSendMessage` trigger fan-in, typed payloads, explicit receiver/asset bindings and routed controller mailboxes | `OnExec` records dispatch; receiver acknowledgement and native AI reaction are separate |
 | External effects | Named graph contracts, pending behavior actions and supplied success/fail outcomes | No implicit successful movement, animation, dialogue, combat or equipment operation |
 | Persistence | JSON-safe emulator state, timer deadlines, behavior frames and inboxes; source/contract hash checks | These are emulator snapshots, not KCD2 saves |
@@ -167,6 +168,8 @@ this report with the converter's own unsupported-operation report.
 | `native_result` | `id`, `node`, `result` (`returned` or `aborted`), optional `values` and ordered `events`; resolves exactly one pending call |
 | `assert_native` | `count` and/or exact `pending` request list; checks native calls awaiting results |
 | `object_snapshot` | `identity`, `facets`: replace an existing object's observed native facets; an explicit engine observation, not a simulated mutation |
+| `assert_actions` | `actions`: input action to `blocked`/`allowed`; optional `filters`: exact sorted active filter names. Needs `action_profile` |
+| `await_action` | `input`, `timeout`, optional `state` (default `allowed`), `at_least_game` and `at_least_real` durations; advances to deadlines and measures the hold. `at_least_real` needs `time_scale` |
 
 Event/assertion history remains cumulative across emulator loads for diagnosis;
 world state, pending timers, tasks and messages are restored. Snapshot restores
@@ -381,6 +384,59 @@ or declared-enum selectors. Primitive and declared-enum outputs are validated.
 Native enum types absent from the loaded XML remain unsupported. Unselected
 branches are still included in structural coverage, even though their values
 are not evaluated during selection.
+
+## Input-filter gates (`FilterInput`)
+
+`FilterInput` is interpreted: each node contributes its `Filters` array to the
+active set while its `IsActive` input is true, and the active set is the union over
+nodes. `Timer.Running` is a readable data output, true from `SetRunning` until
+the deadline or `SetStopped`. A restart replaces the deadline; the native restart
+rule is an emulator declaration. A top-level `Level` exposes `OnWake` and
+`OnLevelSwitched` as engine events. Scenarios must `fire` them, so an assumed
+engine delivery is visible in the timeline (`boundary: engine_event`).
+
+Supply the retail input profile with `action_profile` (a path beside the scenario,
+for example a copy of `Libs/Config/defaultProfile.xml`). Its `actionfilter` entries
+map each filter to the input actions it blocks. Without a profile the gate cannot
+pass: it reports `Action filter table not supplied`, and action assertions are
+UNSUPPORTED. An unknown filter or action name is never guessed.
+
+```json
+{
+  "action_profile": "defaultProfile.xml",
+  "time_scale": {"real_seconds_per_game_second": 1.0, "reason": "Assumption; not measured"},
+  "steps": [
+    {"action": "fire", "port": "OnWake"},
+    {"action": "assert_actions", "actions": {"open_apse_map_keyboard": "blocked", "talk": "blocked"}},
+    {"action": "await_action", "input": "open_apse_map_keyboard", "timeout": "5m", "at_least_game": "90s", "at_least_real": "60s"}
+  ]
+}
+```
+
+`await_action` times out if an action never reaches the awaited state, which is how
+a filter leak shows up in a scenario. Every result for a graph with a `FilterInput`
+carries `filter_gate.native_unknowns`: `onwake_on_save_load`,
+`game_time_real_time_scale`, `ui_input_causes_freeze`, `scripted_paths_bypass_filters`
+and `node_port_names`. They are UNSUPPORTED unless the scenario explicitly assumed
+the first two (`ASSUMED_BY_SCENARIO`). They never turn a PASS into a native claim.
+
+`audit` also checks every `FilterInput` it finds, given `--profile`:
+
+```powershell
+python tools/quest_lab_test.py audit "D:/path/to/gluemappertravel.pak" --profile "D:/path/to/defaultProfile.xml" --require-blocked open_apse_map_keyboard open_apse_map_controller open_apse_inventory_keyboard talk --output outputs/quest-lab-gates
+```
+
+For each gate it slices the definition to the nodes that can influence the gate
+(unmodeled native nodes elsewhere cannot stop a probe), then fires each exposed
+trigger and the Level engine events separately and advances 24 GameTime hours.
+Findings (exit code 1): a filter missing from the profile, an unresolved `Filters`
+array, a constant-true or constant-false `IsActive`, filters still active after
+the bound (`filter_active_after_bound`), a timer-driven gate that one entry event
+does not engage, and any `--require-blocked` action that is not blocked at the peak
+of every entry-event probe. `audit.json` lists blocked actions per probe and every
+`open_apse_*` action's coverage. A gate with no findings is
+`STATIC_CHECKS_PASSED`; without `--profile` it is `PARTIAL_UNSUPPORTED`. The report
+always lists the native unknowns as UNSUPPORTED.
 
 ## Regression checks
 

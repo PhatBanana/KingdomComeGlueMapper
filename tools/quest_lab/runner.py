@@ -8,6 +8,7 @@ import xml.etree.ElementTree as E
 from . import BudgetExceeded, Unsupported, VERSION
 from .behavior import Behavior
 from .expressions import duration
+from .filters import ActionTable, unknowns
 from .graph import Graph
 from .source import Source
 
@@ -20,7 +21,7 @@ class Runner:
     def __init__(self, scenario, base=Path('.'), source=None):
         if scenario.get('schema') != VERSION: raise ValueError('Unsupported scenario schema')
         allowed = {'schema','name','description','source','entry','entry_file','inputs','contracts','behaviors','steps','budget',
-                   'assets','message_routes','objects'}
+                   'assets','message_routes','objects','action_profile','time_scale'}
         if set(scenario) - allowed: raise ValueError('Unknown scenario keys: ' + ', '.join(sorted(set(scenario)-allowed)))
         if not scenario.get('steps'): raise ValueError('Scenario must contain steps and assertions')
         budget = scenario.get('budget', 100000)
@@ -28,8 +29,19 @@ class Runner:
         self.scenario = copy.deepcopy(scenario)
         self.base = Path(base)
         self.source = source or Source(self.base / scenario['source'])
+        actions = None
+        if 'action_profile' in scenario:
+            if not isinstance(scenario['action_profile'], str) or not scenario['action_profile']:
+                raise ValueError('action_profile must be a path to a retail input profile')
+            actions = ActionTable((self.base / scenario['action_profile']).read_bytes())
+        self.time_scale = scenario.get('time_scale')
+        if self.time_scale is not None:
+            scale = self.time_scale.get('real_seconds_per_game_second') if isinstance(self.time_scale, dict) else None
+            if (set(self.time_scale) != {'real_seconds_per_game_second', 'reason'} or type(scale) not in (int, float)
+                    or not 0 < scale < float('inf') or not isinstance(self.time_scale['reason'], str) or not self.time_scale['reason']):
+                raise ValueError('time_scale needs a positive real_seconds_per_game_second and a reason')
         self.graph = Graph(self.source, scenario['entry'], scenario.get('contracts'), budget, scenario.get('entry_file'),
-                           scenario.get('assets'), scenario.get('objects'))
+                           scenario.get('assets'), scenario.get('objects'), actions)
         self.behaviors, self.saved, self.assertions = {}, {}, []
         self.error = None
         for item in scenario.get('behaviors', []):
@@ -96,6 +108,14 @@ class Runner:
         self.graph.record('assertion', **{k:v for k,v in result.items() if k != 'time_us'})
         if not passed: raise AssertionError(label + ': expected ' + repr(expected) + ', got ' + repr(actual))
 
+    def bound(self, label, actual, minimum, unit):
+        passed = actual >= minimum
+        result = dict(label=label, time_us=self.graph.now, expected='>= ' + str(minimum) + ' ' + unit,
+                      actual=actual, passed=passed)
+        self.assertions.append(result)
+        self.graph.record('assertion', **{k:v for k,v in result.items() if k != 'time_us'})
+        if not passed: raise AssertionError(label + ': expected at least ' + str(minimum) + ' ' + unit + ', got ' + str(actual))
+
     def snapshot(self):
         return dict(graph=self.graph.snapshot(), behaviors={n:b.snapshot() for n,b in self.behaviors.items()},
                     routing_fingerprint=self.routing_fingerprint)
@@ -126,6 +146,8 @@ class Runner:
             'native_result': {'id','node','result','values','events'},
             'assert_native': {'pending','count','label'},
             'object_snapshot': {'identity','facets'},
+            'assert_actions': {'actions','filters','label'},
+            'await_action': {'input','state','timeout','at_least_game','at_least_real','label'},
         }
         if action not in fields or set(step) - (fields[action] | {'action'}):
             raise ValueError('Unknown scenario action/fields: ' + action)
@@ -133,6 +155,30 @@ class Runner:
         elif action == 'set': self.graph.set_inputs(step['values'])
         elif action == 'object_snapshot': self.graph.objects.replace(step['identity'], step['facets'])
         elif action == 'advance': self.advance(step['duration'], step.get('mode','normal'))
+        elif action == 'assert_actions':
+            if not step.get('actions') and 'filters' not in step: raise ValueError('Empty action assertion')
+            for key, expected in step.get('actions', {}).items():
+                if expected not in ('blocked', 'allowed'): raise ValueError('Action state must be blocked or allowed: ' + key)
+                self.check(step.get('label', 'action:' + key), self.graph.action_state(key), expected)
+            if 'filters' in step:
+                self.check(step.get('label', 'active filters'), self.graph.active_filters(), sorted(step['filters']))
+        elif action == 'await_action':
+            name, wanted = step['input'], step.get('state', 'allowed')
+            if wanted not in ('blocked', 'allowed'): raise ValueError('Action state must be blocked or allowed: ' + name)
+            if 'timeout' not in step: raise ValueError('await_action needs a timeout')
+            start = self.graph.now
+            label = step.get('label', 'action:' + name + ':' + wanted)
+            if not self.advance(step['timeout'], until=lambda: self.graph.action_state(name) == wanted):
+                raise ScenarioTimeout('Timed out waiting for ' + name + ' to become ' + wanted)
+            elapsed = self.graph.now - start
+            self.assertions.append(dict(label=label, time_us=self.graph.now, expected=wanted, actual=wanted,
+                                        passed=True, game_seconds=elapsed / 1000000))
+            if 'at_least_game' in step: self.bound(label + ' game seconds', elapsed / 1000000, duration(step['at_least_game']) / 1000000, 'GameTime s')
+            if 'at_least_real' in step:
+                if self.time_scale is None:
+                    raise Unsupported('GameTime to real-time scale is not modeled; supply an explicit scenario time_scale')
+                self.bound(label + ' real seconds', elapsed / 1000000 * self.time_scale['real_seconds_per_game_second'],
+                           duration(step['at_least_real']) / 1000000, 'real s under the supplied time_scale')
         elif action == 'assert':
             count = 0
             for field in ('values','states','events'):
@@ -223,7 +269,12 @@ class Runner:
         except AssertionError as exc: status = 'FAIL'; self.error = str(exc)
         except (ValueError, KeyError, TypeError, ZeroDivisionError, OverflowError) as exc:
             status = 'ERROR'; self.error = str(exc)
-        return dict(schema=VERSION, name=self.scenario.get('name','Unnamed scenario'), status=status,
+        gate = {}
+        if self.graph.filter_nodes:
+            gate = dict(filter_gate=dict(native_unknowns=unknowns(self.graph.engine_fired, self.time_scale),
+                engine_events_fired=dict(self.graph.engine_fired), time_scale=copy.deepcopy(self.time_scale),
+                action_profile_sha256=self.graph.actions.sha256 if self.graph.actions else None))
+        return dict(schema=VERSION, name=self.scenario.get('name','Unnamed scenario'), status=status, **gate,
             error=self.error, stopped_at_step=index, native_runtime_verified=False,
             scope='Emulated converted control flow with explicitly supplied engine outcomes',
             scenario_sha256=hashlib.sha256(json.dumps(self.scenario, sort_keys=True).encode()).hexdigest(),

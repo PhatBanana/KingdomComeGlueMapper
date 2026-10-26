@@ -6,7 +6,7 @@ from .expressions import boolean, literal
 from .pure import number, exact_integer
 
 
-ARRAY_TYPES = {'wh::rpgmodule::Souls', 'wh::xgenaimodule::LinkableObjects',
+ARRAY_TYPES = {'Strings', 'wh::rpgmodule::Souls', 'wh::xgenaimodule::LinkableObjects',
                'wh::xgenaimodule::Areas', 'wh::xgenaimodule::SmartObjects',
                'wh::entitymodule::EquipmentSlotIds'}
 SCALARS = {'bool', 'int', 'uint', 'float', 'string'}

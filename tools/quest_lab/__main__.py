@@ -21,22 +21,28 @@ def main():
     audit.add_argument('source', type=Path)
     audit.add_argument('--kcd1', type=Path, help='Optional retail KCD1 directory for the complete source quest checklist')
     audit.add_argument('--source-graphs', action='store_true', help='Also dry-run conversion and local probes for all source quest graphs')
+    audit.add_argument('--profile', type=Path, help='Optional retail defaultProfile.xml supplying action filters for FilterInput gates')
+    audit.add_argument('--require-blocked', nargs='+', default=[], metavar='ACTION',
+                       help='Input actions every gate must block at its peak on each entry event (requires --profile)')
     audit.add_argument('--output', type=Path, required=True)
     demo = sub.add_parser('demo', help='Generate runnable fixtures using the production converters')
     demo.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'audit':
         if args.source_graphs and not args.kcd1: parser.error('--source-graphs requires --kcd1')
+        if args.require_blocked and not args.profile: parser.error('--require-blocked requires --profile')
         from .audit import run as run_audit
-        report = run_audit(args.source, args.output, args.kcd1, args.source_graphs)
+        report = run_audit(args.source, args.output, args.kcd1, args.source_graphs, args.profile, args.require_blocked)
         print(json.dumps(dict(quests=len(report['quests']), source_records=len(report['source_inventory']),
                               probes=sum(len(q['probes']) for q in report['quests']),
                               structural_findings=len(report['structure']['findings']),
+                              filter_gates={g['name']: g['status'] for g in report['filter_gates']},
                               report=str((args.output/'audit.html').resolve())), indent=2))
         # An audit is diagnostic, never an implicit all-quests PASS.
         return 1 if (report['structure']['findings'] or report['invalid_xml']
                      or any(q['status'] != 'LOCAL_PROBES_EXECUTED' for q in report['quests'])
                      or any(s['status'] != 'EXECUTED' or s.get('unsupported') for s in report['new_game'])
+                     or any(g['status'] != 'STATIC_CHECKS_PASSED' for g in report['filter_gates'])
                      or any(r['status'] != 'LOCAL_STATE_PROBES_EXECUTED' for r in report.get('source_graphs', {}).get('quests', []))
                      or any(r['status'] == 'NOT_PRESENT_IN_PACKAGE' for r in report['source_inventory'])) else 0
     if args.command == 'run':

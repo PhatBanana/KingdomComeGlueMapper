@@ -16,6 +16,7 @@ from .pure import operation, comparison, compare, COMPARE
 from .dialogue import Dialogue, KINDS as DIALOGUES, INPUTS as DIALOGUE_INPUTS, OUTPUTS as DIALOGUE_OUTPUTS
 from .native import NativeCalls
 from . import collections as collection_nodes
+from . import filters as action_filters
 from .objects import Objects, describe as object_description
 
 
@@ -26,7 +27,7 @@ FUNCTIONS = {
     'math::boolean::Xor': lambda v: boolean(v['A']) != boolean(v['B']),
 }
 BUILTINS = {'State', 'Function', 'IfFunction', 'If', 'TriggerSequence', 'Timer',
-            'Trace', 'HasteTrigger', 'GameStart', 'InstantSendMessage'} | collection_nodes.KINDS
+            'Trace', 'HasteTrigger', 'GameStart', 'InstantSendMessage', action_filters.KIND} | collection_nodes.KINDS
 
 
 def qualified(scope, value):
@@ -34,8 +35,11 @@ def qualified(scope, value):
 
 
 class Graph:
-    def __init__(self, source, entry, contracts=None, budget=100000, entry_file=None, assets=None, objects=None):
+    def __init__(self, source, entry, contracts=None, budget=100000, entry_file=None, assets=None, objects=None, actions=None):
         self.source, self.entry = source, entry
+        self.actions = actions
+        self.filter_nodes, self.filter_last = [], None
+        self.engine_events, self.engine_fired = set(), Counter()
         self.contracts = copy.deepcopy(contracts or {})
         self.budget = budget
         self.nodes, self.inputs, self.aliases = {}, {}, {}
@@ -64,9 +68,10 @@ class Graph:
         for name in self.contracts:
             if name not in self.nodes: raise ValueError('Contract refers to missing node: ' + name)
             if name in self.dialogues: raise ValueError('Cannot replace dialogue logic with a contract: ' + name)
-        self.fingerprint = hashlib.sha256(json.dumps(dict(entry=entry,
-            files={p: source.hashes[p] for p in sorted(self.used_files)},
-            contracts=self.contracts, assets=self.assets, objects=objects), sort_keys=True).encode()).hexdigest()
+        identity = dict(entry=entry, files={p: source.hashes[p] for p in sorted(self.used_files)},
+            contracts=self.contracts, assets=self.assets, objects=objects)
+        if actions is not None: identity['action_profile'] = actions.sha256
+        self.fingerprint = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()
 
     def record(self, kind, **values):
         self.trace.append(dict(time_us=self.now, kind=kind, **values))
@@ -90,6 +95,10 @@ class Graph:
             except Unsupported as exc: self.issue(scope or definition, str(exc))
         ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in host.findall('Ports/*')
                  if p.tag in ('Port', 'ConstantPort', 'AssetPort')}
+        if host.tag == 'Level' and not scope:
+            # The Level's own wake/switch events are engine stimuli; a scenario must fire them explicitly.
+            for event in action_filters.ENGINE_EVENTS:
+                self.event_ports.add(event); self.engine_events.add(event)
         if host.tag in DIALOGUES:
             for port, typ in DIALOGUE_INPUTS.items(): ports.setdefault(port, ('In', typ))
             for port in DIALOGUE_OUTPUTS: ports.setdefault(port, ('Out', 'trigger'))
@@ -139,6 +148,7 @@ class Graph:
                         self.aliases[out] = ref
                     self.output_ports.add(out)
                 continue
+            if element.tag == action_filters.KIND: self.filter_nodes.append(name)
             if element.tag in self.source.definitions:
                 self._load(element.tag, name, (*ancestors, identity), includes)
                 bound = set()
@@ -293,7 +303,7 @@ class Graph:
             return port in ('State','OnExec','OnChanged', *options, *('On'+v for v in options))
         return (kind == 'Function' and port == 'bool'
             or kind in ('If','IfFunction') and port in ('True','False')
-            or kind == 'Timer' and port == 'OnFinished'
+            or kind == 'Timer' and port in ('OnFinished', 'Running')
             or kind == 'TriggerSequence' and port in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' and len(port) == 1
             or kind == 'HasteTrigger' and port == 'OnTrigger'
             or kind == 'InstantSendMessage' and port == 'OnExec'
@@ -306,7 +316,8 @@ class Graph:
         allowed = {'State': {'DefaultValue','Value'}, 'If': {'Condition'},
             'IfFunction': {'ValueA','ValueB','Op','A','B','Value'}, 'Function': {'A','B','Value'},
             'Timer': {'Duration','TimeType'}, 'Trace': {'Value'},
-            'TriggerSequence': set(), 'HasteTrigger': set(), 'GameStart': set()}
+            'TriggerSequence': set(), 'HasteTrigger': set(), 'GameStart': set(),
+            action_filters.KIND: action_filters.INPUTS}
         for name, node in self.nodes.items():
             if name in self.contracts or node['journal']: continue
             if name in self.native_functions: continue  # Interface remains explicitly unsupported without a contract.
@@ -328,6 +339,11 @@ class Graph:
             if spec:
                 for port in spec.get('required', spec['inputs']) - bound:
                     self.issue(name, 'Missing explicit value input: ' + port)
+            if node['kind'] == action_filters.KIND:
+                for port in sorted(action_filters.INPUTS - bound):
+                    self.issue(name, 'Missing explicit value input: ' + port)
+                if self.actions is None:
+                    self.issue(name, 'Action filter table not supplied; filter effects are not evaluated')
         for actions in self.routes.values():
             for kind, payload in actions:
                 if kind != 'deliver': continue
@@ -379,6 +395,9 @@ class Graph:
             if alias not in self.assets: raise Unsupported('Unbound asset: ' + str(alias))
             return copy.deepcopy(self.assets[alias])
         name, _, port = ref.rpartition('.')
+        if name in self.nodes and self.nodes[name]['kind'] == 'Timer' and port == 'Running':
+            self.visited[name] += 1
+            return self.running(name)
         if name in self.nodes:
             node = self.nodes[name]
             if name not in self.contracts and node.get('object_spec'):
@@ -419,12 +438,53 @@ class Graph:
     def emit(self, event):
         self.stack.append(('event', event))
 
+    def running(self, name):
+        return any(t[2] == name and self.generations.get(name) == t[3] for t in self.timers)
+
+    def active_gates(self):
+        """Active FilterInput nodes and the union of their filters; unbound inputs are unsupported."""
+        nodes, names = [], set()
+        for name in self.filter_nodes:
+            args = self._args(name)
+            if boolean(args['IsActive']):
+                values = args['Filters']
+                collection_nodes.array(values)
+                nodes.append(name); names.update(values)
+        if self.actions is not None: self.actions.resolve(names)
+        return sorted(nodes), sorted(names)
+
+    def active_filters(self):
+        return self.active_gates()[1]
+
+    def blocked_actions(self):
+        if self.actions is None: raise Unsupported('Action filter table not supplied')
+        return self.actions.resolve(self.active_filters())
+
+    def action_state(self, action):
+        if self.actions is None: raise Unsupported('Action filter table not supplied')
+        return 'blocked' if self.actions.known(action) in self.blocked_actions() else 'allowed'
+
+    def observe_filters(self):
+        """Record each change of the active filter set; an unevaluable gate is unsupported."""
+        if not self.filter_nodes: return
+        try: nodes, names = self.active_gates()
+        except Unsupported as exc:
+            self.issue(self.filter_nodes[0], 'Filter state is not evaluable: ' + str(exc))
+            return
+        if (nodes, names) != self.filter_last:
+            self.filter_last = (nodes, names)
+            self.record('filters', active=names, nodes=nodes)
+
     def fire(self, event):
         if event.rpartition('.')[0] in self.native_functions:
             raise ValueError('Use native_result for call completion: ' + event)
         if event not in self.event_ports:
             raise ValueError('Not an exposed trigger input or contracted engine event: ' + event)
-        self.record('stimulus', port=event, boundary='engine_contract' if event.rpartition('.')[0] in self.contracts else 'graph_input')
+        boundary = ('engine_contract' if event.rpartition('.')[0] in self.contracts
+                    else 'engine_event' if event in self.engine_events else 'graph_input')
+        if event in self.engine_events: self.engine_fired[event] += 1
+        self.observe_filters()
+        self.record('stimulus', port=event, boundary=boundary)
         self.emit(event)
         self.drain()
 
@@ -517,6 +577,7 @@ class Graph:
                 self.stack.extend(reversed(self.routes.get(payload, [])))
             elif kind == 'unsupported': raise Unsupported('Native input wiring is not modeled: ' + payload)
             else: raise Unsupported('Unknown execution frame')
+        self.observe_filters()
 
     def observe_contracts(self):
         """Record engine inputs such as IsActive without faking engine results."""
@@ -542,6 +603,7 @@ class Graph:
         while self.next_deadline() is not None and self.next_deadline() <= target:
             self.now, _, name, _ = heapq.heappop(self.timers)
             self.record('timer_finish', node=name)
+            self.observe_filters()
             self.emit(name + '.OnFinished'); self.drain()
         self.now = target
 
@@ -562,7 +624,9 @@ class Graph:
         for name, state in snapshot['dialogues'].items(): self.dialogues[name].state = copy.deepcopy(state)
         self.native.restore(snapshot['native'])
         self.objects.records = copy.deepcopy(snapshot['objects'])
+        self.filter_last = None
         self.record('restore', fingerprint=self.fingerprint)
+        self.observe_filters()
 
     def report(self):
         return dict(entry=self.entry, fingerprint=self.fingerprint,
@@ -575,4 +639,7 @@ class Graph:
             object_snapshots=self.objects.records,
             unresolved_native_bindings=[dict(node=name, port=port, sources=refs)
                 for name, node in self.nodes.items() for port, refs in node.get('unresolved', {}).items()],
-            dialogues={n:d.snapshot() for n,d in self.dialogues.items()})
+            dialogues={n:d.snapshot() for n,d in self.dialogues.items()},
+            **(dict(action_filters=dict(table=self.actions.sha256 if self.actions else None,
+                nodes=list(self.filter_nodes), active=list(self.filter_last[1]) if self.filter_last else [],
+                engine_events_fired=dict(self.engine_fired))) if self.filter_nodes else {}))

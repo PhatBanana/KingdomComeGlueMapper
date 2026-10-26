@@ -330,6 +330,56 @@ arrival. Its 1,595 remaining unsupported entries include 165 native-query nodes
 that need explicit object observations; these are coverage gaps, not a count of
 gameplay defects. Full campaign execution remains incomplete.
 
+## Input-filter gate follow-up (issue #3) — 2026-10-25
+
+Offline only; no game launch, no real saves and no installed files changed.
+`FilterInput` is now an interpreted `quest_lab` node, so the arrival input/interaction
+gate in `region_travel_ui_gate` (commit `368469c` on `fix/arrival-ui-readiness`) can
+be checked for coverage and release before another game session.
+
+- [x] Interpret `FilterInput`: active set is the union of filters on nodes whose `IsActive` is true.
+- [x] Read `Timer.Running` as a data output (true from `SetRunning` until the deadline or `SetStopped`).
+- [x] Expose a top-level Level's `OnWake`/`OnLevelSwitched` as engine events a scenario fires explicitly.
+- [x] Load `actionfilter` tables from a supplied retail input profile; no profile means UNSUPPORTED, never an open gate.
+- [x] Scenario steps `assert_actions` and `await_action` (GameTime hold, optional explicit real-time scale).
+- [x] `audit --profile [--require-blocked ...]`: leak, unknown filter, engagement by both entry events and required-action coverage.
+- [x] Snapshot/replay preserve a partial hold; the profile hash is part of the snapshot identity.
+- [ ] Differential check that native `FilterInput`, `Timer.Running` and restart semantics match this model.
+- [ ] Whether `OnWake` fires when a save inside `kcd1_travel` loads.
+- [ ] Whether a 90 s GameTime window outlasts the real loading stall (needs a measured time scale).
+- [ ] Whether UI input causes the freeze at all.
+
+Added checks: `test_quest_lab_filters.py`, **31 tests** with synthetic Level graphs and a
+synthetic profile subset that reuses the retail filter and action names. They cover the
+hold from both events, the exact deadline, a restart, save/restore mid-hold, unions of two
+gates, a constant-true and a latched gate (leak), a gate started by only one event, missing or
+unknown profile entries, and the real-time claim being UNSUPPORTED without a `time_scale`
+and FAIL when the supplied scale makes the hold too short. The audit and `run` CLIs are
+exercised end to end.
+
+Local run on the gate as installed in the 10-24 test build
+(`issues/3/installed_entry_gated.xml`, `kcd1_travel`) with the retail `defaultProfile.xml`
+(read-only data, not committed): `STATIC_CHECKS_PASSED`. The gate (3 nodes of 388 in the
+Level) engages on both `OnWake` and `OnLevelSwitched`, is inactive 24 GameTime hours later,
+and blocks `open_apse_map_keyboard`, `open_apse_map_controller`, `open_apse_inventory_*`,
+`open_apse_player`, `open_apse_questlog`, `open_apse_codex`, `use` and `talk` at its peak. So the
+map is covered by data. That result does not show the freeze is fixed. An earlier unsliced
+probe stopped at an unmodeled native node (`gm_debug_forest_supplies.arrive`) before the timer
+started, which is why the audit slices the definition to the gate's cone of influence.
+
+Unchanged boundaries, all reported UNSUPPORTED by every gate result:
+
+| Native unknown | Why it stays open |
+| --- | --- |
+| `onwake_on_save_load` | Only a scenario can assume the event; the emulator cannot show the engine sends it on save load |
+| `game_time_real_time_scale` | 90 GameTime s may be only a few real seconds; `at_least_real` needs a stated, unmeasured assumption |
+| `ui_input_causes_freeze` | A closed gate shows the listed actions are filtered, not that they cause the freeze |
+| `scripted_paths_bypass_filters` | Action filters block input; script, dialogue and `interaction_filter.xml` paths are not modeled |
+| `node_port_names` | `FilterInput.Filters/IsActive` and `Timer.Running` are the names the converter emits; native existence is unverified here |
+
+`MakeArray` now accepts `TypeT="Strings"`, the type the gate emits; its native type name is
+part of the `node_port_names` unknown.
+
 ## Remaining verification boundaries
 
 - [ ] Differential validation of emulator event ordering against the native runtime.

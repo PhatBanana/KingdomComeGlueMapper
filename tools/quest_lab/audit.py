@@ -129,7 +129,8 @@ def quest_audit(source, path, host):
     return result
 
 
-def audit(source, source_rows=()):
+def audit(source, source_rows=(), actions=None, required=()):
+    from .gate_audit import audit_gates
     quests = [quest_audit(source, p, d) for p, d in definitions(source) if d.tag == 'Quest']
     installed = {q['name'] for q in quests}
     source_inventory = [dict(name=r['quest_name'], group=r.get('group', ''), quest_id=r['quest_id'],
@@ -162,7 +163,7 @@ def audit(source, source_rows=()):
                 quests=quests, new_game=starts, source_inventory=source_inventory,
                 source_groups={group: dict(Counter(r['status'] for r in source_inventory if r['group'] == group))
                                for group in sorted({r['group'] for r in source_inventory})},
-                structure=structural_checks(source), invalid_xml=[p for p,r in source.files.items() if r is None])
+                structure=structural_checks(source), filter_gates=audit_gates(source, actions, required), invalid_xml=[p for p,r in source.files.items() if r is None])
 
 
 def write(report, output):
@@ -201,6 +202,10 @@ summary{cursor:pointer;padding:12px}input{font:inherit;padding:10px;width:90%;ma
     structure = report['structure']
     structure_summary = {k:v for k,v in structure.items() if k!='unresolved_interfaces'}
     structure_summary['unresolved_interface_reasons'] = dict(Counter(x['reason'] for x in structure['unresolved_interfaces']))
+    if report.get('filter_gates'):
+        page += '<h2>Action-filter gates</h2><p>Bounded GameTime probes of every FilterInput. Native unknowns stay UNSUPPORTED: OnWake on save load, GameTime to real-time scale, UI input as the freeze cause, scripted bypass and native node-port names.</p>'
+        page += '<pre>' + e(json.dumps([{k:v for k,v in g.items() if k not in ('native_contracts',)} for g in report['filter_gates']], indent=2)) + '</pre>'
+        page += '<pre>' + e(json.dumps(report['filter_gates'][0]['native_contracts'], indent=2)) + '</pre>'
     page += '<h2>Structure checks</h2><pre>' + e(json.dumps(structure_summary, indent=2)) + '</pre>'
     page += '<h2>Per-quest evidence</h2>' + details
     if report.get('source_graphs'):
@@ -217,14 +222,18 @@ summary{cursor:pointer;padding:12px}input{font:inherit;padding:10px;width:90%;ma
     (output / 'audit.html').write_text(page, encoding='utf-8')
 
 
-def run(source_path, output, kcd1=None, source_graphs=False):
+def run(source_path, output, kcd1=None, source_graphs=False, profile=None, required=()):
     rows = []
     if kcd1:
         from campaign_sources import RetailSourceReader
         from campaign_dependency_adapters import SourceTables
         with RetailSourceReader(Path(kcd1)) as reader:
             rows = SourceTables(reader.game, reader).get('quest/quest')['rows']
-    report = audit(Source(source_path), rows)
+    actions = None
+    if profile:
+        from .filters import ActionTable
+        actions = ActionTable(Path(profile).read_bytes())
+    report = audit(Source(source_path), rows, actions, required)
     if source_graphs:
         from .source_audit import run as audit_source
         report['source_graphs'] = audit_source(kcd1, progress=lambda done,total,name,status:
