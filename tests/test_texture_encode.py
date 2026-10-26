@@ -411,3 +411,27 @@ class EncodeCache(unittest.TestCase):
                 self.assertEqual(texture_encode.encode_cache(), Path(t) / 'bc7-textures')
             with patch.dict(os.environ, {'GLUEMAPPER_BUILD_CACHE': t, 'GLUEMAPPER_REBUILD_CACHE': '1'}):
                 self.assertNotEqual(texture_encode.encode_cache(), Path(t) / 'bc7-textures')
+
+
+    def test_a_retargeted_copy_is_written_from_its_twin_in_one_batch_or_from_the_cache_in_a_later_one(self):
+        a = texture_encode.colour_levels(np.random.default_rng(4).random((64, 64, 4)).astype(np.float16))
+        runs = []
+        with tempfile.TemporaryDirectory() as t, patch.object(texture_encode, '_texconv_batch', self.fake_batch(runs)):
+            root = Path(t); (root / 'in').mkdir(); cache = root / 'cache'
+            staging = texture_encode.Staging((str(root / 'in'), str(cache), 'texconv:one'))
+            first = texture_encode.stage(a, True, root / 'one.dds', staging)
+            twin = first.retarget(root / 'two.dds')
+            self.assertEqual((twin.source, twin.key), (first.source, first.key))
+            texture_encode.encode_staged([first, twin], 'texconv.exe')
+            self.assertEqual(runs, [1])
+            self.assertEqual((root / 'one.dds').read_bytes(), (root / 'two.dds').read_bytes())
+            self.assertEqual(list((root / 'in').iterdir()), [])
+            # The input is gone once an earlier batch encoded it; the copy comes from the cache.
+            later = first.retarget(root / 'three.dds')
+            texture_encode.encode_staged([later], 'texconv.exe')
+            self.assertEqual(runs, [1])
+            self.assertEqual((root / 'three.dds').read_bytes(), (root / 'one.dds').read_bytes())
+            gone = first.retarget(root / 'four.dds')
+            texture_encode._cached(cache, first.key).unlink()
+            with self.assertRaisesRegex(ValueError, 'four.dds'):
+                texture_encode.encode_staged([gone], 'texconv.exe')

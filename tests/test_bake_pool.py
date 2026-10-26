@@ -217,3 +217,68 @@ class DeferredEncodeTests(unittest.TestCase):
                 bakes(Path(t) / 'a_diff.dds', self.image(), ET.Element('Material'))
             self.assertEqual((Path(t) / 'a_diff.dds').read_bytes(), b'encoded')
             self.assertTrue(bakes.ticket().done())
+
+
+class StagedReuseTests(unittest.TestCase):
+    """Identical bakes are reused while BC7 textures wait for texconv, as for float bakes."""
+    def setUp(self):
+        import os
+        import texture_encode
+        self.written = []
+        def encode(jobs, executable, write=True):
+            for job in jobs:
+                self.written.append(Path(job.target).name)
+                Path(job.target).write_bytes(b'encoded ' + Path(job.source).name.encode())
+        self.patches = [patch.object(texture_encode, 'encode_staged', encode),
+                        patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')),
+                        patch.object(texture_encode, '_tool_identity', return_value='fake'),
+                        patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''})]
+        for each in self.patches: each.start()
+        self.executor = ThreadPoolExecutor(2)
+        self.patches.append(patch.object(bake_pool, 'pool', return_value=self.executor)); self.patches[-1].start()
+        self.cache = bake_pool.TextureBakeCache()
+        self.patches.append(patch.object(bake_pool, 'shared_cache', return_value=self.cache)); self.patches[-1].start()
+
+    def tearDown(self):
+        for each in reversed(self.patches): each.stop()
+        self.executor.shutdown()
+        self.cache.close()
+
+    def test_identical_bakes_in_one_conversion_are_baked_once_and_each_path_is_written(self):
+        image = Image.new('RGBA', (64, 64), (100, 200, 80, 255))
+        with tempfile.TemporaryDirectory() as t, \
+                patch.object(bake_pool, 'bake_float_dds', wraps=bake_pool.bake_float_dds) as bake:
+            with bake_pool.Bakes(reuse=True) as bakes:
+                bakes.plan(3)
+                for i in range(3):
+                    bakes(Path(t) / f'{i}_diff.dds', image, ET.Element('Material'))
+            self.assertEqual(bake.call_count, 1)
+            self.assertEqual(sorted(self.written), ['0_diff.dds', '1_diff.dds', '2_diff.dds'])
+            self.assertEqual(len({p.read_bytes() for p in Path(t).iterdir()}), 1)
+            self.assertEqual(bakes.stats, dict(completed=3, total=3, reused=2))
+
+    def test_encoded_textures_reach_the_reuse_cache_for_the_next_conversion(self):
+        image = Image.new('RGBA', (64, 64), (100, 200, 80, 255))
+        with tempfile.TemporaryDirectory() as t, \
+                patch.object(bake_pool, 'bake_float_dds', wraps=bake_pool.bake_float_dds) as bake:
+            with bake_pool.Bakes(reuse=True) as first:
+                first(Path(t) / 'a_diff.dds', image, ET.Element('Material'))
+            self.assertEqual(len(self.cache.entries), 1)
+            with bake_pool.Bakes(reuse=True) as second:
+                second(Path(t) / 'b_diff.dds', image, ET.Element('Material'))
+            self.assertEqual(bake.call_count, 1)
+            self.assertEqual(self.written, ['a_diff.dds'])               # b is a copy of the cached file
+            self.assertEqual((Path(t) / 'b_diff.dds').read_bytes(), (Path(t) / 'a_diff.dds').read_bytes())
+            self.assertEqual(second.stats['reused'], 1)
+
+    def test_deferred_conversions_offer_their_textures_to_the_cache_once_written(self):
+        image = Image.new('RGBA', (64, 64), (100, 200, 80, 255))
+        with tempfile.TemporaryDirectory() as t:
+            with bake_pool.deferred_encodes():
+                with bake_pool.Bakes(reuse=True) as first:
+                    first(Path(t) / 'a_diff.dds', image, ET.Element('Material'))
+                first.ticket().result(timeout=5)
+            for _ in range(100):               # the offer runs on the encoder thread, just after the ticket
+                if self.cache.entries: break
+                time.sleep(0.02)
+            self.assertEqual(len(self.cache.entries), 1)

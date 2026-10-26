@@ -23,6 +23,7 @@ from clothing_lab.service import Lab
 from clothing_lab.source import soul_records
 from npc_effects import write_float_dds
 from texture_streaming import split_generated
+from bc7_synthetic import constant_block, bc7_dds
 
 
 def part(name,kind='Clothing',layer='5',gender='Female',family='person',groups=''):
@@ -221,6 +222,30 @@ class ClothingLabTests(unittest.TestCase):
             self.assertTrue(assets.texture('cloth.dds').startswith(b'\x89PNG'))
             with zipfile.ZipFile(root/'Data/b.pak','w') as z:z.writestr('cloth.dds',b'conflict')
             with self.assertRaisesRegex(ValueError,'Conflicting'):Assets(root).read('cloth.dds')
+
+    def test_bc7_macro_colour_displays_like_the_float_bake_of_the_same_value(self):
+        from PIL import Image
+        import io
+        from texture_encode import srgb_decode
+        stored = np.array([41, 121, 201])         # what the GPU reads back as linear srgb_decode(stored / 255)
+        block = constant_block(*(stored // 2), 127, p=1)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); (root/'Data').mkdir()
+            linear = np.ones((8, 8, 4), np.float32); linear[:, :, :3] = srgb_decode(stored / 255)
+            write_float_dds(root/'float.dds', linear)
+            with zipfile.ZipFile(root/'Data/a.pak', 'w') as z:
+                for name, data in (('float.dds', (root/'float.dds').read_bytes()),
+                                   ('bc7.dds', bc7_dds(8, 8, [[block] * 4, [block]]))):
+                    for suffix, member in split_generated(data).items(): z.writestr(name + suffix, member)
+            assets = Assets(root)
+            image, linear_pixels = assets.pixels('bc7.dds')
+            self.assertFalse(linear_pixels)
+            np.testing.assert_allclose(image[:, :, 3], 1, atol=.004)
+            for macro in (False, True):
+                shown = [np.asarray(Image.open(io.BytesIO(assets.texture(name, macro))).convert('RGB'), int)
+                         for name in ('float.dds', 'bc7.dds')]
+                self.assertLessEqual(np.abs(shown[0] - shown[1]).max(), 1, macro)
+            self.assertNotEqual(assets.texture('bc7.dds', True), assets.texture('bc7.dds', False))
 
     def test_package_changed_after_indexing_requires_reopen(self):
         with tempfile.TemporaryDirectory() as tmp:

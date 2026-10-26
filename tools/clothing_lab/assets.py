@@ -76,24 +76,36 @@ class Assets:
         return data, info
 
     def pixels(self, name):
+        image, kind = self.decoded(name)
+        return image, kind == 'linear'
+
+    def decoded(self, name):
+        """(RGBA float image, how its colour is stored): 'linear' floats, 'srgb' bytes, or plain 'unorm' bytes."""
         data, info = self.dds(name)
         fmt = struct.unpack_from('<I', data, 128)[0] if data[84:88] == b'DX10' else None
         if fmt in (2, 10):
             dtype = '<f2' if fmt == 10 else '<f4'
             image = np.frombuffer(data, dtype, count=info['width']*info['height']*4, offset=148).reshape(info['height'], info['width'], 4).astype(np.float32)
             if not np.isfinite(image).all(): raise ValueError('Non-finite texture pixels')
-            return image, True
+            return image, 'linear'
         # Pillow's DDS reader supports the generated BC and byte-channel formats.
         if fmt in (72,75,78,99):
             data=bytearray(data)
             struct.pack_into('<I',data,128,{72:71,75:74,78:77,99:98}[fmt])
         image = np.asarray(Image.open(io.BytesIO(data)).convert('RGBA'), np.float32) / 255
-        return image, False
+        return image, 'srgb' if fmt in (72,75,78,99) else 'unorm'
 
     @lru_cache(maxsize=32)
     def texture(self, name, macro=False):
-        pixels, linear = self.pixels(name)
-        if linear:
+        pixels, kind = self.decoded(name)
+        if kind == 'srgb' and macro:
+            # Generated BC7 macro colour stores srgb_encode(v) for the linear v the
+            # float bake would hold: decode it so both formats share the path below.
+            rgb = pixels[:, :, :3]
+            pixels = pixels.copy()
+            pixels[:, :, :3] = np.where(rgb <= .04045, rgb/12.92, ((rgb+.055)/1.055)**2.4)
+            kind = 'linear'
+        if kind == 'linear':
             rgb = np.clip(pixels[:, :, :3], 0, 1)
             # npc_effects.bake_macro_diffuse encodes this inverse for native cloth.
             if macro: rgb = rgb ** (1/2.2)
