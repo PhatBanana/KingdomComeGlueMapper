@@ -21,12 +21,14 @@ TRAVEL = 'Data/gluemappertravel.pak'
 LOCALE = 'Localization/English_xml.pak'
 
 
-def retire_shared_definitions(resources, namespaces):
+def retire_shared_definitions(resources, namespaces, incoming):
     """Migrate receipt-owned definitions out of older shared appearance tables.
 
     Each shared file is rewritten once for the entire selection. Removing a
     sibling belonging to another character, or a reference to one, is forbidden.
-    New per-person tables retain the original equipment and Storm identities.
+    Only exact definitions supplied by the replacement appearance may move.
+    A shared prefix is not ownership: equipment wrappers, carried inventories
+    and shop stock use the same namespace but remain gameplay definitions.
     """
     namespaces = tuple(namespaces)
     definitions = {
@@ -35,9 +37,24 @@ def retire_shared_definitions(resources, namespaces):
         'inventorypreset': {'InventoryPreset'}, 'clothing_preset': {'clothing_preset'},
         'item': {'Armor', 'Helmet', 'Hood'},
     }
+    pattern = r'libs/tables/(?:character|item)/([a-z_]+)__([a-z0-9_]+)\.xml'
+    moved = {}
+    for name, blob in incoming.items():
+        match = re.fullmatch(pattern, name.lower())
+        if not match or match[1] not in definitions:
+            continue
+        owners = [ns for ns in namespaces if match[2] in (ns, ns+'_clothes')]
+        if not owners:
+            continue
+        owner = max(owners, key=len)
+        for node in ET.fromstring(blob).iter():
+            if node.tag in definitions[match[1]]:
+                identity = node.get('Name') or node.get('clothing_preset_name') or ''
+                if identity:
+                    moved[match[1], node.tag, identity] = owner
     replacements = {}; removed = []
     for name, blob in resources.items():
-        match = re.fullmatch(r'libs/tables/(?:character|item)/([a-z_]+)__([a-z0-9_]+)\.xml', name.lower())
+        match = re.fullmatch(pattern, name.lower())
         if not match or match[1] not in definitions:
             continue
         root = ET.fromstring(blob); changed = False
@@ -46,9 +63,7 @@ def retire_shared_definitions(resources, namespaces):
                 if node.tag not in definitions[match[1]]:
                     continue
                 identity = node.get('Name') or node.get('clothing_preset_name') or ''
-                owners = [ns for ns in namespaces if identity.startswith(ns+'_')]
-                # Longest namespace wins when legacy names share a prefix.
-                owner = max(owners, key=len) if owners else None
+                owner = moved.get((match[1], node.tag, identity))
                 if owner and match[2] not in (owner, owner+'_clothes'):
                     parent.remove(node); changed = True
                     removed.append(dict(resource=name, namespace=owner, definition=identity, kind=node.tag))
@@ -57,14 +72,14 @@ def retire_shared_definitions(resources, namespaces):
     return replacements, removed
 
 
-def shared_overlay(baseline, destination, namespaces):
+def shared_overlay(baseline, destination, namespaces, incoming):
     # PersonImport receipts and their table registrations are owned by TRAVEL.
     # Other world shards can contain independent loot tables with colliding
     # names; they are not appearance resources and must not be migrated here.
     with zipfile.ZipFile(baseline.root / TRAVEL) as archive:
         resources = {name: archive.read(name) for name in archive.namelist()
                      if name.lower().startswith('libs/tables/') and '__' in name and name.endswith('.xml')}
-    replacements, removed = retire_shared_definitions(resources, namespaces)
+    replacements, removed = retire_shared_definitions(resources, namespaces, incoming)
     if replacements:
         pending = destination.with_suffix('.pending')
         with zipfile.ZipFile(pending, 'x', zipfile.ZIP_DEFLATED) as archive:
@@ -72,6 +87,47 @@ def shared_overlay(baseline, destination, namespaces):
                 archive.writestr(name, blob)
         pending.replace(destination)
     return removed
+
+
+def restore_missing_inventory_presets(resources, recovery):
+    """Recover missing definitions without replacing current outfits or stock.
+
+    Explicit repair helper for a known recovery package. A preset relocated to
+    another table already exists and is not restored as a duplicate.
+    """
+    def inventory_file(name):
+        return bool(re.fullmatch(r'libs/tables/item/inventorypreset__[^/]+\.xml', name.lower()))
+    known = {n.get('Name') for path, blob in resources.items() if inventory_file(path)
+             for n in ET.fromstring(blob).iter('InventoryPreset')}
+    by_name = {name.lower(): name for name in resources}
+    patches, restored = {}, []
+    for path, blob in recovery.items():
+        if not inventory_file(path):
+            continue
+        original = ET.fromstring(blob)
+        missing = [n for n in original.iter('InventoryPreset') if n.get('Name') not in known]
+        if not missing:
+            continue
+        path = by_name.get(path.lower(), path)
+        if path in resources:
+            current = ET.fromstring(resources[path])
+            parent = current.find('InventoryPresets')
+            if parent is None:
+                raise ValueError('Missing InventoryPresets container in '+path)
+        else:
+            current = copy.deepcopy(original)
+            parent = current.find('InventoryPresets')
+            if parent is None:
+                raise ValueError('Missing recovery InventoryPresets container in '+path)
+            for node in list(parent):
+                if node.tag == 'InventoryPreset':
+                    parent.remove(node)
+        for node in missing:
+            parent.append(copy.deepcopy(node))
+            known.add(node.get('Name'))
+            restored.append(dict(resource=path, definition=node.get('Name')))
+        patches[path] = ET.tostring(current, encoding='utf-8', xml_declaration=True)
+    return patches, restored
 
 
 def imports(archive, selected=None):
@@ -212,8 +268,22 @@ def stage_overlay(source, target, installed, output, people=None, *, notify=prin
                 (output/(namespace+'.json')).write_text(json.dumps(character,indent=2),encoding='utf-8')
             report['people'].append(dict(person=name, namespace=namespace, gender=character['gender'], **delta))
             save()
+        # Include unchanged canonical tables as well as changed delta entries.
+        # Retirement is based on exact replacement definitions, never prefixes.
+        with zipfile.ZipFile(installed/TRAVEL) as archive:
+            incoming = {n: archive.read(n) for n in archive.namelist()
+                        if n.lower().startswith('libs/tables/') and n.endswith('.xml')}
+        for namespace in selected.values():
+            with zipfile.ZipFile(output/'Data'/(namespace+'.pak')) as archive:
+                incoming.update({n: archive.read(n) for n in archive.namelist()
+                                 if n.lower().startswith('libs/tables/') and n.endswith('.xml')})
         report['retired_shared_definitions'] = shared_overlay(
-            baseline, output/'Data/appearance_shared_tables.pak', selected.values())
+            baseline, output/'Data/appearance_shared_tables.pak', selected.values(), incoming)
+        from clothing_inventory import audit_assets
+        checks = audit_assets(Assets(installed, output), {ns: name for name, ns in selected.items()})
+        report['equipment_checks'] = checks
+        if any(row['status'] == 'error' for row in checks):
+            raise ValueError('Rebuilt appearance overlay has broken NPC equipment references')
         report['complete'] = True
         save()
     except Exception as exc:
@@ -319,10 +389,7 @@ def stage(source, target, installed, output, people, *, notify=print):
     receipt = copy.deepcopy(baseline)
     receipt['files'].update(retire_shared_assets(package, baseline['files'], selected.values(),
                                                 [path for paths in shards.values() for path in paths]))
-    with zipfile.ZipFile(recovery / TRAVEL) as archive:
-        resources, retired = retire_shared_definitions(
-            {name: archive.read(name) for name in archive.namelist()
-             if name.lower().startswith('libs/tables/') and name.endswith('.xml')}, selected.values())
+    resources = {}
     labels, converted = [], []
     try:
         for name in people:
@@ -359,7 +426,17 @@ def stage(source, target, installed, output, people, *, notify=print):
             (appearance / 'appearance-result.json').write_text(json.dumps(character, indent=2), encoding='utf-8')
     finally:
         release()
-    rewrite(package, TRAVEL, resources)
+    with zipfile.ZipFile(recovery / TRAVEL) as archive:
+        shared, retired = retire_shared_definitions(
+            {name: archive.read(name) for name in archive.namelist()
+             if name.lower().startswith('libs/tables/') and name.endswith('.xml')},
+            selected.values(), resources)
+    rewrite(package, TRAVEL, {**shared, **resources})
+    from clothing_inventory import require_equipment, relevant_resource
+    with zipfile.ZipFile(package / TRAVEL) as archive:
+        equipment_checks = require_equipment(
+            {n: archive.read(n) for n in archive.namelist() if relevant_resource(n)},
+            {ns: name for name, ns in selected.items()})
     receipt['files'][TRAVEL] = digest(package / TRAVEL)
     if labels:
         with zipfile.ZipFile(package / LOCALE) as archive:
@@ -371,6 +448,7 @@ def stage(source, target, installed, output, people, *, notify=print):
             receipt['files'][LOCALE] = digest(package / LOCALE)
     report = dict(version=1, scope='explicit_imported_source_appearances', people=converted,
                   retired_shared_definitions=retired,
+                  equipment_checks=equipment_checks,
                   native_texture_streaming=True, runtime_verified=False,
                   recovery_package=str(recovery),
                   changed_files=[n for n, h in receipt['files'].items() if baseline['files'].get(n) != h],

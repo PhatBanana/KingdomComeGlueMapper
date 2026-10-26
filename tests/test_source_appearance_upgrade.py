@@ -12,6 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from upgrade_source_appearances import imports, owned_shards, validate_resources, verify_bindings, write_delta, appearance_objects, retire_shared_definitions, shared_overlay, retire_shared_assets
 from setup_package_upgrade import rewrite
 from build_profile_population_upgrade import clone_missing
+from upgrade_source_appearances import restore_missing_inventory_presets
 
 NS = 'gm_person_' + 'a' * 32
 
@@ -26,6 +27,22 @@ def archive(entries):
 
 
 class SourceAppearanceUpgradeTests(unittest.TestCase):
+    def test_recovery_restores_wrappers_but_keeps_relocated_and_changed_definitions(self):
+        shared = 'Libs/Tables/item/InventoryPreset__shared.xml'
+        own = 'Libs/Tables/item/InventoryPreset__person_clothes.xml'
+        recovery = {shared: b'<database><InventoryPresets version="2">'
+            b'<InventoryPreset Name="person_equipped"><InventoryPresetRef Name="person_clothes"/></InventoryPreset>'
+            b'<InventoryPreset Name="person_clothes"/><InventoryPreset Name="person_shop_stock" Health="1"/>'
+            b'</InventoryPresets></database>'}
+        current = {shared: b'<database><InventoryPresets version="2">'
+            b'<InventoryPreset Name="person_shop_stock" Health="2"/></InventoryPresets></database>',
+            own: b'<database><InventoryPresets><InventoryPreset Name="person_clothes"/></InventoryPresets></database>'}
+        patched, restored = restore_missing_inventory_presets(current, recovery)
+        self.assertEqual([r['definition'] for r in restored], ['person_equipped'])
+        self.assertIn(b'Health="2"', patched[shared])
+        self.assertNotIn(b'<InventoryPreset Name="person_clothes"', patched[shared])
+        self.assertEqual(restore_missing_inventory_presets({**current, **patched}, recovery), ({}, []))
+
     def test_full_upgrade_retires_shared_assets_without_mutating_hardlinked_baseline(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp); base=root/'base'; candidate=root/'candidate'; (base/'Data').mkdir(parents=True)
@@ -56,7 +73,9 @@ class SourceAppearanceUpgradeTests(unittest.TestCase):
                 z.writestr('Libs/Storm/story.xml',b'keep')
             baseline=SimpleNamespace(root=root,collisions=['libs/tables/item/inventorypreset__loot.xml'])
             destination=root/'migration.pak'
-            result=shared_overlay(baseline,destination,['old_first'])
+            incoming={'Libs/Tables/Character/CharacterComponent__old_first.xml':
+                      b'<database><Component Name="old_first_root"/></database>'}
+            result=shared_overlay(baseline,destination,['old_first'],incoming)
             self.assertEqual(len(result),1)
             with zipfile.ZipFile(destination) as z:
                 self.assertEqual(z.namelist(),[name])
@@ -76,15 +95,46 @@ class SourceAppearanceUpgradeTests(unittest.TestCase):
             own: b'<database><Component Name="old_first_root"/></database>',
             unrelated: b'<database><Component Name="old_first_root"/></database>',
             material: b'<database><Materials><Material Name="old_second_fabric"/><Material Name="keep_fabric"/></Materials></database>'}
-        changed, removed = retire_shared_definitions(resources, ['old_first', 'old_second'])
+        incoming = {own: b'<database><Component Name="old_first_root"><Body Name="old_first_body"/></Component></database>',
+            'Libs/Tables/Character/CharacterComponent__old_second.xml':
+                b'<database><Component Name="old_second_root"/></database>',
+            'Libs/Tables/Character/ClothingMaterial__old_second.xml':
+                b'<database><Material Name="old_second_fabric"/></database>'}
+        changed, removed = retire_shared_definitions(resources, ['old_first', 'old_second'], incoming)
         self.assertEqual(set(changed), {shared, material})
         root = ET.fromstring(changed[shared])
         self.assertEqual([n.get('Name') for n in root.iter('Component')], ['keep_root'])
         self.assertEqual(root.find('.//ComponentRef').get('Name'), 'old_first_root')
         self.assertEqual({r['definition'] for r in removed},
                          {'old_first_root', 'old_first_body', 'old_second_root', 'old_second_fabric'})
-        repeated, _ = retire_shared_definitions({**resources, **changed}, ['old_first', 'old_second'])
+        repeated, _ = retire_shared_definitions({**resources, **changed}, ['old_first', 'old_second'], incoming)
         self.assertFalse(repeated)
+
+    def test_migration_preserves_gameplay_presets_with_same_appearance_prefix(self):
+        shared = 'Libs/Tables/item/InventoryPreset__shared.xml'
+        wrappers = 'Libs/Tables/item/InventoryPreset__old_first_clothes_source_carried.xml'
+        own = 'Libs/Tables/item/InventoryPreset__old_first_clothes.xml'
+        resources = {
+            shared: b'<database><InventoryPreset Name="old_first_clothes"/>'
+                b'<InventoryPreset Name="old_first_equipped"><InventoryPresetRef Name="old_first_clothes"/></InventoryPreset>'
+                b'<InventoryPreset Name="old_first_shop_stock"/><InventoryPreset Name="old_first_other_clothes"/></database>',
+            wrappers: b'<database><InventoryPreset Name="old_first_clothes_source_carried">'
+                b'<InventoryPresetRef Name="old_first_clothes"/><InventoryPresetRef Name="source_loot"/>'
+                b'</InventoryPreset></database>',
+            own: b'<database><InventoryPreset Name="old_first_clothes"/></database>'}
+        incoming = {own: resources[own]}
+        changed, retired = retire_shared_definitions(resources, ['old_first'], incoming)
+        self.assertEqual(set(changed), {shared})
+        self.assertEqual([r['definition'] for r in retired], ['old_first_clothes'])
+        self.assertIn(b'Name="old_first_equipped"', changed[shared])
+        self.assertIn(b'Name="old_first_shop_stock"', changed[shared])
+        self.assertIn(b'Name="old_first_other_clothes"', changed[shared])
+        self.assertIn(b'InventoryPresetRef Name="old_first_clothes"', changed[shared])
+
+    def test_no_replacement_definitions_means_no_retirement(self):
+        resources = {'Libs/Tables/item/InventoryPreset__shared.xml':
+                     b'<database><InventoryPreset Name="old_first_clothes"/></database>'}
+        self.assertEqual(retire_shared_definitions(resources, ['old_first'], {}), ({}, []))
 
     def test_final_dependencies_include_authored_lods_and_streams_but_use_native_donors(self):
         with tempfile.TemporaryDirectory() as tmp:

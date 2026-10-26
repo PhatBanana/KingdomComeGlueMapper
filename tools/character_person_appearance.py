@@ -188,14 +188,8 @@ def _build_appearance(source, target, person, namespace, output):
             blob, internal_offset = align_internal_translation(blob)
             fitting = None
             morphs = [m['name'] for c in read_chunks(blob) if c.kind == 0x2002 for m in read_morphs(c)]
-            if sex == 'female' and kind == 'body' and any(
-                    p['kind'] == 'cloth' and female_role(p, tables)[1] == 'torso' for p in parts):
-                # Use the source's authored chest fit, not a larger native body.
-                chest = [name for name in morphs if name.split(':')[-1].lstrip('#') == 'A_Chest']
-                if len(chest) > 1:
-                    raise ValueError('Ambiguous source chest fitting morph')
-                if chest:
-                    fitting = {chest[0]: 1.0}
+            # Bodies must also work without their initial outfit. Do not bake
+            # clothing-dependent A_Chest/A_Shrink fits into persistent skin.
             variant, variant_evidence = resolve_variant(part, morphs,
                 tables.get('item/clothing')['rows'] if kind == 'cloth' else [])
             fitting_masks = None

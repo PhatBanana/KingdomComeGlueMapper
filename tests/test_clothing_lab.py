@@ -55,6 +55,33 @@ class FakeCatalog:
 
 
 class ClothingLabTests(unittest.TestCase):
+    def test_equipped_nonvisual_accessory_is_valid_without_a_mesh(self):
+        from test_clothing_inventory import fixture
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'Data').mkdir()
+            resources=fixture()
+            resources['Libs/Tables/Character/CharacterComponent__person.xml']=(
+                '<database><CharacterComponents><Component Name="person_root" FilePath="test"><DerivedComponents>'
+                '<Body Name="body"><Elements><SkinElement EquipmentPart="torso" Model="body.skin"/></Elements></Body>'
+                '<Clothing Name="garment"/>'
+                '</DerivedComponents></Component></CharacterComponents></database>')
+            with zipfile.ZipFile(root/'Data/test.pak','w') as z:
+                for name,blob in resources.items(): z.writestr(name,blob)
+                z.writestr('Libs/GlueMapper/PersonImport/person.json',json.dumps(dict(namespace='person',person='actor')))
+            c=Catalog(root)
+            self.assertEqual(c.errors,[])
+            self.assertEqual(c.presets['person_root']['parts'],['body'])
+            self.assertEqual(c.presets['person_root']['equipment_status'],'checked')
+
+    def test_outfit_validation_fails_when_meshes_exist_but_gameplay_cannot_equip_them(self):
+        c=FakeCatalog()
+        c.presets['person_root']=c.presets.pop('person')
+        c.inventory_checks=[dict(namespace='person',person='actor',status='error',
+            issues=[dict(code='equipment_reference_missing',message='Missing carried inventory')])]
+        result=validate(c,['body','dress'],inspect_assets=False)
+        self.assertEqual(result['status'],'error')
+        self.assertIn('equipped_outfit_unreachable',{f['code'] for f in result['findings']})
+
     def test_source_import_receipt_labels_named_legacy_presets(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp);(root/'Data').mkdir()
@@ -64,7 +91,9 @@ class ClothingLabTests(unittest.TestCase):
                 z.writestr('Libs/GlueMapper/PersonImport/original_alias.json',json.dumps(dict(namespace='original_alias',person='source_person')))
             c=Catalog(root)
             self.assertEqual(c.presets['original_alias_root']['label'],'source_person')
-            self.assertEqual(c.errors,[])
+            self.assertEqual({e['code'] for e in c.errors},
+                {'equipment_storm_binding_missing', 'equipment_outfit_unreachable'})
+            self.assertEqual(c.inventory_checks[0]['status'], 'error')
 
     def test_hidden_garment_without_cover_is_not_reported_as_clean(self):
         c = FakeCatalog(); c.meshes['dress.skin'] = mesh(.04, hidden=True)

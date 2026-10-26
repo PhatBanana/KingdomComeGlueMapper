@@ -55,6 +55,7 @@ class Catalog:
         self.assets = Assets(package, overlay)
         self.parts, self.presets, self.groups, self.souls, self.errors = {}, {}, {}, {}, []
         self.private_groups = set()
+        self.nonvisual_parts = set()
         self.native_roles, self.rule_evidence, self.layer_order = {}, [], {}
         self.equipment = None
         if target:
@@ -118,7 +119,9 @@ class Catalog:
                     self._groups(doc)
                 elif '/charactercomponent__' in name:
                     for part in resolved_nodes(ET.fromstring(self.assets.read(name))):
-                        if not part['elements']: continue
+                        if not part['elements']:
+                            self.nonvisual_parts.add(part['id'])
+                            continue
                         if part['id'] in self.parts: raise ValueError('Duplicate component: '+part['id'])
                         part['table'] = name
                         part['label'] = part['id']
@@ -135,6 +138,23 @@ class Catalog:
         # Underwear is a fallback, not an additional equipped copy of its source dress.
         for preset in self.presets.values():
             preset['parts'] = [p for p in preset['parts'] if not (self.parts[p]['kind']=='Clothing' and not self.parts[p]['attributes'].get('ArmorType'))]
+        from clothing_inventory import audit_assets
+        self.inventory_checks = audit_assets(self.assets, imported_people)
+        for check in self.inventory_checks:
+            preset = self.presets.get(check['namespace']+'_root')
+            if preset is not None:
+                preset['equipment_status'] = check['status']
+                if check['status'] == 'checked':
+                    missing = set(check['components'])-set(self.parts)-self.nonvisual_parts
+                    if missing:
+                        self.errors.append(dict(asset=check['namespace'],
+                            error='Equipped clothing has no renderable component: '+', '.join(sorted(missing))))
+                    else:
+                        preset['parts'] = [p for p in preset['parts'] if self.parts[p]['kind'] != 'Clothing'] + [
+                            p for p in check['components'] if p in self.parts]
+            for issue in check['issues']:
+                self.errors.append(dict(asset=check['namespace'], error=issue['message'],
+                                        code=issue['code'], person=check['person']))
 
     def _groups(self, doc):
         for g in doc.iter('HidingGroup'):
@@ -147,7 +167,7 @@ class Catalog:
         return dict(package=str(self.assets.root), signature=self.assets.signature(), parts=list(self.parts.values()),
                     presets=list(self.presets.values()), groups=self.groups, errors=self.errors,
                     native_rules=bool(self.native_roles and self.layer_order), layer_order=self.layer_order,
-                    rule_evidence=self.rule_evidence)
+                    rule_evidence=self.rule_evidence, inventory_checks=self.inventory_checks)
 
     @lru_cache(maxsize=1024)
     def mesh(self, name):

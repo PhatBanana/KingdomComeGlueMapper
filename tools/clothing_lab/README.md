@@ -176,8 +176,11 @@ It retains a progress report and completed files if a later conversion fails.
 A failed batch is explicitly incomplete; it is not a successful audit.
 
 The overlay includes a single migration of shared appearance tables, removing
-the rebuilt people's old definitions while preserving other characters and
-references. New per-person definitions retain their original identities.
+only exact definitions replaced by generated canonical tables. A shared name
+prefix does not grant ownership of gameplay inventories: equipped wrappers,
+carried items and shop stock remain intact. New per-person definitions retain
+their original identities. Both rebuild modes validate the NPC equipment chain
+before declaring their output complete.
 This prevents legacy shared tables from selecting stale clothing or registering
 conflicting hiding groups. Open the result through `--overlay` in the workbench
 or audit CLI. It is **not an installable package** and must not be copied into
@@ -190,6 +193,30 @@ materials and LODs. Exact duplicate material slots are coalesced to avoid
 repeated texture loads. Garment hiding must be safe for every triangle touching
 a masked vertex. Head, hair and beard also receive conditional coverage from
 opaque headwear. These rules apply to source types, without named-NPC exceptions.
+
+Validation contract 6 follows each imported person's named Storm equipment rule
+through nested `InventoryPresetRef`, `ClothingPresetRef`, item GUIDs and clothing
+components. Missing or conflicting definitions, cycles and empty outfits are
+errors even when the mesh family exists. Checked actor presets use the reachable
+clothing components. These checks do not emulate Storm precedence, later quest
+inventory changes or rendered animation.
+
+Persistent body geometry keeps its source shape. Fixed-outfit fitting may shrink
+inner garments, but must not bake an outfit-dependent shrink/chest morph into
+skin that remains after unequipping the outfit. Conditional equipment masks
+control covered skin instead.
+
+To repair bodies in an existing developer package without rebaking textures:
+
+```powershell
+.venv/Scripts/python.exe tools/upgrade_source_bodies.py --source <KCD1> --target <KCD2> --installed <mod> --output <new-overlay>
+```
+
+This standalone developer tool supports `--person <source-name>` or all imported
+people by default. It verifies unchanged topology, UVs and skinning identities,
+keeps installed material bindings and recomputes body coverage. Its overlay is
+for inspection and must be promoted to a verified full package before install.
+It is not part of consumer Setup.
 
 ## Regression tests
 

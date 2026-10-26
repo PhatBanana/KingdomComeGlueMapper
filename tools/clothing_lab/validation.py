@@ -75,6 +75,12 @@ def rendered_vertices(mesh, hidden):
 def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
     selected = list(dict.fromkeys(selected))
     findings, meshes, slots, roles, families = [], [], {}, {}, set()
+    for check in getattr(catalog, 'inventory_checks', []):
+        preset = catalog.presets.get(check['namespace']+'_root')
+        if preset and set(preset['parts']) == set(selected) and check['status'] == 'error':
+            findings.append(finding('equipped_outfit_unreachable',
+                'The NPC equipment references do not resolve to a valid outfit.', selected, 'error',
+                person=check['person'], equipment_issues=check['issues']))
     if not catalog.native_roles or not catalog.layer_order:
         findings.append(finding('native_rules_unavailable','Select a KCD2 installation to validate native clothing roles.',selected))
     genders = {catalog.parts[i]['gender'] for i in selected}

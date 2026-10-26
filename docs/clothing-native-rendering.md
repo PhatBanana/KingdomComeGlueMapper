@@ -173,9 +173,36 @@ The completed developer audit is
 - [ ] Resolve or validate the remaining 58 outfit review cases; three pass every current bind-pose check.
 - [ ] Verify the candidate in native animation, including narrow dress silhouettes and hair through headwear.
 
-The batch preserves all unresolved layer and geometry findings. The 61-person
-candidate is a separate developer overlay, not an installed or installable mod.
+The batch preserved all unresolved layer and geometry findings. That 61-person
+overlay was subsequently promoted to a full package and installed for testing.
 The full-package upgrader also retires owned character paths from legacy shared
 asset archives before writing per-person shards; unrelated assets and recovery
 hardlinks are preserved. This prevents old and new clothing assets from competing
 under the same virtual path during a later installation.
+
+### Native regression found after the whole-cast installation
+
+The native test invalidated the earlier mesh-only success boundary. The shared
+table migration matched a namespace prefix and removed 59 gameplay inventory
+presets: 57 equipped/carried wrappers and two shop-stock presets. Consequently,
+57 of the 61 imported NPCs could not reach their clothing preset. Four retained
+working equipment chains. The native log reported missing inventory presets
+and souls without clothing presets; the screenshots show fallback underwear.
+
+Migration now removes only exact definitions supplied in replacement appearance
+tables. Recovery restores missing inventory definitions without replacing newer
+definitions or duplicating relocated appearance presets. Validation contract 6
+checks actual equipment references, item GUIDs and clothing components. The
+pre-regression recovery has 61 valid equipment chains, whereas the faulty
+installed package has 57 failures. This regression must stay in the fixtures.
+
+The exposed bodies revealed a second conversion problem: permanently baked
+outfit fitting. Father's body was displaced by up to 38.5 mm and Mother's by up
+to 68.4 mm relative to source shape after the shared rig conversion. Persistent
+bodies now omit outfit-dependent `A_Shrink`/`A_Chest` fitting; inner garments keep
+their fitting rules. Body coverage is regenerated against registered garments
+and remains conditional on equipped hiding groups. The developer body repair
+preserves topology, texture coordinates and skinning identities while retaining
+installed material bindings. These structural checks are not native visual
+acceptance; animation, neck joins, silhouettes and removal of clothing still
+require an in-game comparison.
