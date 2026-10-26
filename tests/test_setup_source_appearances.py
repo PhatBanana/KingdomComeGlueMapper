@@ -19,7 +19,8 @@ def package(root, current=False, broken=False):
     tables = {n:v.encode() for n,v in fixture().items()}
     if broken:
         del tables['Libs/Storm/equipment/person.xml']
-    row = dict(person='actor',namespace='person',appearance='character_person_appearance')
+    row = dict(person='actor',namespace='person',appearance='character_person_appearance',
+               appearance_policy=APPEARANCE_POLICY_VERSION-1)
     if current: row['appearance_policy'] = APPEARANCE_POLICY_VERSION
     tables['Libs/GlueMapper/PersonImport/person.json'] = json.dumps(row).encode()
     tables['Libs/Storm/appearance/person.xml'] = b'<storm><rules><rule><operations><setBody name="body"/></operations></rule></rules></storm>'
@@ -35,7 +36,7 @@ def package(root, current=False, broken=False):
     return receipt
 
 
-def build(source,target,person,namespace,output):
+def build(source,target,person,namespace,output,**kwargs):
     # Real archive writer, equipment-chain validator and private file swaps.
     model=output/'objects/characters/gluetravel/person/body.skin'
     model.parent.mkdir(parents=True);model.write_bytes(b'new source shape')

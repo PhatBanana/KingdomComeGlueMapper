@@ -3,7 +3,7 @@ from itertools import combinations, product
 import math
 
 import numpy as np
-from clothing_coverage import normals, alpha_intersections
+from clothing_coverage import normals, alpha_intersections, exterior_coverage
 from .geometry import Surface
 
 
@@ -210,6 +210,21 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
         # removed face centroids, not shared vertices touching a surviving face.
         for identity, element, mesh, hidden, materials in meshes:
             kind = catalog.parts[identity]['kind']
+            if kind == 'Head' and hidden.any():
+                def outward(points, directions):
+                    covered = np.zeros(len(points), bool)
+                    for _, _, surface in covers:
+                        surface = surface[0] if isinstance(surface, tuple) else surface
+                        covered |= surface.covers(points, directions, inward=0, outward=.12)
+                    return covered
+                supported = exterior_coverage(mesh.vertices, normals(mesh), outward, hidden)
+                unsupported = hidden & ~supported
+                if unsupported.any():
+                    findings.append(finding('hidden_head_without_exterior_cover',
+                        'Head/neck hiding vertices lack opaque outward coverage around their surface normal.',
+                        [identity], vertices=int(unsupported.sum()),
+                        sample_vertices=np.flatnonzero(unsupported)[:32].tolist(),
+                        model=element.get('ModelResolved'), inward_metres=0, outward_metres=.12))
             if kind == 'Clothing' and not element_replaced(catalog, selected, catalog.parts[identity], element):
                 removed = np.flatnonzero(hidden[mesh.faces].any(axis=1))
                 if len(removed):

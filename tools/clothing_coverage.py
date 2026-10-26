@@ -204,22 +204,35 @@ def covered_points(points, normals, triangles, inward=.06, outward=.12, accept_h
         return result
     a = triangles[:, 0]
     edge1, edge2 = triangles[:, 1] - a, triangles[:, 2] - a
+    # Broad phase only: preserve the exact intersection and alpha tests below.
+    # Body regions previously tested every vertex against every outfit triangle,
+    # even when their short normal segments could not reach that garment.
+    # Expand bounds for the existing barycentric tolerance at triangle edges.
+    padding = 2e-7 * (np.abs(edge1) + np.abs(edge2)) + 1e-12
+    triangle_min = triangles.min(axis=1) - padding
+    triangle_max = triangles.max(axis=1) + padding
     for start in range(0, len(points), 64):
         p, direction = points[start:start+64], normals[start:start+64]
-        h = np.cross(direction[:, None, :], edge2)
-        det = np.einsum('tj,ntj->nt', edge1, h)
+        ends = np.concatenate((p - inward*direction, p + outward*direction))
+        selected = np.flatnonzero((triangle_min <= ends.max(axis=0)).all(axis=1)
+                                 & (triangle_max >= ends.min(axis=0)).all(axis=1))
+        if not len(selected):
+            continue
+        e1, e2 = edge1[selected], edge2[selected]
+        h = np.cross(direction[:, None, :], e2)
+        det = np.einsum('tj,ntj->nt', e1, h)
         valid = np.abs(det) > 1e-10
         inv = np.divide(1., det, out=np.zeros_like(det), where=valid)
-        delta = p[:, None, :] - a
+        delta = p[:, None, :] - a[selected]
         u = np.einsum('ntj,ntj->nt', delta, h) * inv
-        q = np.cross(delta, edge1)
+        q = np.cross(delta, e1)
         v = np.einsum('nj,ntj->nt', direction, q) * inv
-        distance = np.einsum('tj,ntj->nt', edge2, q) * inv
+        distance = np.einsum('tj,ntj->nt', e2, q) * inv
         hits = valid & (u >= -1e-7) & (v >= -1e-7) & (u+v <= 1+1e-7)
         hits &= (distance >= -inward) & (distance <= outward)
         if accept_hit is not None:
             point_ids, triangle_ids = np.nonzero(hits)
-            hits[point_ids, triangle_ids] &= accept_hit(triangle_ids, u[point_ids, triangle_ids], v[point_ids, triangle_ids])
+            hits[point_ids, triangle_ids] &= accept_hit(selected[triangle_ids], u[point_ids, triangle_ids], v[point_ids, triangle_ids])
         result[start:start+len(p)] = hits.any(axis=1)
     return result
 
@@ -234,6 +247,45 @@ def normals(skin):
         np.add.at(welded, skin.remap[faces[:, column]], face_normals)
     result = welded[skin.remap]
     return result / np.maximum(np.linalg.norm(result, axis=1)[:, None], 1e-12)
+
+
+def exterior_coverage(points, directions, test, candidates=None):
+    """Conservative head coverage, including the neck/chest in source heads.
+
+    A collar behind exposed skin is not a cover. A single normal ray can also
+    hit the lip of an open neckline. Require opaque, outward hits along the
+    normal and four surrounding 45-degree rays before hiding head vertices.
+    ``test`` receives only surviving points and unit directions and must use
+    outward segments (no inward allowance). It can combine visible garments.
+    This is a bounded visibility test, not continuous or animated certification.
+    """
+    points, directions = (np.asarray(a, dtype=float) for a in (points, directions))
+    if points.shape != directions.shape or points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError('Invalid head coverage points or directions')
+    keep = np.ones(len(points), bool) if candidates is None else np.asarray(candidates, dtype=bool).copy()
+    if keep.shape != (len(points),):
+        raise ValueError('Head coverage candidates differ from target mesh')
+    length = np.linalg.norm(directions, axis=1)
+    keep &= np.isfinite(points).all(axis=1) & np.isfinite(length) & (length > 1e-12)
+    ids = np.flatnonzero(keep)
+    normal = directions[ids] / length[ids, None]
+    axis = np.eye(3)[np.argmin(np.abs(normal), axis=1)]
+    tangent = np.cross(normal, axis)
+    tangent /= np.maximum(np.linalg.norm(tangent, axis=1)[:, None], 1e-12)
+    second = np.cross(normal, tangent)
+    for frame in (normal, normal+tangent, normal-tangent, normal+second, normal-second):
+        active = np.flatnonzero(keep[ids])
+        if not len(active):
+            break
+        direction = frame[active]
+        direction /= np.linalg.norm(direction, axis=1)[:, None]
+        keep[ids[active]] &= test(points[ids[active]], direction)
+    return keep
+
+
+def head_covered_points(points, directions, triangles, accept_hit=None):
+    return exterior_coverage(points, directions, lambda p, n:
+        covered_points(p, n, triangles, inward=0, outward=.12, accept_hit=accept_hit))
 
 
 def apply_membership(blob, memberships):
@@ -295,6 +347,7 @@ def appearance_elements(derived):
 def register_fixed_body_coverage(output, component, namespace):
     """Retain exposed skin under merged outfits instead of replacing regions."""
     from character_lods import source_lods
+    from setup_progress import work_progress
     folder = output / 'objects/characters' / component.get('FilePath')
     index = {p.name.lower(): p for p in folder.glob('*.skin')}
     derived = component.find('DerivedComponents')
@@ -317,19 +370,27 @@ def register_fixed_body_coverage(output, component, namespace):
             levels[level] = (skin.vertices[skin.faces[visible]], physical_alpha_intersections(skin, surfaces, visible))
         covers.append(levels)
     report = []
-    for element in appearance_elements(derived):
+    targets = [(element, family(element)) for element in appearance_elements(derived)]
+    heads = set(derived.findall('Head/Elements/SkinElement'))
+    done, total = 0, sum(len(levels)*len(covers) for _, levels in targets)
+    work_progress('Clothing coverage checks', done, total)
+    for element, target_family in targets:
         region = element.get('EquipmentPart')
         name = namespace + '_outfit_covers_' + region
-        for level, path in family(element).items():
+        for level, path in target_family.items():
             skin = CompiledSkin(path.read_bytes())
             covered = np.zeros(skin.n, bool)
             direction = normals(skin)
             for levels in covers:
                 triangles, accept = levels[min(level, max(levels))]
-                covered |= covered_points(skin.vertices, direction, triangles, accept_hit=accept)
+                coverage = head_covered_points if element in heads else covered_points
+                covered |= coverage(skin.vertices, direction, triangles, accept_hit=accept)
+                done += 1
+                work_progress('Clothing coverage checks', done, total, f'{region}, LOD {level}')
             covered = triangle_safe_membership(skin, covered)
             path.write_bytes(apply_membership(path.read_bytes(), {4: covered}))
-            report.append(dict(target=path.name, lod=level, covered_vertices=int(covered.sum()), total_vertices=skin.n))
+            report.append(dict(target=path.name, lod=level, covered_vertices=int(covered.sum()), total_vertices=skin.n,
+                               coverage_test='outward_head_cone' if element in heads else 'normal_segment'))
         if name not in names:
             ET.SubElement(definitions, 'HidingGroup', Name=name, Index='4', EquipmentPart=region)
             names.add(name)
@@ -341,6 +402,7 @@ def register_fixed_body_coverage(output, component, namespace):
 
 def register_coverage(output, component, garments, tables, namespace):
     from character_lods import source_lods
+    from setup_progress import work_progress
     from clothing_fitting import source_layer_contracts, higher_layers
     folder = output / 'objects/characters' / component.get('FilePath')
     derived = component.find('DerivedComponents')
@@ -359,6 +421,7 @@ def register_coverage(output, component, garments, tables, namespace):
         model = element.get('Model')
         return {0: folder / model, **{lod: index[name] for lod, name in source_lods(index, model).items()}}
     targets = [(None, element, family(element)) for element in appearance_elements(derived)]
+    heads = set(derived.findall('Head/Elements/SkinElement'))
     nodes = {}
     families = {}
     for i, garment in enumerate(garments):
@@ -368,6 +431,10 @@ def register_coverage(output, component, garments, tables, namespace):
         families[i] = family(element)
         targets.append((i, element, families[i]))
     masks = {}; report = []; used_groups = set(); visibility_sources = []
+    done = 0
+    total = sum(len(family) for i in order for target_index, _, family in targets
+                if target_index is None or i in higher[target_index])
+    work_progress('Clothing coverage checks', done, total)
     for i in order:
         garment = garments[i]; node = nodes[i]
         surfaces, evidence = native_alpha_surfaces(output, folder / (garment['stem'] + '.mtl'))
@@ -393,7 +460,10 @@ def register_coverage(output, component, garments, tables, namespace):
                 cover_level = min(level, max(covers))
                 triangles, accept_hit, count = covers[cover_level]
                 skin = CompiledSkin(path.read_bytes())
-                covered = covered_points(skin.vertices, normals(skin), triangles, accept_hit=accept_hit)
+                coverage = head_covered_points if element in heads else covered_points
+                covered = coverage(skin.vertices, normals(skin), triangles, accept_hit=accept_hit)
+                done += 1
+                work_progress('Clothing coverage checks', done, total, f'{element.get("EquipmentPart")}, LOD {level}')
                 if target_index is not None:
                     target = garments[target_index]
                     source_cover = (target.get('source_coverage', {}).get(garment['stem']) if level == 0 else
@@ -414,7 +484,8 @@ def register_coverage(output, component, garments, tables, namespace):
                 names.append(name)
                 report.append(dict(cover=garment['stem'], target=path.name, lod=level, cover_lod=cover_level,
                     covered_vertices=int(covered.sum()), total_vertices=skin.n, candidate_triangles=count,
-                    opacity_test='UV_alpha_at_intersection', hiding_group=name, bit=bit))
+                    opacity_test='UV_alpha_at_intersection', hiding_group=name, bit=bit,
+                    coverage_test='outward_head_cone' if element in heads else 'normal_segment'))
         node.set('HidingGroups', ' '.join(sorted(set(names))))
         for other in derived.findall('Clothing'):
             if other.get('ArmorType') is None and any(e.get('Model') == garment['stem'] + '.skin' for e in other.findall('Elements/SkinElement')):

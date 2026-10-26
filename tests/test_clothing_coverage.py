@@ -186,6 +186,7 @@ class ClothingCoverageTests(unittest.TestCase):
                 node = ET.SubElement(derived, kind)
                 ET.SubElement(ET.SubElement(node,'Elements'),'SkinElement', EquipmentPart=region, Model=kind+'.skin', Material='hood.mtl')
             with patch('clothing_coverage.native_alpha_surfaces', return_value=([(0,[np.ones((1,1))])]*10, [])), \
+                 patch('clothing_coverage.normals', side_effect=lambda skin: np.tile([0,0,1], (skin.n,1))), \
                  patch('clothing_coverage.covered_points', side_effect=lambda points,*args,**kwargs: np.ones(len(points),bool)):
                 result = register_fixed_body_coverage(output, component, 'test')
             self.assertEqual({row['target'] for row in result['layers']}, {'Body.skin','Head.skin','Hair.skin','Beard.skin'})
@@ -214,12 +215,13 @@ class ClothingCoverageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             output=Path(tmp);folder=output/'objects/characters/example';folder.mkdir(parents=True)
             (output/'Libs/Tables/Character').mkdir(parents=True)
-            for stem in ('body','hair','dress'):
+            for stem in ('body','hair','head','dress'):
                 (folder/(stem+'.skin')).write_bytes(blob)
                 (folder/(stem+'_lod1.skin')).write_bytes(lower)
             component=ET.fromstring('<Component FilePath="example"><DerivedComponents>'
                 '<Body><Elements><SkinElement EquipmentPart="torso" Model="body.skin"/></Elements></Body>'
                 '<Hair><Elements><SkinElement EquipmentPart="head" Model="hair.skin"/></Elements></Hair>'
+                '<Head><Elements><SkinElement EquipmentPart="face" Model="head.skin"/></Elements></Head>'
                 '<Clothing Name="test_dress"><Elements><SkinElement EquipmentPart="torso" Model="dress.skin"/></Elements></Clothing>'
                 '</DerivedComponents></Component>')
             tables={'item/body_layer':[dict(body_layer_id='1',layer_order='1')],
@@ -228,10 +230,12 @@ class ClothingCoverageTests(unittest.TestCase):
             garment=dict(part=dict(kind='cloth',gender_id='2',armor_archetype_id='a'),stem='dress',
                          source_model='source.skin',source_material='source.mtl')
             with patch('clothing_coverage.native_alpha_surfaces',return_value=([(0,[np.ones((1,1))])]*10,[])), \
+                 patch('clothing_coverage.normals',side_effect=lambda skin: np.tile([0,0,1],(skin.n,1))), \
                  patch('clothing_coverage.covered_points',side_effect=lambda points,*args,**kwargs: np.ones(len(points),bool)):
                 result=register_coverage(output,component,[garment],SimpleNamespace(get=lambda key:dict(rows=tables[key])),'test')
-            self.assertEqual([(r['lod'],r['candidate_triangles']) for r in result['layers']],[(0,4),(1,1),(0,4),(1,1)])
-            for name in ('body.skin','body_lod1.skin','hair.skin','hair_lod1.skin'):
+            self.assertEqual([(r['lod'],r['candidate_triangles']) for r in result['layers']],[(0,4),(1,1)]*3)
+            self.assertEqual([r['lod'] for r in result['layers'] if r['coverage_test']=='outward_head_cone'],[0,1])
+            for name in ('body.skin','body_lod1.skin','hair.skin','hair_lod1.skin','head.skin','head_lod1.skin'):
                 skin=CompiledSkin((folder/name).read_bytes())
                 alpha=np.frombuffer(skin.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
                 self.assertTrue(((255^alpha)&16).all())

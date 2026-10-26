@@ -13,6 +13,7 @@ from desktop_setup import Cancelled, CONVERTERS, EventLog, conversion_plan, inst
 from setup_campaign import MOD_ID, RECEIPT, verify_package
 from campaign_start_policy import POLICY
 from build_recipe import VERSION as RECIPE_VERSION
+from character_person_appearance import APPEARANCE_POLICY_VERSION
 from setup_gameplay import STAGE_IDS, STATIC_WORLD_PROFILES
 
 
@@ -95,7 +96,7 @@ class DesktopSetupTests(unittest.TestCase):
                                                     steps=[{'id': identity} for identity in STAGE_IDS],
                                                     content_validation={'actors': 11, 'start_policy': POLICY}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'}),
                                                 surface_placement={'version':1},
-                                                source_appearance_upgrade={'version':1, 'mode':'source_converter',
+                                                source_appearance_upgrade={'version':APPEARANCE_POLICY_VERSION, 'mode':'source_converter',
                                                     'equipment_validation':True},
                                                 static_navigation_profiles={'version':1, 'mode':'materialized_static_profiles',
                                                     'profiles':[{'profile':p} for p in STATIC_WORLD_PROFILES]},

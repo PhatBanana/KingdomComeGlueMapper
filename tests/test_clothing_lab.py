@@ -55,6 +55,20 @@ class FakeCatalog:
 
 
 class ClothingLabTests(unittest.TestCase):
+    def test_head_mask_audit_catches_inner_collar_and_respects_opaque_outer_cover(self):
+        c = FakeCatalog()
+        c.parts['body']['kind'] = 'Head'
+        c.meshes['dress.skin'] = mesh(-.02)
+        c.meshes['dress.skin'].vertices[:,:2] *= 2
+        code = 'hidden_head_without_exterior_cover'
+        findings = validate(c, ['body','dress'], geometry=True)['findings']
+        self.assertEqual(next(f for f in findings if f['code']==code)['vertices'], 3)
+        c.meshes['dress.skin'].vertices[:,2] = .02
+        self.assertNotIn(code, {f['code'] for f in validate(c,['body','dress'],geometry=True)['findings']})
+        c.assets.pixels = lambda _: (np.zeros((4,4,4)), False)
+        self.assertIn(code, {f['code'] for f in validate(c,['body','dress'],geometry=True)['findings']})
+        self.assertNotIn(code, {f['code'] for f in validate(c,['body'],geometry=True)['findings']})
+
     def test_equipped_nonvisual_accessory_is_valid_without_a_mesh(self):
         from test_clothing_inventory import fixture
         with tempfile.TemporaryDirectory() as tmp:

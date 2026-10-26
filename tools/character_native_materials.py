@@ -77,13 +77,19 @@ def convert_character_materials(output, components, assets, namespace, sex, bake
         ScratchSaturation='1', ScratchBrightness='1.25', GrimeDiffuse='#493528',
         GrimeSpecular='#161616', GrimeGloss='0.04')
     folder = 'objects/characters/' + components.get('FilePath')
+    materials = {e.get('Material'): ET.parse(output / folder / e.get('Material')).getroot()
+                 for e in components.findall('DerivedComponents/*/Elements/SkinElement')}
+    if hasattr(bake, 'plan'):
+        bake.plan(sum(2 for root in materials.values()
+                      for material in (list(root.find('SubMaterials')) if root.find('SubMaterials') is not None else [root])
+                      if material.get('Shader','').lower() == 'illum'))
     converted = {}; meshes = set(); report = []
     for component in components.findall('DerivedComponents/*'):
         for element in component.findall('Elements/SkinElement'):
             filename = element.get('Material')
             source_path = output / folder / filename
             if filename not in converted:
-                root = ET.parse(source_path).getroot()
+                root = materials[filename]
                 slots = root.find('SubMaterials')
                 originals = list(slots) if slots is not None else [root]
                 results = []; has_cloth = False

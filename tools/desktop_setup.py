@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.23'
+APP_VERSION = '0.3.26'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -223,7 +223,10 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
     reusable = {n for n,h in receipt['files'].items() if previous_receipt['files'].get(n) == h}
     remaining_copy = sum((package / n).stat().st_size for n in receipt['files'] if n not in reusable)
     remaining_copy += (package / RECEIPT).stat().st_size
-    if free_space(target) < remaining_copy + GIB: raise ValueError('Insufficient free space to stage the mod safely')
+    if free_space(target) < remaining_copy + GIB:
+        raise ValueError(f'Completed package retained at {package}. Installation needs '
+                         f'{(remaining_copy+GIB)/GIB:.1f} GiB free for changed files; '
+                         f'{free_space(target)/GIB:.1f} GiB available. Free space and resume this job to retry installation.')
     mods.mkdir(exist_ok=True)
     backup = None
     legacy_backup = None
@@ -288,6 +291,9 @@ class EventLog:
         self.stream = Path(path).open('a', encoding='utf-8', buffering=1)
         self.text = Path(path).with_name('setup.log').open('a', encoding='utf-8', buffering=1)
         self.last_progress = 0
+        self.progress_label = None
+        self.last_work_progress = 0
+        self.work_label = None
         self.directory, self.profile = Path(path).parent, profile
         self.stage, self.times = None, []
 
@@ -297,7 +303,7 @@ class EventLog:
         if kind in ('done', 'error', 'cancelled') and self.times:
             self.summarize_times()
         self.stream.write(json.dumps(dict(kind=kind, time=time.time(), **values)) + '\n')
-        if kind != 'progress':
+        if kind not in ('progress', 'work_progress'):
             self.text.write(f'[{datetime.now():%H:%M:%S}] {values.get("message", values.get("label", kind))}\n')
             if 'traceback' in values: self.text.write(values['traceback'] + '\n')
         if kind == 'stage':
@@ -332,9 +338,16 @@ class EventLog:
 
     def progress(self, label, current, total, detail=''):
         now = time.monotonic()
-        if now - self.last_progress < 0.2 and current != total: return
-        self.last_progress = now
+        if label == self.progress_label and now - self.last_progress < 0.2 and current != total: return
+        self.last_progress, self.progress_label = now, label
         self.emit('progress', label=label, current=current, total=total, detail=detail)
+
+    def work_progress(self, label, current, total, detail=''):
+        now = time.monotonic()
+        if label == self.work_label and now - self.last_work_progress < 0.2 and current != total:
+            return
+        self.last_work_progress, self.work_label = now, label
+        self.emit('work_progress', label=label, current=current, total=total, detail=detail)
 
 
 class LogWriter(io.TextIOBase):
@@ -359,6 +372,7 @@ def worker(config_path):
     events = EventLog(job / 'events.jsonl', profile=os.environ.get('GLUEMAPPER_PROFILE') == '1')
     output = LogWriter(events)
     setup_progress.sink = events.progress
+    setup_progress.work_sink = events.work_progress
     cancel = lambda: (job / 'cancel.requested').exists()
     original_cwd, original_argv = Path.cwd(), sys.argv[:]
     shaders = None
@@ -444,4 +458,5 @@ def worker(config_path):
         else:os.environ['KCD2_MOD_TOOLS']=original_sdk
         output.flush(); events.stream.close(); events.text.close()
         setup_progress.sink = None
+        setup_progress.work_sink = None
         os.chdir(original_cwd); sys.argv = original_argv

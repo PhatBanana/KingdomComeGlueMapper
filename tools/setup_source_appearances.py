@@ -53,10 +53,12 @@ def upgrade(package, receipt, source, target, notify=lambda *a: None, cancelled=
                 raise ValueError('Source soul no longer matches import receipt: '+name)
             with tempfile.TemporaryDirectory(prefix='setup-appearance-', dir=package.parent) as temp:
                 work = Path(temp); appearance = work/'appearance'
-                character = build_appearance(Path(source), Path(target), person, namespace, appearance)
+                character = build_appearance(Path(source), Path(target), person, namespace, appearance,
+                    notify=lambda message: notify('Upgrade saved character clothing', index, len(stale), name + ': ' + message))
                 with zipfile.ZipFile(package/TRAVEL) as archive:
                     verify_bindings(archive, character, namespace)
                 packed = work/'packed'; packed.mkdir()
+                notify('Upgrade saved character clothing', index, len(stale), name + ': Packing and validating character assets')
                 paks, libs = write_actor_paks(appearance, packed, namespace)
                 validate_resources(libs, namespace); resources.update(libs)
                 strings = appearance/'Localization/English/text_ui_items.xml'

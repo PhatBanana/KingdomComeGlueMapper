@@ -233,3 +233,33 @@ its three source-person receipts, passed package hashes and equipment-reference
 validation, and rebuilt zero people on the second pass. This is conversion and
 package evidence; it does not establish native visual acceptance or a complete
 new retail build.
+
+### Neckline visibility (0.3.26 / recipe 61)
+
+The 26 October male-collar and female-neck screenshots were reproduced using
+the installed assets in the textured developer renderer. Disabling only the
+Head component's hiding mask restored the missing surface. The source head
+includes neck/chest geometry; the previous shared coverage test accepted
+garment intersections up to 6 cm behind that skin. A normal ray could also hit
+the edge of an open collar. Neither establishes that exposed neck skin is
+hidden by clothing.
+
+Head coverage now requires opaque outward intersections along the surface
+normal and four surrounding 45-degree directions, followed by the existing
+shared-vertex and triangle-boundary checks. This applies by component type to
+both converters and every authored LOD. It contains no character-name,
+garment-name, neck-height or hand-edited vertex exceptions. Covered head areas
+can still be hidden by equipped clothing; removing that clothing restores them.
+Body and hair coverage retain their separate existing policies.
+
+The workbench now reports `hidden_head_without_exterior_cover` during geometry
+validation. Regression fixtures exercise inward collars, open edges, alpha
+cutouts, opaque covers, rotated surfaces and invalid normals. Appearance policy
+2 and recipe 61 make normal fresh builds and saved-package upgrades use the
+same fix. Completed world and lighting work is retained by the normal upgrade
+transaction. The executable is built locally as Setup 0.3.26; this is not a
+claim that an earlier published release contains the change.
+
+Evidence is under `outputs/neck-seams-20261026`. Preview comparisons and
+bind-pose coverage checks do not certify native animation, all clothing
+combinations or remaining unrelated clipping issues.
