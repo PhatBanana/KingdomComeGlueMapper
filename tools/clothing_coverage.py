@@ -60,7 +60,7 @@ def converted_coverage_surface(skin, rows, model, material, output, material_pat
     return opaque, alpha_intersections(skin, surfaces, opaque), evidence
 
 
-def native_alpha_surfaces(output, material_path):
+def native_alpha_surfaces(output, material_path, *, cache=None):
     """Read the supported converted cloth permutation and its complete alpha mips."""
     root = ET.parse(material_path).getroot()
     materials = list(root.find('SubMaterials')) if root.find('SubMaterials') is not None else [root]
@@ -85,6 +85,11 @@ def native_alpha_surfaces(output, material_path):
         path = (Path(output) / textures[0].get('File')).resolve()
         if not path.is_relative_to(Path(output).resolve()):
             raise ValueError('Clothing opacity texture outside converted output')
+        if cache is not None and path in cache:
+            levels, digest, mip_count = cache[path]
+            evidence.append(dict(texture=textures[0].get('File'), sha256=digest, mips=mip_count))
+            surfaces.append((threshold, levels))
+            continue
         data = path.read_bytes()
         if (len(data) < 148 or data[:4] != b'DDS ' or data[84:88] != b'DX10'
                 or struct.unpack_from('<I', data, 4)[0] != 124
@@ -110,7 +115,10 @@ def native_alpha_surfaces(output, material_path):
             if mip < mip_count-1: width, height = max(1,width//2), max(1,height//2)
         if width != 1 or height != 1 or offset != len(data):
             raise ValueError('Incomplete clothing opacity mip chain')
-        evidence.append(dict(texture=textures[0].get('File'), sha256=hashlib.sha256(data).hexdigest(), mips=mip_count))
+        digest = hashlib.sha256(data).hexdigest()
+        if cache is not None:
+            cache[path] = levels, digest, mip_count
+        evidence.append(dict(texture=textures[0].get('File'), sha256=digest, mips=mip_count))
         surfaces.append((threshold, levels))
     if not evidence: raise ValueError('Empty clothing material')
     return surfaces, evidence
@@ -218,22 +226,33 @@ def covered_points(points, normals, triangles, inward=.06, outward=.12, accept_h
                                  & (triangle_max >= ends.min(axis=0)).all(axis=1))
         if not len(selected):
             continue
-        e1, e2 = edge1[selected], edge2[selected]
-        h = np.cross(direction[:, None, :], e2)
-        det = np.einsum('tj,ntj->nt', e1, h)
+        # A block can span both arms or distant garment islands. Retain only
+        # individual segment/triangle AABB pairs before allocating cross/dot
+        # products; the exact ray and opacity tests below remain unchanged.
+        end1, end2 = p - inward*direction, p + outward*direction
+        low, high = np.minimum(end1, end2), np.maximum(end1, end2)
+        pairs = ((triangle_min[selected][None] <= high[:, None]).all(axis=2)
+                 & (triangle_max[selected][None] >= low[:, None]).all(axis=2))
+        point_ids, local_triangles = np.nonzero(pairs)
+        triangle_ids = selected[local_triangles]
+        if not len(point_ids):
+            continue
+        e1, e2 = edge1[triangle_ids], edge2[triangle_ids]
+        rays = direction[point_ids]
+        h = np.cross(rays, e2)
+        det = np.einsum('ij,ij->i', e1, h)
         valid = np.abs(det) > 1e-10
         inv = np.divide(1., det, out=np.zeros_like(det), where=valid)
-        delta = p[:, None, :] - a[selected]
-        u = np.einsum('ntj,ntj->nt', delta, h) * inv
+        delta = p[point_ids] - a[triangle_ids]
+        u = np.einsum('ij,ij->i', delta, h) * inv
         q = np.cross(delta, e1)
-        v = np.einsum('nj,ntj->nt', direction, q) * inv
-        distance = np.einsum('tj,ntj->nt', e2, q) * inv
+        v = np.einsum('ij,ij->i', rays, q) * inv
+        distance = np.einsum('ij,ij->i', e2, q) * inv
         hits = valid & (u >= -1e-7) & (v >= -1e-7) & (u+v <= 1+1e-7)
         hits &= (distance >= -inward) & (distance <= outward)
         if accept_hit is not None:
-            point_ids, triangle_ids = np.nonzero(hits)
-            hits[point_ids, triangle_ids] &= accept_hit(selected[triangle_ids], u[point_ids, triangle_ids], v[point_ids, triangle_ids])
-        result[start:start+len(p)] = hits.any(axis=1)
+            hits[hits] &= accept_hit(triangle_ids[hits], u[hits], v[hits])
+        result[start + point_ids[hits]] = True
     return result
 
 
@@ -359,9 +378,9 @@ def register_fixed_body_coverage(output, component, namespace):
     def family(element):
         model = element.get('Model')
         return {0: folder / model, **{lod: index[name] for lod, name in source_lods(index, model).items()}}
-    covers = []
+    covers = []; alpha_cache = {}
     for element in outfit.findall('Elements/SkinElement'):
-        surfaces, _ = native_alpha_surfaces(output, folder / element.get('Material'))
+        surfaces, _ = native_alpha_surfaces(output, folder / element.get('Material'), cache=alpha_cache)
         levels = {}
         for level, path in family(element).items():
             skin = CompiledSkin(path.read_bytes())
@@ -430,14 +449,14 @@ def register_coverage(output, component, garments, tables, namespace):
         element = node.find('Elements/SkinElement')
         families[i] = family(element)
         targets.append((i, element, families[i]))
-    masks = {}; report = []; used_groups = set(); visibility_sources = []
+    masks = {}; report = []; used_groups = set(); visibility_sources = []; alpha_cache = {}
     done = 0
     total = sum(len(family) for i in order for target_index, _, family in targets
                 if target_index is None or i in higher[target_index])
     work_progress('Clothing coverage checks', done, total)
     for i in order:
         garment = garments[i]; node = nodes[i]
-        surfaces, evidence = native_alpha_surfaces(output, folder / (garment['stem'] + '.mtl'))
+        surfaces, evidence = native_alpha_surfaces(output, folder / (garment['stem'] + '.mtl'), cache=alpha_cache)
         covers = {}
         for level, path in families[i].items():
             cover = CompiledSkin(path.read_bytes())

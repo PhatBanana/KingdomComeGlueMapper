@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.27'
+APP_VERSION = '0.3.28'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -38,6 +38,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'build_animal_population_upgrade', 'animal_population',
               'animal_population_sources', 'animal_native_templates', 'setup_profile_population',
               'build_profile_population_upgrade', 'profile_population_upgrade', 'character_market_jobs',
+              'character_build_cache', 'character_asset_selection',
               'character_city_work', 'character_city_benches', 'character_seated_work', 'character_shop_guard_work',
               'character_fence_work', 'character_home_rest', 'character_farmer_work', 'character_horse_handler_work',
               'character_chopping_work', 'character_chopping_source', 'character_chopping_native',

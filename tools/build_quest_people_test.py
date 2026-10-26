@@ -50,6 +50,8 @@ def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
     libs, paks, pak = {}, [], None
     used, count = 22, 0
     paths = sorted(p for p in appearance.rglob('*') if p.is_file())
+    from character_asset_selection import runtime_paths
+    paths = runtime_paths(appearance, paths, namespace)
     asset_count = sum(p.relative_to(appearance).as_posix().startswith('objects/') for p in paths)
     work_progress('Pack character assets', 0, asset_count)
     def entries():
@@ -90,6 +92,12 @@ def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
 
 
 def build(a):
+    from character_build_cache import appearance_batch
+    with appearance_batch():
+        return _build(a)
+
+
+def _build(a):
     if a.output.exists(): raise FileExistsError('Choose a fresh stage')
     a.output.mkdir(parents=True)
     package = a.output / 'package'

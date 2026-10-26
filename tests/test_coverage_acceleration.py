@@ -29,6 +29,18 @@ def exhaustive(points, normals, triangles, inward=.06, outward=.12, accept_hit=N
 
 
 class CoverageAccelerationTests(unittest.TestCase):
+    def test_scattered_segments_with_different_lengths_keep_exact_hits(self):
+        rng = np.random.default_rng(619)
+        triangles = rng.normal(size=(170,3,3)) * .15
+        triangles += rng.uniform(-5,5,(170,1,3))
+        directions = rng.normal(size=(131,3))
+        directions *= rng.choice([0., .01, 1., 3.], (131,1))
+        points = triangles[:131].mean(axis=1) - .04*directions
+        for inward, outward in ((0., .12), (.06,.12), (.2,.02)):
+            np.testing.assert_array_equal(
+                covered_points(points, directions, triangles, inward, outward),
+                exhaustive(points, directions, triangles, inward, outward))
+
     def test_random_regions_and_alpha_match_exhaustive_across_batches(self):
         rng = np.random.default_rng(817)
         triangles = rng.normal(size=(300, 3, 3))*.1 + np.repeat(rng.uniform(-2,2,(300,1,3)),3,axis=1)

@@ -13,6 +13,33 @@ import setup_progress
 
 
 class TextureBakeCacheTests(unittest.TestCase):
+    def test_bake_key_ignores_only_parameters_the_pixel_baker_does_not_read(self):
+        from npc_effects import bake_macro_diffuse
+        import numpy as np
+        image = Image.new('RGBA', (8, 8), (180, 90, 60, 200))
+        first = E.fromstring('<Material StringGenMask="%NORMAL_MAP"><PublicParams Roughness=".2" MaskHue1="3"/></Material>')
+        second = E.fromstring('<Material StringGenMask="%SPECULAR_MAP"><PublicParams Roughness=".9" MaskHue1="90"/></Material>')
+        spec = Image.new('RGBA', (8,8), (20,100,60,255))
+        self.assertEqual(bake_pool.TextureBakeCache.key(image, first, None), bake_pool.TextureBakeCache.key(image, second, spec))
+        np.testing.assert_array_equal(bake_macro_diffuse(image, first), bake_macro_diffuse(image, second, spec))
+        second.set('StringGenMask', '%COLORIZING_WITH_MASK')
+        self.assertNotEqual(bake_pool.TextureBakeCache.key(image, first, None), bake_pool.TextureBakeCache.key(image, second, spec))
+
+    def test_reference_shares_one_texture_but_keeps_tint_and_alpha_distinct(self):
+        image = Image.new('RGBA', (4, 4), (180, 90, 60, 255))
+        with tempfile.TemporaryDirectory() as tmp, ThreadPoolExecutor(1) as executor, \
+             patch.object(bake_pool, 'pool', return_value=executor):
+            with bake_pool.Bakes() as batch:
+                batch.plan(4)
+                first = batch.reference(Path(tmp)/'first.dds', image, E.Element('Material'))
+                duplicate = batch.reference(Path(tmp)/'duplicate.dds', image.copy(), E.Element('Material'))
+                tinted = batch.reference(Path(tmp)/'tinted.dds', image, E.Element('Material', Diffuse='.5,1,1'))
+                alpha = batch.reference(Path(tmp)/'alpha.dds', Image.new('RGBA', (4,4),(180,90,60,0)), E.Element('Material'))
+            self.assertEqual(first, duplicate)
+            self.assertFalse((Path(tmp)/'duplicate.dds').exists())
+            self.assertEqual(len({p.read_bytes() for p in (first, tinted, alpha)}), 3)
+            self.assertEqual(batch.stats, dict(completed=4, total=4, reused=1))
+
     def test_identical_inflight_bakes_are_submitted_only_once(self):
         cache=bake_pool.TextureBakeCache();image=Image.new('RGBA',(4,4),(100,200,80,255))
         try:

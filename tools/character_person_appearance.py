@@ -100,7 +100,7 @@ def align_internal_translation(blob, *, max_translation=.01):
             raise ValueError('Unsupported legacy mesh reserved data')
         blob = write_chunks(chunks, {mesh.id: mesh.data + bytes(4)})
         chunks = read_chunks(blob)
-    _, vertices, _ = inspect_mesh(blob)
+    _, vertices, _ = inspect_mesh(blob, diagnostics=False)
     internal = [c for c in chunks if c.kind == 0x2005]
     remaps = [c for c in chunks if c.kind == 0x2006]
     if len(internal) != 1 or len(remaps) != 1:
@@ -164,8 +164,8 @@ def _build_appearance(source, target, person, namespace, output, *, notify=lambd
     prefix = 'objects/characters/gluetravel/' + namespace + '/'
     folder = prefix.removeprefix('objects/characters/')
     with ExitStack() as stack:
-        reader = stack.enter_context(RetailSourceReader(source))
-        tables = SourceTables(source, reader)
+        from character_build_cache import character_inputs
+        tables, native = character_inputs(source, target, stack)
         from character_instance import effective_soul
         source_soul = effective_soul(person['soul'], person['instance'])
         parts = resolve_parts(source_soul, lambda table: tables.get(table)['rows'])
@@ -177,7 +177,6 @@ def _build_appearance(source, target, person, namespace, output, *, notify=lambd
         if len(bodies) != 1 or bodies[0].get('gender_id') not in ('1', '2'):
             raise ValueError('Source person requires a resolved body definition: ' + person['name'])
         sex = {'1': 'male', '2': 'female'}[bodies[0]['gender_id']]
-        native = Assets(Path(target), stack)
         skeleton, rig = native.get(f'objects/characters/humans/{sex}/skeleton/{sex}.chr')
         cache = stack.enter_context(tempfile.TemporaryDirectory(prefix='person-assets-', dir=output.parent))
         index, emitted, material, mesh = asset_pack(stack, Path(source).parent, prefix, cache)

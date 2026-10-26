@@ -39,12 +39,21 @@ class TextureBakeCache:
     @staticmethod
     def key(image, material, specular):
         params = material.find('PublicParams')
-        inputs = dict(diffuse=material.get('Diffuse','1,1,1'), flags=material.get('StringGenMask',''),
-                      params=dict(params.attrib) if params is not None else {})
+        flags = material.get('StringGenMask', '').split('%')
+        mode = 'masked' if 'COLORIZING_WITH_MASK' in flags else 'tinted' if 'COLORIZING' in flags else 'plain'
+        names = ['ColorizingHue', 'ColorizingSaturation', 'ColorizingBrightness'] if mode != 'plain' else []
+        if mode == 'masked':
+            names += [f'Mask{channel}{zone}' for zone in range(1, 4) for channel in ('Hue', 'Saturation', 'Brightness')]
+        # Shader normals, roughness and other parameters are not read by the
+        # macro baker. They must remain on the material, but cannot make the
+        # same pixel bake a distinct texture. Specular supplies zones only in
+        # the masked-colour permutation.
+        inputs = dict(diffuse=material.get('Diffuse','1,1,1'), mode=mode,
+                      params={name: params.get(name) for name in names if params is not None and name in params.attrib})
         digest = hashlib.sha256(json.dumps(inputs,sort_keys=True).encode())
         # The baker converts diffuse to RGBA before processing it. Specular is
         # resized in its original mode; keep that mode and palette in the key.
-        for pixels in (image.convert('RGBA'), specular):
+        for pixels in (image.convert('RGBA'), specular if mode == 'masked' else None):
             if pixels is None:
                 digest.update(b'none'); continue
             digest.update(repr((pixels.mode,pixels.size)).encode())
@@ -122,6 +131,7 @@ class Bakes:
         self.cache = shared_cache() if reuse else None
         self.completed, self.total, self.reused = 0, 0, 0
         self.inflight = {}
+        self.references = {}
 
     def plan(self, total):
         self.total = total
@@ -147,6 +157,24 @@ class Bakes:
 
     def __call__(self, path, image, material, specular=None):
         key = self.cache.key(image, material, specular) if self.cache else None
+        self._submit(path, image, material, specular, key)
+
+    def reference(self, path, image, material, specular=None):
+        """Return one immutable output path for identical pixels in this batch.
+
+        Material consumers can share this path instead of writing and packing
+        another full texture. Ordinary __call__ keeps its independent-file
+        contract. References never escape this conversion's staging directory.
+        """
+        key = TextureBakeCache.key(image, material, specular)
+        if key in self.references:
+            self.completed += 1; self.reused += 1; self.report()
+            return self.references[key]
+        self._submit(path, image, material, specular, key)
+        self.references[key] = path
+        return path
+
+    def _submit(self, path, image, material, specular, key):
         if self.cache and self.cache.get(key, path):
             self.completed += 1; self.reused += 1; self.report()
             return
