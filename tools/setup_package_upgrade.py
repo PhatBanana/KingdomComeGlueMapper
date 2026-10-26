@@ -33,6 +33,9 @@ def eligible(receipt):
     migrate_step_ids(report)
     report.setdefault('content_validation', {})['start_policy'] = POLICY
     candidate['single_playable_world'] = True
+    from character_person_appearance import APPEARANCE_POLICY_VERSION
+    candidate['source_appearance_upgrade'] = dict(version=APPEARANCE_POLICY_VERSION,
+        mode='source_converter', equipment_validation=True)
     # Eligibility describes work this migration can perform, not proof it has
     # already run. The real receipt is written only after conversion succeeds.
     from setup_gameplay import STATIC_WORLD_PROFILES
@@ -94,8 +97,7 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     files, report = repair_female_clothing(package, receipt)
     receipt['files'].update(files); receipt['female_clothing'] = report
     # Recipe 52 already contains the complete world, schedules and training.
-    # These revisions repair collision, static gates and lesson handoff, so
-    # do not rebuild people, lighting or terrain in a completed saved build.
+    # Reuse lighting and terrain; refresh outdated appearances separately.
     if (receipt.get('build_recipe',{}).get('version') in range(52, VERSION + 1)
             and receipt['build_recipe'].get('status') == 'complete'
             and receipt.get('quest_training') and (package/'quest-training.json').exists()):
@@ -146,6 +148,8 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from setup_world_encounters import upgrade as upgrade_encounters
         files, report = upgrade_encounters(package, source, target)
         receipt['files'].update(files); receipt['world_encounters'] = report
+        from setup_source_appearances import apply as upgrade_appearances
+        upgrade_appearances(package, receipt, source, target, notify, cancelled)
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -485,6 +489,8 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from setup_world_encounters import upgrade as upgrade_encounters
     encounter_files, encounter_report = upgrade_encounters(package, source, target)
     receipt['files'].update(encounter_files); receipt['world_encounters'] = encounter_report
+    from setup_source_appearances import apply as upgrade_appearances
+    upgrade_appearances(package, receipt, source, target, notify, cancelled)
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))

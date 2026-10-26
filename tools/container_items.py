@@ -81,7 +81,10 @@ def build(source, target, mod, output, identifiers, *, asset_namespace='containe
                     pass
             destination.write_bytes(payload.read_bytes() if isinstance(payload, Path) else payload)
         if report['unresolved_items']:
-            raise ValueError(str(len(report['unresolved_items']))+' loot item dependencies need conversion; see report.json')
+            failures = [f"{j['group']}:{j['identity']}: {j['error']}" for j in report['jobs']
+                        if j.get('error') and j['group'] != 'items']
+            raise ValueError(str(len(report['unresolved_items']))+' loot item dependencies need conversion; '
+                             + '; '.join(failures[:4]) + '; report: ' + str(output/'report.json'))
         return report
 
 

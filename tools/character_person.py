@@ -5,6 +5,7 @@ merchant, gender, body or coordinates on their behalf.
 """
 import copy
 import hashlib
+import json
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
@@ -216,6 +217,9 @@ def actor_resources(target, person, character, namespace, *, role_name, native_s
         for name, attributes in steps: ET.SubElement(ops, name, attributes)
         files['Libs/Storm/' + filename] = xml(rules)
     files['Libs/Storm/storm.xml'] = xml(storm)
-    files['Libs/GlueMapper/PersonImport/' + namespace + '.json'] = receipt(person, soul, namespace)
+    provenance = json.loads(receipt(person, soul, namespace))
+    if character.get('appearance_policy') is not None:
+        provenance['appearance_policy'] = character['appearance_policy']
+    files['Libs/GlueMapper/PersonImport/' + namespace + '.json'] = json.dumps(provenance, indent=2).encode('utf-8')
     return files
 

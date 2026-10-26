@@ -21,7 +21,7 @@ import uuid
 from setup_campaign import MOD_ID, RECEIPT, build_campaign, validate_games, verify_package
 import setup_progress
 
-APP_VERSION = '0.3.22'
+APP_VERSION = '0.3.23'
 GIB = 1024 ** 3
 BUILD_WORKSPACE_GIB = 200
 INSTALL_STAGING_GIB = 64
@@ -29,7 +29,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'build_buildings_probe', 'build_water_surface_probe', 'complete_instances',
               'build_entity_probe', 'build_landscape_surface_probe', 'repair_tree_materials',
               'region_travel', 'prepare_spatial_hlod', 'build_recipe', 'campaign_start_policy',
-              'setup_package_upgrade', 'setup_tavern_upgrade', 'campaign_merchant_work',
+              'setup_package_upgrade', 'setup_source_appearances', 'setup_tavern_upgrade', 'campaign_merchant_work',
               'setup_merchant_upgrade', 'source_merchant_upgrade', 'character_station_work',
               'campaign_dialogue_requests', 'campaign_script_import', 'item_icons', 'item_icon_atlas',
               'smart_area_registration', 'area_geometry_contract',

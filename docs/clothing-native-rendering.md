@@ -206,3 +206,30 @@ preserves topology, texture coordinates and skinning identities while retaining
 installed material bindings. These structural checks are not native visual
 acceptance; animation, neck joins, silhouettes and removal of clothing still
 require an in-game comparison.
+
+### Normal Setup and Resume (0.3.23 / recipe 60)
+
+The normal finalizer now runs `setup_source_appearances` for both fresh builds
+and saved-package upgrades. New source appearances carry a converter-policy
+version in their PersonImport receipts. Resume rebuilds only older source
+appearances using the same converter, including body-shape preservation,
+attachments, material conversion and conditional coverage. It preserves
+gameplay inventory wrappers and validates each actual equipment chain. A package
+without that validation cannot be installed as a current recipe. Upgrades run
+inside the existing private-package transaction and do not rebuild completed
+world or lighting data. Developer workbench controls remain outside Setup.
+
+The retail container pass also covers native material-only clothing roles:
+when a role has Features but no mesh Elements, its native RPG occupancy supplies
+the converted source mesh's region/layer. Authored visual attachments take
+priority over occupancy: a caparison attaches to `horse_torso` even though its
+inventory occupancy includes several horse regions. Ambiguous layers still
+fail conversion. This resolves the three leg-armour and one caparison failures
+from the 26 October build without per-item GUID exceptions.
+
+Verification: all 589 required loot dependencies converted against local retail
+assets with no unresolved items. A private copy of the failed package upgraded
+its three source-person receipts, passed package hashes and equipment-reference
+validation, and rebuilt zero people on the second pass. This is conversion and
+package evidence; it does not establish native visual acceptance or a complete
+new retail build.

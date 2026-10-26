@@ -123,6 +123,11 @@ def align_internal_translation(blob, *, max_translation=.01):
     return write_chunks(chunks, {internal.id: bytes(payload)}), offset.tolist()
 
 
+# Advance whenever the source geometry, attachments, masks or material policy
+# requires existing saved appearances to be rebuilt by normal Setup.
+APPEARANCE_POLICY_VERSION = 1
+
+
 def build_appearance(source, target, person, namespace, output):
     result = _build_appearance(source, target, person, namespace, output)
     accessories = result.pop('nonvisual_equipment', [])
@@ -130,6 +135,7 @@ def build_appearance(source, target, person, namespace, output):
         from character_accessories import register_accessories
         result['accessories'] = register_accessories(source, target, Path(output), namespace, accessories)
         result['localization'] = 'Localization/English/text_ui_items.xml'
+    result['appearance_policy'] = APPEARANCE_POLICY_VERSION
     return result
 
 

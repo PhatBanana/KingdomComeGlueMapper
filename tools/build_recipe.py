@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 59
+VERSION = 60
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -33,6 +33,12 @@ def require_current(receipt):
     if receipt.get('travel_bridge') and not receipt.get('single_playable_world'):
         raise ValueError('This package requires the single-world resume migration before installation.')
     if receipt.get('travel_bridge'):
+        from character_person_appearance import APPEARANCE_POLICY_VERSION
+        appearance = receipt.get('source_appearance_upgrade', {})
+        if (appearance.get('version') != APPEARANCE_POLICY_VERSION
+                or appearance.get('mode') != 'source_converter'
+                or appearance.get('equipment_validation') is not True):
+            raise ValueError('This package needs source clothing conversion and equipment validation. Resume with the current setup.')
         from setup_gameplay import STATIC_WORLD_PROFILES
         from static_navigation_profiles import VERSION as NAVIGATION_VERSION
         navigation = receipt.get('static_navigation_profiles', {})

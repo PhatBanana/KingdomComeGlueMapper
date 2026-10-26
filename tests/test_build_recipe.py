@@ -200,6 +200,12 @@ class RecipeTests(unittest.TestCase):
             build_recipe=dict(version=VERSION, status='complete',
                 content_validation={'start_policy':POLICY}, streaming_validation={'ok':True},
                 shader_validation={'installation':'mod_private_root'}, steps=[{'id':s} for s in STAGE_IDS]))
+        with self.assertRaisesRegex(ValueError,'source clothing conversion'): require_current(receipt)
+        eligible(receipt)
+        self.assertNotIn('source_appearance_upgrade',receipt)
+        from character_person_appearance import APPEARANCE_POLICY_VERSION
+        receipt['source_appearance_upgrade'] = dict(version=APPEARANCE_POLICY_VERSION,
+            mode='source_converter',equipment_validation=True)
         with self.assertRaisesRegex(ValueError, 'navigation conversion'): require_current(receipt)
         eligible(receipt)  # recoverable by resume, but it must run the adapter
         self.assertNotIn('static_navigation_profiles', receipt)

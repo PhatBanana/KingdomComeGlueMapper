@@ -95,6 +95,8 @@ class DesktopSetupTests(unittest.TestCase):
                                                     steps=[{'id': identity} for identity in STAGE_IDS],
                                                     content_validation={'actors': 11, 'start_policy': POLICY}, streaming_validation={'proxies': 1}, shader_validation={'compiled': True, 'installation': 'mod_private_root'}),
                                                 surface_placement={'version':1},
+                                                source_appearance_upgrade={'version':1, 'mode':'source_converter',
+                                                    'equipment_validation':True},
                                                 static_navigation_profiles={'version':1, 'mode':'materialized_static_profiles',
                                                     'profiles':[{'profile':p} for p in STATIC_WORLD_PROFILES]},
                                                 animal_population={'version':2, 'mode':'supported_native_ambient',
