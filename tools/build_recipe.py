@@ -12,7 +12,7 @@ import shutil
 
 from setup_campaign import RECEIPT, digest, verify_package
 
-VERSION = 61
+VERSION = 62
 STAGE_LABELS = ('Open Talburg and Skalitz test gates', 'World containers, loot and keys', 'Neuhof horse shop and starter dialogue', 'Test supplies and getting started', 'Rattay smithing stations and coal repair', 'Smithing warning dialogue', 'Church altar prayer', 'Workshop recipes and resources', 'KCD1 New Game menu')
 REVIEWED_BLEND_MODELS = (
     'objects/buildings/houses/modular/6x15/6x15_roof_p_03_flipped.cgf',
@@ -62,6 +62,10 @@ def require_current(receipt):
         from terrain_object_tree import VERSION as PLACEMENT_VERSION
         if receipt.get('surface_placement', {}).get('version') != PLACEMENT_VERSION:
             raise ValueError('This package needs KCD2 surface placement. Resume with the current setup.')
+        from setup_crime_services import VERSION as CRIME_VERSION
+        crime = receipt.get('crime_services', {})
+        if crime.get('version') != CRIME_VERSION or crime.get('status') != 'bound_native_services':
+            raise ValueError('This package needs local crime and punishment services. Resume with the current setup.')
     if report['shader_validation'].get('installation') != 'mod_private_root':
         raise ValueError('This package has no mod-contained shader launcher. Rebuild with the current setup.')
     from setup_gameplay import STAGE_IDS

@@ -37,11 +37,14 @@ class SpeechTests(unittest.TestCase):
                 with zipfile.ZipFile(path,'w') as z:
                     for n,b in entries.items():z.writestr(n,b)
             stem='abc_greet_Test'; key=zlib.crc32(stem.encode())
-            index=f'<Root><DialogueDubbingData><DialogueDubbing FileHash="{key}" Duration="1"/></DialogueDubbingData></Root>'.encode()
+            late_stem='xyz_sentence_Later'
+            late_key=zlib.crc32(late_stem.encode())
+            index=f'<Root><DialogueDubbingData><DialogueDubbing FileHash="{key}" Duration="1"/><DialogueDubbing FileHash="{late_key}" Duration="2"/></DialogueDubbingData></Root>'.encode()
             pak(package/'Data/gluemappertravel.pak',fixture())
             pak(package/'Localization/English.pak',{DEPOT:index,'dialog/custom/keep.ogg':b'OggSkeep'})
             source='dialog/open_world/hello/'+stem+'.ogg'
-            pak(target/'Localization/English.pak',{source:b'OggSoriginal'})
+            late_source='dialog/open_world/new_controller/'+late_stem+'.ogg'
+            pak(target/'Localization/English.pak',{source:b'OggSoriginal',late_source:b'OggSlater'})
             progress=[]
             def notify(label, current, total, detail=''):
                 progress.append((label,current,total,detail))
@@ -58,6 +61,18 @@ class SpeechTests(unittest.TestCase):
             self.assertFalse(changed)
             self.assertEqual(before,(package/'Localization/English.pak').read_bytes())
             self.assertEqual(report['recordings'],1)
+            # A later setup stage adds a controller after the first audio pass.
+            # Re-running against the final closure must add its recordings too.
+            graphs=fixture()
+            graphs['Quests/entry/world/native.xml']=graphs['Quests/entry/world/native.xml'].replace(
+                b'</Dialogue>',b'<Response><Text StringName="sentence_Later"/></Response></Dialogue>')
+            pak(package/'Data/gluemappertravel.pak',graphs)
+            changed,report=upgrade(package,target)
+            self.assertEqual(report['changed'],1)
+            self.assertEqual(report['recordings'],2)
+            with zipfile.ZipFile(package/'Localization/English.pak') as z:
+                self.assertEqual(z.read('dialog/test/open_world/new_controller/'+late_stem+'.ogg'),b'OggSlater')
+                self.assertEqual(z.read('dialog/test/open_world/hello/'+stem+'.ogg'),b'OggSoriginal')
 
     def test_missing_dependency_fails(self):
         graphs=fixture();del graphs['Quests/entry/world/native.xml']

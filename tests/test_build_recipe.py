@@ -241,6 +241,11 @@ class RecipeTests(unittest.TestCase):
         self.assertNotIn('surface_placement', receipt)
         from terrain_object_tree import VERSION as PLACEMENT_VERSION
         receipt['surface_placement'] = dict(version=PLACEMENT_VERSION)
+        with self.assertRaisesRegex(ValueError,'crime and punishment'):require_current(receipt)
+        eligible(receipt)
+        self.assertNotIn('crime_services',receipt)
+        from setup_crime_services import VERSION as CRIME_VERSION
+        receipt['crime_services']=dict(version=CRIME_VERSION,status='bound_native_services')
         require_current(receipt)
         receipt['static_navigation_profiles']['profiles'] = []
         with self.assertRaisesRegex(ValueError, 'navigation conversion'): require_current(receipt)
