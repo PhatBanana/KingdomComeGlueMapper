@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from upgrade_source_appearances import imports, owned_shards, validate_resources, verify_bindings, write_delta, appearance_objects, retire_shared_definitions, shared_overlay, retire_shared_assets
 from setup_package_upgrade import rewrite
 from build_profile_population_upgrade import clone_missing
-from upgrade_source_appearances import restore_missing_inventory_presets
+from upgrade_source_appearances import restore_missing_inventory_presets, preserve_carried_assets
 
 NS = 'gm_person_' + 'a' * 32
 
@@ -231,6 +231,57 @@ class SourceAppearanceUpgradeTests(unittest.TestCase):
                 z.writestr('objects/weapons/sword.cgf', b'weapon')
             with self.assertRaisesRegex(ValueError, 'unrelated assets'):
                 owned_shards(root, {relative: 'hash'}, NS)
+
+    def test_mixed_actor_shards_require_explicit_equipment_preservation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); (root/'Data').mkdir(); relative='Data/'+NS+'_03.pak'
+            prefix='objects/gluecampaign/'+NS+'_weapons/'
+            with zipfile.ZipFile(root/relative,'w') as z:
+                z.writestr(prefix+'sword.cgf',b'sword')
+            with self.assertRaisesRegex(ValueError,'unrelated assets'):
+                owned_shards(root,[relative],NS)
+            self.assertEqual(owned_shards(root,[relative],NS,allow_equipment=True),[relative])
+            for foreign in ('objects/gluecampaign/other_weapons/sword.cgf',
+                            prefix+'../other/file', 'objects/characters/gluetravel/'+NS+'/../other/body.skin'):
+                with zipfile.ZipFile(root/relative,'w') as z:z.writestr(foreign,b'other')
+                with self.assertRaisesRegex(ValueError,'unrelated assets'):
+                    owned_shards(root,[relative],NS,allow_equipment=True)
+
+    def test_preserved_equipment_is_exact_bounded_and_does_not_edit_checkpoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); base=root/'base'; candidate=root/'candidate'; (base/'Data').mkdir(parents=True)
+            relative='Data/'+NS+'_03.pak'; prefix='objects/gluecampaign/'+NS+'_weapons/'
+            equipment={prefix+n:bytes([i])*700 for i,n in enumerate(('sword.cgf','sword.dds','sword.dds.1'),1)}
+            with zipfile.ZipFile(base/relative,'w') as z:
+                z.writestr('objects/characters/gluetravel/'+NS+'/body.skin',b'old body')
+                for name,blob in equipment.items():z.writestr(name,blob)
+            original=(base/relative).read_bytes(); clone_missing(base,candidate)
+            kept=preserve_carried_assets(candidate,NS,[relative],limit=1024)
+            self.assertEqual(len(kept),3)
+            actual={}
+            for name in kept:
+                self.assertLessEqual((candidate/name).stat().st_size,1024)
+                with zipfile.ZipFile(candidate/name) as z:
+                    self.assertIsNone(z.testzip()); actual.update({n:z.read(n) for n in z.namelist()})
+            self.assertEqual(actual,equipment)
+            self.assertEqual((base/relative).read_bytes(),original)
+            self.assertEqual(preserve_carried_assets(candidate,NS,[relative],limit=1024),kept)
+            self.assertEqual(owned_shards(candidate,[relative,*kept],NS,allow_equipment=True),[relative])
+            first=next(iter(kept)); (candidate/first).unlink(); (candidate/first).write_bytes(b'different existing file')
+            with self.assertRaisesRegex(ValueError,'different contents'):
+                preserve_carried_assets(candidate,NS,[relative],limit=1024)
+            self.assertEqual((candidate/first).read_bytes(),b'different existing file')
+
+    def test_conflicting_duplicate_carried_assets_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp);(root/'Data').mkdir(); paths=[]
+            for suffix,blob in (('',b'first'),('_01',b'conflict')):
+                relative='Data/'+NS+suffix+'.pak';paths.append(relative)
+                with zipfile.ZipFile(root/relative,'w') as z:
+                    z.writestr('objects/gluecampaign/'+NS+'_weapons/sword.cgf',blob)
+            with self.assertRaisesRegex(ValueError,'Conflicting carried'):
+                preserve_carried_assets(root,NS,paths)
+            self.assertEqual(sorted(p.name for p in (root/'Data').iterdir()),sorted(Path(p).name for p in paths))
 
     def test_copy_on_replace_preserves_baseline_and_gameplay_members(self):
         with tempfile.TemporaryDirectory() as temporary:

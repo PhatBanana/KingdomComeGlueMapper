@@ -295,17 +295,86 @@ def stage_overlay(source, target, installed, output, people=None, *, notify=prin
     return report
 
 
-def owned_shards(package, files, namespace, *, allow_shared=False):
+def owned_shards(package, files, namespace, *, allow_shared=False, allow_equipment=False):
     pattern = re.compile(re.escape('Data/' + namespace) + r'(?:_\d{2,})?\.pak$')
     paths = sorted(name for name in files if pattern.fullmatch(name))
     if not paths and not allow_shared:
         raise ValueError('Missing source appearance archives: ' + namespace)
-    prefix = 'objects/characters/gluetravel/' + namespace + '/'
+    prefixes = ('objects/characters/gluetravel/' + namespace + '/',)
+    if allow_equipment:
+        prefixes += ('objects/gluecampaign/' + namespace + '_weapons/',)
     for name in paths:
         with zipfile.ZipFile(package / name) as archive:
-            if any(not entry.replace('\\', '/').lower().startswith(prefix) for entry in archive.namelist()):
-                raise ValueError('Appearance archive contains unrelated assets: ' + name)
+            for entry in archive.namelist():
+                normalized = entry.replace('\\', '/').lower()
+                if (not normalized.startswith(prefixes) or '..' in normalized.split('/')
+                        or ':' in normalized):
+                    raise ValueError('Appearance archive contains unrelated assets: ' + name + ' (' + entry + ')')
     return paths
+
+
+def preserve_carried_assets(package, namespace, shards, *, limit=900 * 1024**2):
+    """Keep receipt-owned equipment when replacing mixed appearance shards.
+
+    Actor imports pack clothing and converted carried items together. Appearance
+    rebuilds do not regenerate the latter. Copy their exact virtual paths and
+    bytes into separate bounded PAKs before any old shard is replaced/deleted.
+    Call only on private staging; source/checkpoint hardlinks are never edited.
+    """
+    from contextlib import ExitStack
+    package = Path(package)
+    owned_shards(package, shards, namespace, allow_shared=True, allow_equipment=True)
+    prefix = 'objects/gluecampaign/' + namespace + '_weapons/'
+    entries = {}
+    with ExitStack() as stack:
+        for relative in shards:
+            archive = stack.enter_context(zipfile.ZipFile(package / relative))
+            for info in archive.infolist():
+                name = info.filename.replace('\\', '/').lower()
+                if info.is_dir() or not name.startswith(prefix):
+                    continue
+                if name in entries:
+                    previous, old = entries[name]
+                    if previous.read(old) != archive.read(info):
+                        raise ValueError('Conflicting carried equipment asset: ' + name)
+                else:
+                    entries[name] = (archive, info)
+        if not entries:
+            return {}
+        with tempfile.TemporaryDirectory(prefix='retained-equipment-', dir=package.parent) as temporary:
+            staged = Path(temporary); outputs = []; used = 22; count = 0; out = None
+            try:
+                for name, (source, info) in sorted(entries.items()):
+                    size = info.file_size + 2 * len(name.encode('utf-8')) + 76
+                    if size + 22 > limit:
+                        raise ValueError('Carried equipment asset exceeds ZIP32 shard limit: ' + name)
+                    if out is not None and (used + size > limit or count >= 50000):
+                        out.close(); out = None
+                    if out is None:
+                        suffix = '' if not outputs else '_%02d' % len(outputs)
+                        path = staged / (namespace + '_retained_equipment' + suffix + '.pak')
+                        outputs.append(path)
+                        out = zipfile.ZipFile(path, 'x', zipfile.ZIP_STORED, allowZip64=False)
+                        used, count = 22, 0
+                    # Reading verifies the original CRC. Normalizing only the
+                    # virtual path does not alter streamed mip or model bytes.
+                    item = zipfile.ZipInfo(name, (2026, 1, 1, 0, 0, 0)); item.create_system = 0
+                    out.writestr(item, source.read(info))
+                    used += size; count += 1
+            finally:
+                if out is not None: out.close()
+            changed = {}
+            for path in outputs:
+                relative = 'Data/' + path.name
+                expected = digest(path)
+                destination = package / relative
+                if destination.exists():
+                    if digest(destination) != expected:
+                        raise ValueError('Retained equipment archive already has different contents: ' + relative)
+                else:
+                    path.replace(destination)
+                changed[relative] = expected
+            return changed
 
 
 def retire_shared_assets(package, files, namespaces, owned):
@@ -379,7 +448,8 @@ def stage(source, target, installed, output, people, *, notify=print):
     require_current(baseline)
     with zipfile.ZipFile(installed / TRAVEL) as archive:
         selected = imports(archive, people)
-    shards = {name: owned_shards(installed, baseline['files'], ns, allow_shared=True) for name, ns in selected.items()}
+    shards = {name: owned_shards(installed, baseline['files'], ns, allow_shared=True, allow_equipment=True)
+              for name, ns in selected.items()}
     output.mkdir(parents=True)
     # Keep a verified, cheap recovery package. Every changed file is replaced,
     # never written through these links into either checkpoint or installation.
@@ -411,6 +481,7 @@ def stage(source, target, installed, output, people, *, notify=print):
             if strings.exists():
                 labels.append(strings.read_bytes())
             incoming = {'Data/' + p.name for p in paks}
+            receipt['files'].update(preserve_carried_assets(package, namespace, shards[name]))
             for old in shards[name]:
                 if old not in incoming:
                     (package / old).unlink()

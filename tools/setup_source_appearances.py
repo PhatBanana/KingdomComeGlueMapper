@@ -14,7 +14,7 @@ from character_person import resolve_person
 from build_quest_people_test import write_actor_paks
 from setup_campaign import digest
 from upgrade_source_appearances import (TRAVEL, LOCALE, imports, owned_shards,
-    retire_shared_assets, retire_shared_definitions, validate_resources, verify_bindings)
+    retire_shared_assets, retire_shared_definitions, validate_resources, verify_bindings, preserve_carried_assets)
 from setup_package_upgrade import rewrite
 from clothing_inventory import require_equipment, relevant_resource
 from filesystem_paths import filesystem_path
@@ -38,8 +38,9 @@ def upgrade(package, receipt, source, target, notify=lambda *a: None, cancelled=
         raise ValueError('KCD1 and KCD2 folders are required to upgrade saved source clothing')
     if cancelled():
         raise InterruptedError('Cancelled before source clothing upgrade')
-    shards = {person:owned_shards(package, receipt['files'], ns, allow_shared=True)
+    shards = {person:owned_shards(package, receipt['files'], ns, allow_shared=True, allow_equipment=True)
               for person,ns in stale.items()}
+    retained_equipment = {}
     # Stage one complete person at a time. PAK replacements break checkpoint
     # hardlinks; never overwrite asset bytes through a shared file handle.
     from bake_pool import release
@@ -64,6 +65,9 @@ def upgrade(package, receipt, source, target, notify=lambda *a: None, cancelled=
                 strings = appearance/'Localization/English/text_ui_items.xml'
                 if strings.exists(): labels.append(strings.read_bytes())
                 incoming = {'Data/'+p.name for p in paks}
+                notify('Upgrade saved character clothing', index, len(stale), name + ': Preserving carried equipment')
+                kept = preserve_carried_assets(package, namespace, shards[name])
+                changed.update(kept); retained_equipment.update(kept)
                 for pak in paks:
                     relative = 'Data/'+pak.name
                     changed[relative] = digest(pak)
@@ -101,7 +105,7 @@ def upgrade(package, receipt, source, target, notify=lambda *a: None, cancelled=
     notify('Upgrade saved character clothing', len(stale), len(stale), 'Equipment references validated')
     return changed, removed, dict(version=APPEARANCE_POLICY_VERSION, mode='source_converter',
         actors=len(people), rebuilt=rebuilt, equipment_validation=True, equipment_checks=checks,
-        retired_shared_definitions=retired, runtime_verified=False)
+        retired_shared_definitions=retired, retained_equipment=sorted(retained_equipment), runtime_verified=False)
 
 
 def apply(package, receipt, source, target, notify, cancelled):

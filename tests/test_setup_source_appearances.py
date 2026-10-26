@@ -48,6 +48,34 @@ def build(source,target,person,namespace,output,**kwargs):
 
 
 class SetupSourceAppearancesTests(unittest.TestCase):
+    def test_resume_preserves_carried_assets_before_replacing_or_removing_mixed_shards(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)/'package'; receipt=package(root)
+            model='objects/gluecampaign/person_weapons/sword.cgf'
+            mip='objects/gluecampaign/person_weapons/sword.dds.1'
+            with zipfile.ZipFile(root/'Data/person.pak','a') as z:z.writestr(model,b'sword geometry')
+            with zipfile.ZipFile(root/'Data/person_03.pak','w') as z:
+                z.writestr('objects/characters/gluetravel/person/old_lod.skin',b'old lod')
+                z.writestr(mip,b'original streamed mip')
+            for relative in ('Data/person.pak','Data/person_03.pak'):receipt['files'][relative]=digest(root/relative)
+            checkpoint=Path(tmp)/'checkpoint.pak';os.link(root/'Data/person_03.pak',checkpoint)
+            original=checkpoint.read_bytes()
+            with patch('setup_source_appearances.resolve_person',return_value={'soul':{}}), \
+                 patch('setup_source_appearances.build_appearance',side_effect=build) as builder:
+                apply(root,receipt,Path('source'),Path('target'),lambda *a:None,lambda:False)
+                retained=receipt['source_appearance_upgrade']['retained_equipment']
+                self.assertEqual(len(retained),1)
+                with zipfile.ZipFile(root/retained[0]) as z:
+                    self.assertEqual({n:z.read(n) for n in z.namelist()},
+                        {model:b'sword geometry',mip:b'original streamed mip'})
+                self.assertEqual(receipt['files'][retained[0]],digest(root/retained[0]))
+                self.assertNotIn('Data/person_03.pak',receipt['files'])
+                self.assertFalse((root/'Data/person_03.pak').exists())
+                self.assertEqual(checkpoint.read_bytes(),original)
+                changes,removed,report=upgrade(root,receipt,None,None)
+                self.assertEqual((changes,removed,report['rebuilt']),({},[],[]))
+                self.assertEqual(builder.call_count,1)
+
     def test_resume_rebuilds_outdated_actor_once_and_preserves_bake_and_equipment(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/'package';receipt=package(root)
@@ -84,6 +112,9 @@ class SetupSourceAppearancesTests(unittest.TestCase):
     def test_cancelled_private_upgrade_preserves_saved_package(self):
         with tempfile.TemporaryDirectory() as tmp:
             root=Path(tmp)/'package';receipt=package(root)
+            with zipfile.ZipFile(root/'Data/person.pak','a') as z:
+                z.writestr('objects/gluecampaign/person_weapons/sword.cgf',b'carried sword')
+            receipt['files']['Data/person.pak']=digest(root/'Data/person.pak')
             original={p.relative_to(root):p.read_bytes() for p in root.rglob('*') if p.is_file()}
             with patch('setup_source_appearances.resolve_person',return_value={'soul':{}}), \
                  patch('setup_source_appearances.build_appearance',side_effect=build), \

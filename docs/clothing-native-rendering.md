@@ -263,3 +263,29 @@ claim that an earlier published release contains the change.
 Evidence is under `outputs/neck-seams-20261026`. Preview comparisons and
 bind-pose coverage checks do not certify native animation, all clothing
 combinations or remaining unrelated clipping issues.
+
+### Saved actors with carried equipment (0.3.27)
+
+The retail Resume test exposed a migration mismatch: `write_actor_paks` can put
+converted carried-item models and streamed textures in the same numbered PAKs
+as an NPC's appearance. The upgrade ownership check previously accepted only
+the character appearance namespace and rejected these legitimate mixed packs.
+
+The upgrader now explicitly recognizes the same actor's generated carried-item
+namespace. Before replacing or retiring any numbered appearance shard, it copies
+those equipment members into separate bounded ZIP32 PAKs, preserving their
+virtual paths and payload bytes. Their table and inventory references remain
+valid. Other namespaces and unsafe paths are still rejected. Both normal Setup
+and the developer full-package upgrader use this preservation step; all writes
+remain in private staging until the surrounding transaction succeeds.
+
+Validation against the failed saved build: all 61 source-appearance archive
+families passed the corrected ownership scan (124 carried-equipment members).
+The exact failing actor, `rat_guardJanek`, passed normal appearance migration in
+a bounded private fixture using its real saved tables, shards and source assets.
+All 46 carried-equipment payload hashes were unchanged, its equipment chain
+validated, original archive hardlinks were unchanged, and a repeat upgrade
+rebuilt no actors. The full suite ran 2,231 tests with 17 skips and no failures;
+the packaged 0.3.27 self-test passed. The user's saved job and installation were
+not replaced by this validation run. Full Resume remains the next native-package
+integration check.
