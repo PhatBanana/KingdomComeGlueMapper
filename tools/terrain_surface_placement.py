@@ -7,6 +7,7 @@ import struct
 import zipfile
 
 from compiled_terrain import parse
+from road_view_distance import VERSION as ROAD_VIEW_VERSION, convert as convert_roads
 from terrain_object_tree import DEFAULT_POLICY, VERSION, place, read_tree
 from upgrade_map import read
 
@@ -46,12 +47,20 @@ def upgrade_package(package, level='kcd1_travel'):
     with zipfile.ZipFile(package/name) as archive:
         data = read(archive, ENTRY)
         marker = json.loads(read(archive, MARKER)) if MARKER in archive.namelist() else None
+    roads_current = bool(marker) and marker.get('road_view_distance') == ROAD_VIEW_VERSION
     if marker and marker.get('version') == VERSION:
         terrain = parse(data)
         if (marker.get('policy') != vars(DEFAULT_POLICY) or
                 marker.get('tree_sha256') != hashlib.sha256(data[terrain.tree_offset:]).hexdigest()):
             raise ValueError('Surface placement marker does not match the terrain; rebuild the changed world stage')
-        return {}, dict(marker, already_current=True)
+        if roads_current:
+            return {}, dict(marker, already_current=True)
+    # View bytes feed placement, so rewrite roads first. The marker makes this
+    # one-shot: the rewrite reads KCD1 bytes and is not idempotent by itself.
+    roads = marker.get('roads') if roads_current else None
+    if not roads_current:
+        data, roads = convert_roads(parse(data))
     result, report = convert(data)
+    report.update(road_view_distance=ROAD_VIEW_VERSION, roads=roads)
     rewrite(package, name, {ENTRY: result, MARKER: json.dumps(report, indent=2).encode()})
     return {name: digest(package/name)}, report
