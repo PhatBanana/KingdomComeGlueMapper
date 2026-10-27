@@ -152,7 +152,19 @@ class EntryTests(unittest.TestCase):
         project = ET.fromstring(graphs['Quests/Travel.xml'])
         self.assertIsNone(project.find('.//InteractionTriggerNode'))
         self.assertEqual(graphs['Quests/entry/streamprofileshandling.xml'], scripts.read(STREAMING_SOURCE))
-        self.assertIsNone(root.find('.//Timer'))
+        # Streaming readiness has no timed retry; the only Timer is the UI hold.
+        self.assertEqual([t.get('Name') for t in root.iter('Timer')], ['arrival_ui_settle'])
+        self.assertFalse(any(e.get('From', '').startswith('arrival_ui_settle.') for e in ready.iter('Edge')))
+
+    def test_both_build_modes_hold_apse_ui_after_entry(self):
+        for station_streaming in (False, True):
+            files, native, scripts = self.fixture()
+            _, graphs, report = self.package(files, native, scripts, station_streaming=station_streaming)
+            level = ET.fromstring(graphs['Quests/entry/destination.xml']).find('Skald/Level')
+            hold = level.find("Nodes/FilterInput[@Name='arrival_ui_gate']")
+            self.assertEqual(hold.find("Edge[@To='IsActive']").get('From'), 'arrival_ui_settle.Running')
+            self.assertEqual(report['arrival_ui_gate']['filters'], ['no_inventory', 'no_interaction'])
+            self.assertFalse(report['arrival_ui_gate']['runtime_verified'])
 
     def test_ready_port_is_declared_unconsumed_when_no_graph_consumes_it(self):
         files, native, scripts = self.fixture()
