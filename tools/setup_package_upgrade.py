@@ -161,6 +161,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from world_actor_contracts import upgrade as upgrade_actor_contracts
         files, report = upgrade_actor_contracts(package, target)
         receipt['files'].update(files); receipt['world_actor_contracts'] = report
+        from region_travel_ui_gate import upgrade as upgrade_arrival_ui
+        files, report = upgrade_arrival_ui(package)
+        receipt['files'].update(files); receipt['arrival_ui_gate'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -304,6 +307,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         format_level_changes.update(quest_level)
         receipt['source_quest_inventories'] = quest_report
     rewrite(package, travel, changes, lambda n: n == legacy_world)
+    from region_travel_ui_gate import upgrade as upgrade_arrival_ui
+    arrival_files, receipt['arrival_ui_gate'] = upgrade_arrival_ui(package)
+    receipt['files'].update(arrival_files)
     level = 'Data/Levels/kcd1_travel/level.pak'
     if format_level_changes:
         rewrite(package, level, format_level_changes)
