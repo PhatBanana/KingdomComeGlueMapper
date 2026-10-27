@@ -62,7 +62,7 @@ CONVERTERS = ('upgrade_map', 'build_vegetation_probe', 'build_water_probe',
               'world_encounter_sites', 'world_encounter_registration',
               'setup_crime_services', 'world_crime_services', 'world_crime_graphs', 'crime_site_geometry',
               'cinematic_scene', 'cinematic_scene_profiles', 'cinematic_scene_cast',
-              'cinematic_scene_ground', 'world_actor_contracts', 'audit_world_scenes')
+              'cinematic_scene_ground', 'world_actor_contracts', 'world_crime_factions', 'audit_world_scenes')
 
 
 class Cancelled(Exception):

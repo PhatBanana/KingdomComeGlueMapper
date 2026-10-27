@@ -198,6 +198,74 @@ package-upgrade and recipe tests passed; the real saved-package upgrade took
 cast and terrain-fit reports. A second upgrade is a no-op. These are build/data
 checks, not a claim that the revised punishment has already passed in game.
 
+## Civilian reporting and native authority predicates (27 October 2026)
+
+The user reported that guards reacted when attacked themselves but ignored
+assaults on civilians. Inspection found two independent native contracts absent
+from the imported population:
+
+- `Libs/Storm/common/base.xml` requires both an authority profession **and**
+  membership in a native regional faction for `isGuard` and `isBailiff`.
+  Preserving `soul_crime_role_id` alone therefore did not enable
+  `crime_isAuthority` or the district's dynamic `crime_authority` registration.
+- `contexts_disabledInformationBroadcast` assigns
+  `crime_skipInformationBroadcast` to factions without the `settlement` label.
+  The converted faction trees had no such label.
+
+`world_crime_factions` now resolves registered residents from their source
+faction location, placed Common locations, soul registrations and native crime
+roles. It labels the corresponding imported faction leaves as settlements,
+registers their source LocationId, and adds their registered faction names to
+the native guard/bailiff **regional** predicates. The native
+profession checks, other predicates, original faction identities and directional
+relationships remain intact. Every duplicate faction-table definition is
+updated. Unplaced cinematic actors, unregistered locations and factions
+represented only by renegade-role actors do not qualify.
+
+Live testing rejected version 6: guards and the bailiff still had
+`crime_isAuthority=false`, civilians had `crime_skipInformationBroadcast=true`,
+and the district had zero `crime_authority` links. That version incorrectly
+joined faction labels with semicolons and used an undeclared custom label.
+Retail `FactionTree` uses whitespace-separated enum names (for example,
+`city settlement`); `faction_label.xml` already declares `settlement`.
+
+Crime-service receipt version 8 and Setup recipe 65 repair those contracts through
+both fresh finalization and saved-package migration. Versions 5/6/7 upgrade without
+rebuilding punishment scenes or clothing. The repair removes its old custom
+label and preserves existing native labels. Validation checks the selector contract,
+faction labels, locations and recorded resource hashes. Ten regression tests
+cover native/imported authority classification, ordinary civilians, two towns,
+visitors, renegades, conflicting locations, repeated upgrades and hardlink-safe
+migration without rebuilding scenes, including malformed version-6 labels.
+Both male and female native NPC classes participate in resident discovery. A
+female-only settlement regression prevents the previous male-only enumeration
+from silently skipping its faction. The final candidate upgraded in 5.5 seconds,
+covering five faction leaves and 54 registered residents (eight authorities).
+Its labels were also checked against the installed native label registry.
+After installing version 7 and restarting, live probes confirmed authority contexts on
+all eight imported guards/bailiffs and eight dynamic `crime_authority` links
+in the Skalitz district. The sampled settlement civilians now have
+`crime_skipInformationBroadcast=false`; civilians remain non-authorities.
+The evidence is in `outputs/crime-witness-runtime-20261027/live-initialization.json`
+and `live-all-actors.json`. Three actors in non-settlement source factions
+(unpopular, best friends, millers) still retain the native broadcast restriction;
+this migration does not invent a regional affiliation for those factions.
+The user then confirmed guards approached when witnessing a civilian assault,
+and some civilians reported while others fled. These are user-observed results,
+not a captured report-delivery trace. The user also observed guards losing Henry
+after he ran to the other end of the village. The native reporting, estimated
+tracking, escape and search-origin scripts are not overridden by the package;
+their presence does not prove search/navigation works correctly on this map.
+Investigation duration, reacquisition, save/load and off-duty behavior remain
+unverified. The female-only settlement extension in version 8 has package/test
+coverage but has not yet received a separate in-game trial.
+
+In the latest installed-build retest the user identified missing speech as the
+remaining issue: surrender, punishment choices, replies and other dialogue lines
+are silent. This is broader than a single punishment scene. The witness/authority
+repair does not repair or verify dialogue recording resolution; that audio issue
+remains open pending a shared voice-binding and localization audit.
+
 ## Integration acceptance boundary
 
 1. Replace the selected source props through the normal world builder, retaining

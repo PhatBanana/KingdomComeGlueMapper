@@ -8,7 +8,7 @@ import zipfile
 
 from upgrade_map import read
 
-VERSION=5
+VERSION=8
 RECORD='crime-services.json'
 TRAVEL='Data/gluemappertravel.pak'
 
@@ -20,7 +20,7 @@ def validate(package, report):
     from campaign_entity_links import guid_value
     from campaign_trigger_areas import read_areas
     package=Path(package)
-    if report.get('version') not in (1, 2, 3, 4, VERSION): raise ValueError('Unsupported crime service receipt')
+    if report.get('version') not in range(1, VERSION + 1): raise ValueError('Unsupported crime service receipt')
     with zipfile.ZipFile(package/report['level_pak']) as z:
         mission=E.fromstring(read(z,'objects_mission0.xml'))
         byguid={e.get('EntityGuid'):e for e in mission if e.get('EntityGuid')}
@@ -87,6 +87,25 @@ def validate(package, report):
             from world_crime_graphs import LINK_TYPES, location_link_type
             blob=read(z,LINK_TYPES)
             if location_link_type(blob)!=blob: raise ValueError('Missing punishment location link declaration')
+        if report['version'] >= 7:
+            from world_crime_factions import BASE, LEGACY_LABEL, authority_selectors
+            blob=read(z,BASE)
+            witness=report['witness_reporting']
+            if authority_selectors(blob,witness['factions'])!=blob: raise ValueError('Missing imported authority selectors')
+            if not witness['factions'] or not witness['settlement_information_broadcast']:
+                raise ValueError('Missing settlement witness reporting')
+            seen=set()
+            for path in report['resources']:
+                if '/factiontree' not in path.lower(): continue
+                for faction in E.fromstring(read(z,path)).iter('Faction'):
+                    name=faction.get('Name')
+                    if name not in witness['factions']: continue
+                    labels=faction.get('Labels','').split()
+                    if ('settlement' not in labels or LEGACY_LABEL in labels
+                            or faction.get('LocationId')!=witness['factions'][name]):
+                        raise ValueError('Missing settlement faction contract '+name)
+                    seen.add(name)
+            if seen!=witness['factions'].keys(): raise ValueError('Missing settlement faction resource')
     return report
 
 
@@ -180,18 +199,24 @@ def upgrade(package, source, target, notify=lambda *a:None):
         report=json.loads((package/RECORD).read_text(encoding='utf8'))
         validate(package,report)
         if report['version']==VERSION:return {},report
-        if source is None or target is None: raise ValueError('Both games are required to upgrade cinematic residents')
-        notify('Connect local crime and punishments',0,2,'Bind scenes to registered destination residents')
-        scene_files=refresh_scene_cast(package,source,target,report)
+        if source is None or target is None: raise ValueError('Both games are required to upgrade local crime services')
+        notify('Connect local crime and punishments',0,2,'Connect settlement witnesses and native authorities')
+        scene_files=refresh_scene_cast(package,source,target,report) if report['version']<5 else {}
         name,blob=location_types(package,target)
-        rewrite(package,report['level_pak'],scene_files)
-        rewrite(package,TRAVEL,{name:blob})
+        from world_crime_factions import package_resources
+        resources,witness=package_resources(package,source,target,report['level_pak'])
+        resources[name]=blob
+        if scene_files: rewrite(package,report['level_pak'],scene_files)
+        rewrite(package,TRAVEL,resources)
+        report['resources'].update({p:sha(b) for p,b in resources.items()})
+        report['witness_reporting']=witness
         report['resources'][name]=sha(blob);report['version']=VERSION
         report['graphs']['local_location_link_type']='string'
         validate(package,report)
         pending=package/(RECORD+'.pending');pending.write_text(json.dumps(report,indent=2),encoding='utf8');pending.replace(package/RECORD)
-        notify('Connect local crime and punishments',2,2,'Local cast and persistent stand validated; live playback still required')
-        return {p:digest(package/p) for p in (report['level_pak'],TRAVEL,RECORD)},report
+        notify('Connect local crime and punishments',2,2,'Settlement reporting and authority contracts validated; live testing still required')
+        changed=[TRAVEL,RECORD]+([report['level_pak']] if scene_files else [])
+        return {p:digest(package/p) for p in changed},report
     if source is None or target is None: raise ValueError('Both games are required for local crime integration')
     source,target=map(Path,(source,target));receipt=json.loads((package/RECEIPT).read_text(encoding='utf8'))
     level=receipt['travel_bridge']['destination'];source_level=receipt['campaign_level'].removeprefix('kcd1_')
@@ -246,12 +271,15 @@ def upgrade(package, source, target, notify=lambda *a:None):
     with zipfile.ZipFile(target/'Data/Scripts.pak') as z:
         graphs,graph_report=graphs_prepare(resources[entry],resources[wrapper],entry,wrapper,z,selection['faction'])
     name,blob=location_types(package,target);graphs[name]=blob
+    from world_crime_factions import package_resources
+    witness_resources,witness=package_resources(package,source,target,lp)
+    graphs.update(witness_resources)
     graph_report['local_location_link_type']='string'
     with zipfile.ZipFile(target/'Data/IPL_GameData.pak') as z:
         graph_report['validated_graphs']=validate_dependency_scopes({p:b for p,b in graphs.items() if p.startswith('Quests/')},
             wrapper,read(z,'Libs/concept/definitions.xml'))
     report.update(version=VERSION,status='bound_native_services',level_pak=lp,source_level=source_level,
-        graphs=graph_report,removed_stocks=removed,hlods_sha256=sha(updated),
+        graphs=graph_report,witness_reporting=witness,removed_stocks=removed,hlods_sha256=sha(updated),
         resources={p:sha(b) for p,b in graphs.items()},
         scene_files={p['layer']:sha(files['layers/'+p['layer']+'.xml']) for p in report['scene_profiles']})
     mission=E.fromstring(files['objects_mission0.xml'])
