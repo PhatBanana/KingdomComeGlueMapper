@@ -81,6 +81,35 @@ class NPCEffectsTests(unittest.TestCase):
             self.assertEqual(payload[84:88],b'DX10')
             np.testing.assert_array_equal(np.frombuffer(payload[148:],dtype='<f2'),result.reshape(-1))
 
+    def test_srgb_dds_keeps_encoded_bytes_and_is_flagged(self):
+        import struct
+        def bc1(dxgi):
+            header=bytearray(148); header[:4]=b'DDS '
+            struct.pack_into('<7I',header,4,124,0x81007,4,4,8,0,1)
+            struct.pack_into('<2I4s',header,76,32,4,b'DX10'); struct.pack_into('<I',header,108,0x1000)
+            struct.pack_into('<5I',header,128,dxgi,3,0,1,0)
+            return bytes(header)+struct.pack('<HHI',0x07e0,0x001f,0x55555555)
+        with tempfile.TemporaryDirectory() as tmp:
+            srgb,linear=Path(tmp)/'srgb.dds',Path(tmp)/'linear.dds'
+            srgb.write_bytes(bc1(72)); linear.write_bytes(bc1(71))
+            a,b=read_dds_family(srgb),read_dds_family(linear)
+            self.assertEqual(a.tobytes(),b.tobytes())
+            self.assertTrue(a.info['srgb']); self.assertFalse(b.info['srgb'])
+
+    def test_colour_zone_mask_is_indexed_after_srgb_decoding(self):
+        # Encoded 204 is zone 3 as stored but zone 2 once decoded (0.604).
+        diffuse=Image.new('RGBA',(1,1),(200,200,200,255))
+        mask=Image.new('RGBA',(1,1),(0,204,0,255))
+        material=ET.fromstring('<Material StringGenMask="%COLORIZING_WITH_MASK">'
+                               '<PublicParams MaskBrightness2="0.5" MaskBrightness3="1"/></Material>')
+        stored=bake_macro_diffuse(diffuse,material,mask)
+        # The engine's HSV matrix is only approximately the identity at neutral settings.
+        np.testing.assert_allclose(stored,bake_macro_diffuse(diffuse,ET.Element('Material')),atol=.005)
+        mask.info['srgb']=True
+        decoded=bake_macro_diffuse(diffuse,material,mask)
+        np.testing.assert_allclose(decoded[0,0,:3].astype(np.float32)**(1/2.2),
+                                   stored[0,0,:3].astype(np.float32)**(1/2.2)*.5,rtol=.01)
+
     def test_float_textures_start_at_the_largest_mip_within_the_size_cap(self):
         import struct
         from npc_effects import MAX_FLOAT_SIZE
