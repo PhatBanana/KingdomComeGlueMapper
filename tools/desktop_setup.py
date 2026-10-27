@@ -83,6 +83,24 @@ def free_space(path):
     return shutil.disk_usage(path).free
 
 
+def linkable(name):
+    """Package files the installer may hard link instead of copying.
+
+    Only archives: every package writer replaces a .pak through a new file
+    (rewrite, rewrite_pak, *.pending + replace), which detaches the link. Small
+    metadata (receipt, manifest, JSON records) is always copied, so a tool that
+    rewrites one of those in place cannot reach the installed mod.
+    """
+    return Path(name).suffix.lower() == '.pak'
+
+
+def same_volume(a, b):
+    a, b = Path(a).resolve(), Path(b).resolve()
+    while not b.exists(): b = b.parent
+    try: return os.stat(a).st_dev == os.stat(b).st_dev
+    except OSError: return False
+
+
 def preflight(config):
     source, target = (Path(config[k]).resolve() for k in ('kcd1', 'kcd2'))
     version = validate_games(source, target)
@@ -134,7 +152,10 @@ def preflight(config):
         if not receipt_path.is_file(): raise ValueError('Choose a generated package containing gluemapper-install.json.')
         if not json.loads(receipt_path.read_text(encoding='utf-8')).get('travel_bridge'):
             raise ValueError('This is an old world-only package. Use Build and install to generate the complete world and travel mod.')
-        install_bytes = sum(p.stat().st_size for p in package.rglob('*') if p.is_file()) + GIB
+        # Archives on the game's volume are hard linked, not copied (install_transaction).
+        linked = same_volume(package, target)
+        install_bytes = sum(p.stat().st_size for p in package.rglob('*')
+                            if p.is_file() and not (linked and linkable(p.name))) + GIB
     if free_space(workspace) < build_bytes:
         raise ValueError(f'Build folder needs at least {build_bytes / GIB:.1f} GiB free; {free_space(workspace) / GIB:.1f} GiB available.')
     if action != 'build_only':
@@ -225,7 +246,13 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
     if package == destination or package.is_relative_to(destination): raise ValueError('Select a separate source package')
     total = sum((package / n).stat().st_size for n in receipt['files'])
     reusable = {n for n,h in receipt['files'].items() if previous_receipt['files'].get(n) == h}
-    remaining_copy = sum((package / n).stat().st_size for n in receipt['files'] if n not in reusable)
+    # On the game's volume, archives are hard linked to the package instead of
+    # copied: no second ~100 GB copy and no space demanded for them up front.
+    # Package writers replace archives (new inode), so later package edits do
+    # not reach the installed mod; see linkable().
+    share_package = same_volume(package, target)
+    def counted(name): return name not in reusable and not (share_package and linkable(name))
+    remaining_copy = sum((package / n).stat().st_size for n in receipt['files'] if counted(n))
     remaining_copy += (package / RECEIPT).stat().st_size
     if free_space(target) < remaining_copy + GIB:
         raise ValueError(f'Completed package retained at {package}. Installation needs '
@@ -238,28 +265,57 @@ def install_transaction(package, target, notify=lambda *args: None, cancelled=la
     with tempfile.TemporaryDirectory(prefix='.gluemapper-install-', dir=target) as temporary:
         stage = Path(temporary) / MOD_ID
         count = 0
+        reread = []
         for name in [*receipt['files'], RECEIPT]:
             if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
             dest = stage / name; dest.parent.mkdir(parents=True, exist_ok=True)
-            linked = False
+            linked = reused = None
             if name in reusable:
                 try:
                     os.link(destination / name, dest)
-                    linked = True
+                    reused = 'Verifying reused mod files'
                 except OSError:
                     if free_space(target) < remaining_copy + (package/name).stat().st_size + GIB:
                         raise ValueError('Cannot reuse unchanged files on this filesystem; insufficient space for a copy')
+            elif share_package and linkable(name):
+                try:
+                    os.link(package / name, dest)
+                    linked = 'Verifying linked mod files'
+                except OSError:
+                    if free_space(target) < remaining_copy + (package/name).stat().st_size + GIB:
+                        raise ValueError('Cannot link package files on this filesystem; insufficient space for a copy')
+            # A package link is hashed through its staged name: exactly the bytes
+            # that will be installed. Reused and copied files hash the package
+            # here and their staged bytes are re-read below, as before.
             hashed = hashlib.sha256()
-            with (package / name).open('rb') as inp, (nullcontext(None) if linked else dest.open('xb')) as out:
+            with (dest if linked else package / name).open('rb') as inp, (nullcontext(None) if linked or reused else dest.open('xb')) as out:
                 while chunk := inp.read(4 * 1024 ** 2):
                     if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
                     if out is not None: out.write(chunk)
                     hashed.update(chunk); count += len(chunk)
-                    notify('Verifying reused mod files' if linked else 'Copying mod files', min(count, total), total, name)
+                    notify(linked or reused or 'Copying mod files', min(count, total), total, name)
             if name != RECEIPT and hashed.hexdigest() != receipt['files'][name]:
                 raise ValueError(f'Package changed: {name}')
-            if name not in reusable: remaining_copy -= (package/name).stat().st_size
-        verify_package(stage)
+            if not linked and name != RECEIPT: reread.append(name)
+            if counted(name): remaining_copy -= (package/name).stat().st_size
+        # Layout and receipt only; package links were hashed above. Reused and
+        # written files are read back from disk, as a full stage verification did before.
+        verify_package(stage, hashes=False)
+        if reread:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            from setup_campaign import digest, hash_workers
+            sizes = {n: (stage / n).stat().st_size for n in reread}
+            checked, written = 0, sum(sizes.values())
+            with ThreadPoolExecutor(max_workers=hash_workers()) as pool:
+                pending = {pool.submit(digest, stage / n): n for n in reread}
+                for done in as_completed(pending):
+                    name = pending[done]
+                    if done.result() != receipt['files'][name]: raise ValueError(f'Package changed: {name}')
+                    checked += sizes[name]
+                    notify('Verifying staged mod files', checked, written, name)
+                    if cancelled():
+                        for future in pending: future.cancel()
+                        raise Cancelled('Installation cancelled before replacing the mod')
         if cancelled(): raise Cancelled('Installation cancelled before replacing the mod')
         if game_running(): raise ValueError('Game started during setup; close it and retry installation')
         # Keep rollback only for this transaction. Generated mods are reproducible;
