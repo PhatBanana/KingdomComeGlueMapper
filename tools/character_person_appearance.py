@@ -391,7 +391,8 @@ def _build_appearance(source, target, person, namespace, output, *, notify=lambd
         # The float bakes run in worker processes; leaving the block waits for them
         # (or, on failure, cancels and joins them) before anything reads the outputs.
         notify('Baking native materials and textures')
-        with Bakes(reuse=True) as bakes:
+        # Coverage below reads the encoded diffuse alpha, so wait for the textures.
+        with Bakes(reuse=True, encode_now=True) as bakes:
             material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
                                                           native, namespace, sex, bakes, preserve_hiding=True)
         from clothing_coverage import register_fixed_body_coverage
@@ -479,7 +480,9 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
     notify('Writing meshes and source textures')
     write_staged(output, {**emitted, **additions})
     notify('Baking native materials and textures')
-    with Bakes(reuse=True) as bakes:
+    # Coverage below reads the encoded diffuse alpha, so this conversion waits
+    # for its textures even when the caller defers compression.
+    with Bakes(reuse=True, encode_now=True) as bakes:
         material_report = convert_character_materials(output, document.find('CharacterComponents/Component'),
                                                       native, namespace, 'female', bakes)
     from clothing_coverage import register_coverage
