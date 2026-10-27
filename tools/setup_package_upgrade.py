@@ -310,10 +310,6 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from region_travel_ui_gate import upgrade as upgrade_arrival_ui
     arrival_files, receipt['arrival_ui_gate'] = upgrade_arrival_ui(package)
     receipt['files'].update(arrival_files)
-    from world_speech_audio import upgrade as upgrade_world_speech
-    speech_files, speech_report = upgrade_world_speech(package, target, notify)
-    receipt['files'].update(speech_files)
-    receipt['world_speech_audio'] = speech_report
     level = 'Data/Levels/kcd1_travel/level.pak'
     if format_level_changes:
         rewrite(package, level, format_level_changes)
