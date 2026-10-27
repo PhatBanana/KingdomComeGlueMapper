@@ -266,6 +266,39 @@ are silent. This is broader than a single punishment scene. The witness/authorit
 repair does not repair or verify dialogue recording resolution; that audio issue
 remains open pending a shared voice-binding and localization audit.
 
+### Shared-library reply audio (27 October 2026)
+
+That audit found the relocated world contains two native audio roots. Retail
+declares `open_world` and `utils` as siblings; dependency packaging places the
+private `utils` library inside the converted world. The previous speech pass
+only selected files below `dialog/open_world/`. It therefore omitted all 935
+recorded response IDs under the shared library, including guard arrest dialogue,
+Henry's replies, punishment choices and payment replies. The native English
+archives contain 7,715 corresponding voice variants; none existed at the
+imported library's destination paths in the installed package.
+
+`world_speech_audio` now discovers audio roots from native project declarations
+and partitions the final dependency closure at those roots. It computes each
+destination through the imported instance hierarchy. The resulting shared-library
+mapping is `dialog/utils/` to `dialog/kcd1_travel/open_world/utils/`; names and
+response IDs are discovered from the graphs rather than an arrest-only list.
+Original filenames, all available speaker variants and the native dubbing index
+are retained. Speaker identities, text and punishment logic are unchanged.
+The same pass already runs after crime integration in both fresh finalization
+and saved-package migration. Setup recipe 66 ensures older saved builds receive it.
+
+Seven audio tests cover native source roots, imported scopes, both sides of a reply,
+multiple civilian voices, filename case, preserved custom audio and dubbing data,
+hardlink safety, repeated upgrades, later-added controller dependencies and a
+retained world scope with a relocated shared library.
+The related 74-test suite passed. A private real-package upgrade added all 7,715
+missing recordings, verified their CRC/size and existing dubbing-index entries,
+and left the previously packaged 56,955 world recordings intact. Build plus
+idempotence verification took 12.5 seconds. Evidence is in
+`outputs/dialogue-shared-voices-20261027/build-result.json`.
+This establishes package coverage; audible playback and lip sync still require
+an in-game retest and are not asserted by these checks.
+
 ## Integration acceptance boundary
 
 1. Replace the selected source props through the normal world builder, retaining
