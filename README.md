@@ -316,6 +316,8 @@ native gameplay still requires engine verification.
 
 The [Clothing & Body Test workbench](tools/clothing_lab/README.md) provides a standalone 3D viewer and repeatable audits for male/female clothing, layer combinations, and all KCD1 soul records. It is a developer tool, separate from the consumer setup application. Launch it with `.venv/Scripts/python.exe tools/clothing_lab_app.py`.
 
+The [Asset contract gate](tools/asset_lab/README.md) checks converted textures, meshes, materials and level placement records against limits and conventions measured from the retail KCD2 install, without launching the game. It flags stream pieces larger than anything retail ships, broken texture streaming families, malformed meshes, unknown shaders or generation flags, collision-proxy materials that would be drawn, and implausible HLOD records, and lists the largest streaming pieces. Run it with `.venv/Scripts/python.exe tools/asset_lab_test.py audit <package> --target <KCD2 install> --output outputs/asset-lab`. It is a developer tool, separate from Setup; its thresholds are retail observations rather than proven engine limits, and unmodelled areas are reported as unsupported ([validation notes](docs/asset-emulator-validation.md)).
+
 ## Documentation and issue reports
 
 - [Setup, installation and rollback](docs/windows-setup.md)
