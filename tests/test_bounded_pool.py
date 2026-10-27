@@ -57,6 +57,8 @@ class BoundedPoolTests(unittest.TestCase):
             adapter = object.__new__(ClothingAdapter)
             adapter.assets = SimpleNamespace(emitted=StagedAssets(staged))
             adapter.stack, adapter.defer, adapter.pool = stack, True, None
+            from texture_encode import Batches
+            adapter.batches = Batches()
             from collections import deque
             adapter.pending = deque()
             names, expected = [], {}

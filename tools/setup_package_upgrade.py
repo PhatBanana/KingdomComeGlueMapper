@@ -74,6 +74,20 @@ def rewrite(package, relative, replacements, remove=lambda name: False):
     pending.replace(path)
 
 
+def upgrade_clothing_textures(package, receipt, target, notify, cancelled):
+    """Store saved float/RGBA8 clothing textures in their native compressed formats.
+
+    Runs after actor-material migration, which may rebake clothing. Fresh builds
+    that already encode BC7 find nothing to convert and only stamp the receipt.
+    """
+    from clothing_texture_upgrade import RECEIPT_KEY, upgrade
+    files, report = upgrade(package, target, notify, cancelled)
+    receipt['files'].update(files)
+    previous = receipt.get(RECEIPT_KEY)
+    if files or not previous or previous.get('mode') != report['mode']:
+        receipt[RECEIPT_KEY] = report
+
+
 def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambda *a: None, cancelled=lambda: False):
     """Called only on a private build or the transactional resume staging copy."""
     from campaign_start_policy import gate_start
@@ -170,6 +184,8 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         receipt['files'].update(files); receipt['vegetation_terrain_tilt'] = report
         from clothing_zone_upgrade import apply as rebake_clothing_zones
         rebake_clothing_zones(package, receipt, notify, cancelled)
+
+        upgrade_clothing_textures(package, receipt, target, notify, cancelled)
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -446,6 +462,7 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     # After the male re-conversion above, which already bakes decoded zones.
     from clothing_zone_upgrade import apply as rebake_clothing_zones
     rebake_clothing_zones(package, receipt, notify, cancelled)
+    upgrade_clothing_textures(package, receipt, target, notify, cancelled)
     from item_icons import upgrade as upgrade_item_icons
     icon_files, icon_report = upgrade_item_icons(package, source)
     receipt['files'].update(icon_files)
