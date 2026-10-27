@@ -240,6 +240,9 @@ def run(source, target, package, work, notify=lambda *a: None, cancelled=lambda:
     report['steps'].append(dict(name='KCD1 New Game menu'))
     receipt = verify_package(package, hashes=False)
     receipt['build_recipe'] = report
+    # People in this build were baked with decoded colour-zone masks.
+    from clothing_zone_upgrade import fresh_report
+    receipt['clothing_zone_mask'] = fresh_report()
     pending = package / (RECEIPT+'.pending')
     pending.write_text(json.dumps(receipt, indent=2))
     pending.replace(package/RECEIPT)
