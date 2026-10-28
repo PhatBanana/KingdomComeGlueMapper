@@ -17,6 +17,7 @@ from vegetation import read_instances, verify_target_hlods, convert_instance
 from merged_vegetation import inventory, convert_cell, build_tree
 from vegetation_gi import upgrade_group
 from vegetation_tilt import HeightField, source_tilts
+from retired_shaders import drop_undeclared_features, target_features
 
 
 def main():
@@ -94,6 +95,9 @@ def main():
             doc = ET.fromstring(asset_read(name+".mtl"))
             for element in doc.iter("Material"):
                 element.attrib.pop("GenMask", None)
+                # KCD1 materials carry flags such as %BUMP_MAP that neither
+                # game's shader declares; the bound textures select the maps.
+                drop_undeclared_features(element, target_features(args.library))
             for tex in doc.iter("Texture"):
                 original = tex.get("File", "").replace("\\", "/").lower()
                 if not original or original.startswith("$"):
