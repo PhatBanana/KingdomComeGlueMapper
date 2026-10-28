@@ -62,6 +62,26 @@ def refresh_receipt(package, report):
     verify_package(package,hashes=False)
 
 
+def _resolve_arrivals(job):
+    """Worker: resolve one person's source arrivals with its own archive and reader."""
+    from character_schedule_world import resolve_arrivals
+    schedule, person, source, source_level, target = job
+    with RetailSourceReader(source) as reader,             zipfile.ZipFile(source/'Data/Levels'/source_level/'level.pak') as archive:
+        return resolve_arrivals(schedule, archive, person, source, reader, target)
+
+
+def resolve_all(jobs, notify):
+    """Resolve independent people in parallel; results keep the input order.
+
+    Arrival resolution only reads the source level and tables. Binding into the
+    shared mission stays serial and in the original order.
+    """
+    from bounded_pool import ordered_map, worker_count
+    workers = worker_count(len(jobs), 1024**3, 'GLUEMAPPER_SCHEDULE_WORKERS', limit=12)
+    notify(f'Resolving {len(jobs)} source schedules with {workers} workers')
+    return list(ordered_map(_resolve_arrivals, jobs, workers, window=1))
+
+
 def upgrade_work(source, target, package, source_level, level, people, new_people, merchants, tables, reader,
                  notify=lambda message: None):
     from character_schedule import plan
@@ -105,8 +125,8 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             entries = resolve_arrivals(dict(schedule, resolved=housework), archive, person, source, reader)
             files, repaired = repair_housework_bindings(files, {name: entries}, archive)
             pending.extend(repaired)
+        ready=[]
         for name in sorted(eligible):
-            notify('Converting source schedule: ' + name)
             person=people[name];schedule=plan(person,tables)
             if schedule['pending'] or not schedule['resolved']:
                 pending.append(dict(person=name, reason='Source schedule is unresolved', schedule=schedule));continue
@@ -118,7 +138,10 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             if ('final/sa_garrison.xml','Guard') in kinds and not any(
                     l['label']=='garrison_forcedWorkplace' for l in person['ai']['links']):
                 pending.append(dict(person=name, reason='Source garrison assignment is pending', schedule=schedule));continue
-            entries=resolve_arrivals(schedule,archive,person,source,reader,target)
+            ready.append((name,schedule))
+        resolved=resolve_all([(schedule,people[name],source,source_level,target) for name,schedule in ready],notify)
+        for (name,_),entries in zip(ready,resolved):
+            notify('Converting source schedule: ' + name)
             working,_=bind_arrivals(files,{name:entries},target)
             working,jobs=bind_jobs(working,{name:entries},archive,target,items,convert_routes=True)
             files=working;converted.extend(jobs)
@@ -149,7 +172,7 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
                          and (e.find('Properties').get('guidSmartObjectType') == ARRIVAL_TEMPLATE
                               or e.find('Properties').get('guidSmartObjectType') == sweeping_template
                               or e.get('EntityClass') == 'SchedulerHub')}
-        housework_schedules = {}
+        housework = []
         for name in sorted(set(people)-set(merchants)):
             actor = next((e for e in mission if e.get('Name') == name), None)
             if actor is None or actor.get('EntityClass') not in ('NPC', 'NPC_Female') or not any(
@@ -159,7 +182,9 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             person = people[name]; schedule = plan(person, tables)
             work = [e for e in schedule['resolved'] if fence_supports(e)]
             if not schedule['pending'] and work:
-                housework_schedules[name] = resolve_arrivals(dict(schedule, resolved=work), archive, person, source, reader, target)
+                housework.append((name, dict(schedule, resolved=work)))
+        resolved = resolve_all([(schedule, people[name], source, source_level, target) for name, schedule in housework], notify)
+        housework_schedules = {name: entries for (name, _), entries in zip(housework, resolved)}
         if housework_schedules:
             notify('Binding fence work')
             files, repaired = upgrade_fences(files, housework_schedules, archive, target)
