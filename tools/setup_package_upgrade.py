@@ -225,7 +225,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
                 raise ValueError('KCD1 source folder required to restore quest objective markers')
             from quest_import import import_quest
             from campaign_quest_people import bind_markers
-            model, _ = import_quest(Path(source), QUEST)
+            from campaign_sources import RetailSourceReader
+            with RetailSourceReader(source) as reader:
+                model, _ = import_quest(Path(source), QUEST, source_reader=reader)
             with zipfile.ZipFile(package/'Data/Levels/kcd1_travel/level.pak') as level_archive:
                 wh = ET.fromstring(read(level_archive, 'whdata_0'))
             registered = {s.findtext('SharedSoulGuid') for s in wh.findall('SoulList/Souls/Soul')}
