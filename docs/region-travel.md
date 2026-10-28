@@ -286,17 +286,9 @@ level omitted. `tools/region_travel_entry.py` now packages the following togethe
   no `use_cart`/`InteractionTriggerNode` consumer, so the port is generated but
   unconsumed, which the build receipt now records as `ready_port_consumers: 0`.
   This is an offline/structural correction; connecting a real gate still needs a
-  consumer and in-game acceptance. Entry and revisit rely on
-  `OnWake`/`OnLevelSwitched`; streaming readiness has no timer or per-frame script.
-- Issue #3 mitigation (`tools/region_travel_ui_gate.py`): the same two Level
-  events start one native 90 s `GameTime` `Timer`; while it runs a native
-  `FilterInput` applies the retail action filters `no_inventory` (every
-  `open_apse_*` action: inventory, player, journal, map, codex) and
-  `no_interaction` (`use`/`talk`, so shop `OpenShop` dialogues and the return
-  coach wait too). The block is silent and releases only when the timer ends.
-  `onloaded` is not used as the release because it only acknowledges the small
-  station profile, not world streaming. Saved builds receive the nodes through
-  `setup_package_upgrade.finalize`. This is not yet verified in game.
+  consumer and in-game acceptance. No inventory or map input gate exists in this
+  overlay, so issue #3 remains open and unimplemented. Entry and revisit rely on
+  `OnWake`/`OnLevelSwitched`, with no timer or per-frame script.
 - A `GameProfileManager` arrival profile, its layer metadata, entity ID
   reservations and layer payload. The existing cart, return driver and home move
   into this profile with their identities preserved. The stale
