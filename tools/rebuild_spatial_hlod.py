@@ -29,6 +29,25 @@ def polygon_contains(point, polygon):
     return inside
 
 
+def polygon_bounds(polygon):
+    """Box outside which polygon_contains is always False, or None for a non-finite polygon.
+
+    A point below the lowest vertex or level with/above the highest crosses no edge (the
+    comparisons are exact), and one left of every vertex crosses an even number. x is
+    padded far beyond any rounding in the crossing division."""
+    xs=[p[0] for p in polygon];ys=[p[1] for p in polygon]
+    if not all(map(math.isfinite,xs+ys)):return None
+    pad=1e-6*(1+max(map(abs,xs)))
+    return min(xs)-pad,max(xs)+pad,min(ys),max(ys)
+
+
+def bounded_contains(point, polygon, bounds):
+    """polygon_contains, skipping the edge walk for points outside polygon_bounds."""
+    x,y=point
+    if bounds is not None and not (bounds[0]<=x<=bounds[1] and bounds[2]<=y<bounds[3]):return False
+    return polygon_contains(point,polygon)
+
+
 def native_proxy_flags(level):
     with zipfile.ZipFile(Path(level)/'level.pak') as z:
         tree=ET.fromstring(read(z,'terrain/hlods.xml'));data=read(z,'terrain/hlods.dat')
@@ -98,7 +117,7 @@ def build(library, level, output, native_level, compiler=None, source_level="rat
             elif kind=='UberlodBrushes':
                 poly=[tuple(map(float,p.get('Coord').split(','))) for p in entry.findall('Shape/Point')]
                 if len(poly)<3:raise ValueError('Invalid source brush polygon')
-                brush_regions.append((key,poly))
+                brush_regions.append((key,poly,polygon_bounds(poly)))
             else:raise ValueError('Unknown source near-object member type')
         fallback=defaultdict(list);ambiguous=set()
         for record in near:
@@ -108,7 +127,7 @@ def build(library, level, output, native_level, compiler=None, source_level="rat
             match=[vegetation[cell]] if kind==2 and cell in vegetation else []
             if kind==1:
                 original_layers=source_layers.get(record[4:28]+record[44:92],set())
-                match=[key for key,poly in brush_regions if groups[key][1]['layer'] in original_layers and polygon_contains(pos[:2],poly)]
+                match=[key for key,poly,bounds in brush_regions if groups[key][1]['layer'] in original_layers and bounded_contains(pos[:2],poly,bounds)]
             if len(match)==1:groups[match[0]][0].records.append(record)
             else:
                 ambiguous.update(match);fallback[(kind,*cell)].append(record)
