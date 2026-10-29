@@ -98,12 +98,52 @@ def heavy_slots(available=None):
 
 
 HEAVY_TRIANGLES=1_000_000  # the hybrid crossover; estimates at or above it take a heavy slot
+# Measured on the KCD1 scene (RTX 5090, one tile at a time): OptiX tiles took 2.0 GB more GPU memory
+# at 1.0M triangles and 12.3 GB at 18.6M, about 2 GB of textures plus 690 bytes per triangle.
+OPTIX_BASE=2*GIB;OPTIX_TRIANGLE=704;VRAM_RESERVE=GIB
+
+
+def gpu_free_memory():
+    """Free memory of the NVIDIA GPU in bytes from the driver's NVML library, or None when unknown.
+    With several GPUs the smallest free amount is used, since CUDA may order devices differently."""
+    import ctypes
+    try:nvml=ctypes.CDLL('nvml.dll' if os.name=='nt' else 'libnvidia-ml.so.1')
+    except OSError:return None
+    class Memory(ctypes.Structure):_fields_=[('total',ctypes.c_ulonglong),('free',ctypes.c_ulonglong),('used',ctypes.c_ulonglong)]
+    if nvml.nvmlInit_v2():return None
+    try:
+        count=ctypes.c_uint()
+        if nvml.nvmlDeviceGetCount_v2(ctypes.byref(count)) or not count.value:return None
+        free=[]
+        for index in range(count.value):
+            device=ctypes.c_void_p();memory=Memory()
+            if nvml.nvmlDeviceGetHandleByIndex_v2(index,ctypes.byref(device)) or nvml.nvmlDeviceGetMemoryInfo(device,ctypes.byref(memory)):return None
+            free.append(memory.free)
+        return min(free)
+    finally:nvml.nvmlShutdown()
+
+
+def gpu_budget(lanes,free=None):
+    """GPU memory one lane may use, from the memory free when the bake starts; None when unknown."""
+    free=gpu_free_memory() if free is None else free
+    return None if free is None else max(0,free-VRAM_RESERVE)//lanes
+
+
+def select_backend(backend,triangles,budget):
+    """Backend for one tile and why OptiX was skipped. Dense tiles go to OptiX only when their
+    estimated GPU memory fits the lane's budget, so small cards do not fail late and redo the tile."""
+    if backend!='auto':return backend,None
+    if triangles<1_000_000:return 'compiled',None
+    need=OPTIX_BASE+OPTIX_TRIANGLE*triangles
+    if budget is not None and need>budget:
+        return 'compiled',f'needs about {need/GIB:.1f} GiB of GPU memory; {budget/GIB:.1f} GiB free per GPU lane'
+    return 'optix',None
 
 
 class _TileBaker:
     """Per-process baking state. Decoded meshes, materials and textures are caches only, so a tile's
     bytes do not depend on which process bakes it or what it baked before."""
-    def __init__(self,scene,output,samples,experimental_base_materials,backend,workers,lanes=None,heavy=None):
+    def __init__(self,scene,output,samples,experimental_base_materials,backend,workers,gpu_budget=None,lanes=None,heavy=None):
         self.scene=Path(scene);self.plan=json.loads((self.scene/'plan.json').read_text())
         self.records=json.loads((self.scene/'placements.json').read_text())
         self.assets=Assets(self.plan['pak_root'],self.plan['overrides']);self.texture_cache=TextureCache();self.roots={};self.mesh_cache=MeshCache()
@@ -113,7 +153,7 @@ class _TileBaker:
             with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(data['transforms'],data['groups'])
         self.version=code_digest();self.asset_digest=self.assets.catalog_digest()
         self.samples=samples;self.experimental_base_materials=experimental_base_materials;self.backend=backend
-        self.workers=workers;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles={}
+        self.workers=workers;self.gpu_budget=gpu_budget;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles={}
 
     def estimated_triangles(self,job):
         """Upper bound on a tile's triangles (whole meshes, before clipping), read from array headers only."""
@@ -202,7 +242,8 @@ class _TileBaker:
             raster_start=time.perf_counter()
             # Conservative crossover between the measured small house (25k)
             # and dense scene (10.5m). It is a policy, not universal autotuning.
-            selected=('optix' if len(triangles)>=1_000_000 else 'compiled') if backend=='auto' else backend
+            selected,skipped=select_backend(backend,len(triangles),self.gpu_budget)
+            if skipped:audit['gpu_skipped_reason']=skipped
             fallback=None
             try:
                 with self.lanes if self.lanes is not None and selected in ('cuda','optix') else nullcontext():
@@ -265,7 +306,7 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
     if not jobs:raise ValueError('No tiles selected')
     if plan.get('asset_catalog_digest')!=assets.catalog_digest():
         raise ValueError('Asset catalog changed or was not fingerprinted; regenerate scene and landscape plan')
-    arguments=(scene,output,samples,experimental_base_materials,backend,workers)
+    arguments=(scene,output,samples,experimental_base_materials,backend,workers,gpu_budget(gpu_lanes()) if backend=='auto' else None)
     finished={}
 
     def summary():

@@ -13,7 +13,8 @@ import zipfile
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from world_surface_tiles import _TileBaker, _bounded_setting, gpu_lanes, heavy_slots, tile_workers, GIB, HEAVY_TRIANGLES
+from world_surface_tiles import (_TileBaker, _bounded_setting, gpu_budget, gpu_free_memory, gpu_lanes, heavy_slots,
+                                 select_backend, tile_workers, GIB, HEAVY_TRIANGLES)
 
 
 class ParallelBakeSettingsTests(unittest.TestCase):
@@ -68,6 +69,26 @@ class ParallelBakeSettingsTests(unittest.TestCase):
             baker.vegetation = (None, np.array([0, 0]))
             self.assertEqual(_TileBaker.estimated_triangles(baker, dict(light, vegetation=[0, 1])), 100_000)
             self.assertEqual(set(baker.mesh_triangles), set(sizes))  # each header read once
+
+    def test_dense_tiles_use_optix_only_when_they_fit_the_gpu(self):
+        large = 32 * GIB; small = 6 * GIB   # free GPU memory of a 32 GB and an 8 GB card
+        self.assertEqual(gpu_budget(1, large), 31 * GIB)
+        self.assertEqual(gpu_budget(2, large), 31 * GIB // 2)
+        self.assertEqual(gpu_budget(1, GIB // 2), 0)
+        self.assertEqual(select_backend('auto', 500_000, gpu_budget(1, small)), ('compiled', None))
+        self.assertEqual(select_backend('auto', 2_000_000, gpu_budget(1, small)), ('optix', None))
+        self.assertEqual(select_backend('auto', 18_600_000, gpu_budget(1, large)), ('optix', None))
+        selected, reason = select_backend('auto', 18_600_000, gpu_budget(1, small))
+        self.assertEqual(selected, 'compiled'); self.assertIn('GPU memory', reason)
+        self.assertEqual(select_backend('auto', 18_600_000, None), ('optix', None))   # unknown memory: try, fall back
+        for backend in ('compiled', 'cuda', 'optix'):   # an explicit backend is never rerouted
+            self.assertEqual(select_backend(backend, 18_600_000, 0), (backend, None))
+
+    def test_unknown_gpu_memory_is_none(self):
+        with patch('ctypes.CDLL', side_effect=OSError('no NVIDIA driver')):
+            self.assertIsNone(gpu_free_memory())
+        free = gpu_free_memory()   # whatever this machine reports
+        self.assertTrue(free is None or free >= 0)
 
 
 def empty_scene(root, tiles):
