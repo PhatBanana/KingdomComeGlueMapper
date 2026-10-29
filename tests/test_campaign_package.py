@@ -97,6 +97,26 @@ class CampaignPackageTests(unittest.TestCase):
         self.assertEqual(set(selected), set(files) - {
             'gluebuild/hops_other.cgf', 'gluebuild/hops_lod1_lod1.cgf'})
 
+    def test_reference_scan_matches_case_insensitive_search(self):
+        import random
+        from campaign_package import REFERENCE
+        rng = random.Random(28)
+        words = [b'GlueBuild', b'gluebuild', b'GLUEVEG', b'glueItems', b'glueNPC', b'GlueWater', b'gluelandscape',
+                 b'GLUEMAPPER', b'glue', b'gluex', b'GLUEBUILDING']
+        tails = [b'/Objects/Barn.CGF', b'\\Tex\\Wall_DDNA.dds', b'/a-b_c.mtl', b'/', b'/x\x00y', b'/\xe9t\xe9.cgf', b'']
+        def outcome(scan):
+            try:return scan()
+            except ValueError as error:return 'error', str(error)
+        unsafe = 0
+        for _ in range(2000):
+            parts = [bytes(rng.randrange(256) for _ in range(rng.randrange(12))) for _ in range(rng.randrange(1, 6))]
+            payload = b''.join(p + rng.choice(words) + rng.choice(tails) for p in parts)
+            expected = outcome(lambda: {safe_name(m.decode('ascii')) for m in REFERENCE.findall(payload)})
+            self.assertEqual(outcome(lambda: references(payload)), expected, payload)
+            unsafe += isinstance(expected, tuple)
+        self.assertTrue(0 < unsafe < 2000)   # both safe and rejected references were exercised
+        self.assertEqual(references(b'GlueBuild/Objects/Barn.CGF'), {'gluebuild/objects/barn.cgf'})
+
     def test_rejects_traversal(self):
         for name in ('glueitems/../base.cgf', '/absolute', 'C:/absolute', 'glueitems//x'):
             with self.assertRaises(ValueError):
