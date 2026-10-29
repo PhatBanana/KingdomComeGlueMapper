@@ -100,20 +100,13 @@ def heavy_slots(available=None):
 HEAVY_TRIANGLES=1_000_000  # the hybrid crossover; estimates at or above it take a heavy slot
 
 
-class _TileBaker:
-    """Per-process baking state. Decoded meshes, materials and textures are caches only, so a tile's
-    bytes do not depend on which process bakes it or what it baked before."""
-    def __init__(self,scene,output,samples,experimental_base_materials,backend,workers,lanes=None,heavy=None):
-        self.scene=Path(scene);self.plan=json.loads((self.scene/'plan.json').read_text())
-        self.records=json.loads((self.scene/'placements.json').read_text())
-        self.assets=Assets(self.plan['pak_root'],self.plan['overrides']);self.texture_cache=TextureCache();self.roots={};self.mesh_cache=MeshCache()
-        self.destination=Path(output) if output is not None else self.scene/'tiles'
-        self.vegetation=None
-        if self.plan.get('vegetation'):  # digest verified once by build()
-            with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(data['transforms'],data['groups'])
-        self.version=code_digest();self.asset_digest=self.assets.catalog_digest()
-        self.samples=samples;self.experimental_base_materials=experimental_base_materials;self.backend=backend
-        self.workers=workers;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles={}
+class _TriangleEstimate:
+    """Mesh-header triangle counts for a scene; shared by the bake workers and the submitting process."""
+    def __init__(self,scene,plan):
+        self.scene=Path(scene);self.plan=plan;self.records=json.loads((self.scene/'placements.json').read_text())
+        self.vegetation=None;self.mesh_triangles={}
+        if plan.get('vegetation'):
+            with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(None,data['groups'])
 
     def estimated_triangles(self,job):
         """Upper bound on a tile's triangles (whole meshes, before clipping), read from array headers only."""
@@ -129,6 +122,33 @@ class _TileBaker:
             groups=self.plan['vegetation']['groups']
             total+=sum(count(groups[str(int(self.vegetation[1][record_id]))]['cache_key']) for record_id in job.get('vegetation',[]))
         return total
+
+
+def interleaved(dense):
+    """Submission order that spreads dense tiles evenly among light ones, each kind keeping plan order.
+
+    Plan order clusters dense tiles (towns), so processes queue behind the heavy slots and idle.
+    Results are recorded by plan index, so tile bytes and the report do not depend on this order."""
+    key={}
+    for group in ([i for i,d in enumerate(dense) if d],[i for i,d in enumerate(dense) if not d]):
+        for rank,index in enumerate(group):key[index]=(rank+.5)/len(group)
+    return sorted(range(len(dense)),key=lambda index:(key[index],index))
+
+
+class _TileBaker(_TriangleEstimate):
+    """Per-process baking state. Decoded meshes, materials and textures are caches only, so a tile's
+    bytes do not depend on which process bakes it or what it baked before."""
+    def __init__(self,scene,output,samples,experimental_base_materials,backend,workers,lanes=None,heavy=None):
+        self.scene=Path(scene);self.plan=json.loads((self.scene/'plan.json').read_text())
+        self.records=json.loads((self.scene/'placements.json').read_text())
+        self.assets=Assets(self.plan['pak_root'],self.plan['overrides']);self.texture_cache=TextureCache();self.roots={};self.mesh_cache=MeshCache()
+        self.destination=Path(output) if output is not None else self.scene/'tiles'
+        self.vegetation=None
+        if self.plan.get('vegetation'):  # digest verified once by build()
+            with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(data['transforms'],data['groups'])
+        self.version=code_digest();self.asset_digest=self.assets.catalog_digest()
+        self.samples=samples;self.experimental_base_materials=experimental_base_materials;self.backend=backend
+        self.workers=workers;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles={}
 
     def bake(self,number,total,job):
         if self.heavy is None or self.estimated_triangles(job)<HEAVY_TRIANGLES:return self._bake(number,total,job)
@@ -291,14 +311,23 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         # heavy slot for their whole lifetime (bounding memory) and a GPU lane to rasterize.
         if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
         context=multiprocessing.get_context('spawn')
-        lanes=context.BoundedSemaphore(gpu_lanes());heavy=context.BoundedSemaphore(heavy_slots())
+        slots=heavy_slots();lanes=context.BoundedSemaphore(gpu_lanes());heavy=context.BoundedSemaphore(slots)
+        order=range(len(jobs))
+        if slots<processes:
+            estimate=_TriangleEstimate(scene,plan)
+            dense=[]
+            for number,job in enumerate(jobs):
+                if cancelled():raise InterruptedError('Bake cancelled while planning tile order; completed tiles retained.')
+                if progress:progress('Plan lighting tile order',number,len(jobs),f'Checking tile {number+1} of {len(jobs)}')
+                dense.append(estimate.estimated_triangles(job)>=HEAVY_TRIANGLES)
+            order=interleaved(dense);del estimate
         print(f'Baking {len(jobs)} tiles in {processes} processes ({workers} brick threads each, '
-              f'{heavy_slots()} dense tile(s) in memory, {gpu_lanes()} GPU lane(s))',flush=True)
+              f'{slots} dense tile(s) in memory, {gpu_lanes()} GPU lane(s))',flush=True)
         with ProcessPoolExecutor(max_workers=processes,mp_context=context,initializer=_start_baker,initargs=(arguments,lanes,heavy)) as pool:
             # Submit one tile per process and refill as tiles finish, checking for
             # cancellation before each start, so a cancelled bake starts no new tile
             # and shutdown only waits for the tiles already running.
-            queued=iter(enumerate(jobs));pending={}
+            queued=((number,jobs[number]) for number in order);pending={}
             def refill():
                 while len(pending)<processes:
                     if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')

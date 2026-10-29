@@ -13,7 +13,7 @@ import zipfile
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from world_surface_tiles import _TileBaker, _bounded_setting, gpu_lanes, heavy_slots, tile_workers, GIB, HEAVY_TRIANGLES
+from world_surface_tiles import _TileBaker, _bounded_setting, gpu_lanes, heavy_slots, interleaved, tile_workers, GIB, HEAVY_TRIANGLES
 
 
 class ParallelBakeSettingsTests(unittest.TestCase):
@@ -69,6 +69,19 @@ class ParallelBakeSettingsTests(unittest.TestCase):
             self.assertEqual(_TileBaker.estimated_triangles(baker, dict(light, vegetation=[0, 1])), 100_000)
             self.assertEqual(set(baker.mesh_triangles), set(sizes))  # each header read once
 
+    def test_dense_tiles_are_spread_through_the_submission_order(self):
+        # Plan order clusters a town's dense tiles; submission spreads them, each kind in plan order.
+        dense = [False, True, True, True, False, False, False, False, False]
+        order = interleaved(dense)
+        self.assertEqual(sorted(order), list(range(len(dense))))
+        self.assertEqual([i for i in order if dense[i]], [1, 2, 3])
+        self.assertEqual([i for i in order if not dense[i]], [0, 4, 5, 6, 7, 8])
+        positions = [order.index(i) for i in (1, 2, 3)]
+        self.assertTrue(all(b - a >= 2 for a, b in zip(positions, positions[1:])))
+        self.assertEqual(interleaved([False] * 4), [0, 1, 2, 3])  # nothing dense: plan order
+        self.assertEqual(interleaved([True] * 3), [0, 1, 2])
+        self.assertEqual(interleaved([]), [])
+
 
 def empty_scene(root, tiles):
     """A valid scene of empty tiles with an empty asset root, baked by the real tile code."""
@@ -109,6 +122,32 @@ class ParallelBakeCancellationTests(unittest.TestCase):
                     self.assertEqual(lane.entries, int(backend in ('cuda', 'optix')))
                 finally:
                     baker.assets.close()
+
+    def test_parallel_bake_with_fewer_dense_slots_reports_in_plan_order(self):
+        from world_surface_tiles import build
+        settings = {'GLUEMAPPER_BAKE_TILE_WORKERS': '2', 'GLUEMAPPER_BAKE_HEAVY_TILES': '1'}
+        with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, settings):
+            scene = empty_scene(t, 4)
+            # Make submission order differ from plan order without constructing huge meshes.
+            with patch('world_surface_tiles._TriangleEstimate.estimated_triangles', side_effect=[1_000_000, 1_000_000, 0, 0]):
+                results = build(scene)
+            self.assertEqual([r['origin'] for r in results], [tile['origin'] for tile in json.loads((scene / 'plan.json').read_text())['tiles']])
+            self.assertTrue(all(r['status'] == 'built' for r in results))
+
+    def test_cancellation_during_order_planning_starts_no_workers(self):
+        from world_surface_tiles import build
+        settings = {'GLUEMAPPER_BAKE_TILE_WORKERS': '2', 'GLUEMAPPER_BAKE_HEAVY_TILES': '1'}
+        with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, settings):
+            scene = empty_scene(t, 4)
+            messages = []
+            with patch('world_surface_tiles._TriangleEstimate.estimated_triangles', return_value=0) as estimate, \
+                 patch('world_surface_tiles.ProcessPoolExecutor') as pool:
+                with self.assertRaises(InterruptedError):
+                    build(scene, progress=lambda *args: messages.append(args), cancelled=lambda: bool(messages))
+                self.assertEqual(estimate.call_count, 1)
+                pool.assert_not_called()
+            self.assertEqual(messages[0][:3], ('Plan lighting tile order', 0, 4))
+            self.assertEqual(list((scene / 'tiles').glob('*.vox')), [])
 
     def test_a_cancelled_parallel_bake_starts_no_tile(self):
         from world_surface_tiles import build
