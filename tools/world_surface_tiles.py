@@ -315,7 +315,12 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         order=range(len(jobs))
         if slots<processes:
             estimate=_TriangleEstimate(scene,plan)
-            order=interleaved([estimate.estimated_triangles(job)>=HEAVY_TRIANGLES for job in jobs]);del estimate
+            dense=[]
+            for number,job in enumerate(jobs):
+                if cancelled():raise InterruptedError('Bake cancelled while planning tile order; completed tiles retained.')
+                if progress:progress('Plan lighting tile order',number,len(jobs),f'Checking tile {number+1} of {len(jobs)}')
+                dense.append(estimate.estimated_triangles(job)>=HEAVY_TRIANGLES)
+            order=interleaved(dense);del estimate
         print(f'Baking {len(jobs)} tiles in {processes} processes ({workers} brick threads each, '
               f'{slots} dense tile(s) in memory, {gpu_lanes()} GPU lane(s))',flush=True)
         with ProcessPoolExecutor(max_workers=processes,mp_context=context,initializer=_start_baker,initargs=(arguments,lanes,heavy)) as pool:

@@ -128,9 +128,26 @@ class ParallelBakeCancellationTests(unittest.TestCase):
         settings = {'GLUEMAPPER_BAKE_TILE_WORKERS': '2', 'GLUEMAPPER_BAKE_HEAVY_TILES': '1'}
         with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, settings):
             scene = empty_scene(t, 4)
-            results = build(scene)
+            # Make submission order differ from plan order without constructing huge meshes.
+            with patch('world_surface_tiles._TriangleEstimate.estimated_triangles', side_effect=[1_000_000, 1_000_000, 0, 0]):
+                results = build(scene)
             self.assertEqual([r['origin'] for r in results], [tile['origin'] for tile in json.loads((scene / 'plan.json').read_text())['tiles']])
             self.assertTrue(all(r['status'] == 'built' for r in results))
+
+    def test_cancellation_during_order_planning_starts_no_workers(self):
+        from world_surface_tiles import build
+        settings = {'GLUEMAPPER_BAKE_TILE_WORKERS': '2', 'GLUEMAPPER_BAKE_HEAVY_TILES': '1'}
+        with tempfile.TemporaryDirectory() as t, patch.dict(os.environ, settings):
+            scene = empty_scene(t, 4)
+            messages = []
+            with patch('world_surface_tiles._TriangleEstimate.estimated_triangles', return_value=0) as estimate, \
+                 patch('world_surface_tiles.ProcessPoolExecutor') as pool:
+                with self.assertRaises(InterruptedError):
+                    build(scene, progress=lambda *args: messages.append(args), cancelled=lambda: bool(messages))
+                self.assertEqual(estimate.call_count, 1)
+                pool.assert_not_called()
+            self.assertEqual(messages[0][:3], ('Plan lighting tile order', 0, 4))
+            self.assertEqual(list((scene / 'tiles').glob('*.vox')), [])
 
     def test_a_cancelled_parallel_bake_starts_no_tile(self):
         from world_surface_tiles import build
