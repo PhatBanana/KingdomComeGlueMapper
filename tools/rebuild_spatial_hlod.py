@@ -138,7 +138,7 @@ def build(library, level, output, native_level, compiler=None, source_level="rat
                 report['empty_groups'].append(key);continue
             # Expand bounds to retain all detail records. Authored switching
             # radius remains the minimum; no geometry is dropped by grouping.
-            group.radius=max([group.radius]+[math.dist(group.center,record_bounds(r)[0])+record_bounds(r)[1] for r in group.records])
+            group.radius=max([group.radius]+[math.dist(group.center,center)+radius for center,radius in map(record_bounds,group.records)])
             if key in ambiguous:
                 report['unresolved'].append({'id':key,'reason':'overlapping brush membership'})
                 leaves.append(group);continue
