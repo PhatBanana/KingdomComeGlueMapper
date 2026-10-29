@@ -6,6 +6,7 @@ from pathlib import Path, PurePosixPath
 import re
 import threading
 import uuid
+import weakref
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -28,7 +29,7 @@ _ROWS_LOCK = threading.Lock()
 ROWS_CACHE_BYTES = 64 * 1024 ** 2
 
 
-def _table_rows(table, item):
+def _table_rows(table, item, row_factory=dict):
     key = (table, item['candidates'][-1]['sha256'], len(item['data']))
     with _ROWS_LOCK:
         cached = _ROWS.get(key)
@@ -40,27 +41,87 @@ def _table_rows(table, item):
             _ROWS[key] = cached
             while sum(size for _, size in _ROWS.values()) > ROWS_CACHE_BYTES:
                 _ROWS.popitem(last=False)
-    return [dict(row) for row in cached[0]]
+    return [row_factory(row) for row in cached[0]]
+
+
+def _row_edit(operation):
+    def edit(self, *args, **kwargs):
+        try:
+            return operation(self, *args, **kwargs)
+        finally:
+            self._invalidate()
+    return edit
+
+
+class _SourceRow(dict):
+    """Keep the existing editable row contract without leaving stale indexes."""
+    __slots__ = ('_invalidate',)
+
+    def __init__(self, values, invalidate):
+        super().__init__(values)
+        self._invalidate = invalidate
+
+    __setitem__ = _row_edit(dict.__setitem__)
+    __delitem__ = _row_edit(dict.__delitem__)
+    __ior__ = _row_edit(dict.__ior__)
+    clear = _row_edit(dict.clear)
+    pop = _row_edit(dict.pop)
+    popitem = _row_edit(dict.popitem)
+    setdefault = _row_edit(dict.setdefault)
+    update = _row_edit(dict.update)
+
+    def __copy__(self):
+        return dict(self)
+
+    def __deepcopy__(self, memo):
+        return copy.deepcopy(dict(self), memo)
+
+    def __reduce__(self):
+        return dict, (dict(self),)
 
 
 class SourceTables:
     def __init__(self, source, reader):
         self.source, self.reader, self.cache, self.indexes = source, reader, {}, {}
+        self.exposed = set()
 
-    def get(self, table):
+    def _invalidate(self, table):
+        for key in list(self.indexes):
+            if key[0] == table:
+                del self.indexes[key]
+
+    def _get(self, table):
         if table not in self.cache:
             item = self.reader(self.source, {'table': ('Tables.pak', 'Libs/Tables/' + table + '.xml')})['table']
-            self.cache[table] = dict(rows=_table_rows(table, item), provenance=item['candidates'])
+            owner = weakref.ref(self)
+            def invalidate():
+                tables = owner()
+                if tables is not None:
+                    tables._invalidate(table)
+            rows = _table_rows(table, item, lambda row: _SourceRow(row, invalidate))
+            self.cache[table] = dict(rows=rows, provenance=item['candidates'])
         return self.cache[table]
 
+    def get(self, table):
+        # The caller can retain this list, insert ordinary dicts or replace it.
+        # Such edits cannot be observed through row callbacks, so keep the old
+        # scan semantics for exposed tables. Pure row lookups retain indexing.
+        self.exposed.add(table)
+        self._invalidate(table)
+        return self._get(table)
+
     def row(self, table, field, value, optional=False):
-        index = self.indexes.get((table, field))
-        if index is None:
-            index = {}
-            for r in self.get(table)['rows']:
-                index.setdefault(r.get(field, '').lower(), []).append(r)
-            self.indexes[table, field] = index
-        matches = index.get(value.lower(), [])
+        rows = self._get(table)['rows']
+        if table in self.exposed:
+            matches = [r for r in rows if r.get(field, '').lower() == value.lower()]
+        else:
+            index = self.indexes.get((table, field))
+            if index is None:
+                index = {}
+                for r in rows:
+                    index.setdefault(r.get(field, '').lower(), []).append(r)
+                self.indexes[table, field] = index
+            matches = index.get(value.lower(), [])
         if not matches and optional:
             return {}
         if len(matches) != 1:
