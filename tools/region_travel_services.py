@@ -65,7 +65,9 @@ def resolve_merchant(source, name, source_level='rataje'):
         for entry in archive.namelist():
             if entry.lower().startswith('layers/') and entry.lower().endswith('.xml'):
                 blob = read(archive, entry)
-                if b'Shop' not in blob:
+                # UTF-16 and XML character references can spell Shop without
+                # that literal byte sequence. Only skip plain UTF-8 layers.
+                if b'Shop' not in blob and b'\x00' not in blob and b'&' not in blob:
                     continue
                 for entity in ET.fromstring(blob).iter('Entity'):
                     if entity.get('EntityClass') == 'Shop' and entity.get('EntityId') not in present:
