@@ -233,6 +233,10 @@ class UpgradeTests(unittest.TestCase):
             loft_upgrade = self.enterContext(patch('forge_loft.upgrade', return_value=({}, loft_report)))
             lights_report = {'version': 1, 'runtime_verified': False}
             lights_upgrade = self.enterContext(patch('procedural_lights.upgrade', return_value=({}, lights_report)))
+            barrier_report = {'version': 1, 'status': 'present', 'runtime_verified': False}
+            barrier_upgrade = self.enterContext(patch('level_barrier_speech.upgrade', return_value=({}, barrier_report)))
+            fallback_report = {'version': 1, 'changed': [], 'runtime_verified': False}
+            fallback_upgrade = self.enterContext(patch('source_voice_fallbacks.upgrade', return_value=({}, fallback_report)))
             inventory_upgrade = self.enterContext(patch('setup_starting_inventory.upgrade', return_value=({}, {'new_game_only': True})))
             self.enterContext(patch('setup_opening_clock.upgrade', return_value=({}, {'new_game_only': True})))
             self.enterContext(patch('setup_training_upgrade.upgrade', return_value=({}, {'runtime_verified': False})))
@@ -281,6 +285,12 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual(result['forge_loft'], loft_report)
                     lights_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['procedural_lights'], lights_report)
+                    for speech_upgrade in (fallback_upgrade, barrier_upgrade):
+                        self.assertEqual([None if a is None else Path(a) for a in speech_upgrade.call_args_list[0].args],
+                                         [p, p/'native' if getattr(self, 'retail_initializers', False) else None])
+                        self.assertIn('notify', speech_upgrade.call_args_list[0].kwargs)
+                    self.assertEqual(result['source_voice_fallbacks'], fallback_report)
+                    self.assertEqual(result['level_barrier_speech'], barrier_report)
                     encounters.assert_called_once()
                     if getattr(self, 'speech_fast_resume', False):
                         # Enable the completed-world branch with its retained
@@ -292,6 +302,10 @@ class UpgradeTests(unittest.TestCase):
                         resumed = finalize(p, source=p)
                         self.assertEqual(speech_order,['crime','speech','crime','speech'])
                         self.assertIn('world_speech_audio',resumed)
+                        # Both speech repairs also run on the completed-package path.
+                        self.assertEqual((fallback_upgrade.call_count, barrier_upgrade.call_count), (2, 2))
+                        self.assertEqual(resumed['source_voice_fallbacks'], fallback_report)
+                        self.assertEqual(resumed['level_barrier_speech'], barrier_report)
                         self.assertEqual(resumed['world_actor_contracts']['player_context'],'player_henry')
                     self.assertEqual(len(result['female_clothing']['corrected_components']), 1)
                     with zipfile.ZipFile(p/'Data/pickup-clothing.pak') as z:

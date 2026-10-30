@@ -147,6 +147,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from setup_work_speech import upgrade as upgrade_work_speech
         files, report = upgrade_work_speech(package, source, target)
         receipt['files'].update(files); receipt['source_work_speech'] = report
+        from source_voice_fallbacks import upgrade as fallback_voices
+        files, report = fallback_voices(package, target, notify=notify)
+        receipt['files'].update(files); receipt['source_voice_fallbacks'] = report
+        from level_barrier_speech import upgrade as register_barrier_bark
+        files, report = register_barrier_bark(package, target, notify=notify)
+        receipt['files'].update(files); receipt['level_barrier_speech'] = report
         from setup_world_encounters import upgrade as upgrade_encounters
         files, report = upgrade_encounters(package, source, target)
         receipt['files'].update(files); receipt['world_encounters'] = report
@@ -495,6 +501,15 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from setup_work_speech import upgrade as upgrade_work_speech
     speech_files, speech_report = upgrade_work_speech(package, source, target)
     receipt['files'].update(speech_files); receipt['source_work_speech'] = speech_report
+    # Imported KCD1 voices have no native shop, greeting or farewell recordings;
+    # give them retail's fallback so the native lines play. Henry's map-edge bark
+    # joins the project voice namespace beside the smithing and prayer lines.
+    from source_voice_fallbacks import upgrade as fallback_voices
+    voice_files, voice_report = fallback_voices(package, target, notify=notify)
+    receipt['files'].update(voice_files); receipt['source_voice_fallbacks'] = voice_report
+    from level_barrier_speech import upgrade as register_barrier_bark
+    barrier_files, barrier_report = register_barrier_bark(package, target, notify=notify)
+    receipt['files'].update(barrier_files); receipt['level_barrier_speech'] = barrier_report
     from setup_world_encounters import upgrade as upgrade_encounters
     encounter_files, encounter_report = upgrade_encounters(package, source, target)
     receipt['files'].update(encounter_files); receipt['world_encounters'] = encounter_report
