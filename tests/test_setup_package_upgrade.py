@@ -259,6 +259,11 @@ class UpgradeTests(unittest.TestCase):
                 speech_order.append('speech')
                 return real_speech(*args, **kwargs)
             self.enterContext(patch('world_speech_audio.upgrade', side_effect=relocate_speech))
+            from world_speech_facials import upgrade as real_facials
+            def index_facials(*args, **kwargs):
+                speech_order.append('facials')
+                return real_facials(*args, **kwargs)
+            self.enterContext(patch('world_speech_facials.upgrade', side_effect=index_facials))
             self.enterContext(patch('setup_quest_invitation.validate', return_value={'runtime_verified': False}))
             invitation_upgrade = self.enterContext(patch('setup_quest_invitation.upgrade', return_value=({}, {'runtime_verified': False})))
             self.enterContext(patch('character_water_work.upgrade_well_bodies', return_value=({}, {'repaired': []})))
@@ -271,7 +276,8 @@ class UpgradeTests(unittest.TestCase):
                                     notify=lambda *args: progress.append(args))
                     self.assertTrue(progress and all(3 <= len(args) <= 4 for args in progress), progress)
                     self.assertEqual(crime.call_count,1)
-                    self.assertEqual(speech_order,['crime','speech'])
+                    self.assertEqual(speech_order,['crime','speech','facials'])
+                    self.assertEqual(result['world_speech_facials']['reason'],'no relocated native world')
                     self.assertEqual(result['crime_services']['status'],'bound_native_services')
                     self.assertEqual(result['world_actor_contracts']['player_context'],'player_henry')
                     intro_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
@@ -290,8 +296,9 @@ class UpgradeTests(unittest.TestCase):
                         saved['files']['quest-training.json'] = digest(p/'quest-training.json')
                         (p/RECEIPT).write_text(json.dumps(saved))
                         resumed = finalize(p, source=p)
-                        self.assertEqual(speech_order,['crime','speech','crime','speech'])
+                        self.assertEqual(speech_order,['crime','speech','facials','crime','speech','facials'])
                         self.assertIn('world_speech_audio',resumed)
+                        self.assertIn('world_speech_facials',resumed)
                         self.assertEqual(resumed['world_actor_contracts']['player_context'],'player_henry')
                     self.assertEqual(len(result['female_clothing']['corrected_components']), 1)
                     with zipfile.ZipFile(p/'Data/pickup-clothing.pak') as z:
