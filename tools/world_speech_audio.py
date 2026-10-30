@@ -110,33 +110,58 @@ def select(entries, native, destination, responses):
     return result
 
 
-def upgrade(package, target, notify=lambda *a: None):
-    """Atomic, idempotent audio-only upgrade; shared native banks stay untouched."""
+def plan(package, target):
+    """Relocation scopes of a package, or None with the reason nothing moves.
+
+    The packaged graphs decide the scopes. The game folder is opened only once
+    a relocated native world exists, so a package without one needs no game.
+    The facial step (world_speech_facials) derives its mapping from the same
+    plan, which keeps both passes in step without persisting 64k paths.
+    """
     package = Path(package)
     with zipfile.ZipFile(package/'Data/gluemappertravel.pak') as z:
         graphs = {n: read(z,n) for n in z.namelist() if n.startswith('Quests/') and n.endswith('.xml')}
     wrappers = [n for n in graphs if n.endswith('/entry/world/open_world.xml')]
-    if not wrappers: return {}, dict(recordings=0, reason='no relocated native world')
+    if not wrappers: return None, 'no relocated native world'
     if len(wrappers) != 1: raise ValueError('Ambiguous native world wrapper')
-    target = Path(target)
-    with zipfile.ZipFile(target/'Data/Scripts.pak') as scripts:
+    if target is None: raise ValueError('Game folder required to relocate native speech')
+    with zipfile.ZipFile(Path(target)/'Data/Scripts.pak') as scripts:
         scopes = relocations(graphs, wrappers[0], native_voice_roots(scripts))
     scopes = [scope for scope in scopes if scope[0] != scope[1]]
-    if not scopes: return {}, dict(recordings=0, reason='native audio scopes retained')
+    if not scopes: return None, 'native audio scopes retained'
+    return scopes, None
+
+
+def selection(recordings, scopes):
+    """Destination -> native recording over every scope, with per-scope counts."""
+    selected, scope_reports = {}, []
+    for native, destination, responses in scopes:
+        choices = select(recordings.members, native, destination, responses)
+        if responses and not choices: raise ValueError('No native speech recordings resolved: ' + native)
+        for dest, source in choices.items():
+            if dest in selected and selected[dest] != source:
+                raise ValueError('Conflicting relocated speech destination: ' + dest)
+            selected[dest] = source
+        scope_reports.append(dict(source_scope=native, destination_scope=destination,
+                                  responses=len(responses), recordings=len(choices)))
+    return selected, scope_reports
+
+
+def upgrade(package, target, notify=lambda *a: None):
+    """Atomic, idempotent audio-only upgrade; shared native banks stay untouched.
+
+    Facial tracks for the relocated lines are indexed by world_speech_facials,
+    which runs after this pass and reads the same plan.
+    """
+    package = Path(package)
+    scopes, reason = plan(package, target)
+    if scopes is None: return {}, dict(recordings=0, reason=reason)
+    target = Path(target)
     relative = 'Localization/English.pak'
     path = package/relative
     pending = path.with_suffix('.speech-pending')
     with EnglishRecordings(target) as recordings, ExitStack() as stack:
-        selected, scope_reports = {}, []
-        for native, destination, responses in scopes:
-            choices = select(recordings.members, native, destination, responses)
-            if responses and not choices: raise ValueError('No native speech recordings resolved: ' + native)
-            for dest, source in choices.items():
-                if dest in selected and selected[dest] != source:
-                    raise ValueError('Conflicting relocated speech destination: ' + dest)
-                selected[dest] = source
-            scope_reports.append(dict(source_scope=native, destination_scope=destination,
-                                      responses=len(responses), recordings=len(choices)))
+        selected, scope_reports = selection(recordings, scopes)
         current = stack.enter_context(zipfile.ZipFile(path))
         existing = {i.filename.lower(): i for i in current.infolist()}
         depot = ET.fromstring(read(current, DEPOT))
