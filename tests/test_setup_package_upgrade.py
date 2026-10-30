@@ -234,6 +234,9 @@ class UpgradeTests(unittest.TestCase):
             from home_door_links import VERSION as DOORS_VERSION
             doors_report = {'version': DOORS_VERSION, 'doors': 0, 'runtime_verified': False}
             doors_upgrade = self.enterContext(patch('home_door_links.upgrade', return_value=({}, doors_report)))
+            from loft_navigation import VERSION as LOFT_NAVIGATION_VERSION
+            loft_navigation_report = {'version': LOFT_NAVIGATION_VERSION, 'runtime_verified': False}
+            loft_navigation_upgrade = self.enterContext(patch('loft_navigation.upgrade', return_value=({}, loft_navigation_report)))
             lights_report = {'version': 1, 'runtime_verified': False}
             lights_upgrade = self.enterContext(patch('procedural_lights.upgrade', return_value=({}, lights_report)))
             inventory_upgrade = self.enterContext(patch('setup_starting_inventory.upgrade', return_value=({}, {'new_game_only': True})))
@@ -284,6 +287,9 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual(result['forge_loft'], loft_report)
                     self.assertEqual([Path(a) for a in doors_upgrade.call_args_list[0].args], [p, p])
                     self.assertEqual(result['home_door_links'], doors_report)
+                    self.assertEqual([None if a is None else Path(a) for a in loft_navigation_upgrade.call_args_list[0].args],
+                                     [p, p/'native' if getattr(self, 'retail_initializers', False) else None])
+                    self.assertEqual(result['loft_navigation'], loft_navigation_report)
                     lights_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['procedural_lights'], lights_report)
                     encounters.assert_called_once()

@@ -1,0 +1,32 @@
+{
+  "name": "test/combined-features-47f031a",
+  "base": "origin/main",
+  "base_commit": "47f031a43a5b9fbf5373341516223d27c8299ccc",
+  "members": [
+    {
+      "branch": "feat/home-door-locks",
+      "commit": "2f8bab4",
+      "merge_commit": "6569d8e"
+    }
+  ],
+  "created": "2026-10-30T23:53:36+00:00",
+  "cuda_from": null,
+  "suite": null,
+  "failed": {
+    "branch": "feat/loft-navmesh",
+    "conflicts": {
+      "tests/test_setup_package_upgrade.py": [
+        "feat/home-door-locks"
+      ],
+      "tools/build_recipe.py": [
+        "feat/home-door-locks"
+      ],
+      "tools/desktop_setup.py": [
+        "feat/home-door-locks"
+      ],
+      "tools/setup_package_upgrade.py": [
+        "feat/home-door-locks"
+      ]
+    }
+  }
+}
