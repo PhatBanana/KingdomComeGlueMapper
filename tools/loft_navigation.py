@@ -7,7 +7,8 @@ one tagged layer tile to each of the two cells under the loft and leaves every e
 tile byte-identical:
 
 - loft floor polygons at the measured floor height, clear of the authored furniture by a
-  margin, covering the ladder landing and both parents' room-facing lie-down poses;
+  margin, covering the ladder landing and within native reach of both parents' lie-down
+  starts (the helper-set start pose lies on the bed; the engine projects it onto the mesh);
 - a ladder-foot patch on the ground floor that joins the existing workshop polygon across
   the tile border at x = 736 (layers of one cell only meet through border portals);
 - the ladder's off-mesh connection written like the 58 native Trosky ladder records:
@@ -61,7 +62,11 @@ LADDER = dict(category=3, flags=1, radius=.5, side=0xff, tail=(0x7fffffff, 0xfff
               foot=(-.038, .518, -.139), top=(.023, -.425))  # top z is the ladder height
 LADDER_NAME = PREFIX + 'ladder'
 BEDS = {'mother': PREFIX + 'mother_bed', 'father': PREFIX + 'father_bed'}
-POSE = .867  # Bed_1Place_High lie-down start: 0.867 m beside the bed centre on either long side
+HELPER_SET = 'smartobjecthelpersetanimations.xml'  # level.pak root: LieDown start poses per helper family
+# Navmesh-checked LieDown starts of native Trosky Bed_1Place_High beds (103) lie 0.54-1.18 m from the
+# nearest polygon (median 0.89, p90 1.00) and within 0.10 m of its height (p90); the limits are the
+# native median and p90 (diag/loft-navmesh-20261029/native_bed_reach.py).
+POSE_REACH, POSE_DZ = .90, .10
 BED_MARGIN, PROP_MARGIN, UNMEASURED = .18, .25, .35
 BRUSH_MARGIN, BRUSH_EXTENT = .30, 4.0
 MIN_PORTAL_OVERLAP = .3
@@ -303,13 +308,45 @@ def ladder_link(root):
                 name=LADDER_NAME, guid=entity.get('EntityGuid'), position=position, height=height)
 
 
-def bed_poses(root):
+def lie_poses(helpers, family):
+    """Distinct LieDown start poses of a helper set in the bed's local frame.
+
+    Bed_1Place_High: (0, +0.87, 0.02) facing across the bed for the approach fragments
+    (Checks "1,1", navmesh-checked) and (0, -0.47, 0) for the already-sitting variants
+    (Checks "0,1"). The start is on the bed, 0.26 m short of its +y end.
+    """
+    collection = next((c for c in E.fromstring(helpers).iter('Collection') if c.get('HelperSetName') == family), None)
+    if collection is None:
+        raise ValueError('Bed helper set has no animations: ' + family)
     poses = {}
+    for anim in collection.iter('SmartObjectHelperSetAnimation'):
+        if anim.get('DebugFragmentName') != 'LieDown':
+            continue
+        helper, start = anim.find('HelperTransformLocal'), anim.find('StartTransform')
+        if helper is None or start is None:
+            raise ValueError('LieDown animation without transforms: ' + family)
+        offset = rotate(vec(helper.get('Rotation', '1,0,0,0'), 4), vec(start.get('Position'), 3))
+        local = tuple(round(vec(helper.get('Position', '0,0,0'), 3)[i] + offset[i], 3) for i in range(3))
+        checked = anim.get('Checks', '').split(',')[0] == '1'
+        pose = poses.setdefault(local, dict(local=local, checked=False, tags=anim.get('DebugFragTagState', '')))
+        pose['checked'] = pose['checked'] or checked
+    if not any(p['checked'] for p in poses.values()):
+        raise ValueError('Bed helper set has no navmesh-checked LieDown start: ' + family)
+    return list(poses.values())
+
+
+def bed_poses(root, helpers):
+    poses, families = {}, {}
     for role, name in BEDS.items():
         entity, position, rotation = entity_transform(root, name)
-        if entity.get('EntityClass') != 'StanceSmartObject':
-            raise ValueError('Loft bed is not a smart object: ' + name)
-        poses[role] = [tuple(position[i] + rotate(rotation, (sign * POSE, 0, .02))[i] for i in range(3)) for sign in (1, -1)]
+        properties = entity.find('Properties')
+        family = properties.get('soclass_SmartObjectHelpers') if properties is not None else None
+        if entity.get('EntityClass') != 'StanceSmartObject' or not family:
+            raise ValueError('Loft bed is not a smart object with a helper set: ' + name)
+        if family not in families:
+            families[family] = lie_poses(helpers, family)
+        poses[role] = [dict(p, family=family, world=tuple(position[i] + rotate(rotation, p['local'])[i] for i in range(3)))
+                       for p in families[family]]
     return poses
 
 
@@ -501,17 +538,25 @@ def validate(cells, authored, link, poses, layout, brushes=None):
                 raise ValueError('Loft polygon overlaps furniture clearance: ' + name + ' / ' + item)
     if not (landing[0] <= link['end'][0] <= landing[2] and landing[1] <= link['end'][1] <= landing[3]):
         raise ValueError('Ladder top is outside the layout landing keepout')
+    # Lie-down starts: every navmesh-checked start needs a loft polygon within the native reach.
     pose_report = {}
     for role, candidates in poses.items():
         placed = []
-        for point in candidates:
-            holders = [name for name, (cell, points) in world.items() if named[name]['kind'] == 'loft'
-                       and inside(point, [p[:2] for p in points]) and abs(plane_z(points) - point[2]) <= CLIMB]
-            placed.append(dict(pose=[round(v, 3) for v in point], polygon=holders[0] if holders else None,
-                               clearance=round(edge_distance(point, [p[:2] for p in world[holders[0]][1]]), 3) if holders else None))
-        if not any(p['polygon'] for p in placed):
-            raise ValueError('No lie-down pose of the ' + role + ' bed lies on the loft mesh')
-        pose_report[role] = placed
+        for pose in candidates:
+            point, best = pose['world'], None
+            for name, (cell, points) in world.items():
+                if named[name]['kind'] != 'loft':
+                    continue
+                shape = [p[:2] for p in points]
+                distance = 0.0 if inside(point, shape) else edge_distance(point, shape)
+                dz = plane_z(points) - point[2]
+                if best is None or (distance, abs(dz)) < (best['distance'], abs(best['dz'])):
+                    best = dict(polygon=name, distance=round(distance, 3), dz=round(dz, 3))
+            if pose['checked'] and (best is None or best['distance'] > POSE_REACH or abs(best['dz']) > POSE_DZ):
+                raise ValueError('Lie-down start of the ' + role + ' bed is beyond native reach of the loft mesh')
+            placed.append(dict(pose=[round(v, 3) for v in point], local=list(pose['local']), tags=pose['tags'],
+                               checked=pose['checked'], nearest=best))
+        pose_report[role] = dict(family=candidates[0]['family'], poses=placed)
     brush_report = None
     if brushes is not None:
         checked = 0
@@ -532,14 +577,18 @@ def validate(cells, authored, link, poses, layout, brushes=None):
                             position=list(link['position']), height=link['height'],
                             foot=[round(v, 4) for v in link['start']], top=[round(v, 4) for v in link['end']],
                             category=LADDER['category'], flags=LADDER['flags'], radius=LADDER['radius'], support=support),
-                portals=portals, poses=pose_report,
+                portals=portals, poses=pose_report, reach=dict(horizontal=POSE_REACH, vertical=POSE_DZ),
                 layout=dict(floor=[round(v, 3) for v in floor], landing=[round(v, 3) for v in landing],
                             obstacles=[dict(item=i, bounds=[round(v, 3) for v in b]) for i, b in layout['obstacles']]),
                 brushes=brush_report)
 
 
-def convert(files, mission, native_mesh, brushes=None):
-    """Append the authored layers to the base mesh; repeatable, every native tile preserved."""
+def convert(files, mission, helpers, native_mesh, brushes=None):
+    """Append the authored layers to the base mesh; repeatable, every native tile preserved.
+
+    mission: objects_mission0.xml (ladder and beds); helpers: smartobjecthelpersetanimations.xml
+    (lie-down starts); native_mesh: a native rdnavmesh_1.nav for the settings block and version.
+    """
     names = {n.lower(): n for n in files}
     if len(names) != len(files) or any(BASE + ext not in names for ext in ('.hdr', '.nav')):
         raise ValueError('Missing base navigation pair')
@@ -551,7 +600,7 @@ def convert(files, mission, native_mesh, brushes=None):
     cells = {cell: native_layers(tiles) for cell, tiles in current.items()}
     previous = sum(len(current[c]) - len(cells[c]) for c in cells)
     root = E.fromstring(mission)
-    link, poses, layout = ladder_link(root), bed_poses(root), layout_geometry()
+    link, poses, layout = ladder_link(root), bed_poses(root, helpers), layout_geometry()
     authored = build(cells, link)
     report = validate(cells, authored, link, poses, layout, brushes)
     result = dict(cells)
@@ -588,11 +637,14 @@ def plan(package, target):
     with zipfile.ZipFile(package / 'Data/Levels/kcd1_travel/level.pak') as z:
         names = {n.lower(): n for n in z.namelist()}
         mission = read(z, names['objects_mission0.xml'])
+        if HELPER_SET not in names:
+            raise ValueError('Package level has no smart object helper set animations')
+        helpers = read(z, names[HELPER_SET])
         brushes = brush_bounds(read(z, names['terrain/hlods.dat'])) if 'terrain/hlods.dat' in names else None
     with zipfile.ZipFile(package / RELATIVE) as z:
         wanted = {n for n in z.namelist() if n.lower() in (BASE + '.hdr', BASE + '.nav', MARKER)}
         files = {n: read(z, n) for n in wanted}
-    updated, report = convert(files, mission, native, brushes)
+    updated, report = convert(files, mission, helpers, native, brushes)
     changes = {n: b for n, b in updated.items() if files.get(n) != b}
     return RELATIVE, changes, report
 

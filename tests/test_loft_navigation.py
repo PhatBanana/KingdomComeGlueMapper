@@ -17,10 +17,31 @@ MISSION = ('<Objects>'
            '<Entity Name="gm_forge_loft_ladder" EntityClass="Ladder" EntityGuid="%s" Pos="737.6,3415.8,63.9089" '
            'Rotate="0,0,0.0697564737,0.99756405"><Properties height="3.25" bUsable="true"/></Entity>'
            '<Entity Name="gm_forge_loft_mother_bed" EntityClass="StanceSmartObject" EntityGuid="e9b1e602-be23-3d5a" '
-           'Pos="734.8011561077022,3422.7969556854723,67.315" Rotate="0.700909264,0,0,0.713250449"/>'
+           'Pos="734.8011561077022,3422.7969556854723,67.315" Rotate="0.700909264,0,0,0.713250449">'
+           '<Properties soclass_SmartObjectHelpers="Bed_1Place_High"/></Entity>'
            '<Entity Name="gm_forge_loft_father_bed" EntityClass="StanceSmartObject" EntityGuid="20fe68fe-3d4f-cb5a" '
-           'Pos="737.1507981913197,3422.8379688406,67.315" Rotate="0.700909264,0,0,0.713250449"/>'
+           'Pos="737.1507981913197,3422.8379688406,67.315" Rotate="0.700909264,0,0,0.713250449">'
+           '<Properties soclass_SmartObjectHelpers="Bed_1Place_High"/></Entity>'
            '</Objects>' % GUID).encode()
+# The Bed_1Place_High entries of the package's smartobjecthelpersetanimations.xml that matter: a GetUp
+# (ignored), two navmesh-checked LieDown starts at local +y and the already-sitting variant (Checks 0,1).
+HELPERS = ('<SmartObjectAnimationCollections><Collection HelperSetName="Bed_1Place_High">'
+           '<SmartObjectHelperSetAnimation HelperId="0" Checks="1,1" DebugFragmentName="GetUp" DebugFragTagState="lying+fast">'
+           '<HelperTransformLocal Rotation="1,0,0,0" Position="0,0,0"/><StartTransform Rotation="1,0,0,0" Position="0,0,0"/>'
+           '</SmartObjectHelperSetAnimation>'
+           '<SmartObjectHelperSetAnimation HelperId="0" Checks="1,1" DebugFragmentName="LieDown" DebugFragTagState="liePlaceBed+lieSideLeft">'
+           '<HelperTransformLocal Rotation="1,0,0,0" Position="0,0,0"/>'
+           '<StartTransform Rotation="0.70719302,0.002992,-0.0022730001,0.70701098" Position="-0.0020320001,0.867387,0.021325"/>'
+           '</SmartObjectHelperSetAnimation>'
+           '<SmartObjectHelperSetAnimation HelperId="0" Checks="1,1" DebugFragmentName="LieDown" DebugFragTagState="liePlaceBed+lieSideRight">'
+           '<HelperTransformLocal Rotation="1,0,0,0" Position="0,0,0"/>'
+           '<StartTransform Rotation="0.70796001,1.2e-05,1.2e-05,-0.70625198" Position="0.003974,0.85325497,-0"/>'
+           '</SmartObjectHelperSetAnimation>'
+           '<SmartObjectHelperSetAnimation HelperId="0" Checks="0,1" DebugFragmentName="LieDown" DebugFragTagState="sittingNoTable+liePlaceBed+lieSideRight">'
+           '<HelperTransformLocal Rotation="1,0,0,0" Position="0,0,0"/>'
+           '<StartTransform Rotation="0.707093,1.4e-05,1.4e-05,0.70712101" Position="-0.080356002,-0.46694899,3.0000001e-06"/>'
+           '</SmartObjectHelperSetAnimation>'
+           '</Collection></SmartObjectAnimationCollections>').encode()
 
 
 def native_tile(cell, layer, verts, neis, z=63.92):
@@ -85,7 +106,7 @@ def rotate(q, v):
 class LoftNavigationTests(unittest.TestCase):
     def convert(self, **kwargs):
         files, native = fixture()
-        return L.convert(files, MISSION, native, **kwargs)
+        return L.convert(files, MISSION, HELPERS, native, **kwargs)
 
     def test_authored_layers_round_trip_through_the_probe_decoder(self):
         updated, report = self.convert()
@@ -149,7 +170,7 @@ class LoftNavigationTests(unittest.TestCase):
     def test_native_tiles_and_order_are_preserved(self):
         files, native = fixture()
         before = decode(files[BASE + '.hdr'], files[BASE + '.nav'], SETTINGS, 14)
-        updated, report = L.convert(files, MISSION, native)
+        updated, report = L.convert(files, MISSION, HELPERS, native)
         after = decode(updated[BASE + '.hdr'], updated[BASE + '.nav'], SETTINGS, 14)
         self.assertEqual(list(after), list(before))
         for cell, tiles in before.items():
@@ -166,19 +187,33 @@ class LoftNavigationTests(unittest.TestCase):
 
     def test_repeat_conversion_is_byte_identical(self):
         files, native = fixture()
-        once, first = L.convert(files, MISSION, native)
-        twice, second = L.convert(once, MISSION, native)
+        once, first = L.convert(files, MISSION, HELPERS, native)
+        twice, second = L.convert(once, MISSION, HELPERS, native)
         self.assertEqual(twice, once)
         self.assertEqual((first['previously_authored_layers'], second['previously_authored_layers']), (0, 2))
         first.pop('previously_authored_layers'); second.pop('previously_authored_layers')
         self.assertEqual(first, second)
 
-    def test_poses_and_portals_are_evidenced(self):
+    def test_lie_down_starts_and_portals_are_evidenced(self):
         _, report = self.convert()
-        for role, expected in (('mother', 'loft_west'), ('father', 'loft_landing')):
-            placed = [p['polygon'] for p in report['poses'][role]]
-            self.assertEqual(placed, [None, expected], role)   # the wall side is off the mesh, the room side on it
-            self.assertGreaterEqual(report['poses'][role][1]['clearance'], .025)
+        self.assertEqual(report['reach'], dict(horizontal=.9, vertical=.1))
+        # Bed yaw 91 degrees: local +y points west, so the starts lie on the beds 0.87 m west of their
+        # centres, 0.82 m north of the polygons' north edges (0.18 m clearance from the bed box).
+        for role, expected, start in (('mother', 'loft_west', (733.93, 3422.78)), ('father', 'loft_border', (736.28, 3422.82))):
+            entry = report['poses'][role]
+            self.assertEqual(entry['family'], 'Bed_1Place_High')
+            checked = [p for p in entry['poses'] if p['checked']]
+            self.assertEqual((len(checked), len(entry['poses'])), (2, 3), role)
+            self.assertAlmostEqual(checked[0]['pose'][0], start[0], delta=.01, msg=role)
+            self.assertAlmostEqual(checked[0]['pose'][1], start[1], delta=.01, msg=role)
+            self.assertAlmostEqual(checked[0]['pose'][2], 67.336, delta=.001)
+            for p in checked:
+                self.assertEqual(p['nearest']['polygon'], expected, role)
+                self.assertAlmostEqual(p['nearest']['distance'], .82, delta=.01, msg=role)
+                self.assertLessEqual(abs(p['nearest']['dz']), L.POSE_DZ)
+            sitting = [p for p in entry['poses'] if not p['checked']][0]
+            self.assertIn('sittingNoTable', sitting['tags'])
+            self.assertEqual(sitting['local'], [-.08, -.467, 0])
         partners = {(p['polygon'], p['origin']) for p in report['portals']}
         self.assertEqual(partners, {('loft_west', 'authored'), ('loft_border', 'authored'), ('foot_west', 'native')})
         self.assertEqual(report['ladder']['entity'], GUID)
@@ -186,7 +221,21 @@ class LoftNavigationTests(unittest.TestCase):
     def test_missing_ground_portal_partner_is_rejected(self):
         files, native = fixture(portal=False)
         with self.assertRaisesRegex(ValueError, 'no partner'):
-            L.convert(files, MISSION, native)
+            L.convert(files, MISSION, HELPERS, native)
+
+    def test_lie_down_start_beyond_native_reach_is_rejected(self):
+        # loft_west ending 1.28 m short of Mother's start (native checked starts: 0.54-1.18 m, median 0.89).
+        short = ('loft_west', L.FLOOR_Z, ((733.75, 3417.15), (733.75, 3421.50), (736.00, 3421.50), (736.00, 3417.15)))
+        with patch.object(L, 'LOFT', (short,) + L.LOFT[1:]):
+            with self.assertRaisesRegex(ValueError, 'mother bed is beyond native reach'):
+                self.convert()
+        files, native = fixture()
+        with self.assertRaisesRegex(ValueError, 'no navmesh-checked LieDown'):
+            L.convert(files, MISSION, HELPERS.replace(b'Checks="1,1"', b'Checks="0,1"'), native)
+        with self.assertRaisesRegex(ValueError, 'no animations'):
+            L.convert(files, MISSION, HELPERS.replace(b'HelperSetName="Bed_1Place_High"', b'HelperSetName="Bed_1Place_Low"'), native)
+        with self.assertRaisesRegex(ValueError, 'helper set'):
+            L.convert(files, MISSION.replace(b'<Properties soclass_SmartObjectHelpers="Bed_1Place_High"/>', b''), HELPERS, native)
 
     def test_furniture_clearance_and_ladder_placement_are_enforced(self):
         intruding = ('loft_border', L.FLOOR_Z, ((736.00, 3417.15), (736.00, 3422.60), (737.00, 3422.60), (737.00, 3417.15)))
@@ -196,7 +245,7 @@ class LoftNavigationTests(unittest.TestCase):
         moved = MISSION.replace(b'Pos="737.6,3415.8,63.9089"', b'Pos="741.0,3415.8,63.9089"')
         files, native = fixture()
         with self.assertRaisesRegex(ValueError, 'Ladder foot'):
-            L.convert(files, moved, native)
+            L.convert(files, moved, HELPERS, native)
 
     def test_brushes_under_the_patch_are_rejected(self):
         # The measured 0.6 m object beside the ladder foot, the house shell (too large to count) and a flat mat.

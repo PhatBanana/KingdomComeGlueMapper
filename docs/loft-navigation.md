@@ -1,7 +1,8 @@
 # Forge loft navigation
 
 Status: converter, validation and tests done; **not tested in game**. The parents' climb,
-lie-down, wake-up and save/reload remain retail acceptance steps (below).
+lie-down, wake-up and save/reload remain retail acceptance steps (below). Corrected on
+2026-10-30: the lie-down start model (see "Lie-down starts").
 
 ## Why
 
@@ -55,9 +56,10 @@ stored structure reproduces (set to 3, the native mode for tiles of 1-4 polygons
 
 ## Layout derivation and validation
 
-`convert(files, mission, native_mesh, brushes=None)` reads the ladder and both parents' beds
-from `objects_mission0.xml`, resolves `forge_loft_layout.LAYOUT` through `room_layout` and
-rejects the authored rectangles unless all of this holds on the decoded bytes:
+`convert(files, mission, helpers, native_mesh, brushes=None)` reads the ladder and both
+parents' beds from `objects_mission0.xml`, the beds' lie-down starts from
+`smartobjecthelpersetanimations.xml`, resolves `forge_loft_layout.LAYOUT` through `room_layout`
+and rejects the authored rectangles unless all of this holds on the decoded bytes:
 
 - size law `112 + 4*vertCount + 28*polyCount + 68*offMeshConCount`, `offMeshBase`, zeros and
   agent floats match the native pattern; the tile count and the `.hdr` index are rebuilt and
@@ -68,16 +70,41 @@ rejects the authored rectangles unless all of this holds on the decoded bytes:
   same height (native or authored);
 - loft polygons lie inside the floor boards' extent or the ladder-landing keepout and do not
   overlap any furniture footprint expanded by 0.18 m (beds) or 0.25 m (chests, table, stool,
-  basket, sack); at least one lie-down start pose per parent (0.867 m beside the bed centre,
-  from the native helper set) lies on the mesh;
+  basket, sack); every navmesh-checked lie-down start of each parent's bed has a loft polygon
+  within 0.90 m horizontally and 0.10 m vertically, the native reach (next section);
 - the ladder foot is inside a ground polygon of its own tile and the top inside a loft polygon
   of the same cell, within the landing keepout;
 - the ground patch stays 0.30 m clear of every HLOD brush that stands on the floor (height
   0.15-0.5 m above it, extent under 4 m), 667 brushes in the installed package.
 
-The bed clearance of 0.18 m is below the 0.2-0.3 m native bakes erode around high beds because
-the room-side pose is only 0.21 m from the mattress edge; both poses end up 3 cm inside the
-mesh. Native Trosky has the pose inside or within 0.1 m of the mesh for 64-68 of 121 high beds.
+## Lie-down starts
+
+`Bed_1Place_High` has five distinct `LieDown` starts in `smartobjecthelpersetanimations.xml`
+(`HelperTransformLocal` plus `StartTransform`, in the bed's frame): three approach variants at
+(0, +0.85..0.87, 0.02) facing across the bed, with `Checks="1,1"` and `HasAlignProcclip`, and
+two already-sitting variants at (0, -0.47, 0) with `Checks="0,1"`. The start therefore lies on
+the bed, 0.26 m short of its +y end, not beside it; the engine projects it onto the mesh within
+its `CheckMNMTolerance` (`MNMToleranceDefault`; the binary also names `MNMToleranceStrict`, no
+numeric value found). The first version of this converter placed the starts 0.867 m beside the
+bed on either long side, which is not what the engine checks; the bed audit of 2026-10-30
+(`D:\KCD\Builds\glue\diag\bed-navmesh-audit-20261030`) caught it.
+
+Native reach, measured on all 103 `Bed_1Place_High` beds of Trosky against the native mesh
+(`diag\loft-navmesh-20261029\native_bed_reach.py`): the nearest polygon to a checked start is
+0.54-1.18 m away (median 0.89, p90 1.00), within 0.10 m vertically (p90), and lies beside the
+bed in 88 cases, 0.73-0.96 m from the bed's centre line (0.12-0.43 m outside the `bed_rustic_d`
+box; native models may be narrower). The audit's own 0.79 / 0.85 / 0.90 figures are the best of
+all five starts including the unchecked sitting ones. The validation limits are the native median
+and p90 for the checked start: 0.90 m horizontally, 0.10 m vertically.
+
+The forge beds are `bed_rustic_d` at yaw 91 degrees (local +y points west), so the starts sit at
+the beds' west ends and the nearest mesh is the room side: `loft_west` and `loft_border` end
+0.18 m south of the measured bed box (south edges y 3422.14 and 3422.18), 0.82 m from the beds'
+centre lines and 0.82-0.83 m from every checked start, at the native median. The polygons cannot
+go further north without entering the bed box, which begins 0.64 m from the start: the 0.4 m gap
+the audit suggested is not reachable with any clearance, and no native bake gets closer than
+0.73 m either. The converted Skalitz high beds with sleepers sit at 0.48-0.74 m, so the forge
+beds are the farthest in town but inside native practice.
 
 Repeating the conversion strips the tagged layers first and produces byte-identical archives
 (`previously_authored_layers` in the report, never in the marker). `stage(mod, target, output)`
@@ -86,14 +113,15 @@ the package archive only when the bytes change and runs in `setup_package_upgrad
 right after the forge loft on the clean path and beside the completed-build repairs on the
 fast path (recipe 68).
 
-## Dry run (installed package, recipe 66, forge loft v3, 2026-10-29)
+## Dry run (installed package, recipe 66, forge loft v3, 2026-10-30)
 
-Staging took 2.5 s. 736 -> 737 archive entries (the marker), 734 untouched entries identical,
+Staging took 3.5 s. 736 -> 737 archive entries (the marker), 734 untouched entries identical,
 58,064 -> 58,066 tiles, only cells (45,213) and (46,213) changed, native stacks preserved
-(base mesh sha256 8c475da6...). Mother's room-side pose lands on `loft_west`, Father's on
-`loft_landing`, both 3 cm inside; the wall-side poses are off the mesh as intended. A second
-plan on the staged package reports no changes. Report:
-`D:\KCD\Builds\glue\diag\loft-navmesh-20261029\dry-run-report.json`.
+(base mesh sha256 8c475da6...). Every checked lie-down start has its nearest polygon 0.82-0.83 m
+away (Mother: `loft_west`, Father: `loft_border`) and 0.01-0.04 m below it; the sitting starts
+0.77-0.88 m. A second plan on the staged package reports no changes. Report:
+`D:\KCD\Builds\glue\diag\loft-navmesh-20261029\dry-run-report.json` (the first version's
+report, with the wrong pose model, is `dry-run-report-acea251.json`).
 
 ## Decisions and limits
 
@@ -106,7 +134,9 @@ plan on the staged package reports no changes. Report:
 - The record's end lies in the same tile as its start; 14 of 58 native ladders do the same.
 - Field 40 and the `userId` tag have no proven runtime meaning. If the loader rejects a
   non-zero `userId`, the layers would be dropped, not the mesh.
-- The wall-side poses (north of the beds) are off the mesh; the AI must pick the room side.
+- The lie-down starts are on the beds; the mesh ends 0.82 m from them, at the native median
+  (0.54-1.18 m). Whether `MNMToleranceDefault` accepts that is only shown by native beds, which
+  routinely do the same.
 - Nothing here changes the 100 imported KCD1 ladders, which still carry category 2 and source
   GUIDs ([parent-sleep-audit.md](parent-sleep-audit.md)); that is a separate converter.
 - Runtime behaviour (link traversal, ladder smart-object use, bed entry) is unverified.
