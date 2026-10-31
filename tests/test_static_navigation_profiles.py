@@ -152,6 +152,16 @@ class StaticNavigationTests(unittest.TestCase):
             archive(package/relative, modified)
             with self.assertRaisesRegex(ValueError, 'unrecognized edits'):
                 plan(package, source, target, selected)
+            # Layers tagged by loft_navigation are rebuilt after composition, not treated as edits.
+            from static_navigation_profiles import AUTHORED_LAYER_TAG
+            stacks = decode(saved[BASE+'.hdr'], saved[BASE+'.nav'], SETTINGS, 14)
+            stacks[4, 5] = stacks[4, 5] + (tile(4, 5, layer=7, marker=AUTHORED_LAYER_TAG),)
+            modified = dict(saved); modified.update(pair_files(BASE, stacks))
+            archive(package/relative, modified)
+            _, changes, report = plan(package, source, target, selected)
+            rebuilt = decode(changes[BASE+'.hdr'], changes[BASE+'.nav'], SETTINGS, 14)
+            self.assertEqual(rebuilt[4, 5], decode(saved[BASE+'.hdr'], saved[BASE+'.nav'], SETTINGS, 14)[4, 5])
+            self.assertEqual(report['changed_cells'], 0)
             modified = dict(saved)
             modified['recast/rdnavmesh_other_town_intact_1.nav'] += b'changed'
             archive(package/relative, modified)
