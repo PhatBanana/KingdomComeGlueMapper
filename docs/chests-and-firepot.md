@@ -97,9 +97,17 @@ Full list: `D:\KCD\Builds\glue\diag\chests-firepot-20261030\stage-r70\report.jso
 
 ### Survey before and after
 
-`world_survey.py --town skalitz` on the installed recipe-70 package: 68 fire pieces flagged.
-On the staged copy: 54. The 14 cleared are the 14 cook triggers that the survey could pair
-with their KCD1 counterpart. The 54 left are not misplacements:
+With the survey's hearth pairing corrected on 31 Oct (pieces pair through the KCD1
+fireplace holder's `st_kettle`, `st_fire` and `fireProcedural` links; prefab-expanded
+lights are measured from their prefab's own object; "ohen" counts as a fire name):
+installed recipe-70 package 20 fire pieces flagged (17 cook triggers 0.51-2.29 m off their
+`st_fire` trigger, plus the 3 new loft candles), staged copy 3 (the loft candles only).
+Output: `D:\KCD\Builds\glue\diag\world-survey-20261031-hearth\{installed,staged}`.
+
+The 30 Oct survey that raised the issue paired pieces by nearest fire-named object. On the
+installed recipe-70 package it flagged 68 fire pieces; on the staged copy 54. The 14
+cleared were the 14 cook triggers it could pair with their KCD1 counterpart. The 54 left
+were not misplacements:
 
 - 13 kettle triggers, 13 cauldrons (`kettle_a_standing`, template f39cd738) and 13 steam
   tag points (ce0ee77c) stand on or within 0.04 m of the KCD1 pot trigger; the survey pairs
