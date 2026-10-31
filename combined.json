@@ -7,26 +7,35 @@
       "branch": "feat/home-door-locks",
       "commit": "2f8bab4",
       "merge_commit": "6569d8e"
+    },
+    {
+      "branch": "feat/loft-navmesh",
+      "commit": "40d1a9f",
+      "merge_commit": "a80575a"
+    },
+    {
+      "branch": "feat/moved-line-lipsync",
+      "commit": "6279abd",
+      "merge_commit": "1be3dda"
+    },
+    {
+      "branch": "feat/edge-trade-voice-lines",
+      "commit": "348f3ef",
+      "merge_commit": "024fa14"
+    },
+    {
+      "branch": "feat/bed-navigation-audit",
+      "commit": "9961aac",
+      "merge_commit": "cee5c6b"
     }
   ],
-  "created": "2026-10-30T23:53:36+00:00",
-  "cuda_from": null,
-  "suite": null,
-  "failed": {
-    "branch": "feat/loft-navmesh",
-    "conflicts": {
-      "tests/test_setup_package_upgrade.py": [
-        "feat/home-door-locks"
-      ],
-      "tools/build_recipe.py": [
-        "feat/home-door-locks"
-      ],
-      "tools/desktop_setup.py": [
-        "feat/home-door-locks"
-      ],
-      "tools/setup_package_upgrade.py": [
-        "feat/home-door-locks"
-      ]
-    }
-  }
+  "created": "2026-10-30T23:59:53+00:00",
+  "cuda_from": "D:\\KCD\\Builds\\glue\\wt-timed",
+  "suite": {
+    "summary": "Ran 2366 tests in 78.850s; OK (skipped=17)",
+    "ok": true,
+    "interpreter": "venv314"
+  },
+  "failed": null,
+  "note": "members merged by hand after combine_branches.py stopped on the recipe-bump conflicts; resolution kept both sides, VERSION 70"
 }
