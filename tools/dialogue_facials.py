@@ -298,8 +298,93 @@ class NativeFacialImporter(FacialImporter):
             self.native_count = len(baseline)
             self.indexed = {header_path(r): r for r in self.records}
             if len(self.indexed) != len(self.records): raise ValueError('Duplicate facial index paths')
+            self.native_tracks = {header_path(r): r for r in baseline}
             self.next_id = max(r[2] for r in self.records) + 1
             self.outputs = {}; self.receipts = []
         except Exception:
             self.close()
             raise
+
+    RELOCATED = 'animations/humans/facials/dialog/glueworld/'
+
+    def relocation(self, mapping):
+        """Group relocated native recordings by the native DBA holding their tracks.
+
+        `mapping` is {relocated audio path: original audio path}. A track is
+        found by its full original facial path, never by its file stem, because
+        one stem may recur under several native directories. Returns
+        ({output DBA path: dict(source, archive, tracks={original caf: new caf})},
+        [relocated recordings without a native track]). The output DBA path
+        hashes the source DBA and the exact rename set, so a later pass can
+        recognise an unchanged copy without rebuilding it.
+        """
+        groups, missing = defaultdict(dict), []
+        for audio, original in sorted(mapping.items()):
+            if not audio.lower().startswith('dialog/') or not audio.lower().endswith('.ogg') or '..' in audio.split('/'):
+                raise ValueError('Invalid relocated recording path: ' + audio)
+            if not original.lower().endswith('.ogg') or '..' in original.split('/'):
+                raise ValueError('Invalid native recording path: ' + original)
+            source = 'animations/humans/facials/' + original[:-4].lower() + '.caf'
+            record = self.native_tracks.get(source)
+            if record is None:
+                missing.append(audio)
+                continue
+            crc = struct.unpack_from('<I', record[3], 264)[0]
+            if crc not in self.dbas: raise ValueError('Missing native lip-sync database: ' + source)
+            dest = 'animations/humans/facials/' + audio[:-4].lower() + '.caf'
+            if groups[crc].get(source, dest) != dest:
+                raise ValueError('Native recording relocated to two paths: ' + original)
+            groups[crc][source] = dest
+        result = {}
+        for crc, tracks in groups.items():
+            pak, name = self.dbas[crc]
+            identity = hashlib.sha256('\n'.join([name.lower(), *(s + '\t' + d for s, d in sorted(tracks.items()))])
+                                      .encode('ascii')).hexdigest()[:24]
+            result[self.RELOCATED + identity + '.dba'] = dict(source=name, archive=Path(pak.filename).name, tracks=tracks)
+        return result, missing
+
+    def index_relocation(self, groups, previous=()):
+        """Add or refresh the header of every relocated track; drop stale ones.
+
+        `previous` names output DBAs of earlier passes, so their headers can be
+        replaced or removed; a header at a relocated path that belongs to any
+        other import is a conflict. Record identities are retained, so an
+        unchanged relocation leaves the index byte-identical. Returns the number
+        of records added, replaced or removed.
+        """
+        owned = {zlib.crc32(p.encode('ascii')) for p in (*previous, *groups)}
+        wanted = {}
+        for dest_dba, group in groups.items():
+            for source, dest in group['tracks'].items():
+                if dest in wanted: raise ValueError('Two native tracks relocated to one path: ' + dest)
+                wanted[dest] = renamed_header(self.native_tracks[source], dest, dest_dba)
+        positions = {header_path(r): i for i, r in enumerate(self.records) if i >= self.native_count}
+        changes = 0
+        for dest, record in wanted.items():
+            old = self.indexed.get(dest)
+            if old is None:
+                record = (record[0], record[1], self.next_id, record[3]); self.next_id += 1
+                self.records.append(record); self.indexed[dest] = record; changes += 1
+            elif old[3] != record[3]:
+                if struct.unpack_from('<I', old[3], 264)[0] not in owned:
+                    raise ValueError('Conflicting facial track at relocated path: ' + dest)
+                record = (record[0], record[1], old[2], record[3])
+                self.records[positions[dest]] = record; self.indexed[dest] = record; changes += 1
+        stale = {header_path(r) for r in self.records[self.native_count:]
+                 if struct.unpack_from('<I', r[3], 264)[0] in owned and header_path(r) not in wanted}
+        if stale:
+            self.records = [r for i, r in enumerate(self.records) if i < self.native_count or header_path(r) not in stale]
+            for path in stale: del self.indexed[path]
+            changes += len(stale)
+        return changes
+
+    def relocated_database(self, group):
+        """The renamed copy of one native DBA; curves and controllers stay byte-for-byte."""
+        pak, name = self.dbas[zlib.crc32(group['source'].lower().encode('ascii'))]
+        payload = select_database(read(pak, name), group['tracks'])
+        _, entries, _ = database(payload)
+        counts = {e['name']: e['count'] for e in entries}
+        for source, dest in group['tracks'].items():
+            if counts.get(dest) != struct.unpack_from('<I', self.native_tracks[source][3], 312)[0]:
+                raise ValueError('Relocated facial controller count differs from its header: ' + dest)
+        return payload
