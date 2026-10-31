@@ -6,6 +6,12 @@ Native KCD2 (trosecko) stores the coefficient-blended terrain tilt in the
 instance X/Y bytes instead: Rz*Ry*Rx up-vectors match the terrain normal within
 one byte step, and unbaked aligned instances occur only on flat ground. The yaw
 byte is kept; unaligned groups are untouched. Baking is idempotent.
+
+The conversion stages (vegetation.py, complete_instances.py) bake fresh builds,
+so the finalize stage finds every scoped instance already at its target there
+and reports them as already_baked; it changes bytes only on saved builds from
+before recipe 59. Both finalize sequences run it after the last HLOD writer
+(static gates, stocks), so its hlods_sha256 describes the shipped hlods.dat.
 """
 import hashlib
 import json
@@ -130,7 +136,7 @@ def bake(terrain_blob, hlod_blob, scope=lambda path: True, heights=None):
         if eligible[group]:
             offsets.append(offset)
     report = dict(version=VERSION, policy=POLICY, aligned_groups=int(eligible.sum()), scoped=len(offsets),
-                  changed=0, replaced_off_normal=0, runtime_verified=False)
+                  changed=0, already_baked=0, replaced_off_normal=0, runtime_verified=False)
     if not offsets:
         return bytes(hlod_blob), report
     if heights is None:
@@ -150,7 +156,8 @@ def bake(terrain_blob, hlod_blob, scope=lambda path: True, heights=None):
     view = np.frombuffer(result, np.uint8)
     for column, values in ((62, x), (63, y)):
         view[np.array(offsets, np.int64)+column] = values
-    report.update(changed=int(changed.sum()), replaced_off_normal=int((changed & off).sum()))
+    report.update(changed=int(changed.sum()), already_baked=int((~changed).sum()),
+                  replaced_off_normal=int((changed & off).sum()))
     return bytes(result), report
 
 

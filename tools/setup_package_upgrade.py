@@ -420,10 +420,6 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     receipt['files'].update(ratio_files)
     receipt['lod_ratio_metadata'] = ratio_report
     receipt['build_recipe']['streaming_validation']['lod_ratio_version'] = ratio_report['version']
-    from vegetation_tilt import upgrade_package as bake_vegetation_tilt
-    tilt_files, tilt_report = bake_vegetation_tilt(package)
-    receipt['files'].update(tilt_files)
-    receipt['vegetation_terrain_tilt'] = tilt_report
     from terrain_surface_placement import upgrade_package as upgrade_surface_placement
     notify('Applying KCD2 surface-tree placement', 0, 0, '')  # setup progress: label, current, total, detail
     placement_files, placement_report = upgrade_surface_placement(package)
@@ -517,6 +513,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from world_actor_contracts import upgrade as upgrade_actor_contracts
     actor_files, actor_report = upgrade_actor_contracts(package, target)
     receipt['files'].update(actor_files); receipt['world_actor_contracts'] = actor_report
+    # After the last HLOD writers (static gates, stocks), as on the saved-build path,
+    # so the tilt receipt's hlods_sha256 describes the shipped hlods.dat.
+    from vegetation_tilt import upgrade_package as bake_vegetation_tilt
+    tilt_files, tilt_report = bake_vegetation_tilt(package)
+    receipt['files'].update(tilt_files)
+    receipt['vegetation_terrain_tilt'] = tilt_report
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))

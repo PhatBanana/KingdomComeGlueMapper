@@ -1,4 +1,5 @@
 """Asset-free checks for baking KCD1 runtime terrain alignment into KCD2 tilt bytes."""
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -159,6 +160,38 @@ class TiltTests(unittest.TestCase):
                 files, report = upgrade_package(package)
                 self.assertEqual(files, {}); self.assertTrue(report['already_current'])
                 self.assertEqual((level / 'level.pak').read_bytes(), before)
+
+    def test_package_stage_follows_a_later_hlod_rewrite(self):
+        from lod_ratio_metadata import MARKER as LOD_MARKER, marker_for, validate_marker
+        blob = terrain(GROUPS)
+        data = hlods([converted(0, (1000, 2000, 5), 9, 0, 0), converted(1, (1000, 2000, 5), 9, 0, 0)])
+        lod = marker_for(blob, data, dict(version=1, target_encoding='kcd2-piecewise-1-to-20', scoped={}))
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory); level = package / 'Data/Levels/kcd1_travel'; level.mkdir(parents=True)
+            with zipfile.ZipFile(level / 'terrain.pak', 'w') as z: z.writestr('terrain/terrain.dat', blob)
+            with zipfile.ZipFile(level / 'level.pak', 'w') as z:
+                z.writestr('terrain/hlods.dat', data); z.writestr(LOD_MARKER, json.dumps(lod))
+            with patch('vegetation_tilt.HeightField', return_value=slope(20)):
+                files, report = upgrade_package(package)
+                self.assertEqual((report['scoped'], report['changed'], report['already_baked']), (1, 1, 0))
+                with zipfile.ZipFile(level / 'level.pak') as z:
+                    baked = z.read('terrain/hlods.dat'); lod = json.loads(z.read(LOD_MARKER)); stale = z.read(MARKER)
+                # A later finalize step (static gates, stocks) rewrites hlods.dat keeping the tilt bytes
+                # and refreshes the LOD receipt, as every HLOD writer must; the tilt receipt goes stale.
+                later = hlods([baked[8:72], baked[72:136], converted(1, (1500, 2500, 5), 3, 0, 0)])
+                with zipfile.ZipFile(level / 'level.pak', 'w') as z:
+                    z.writestr('terrain/hlods.dat', later); z.writestr(MARKER, stale)
+                    z.writestr(LOD_MARKER, json.dumps(marker_for(blob, later, lod)))
+                files, report = upgrade_package(package)
+                self.assertEqual(list(files), ['Data/Levels/kcd1_travel/level.pak'])
+                self.assertEqual((report['scoped'], report['changed'], report['already_baked']), (1, 0, 1))
+                self.assertEqual(report['hlods_sha256'], hashlib.sha256(later).hexdigest())
+                with zipfile.ZipFile(level / 'level.pak') as z:
+                    self.assertEqual(z.read('terrain/hlods.dat'), later)
+                    self.assertEqual(json.loads(z.read(MARKER)), report)
+                    validate_marker(blob, later, json.loads(z.read(LOD_MARKER)))
+                files, report = upgrade_package(package)
+                self.assertEqual(files, {}); self.assertTrue(report['already_current'])
 
     def test_package_without_aligned_imported_vegetation_is_not_rewritten(self):
         with tempfile.TemporaryDirectory() as directory:
