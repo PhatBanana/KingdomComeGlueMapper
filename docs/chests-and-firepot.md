@@ -155,6 +155,15 @@ Table with every pair: `D:\KCD\Builds\glue\diag\chests-firepot-20261030\survey-b
   native cauldron both exist at the pot anchor, and the KCD1 ladle slot category
   `Naberacka` is not matched by the ladle replacement; both are visible duplicates at this
   hearth and separate work.
+- The steam point keeps the donor's height above the pot trigger (+0.14 m home, +0.28 m
+  camp). KCD1 camps have no steam or boiling particle at all (0 of 98 camp pots), so there
+  is no KCD1 piece to place it on; every KCD1 home hearth has a
+  `boiling_bubbles_cooking_cauldron` particle 0.26-0.38 m above its pot trigger, which the
+  environment converter already carries over and which brackets the native heights. An
+  intermediate survey build that paired a camp fireplace smart object with an eatery holder
+  16 m away (KCD1 camp kettles are also linked from eatery smart objects) was a pairing
+  artefact; the current tool only pairs through holders that link `st_fire` or
+  `fireProcedural`.
 - The lamp and candle lights are placed as KCD1 placed them; the survey's reference point
   is the prefab origin.
 
