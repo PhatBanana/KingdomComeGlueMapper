@@ -7,23 +7,27 @@ import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from campaign_entity_links import native_guid
-from home_door_links import (convert, door_kind, privacy_label, script_values, source_areas, stage, upgrade,
-                             DEFINITION, LEVEL)
+from campaign_trigger_areas import TriggerArea, write_areas
+from home_door_links import (convert, door_kind, inside, privacy_label, script_values, source_areas, stage, upgrade,
+                             DEFINITION, LEVEL, POLYGON_LINK)
 
 AREA = 0xABC0000000000123
+GARRISON = 0xABC0000000000124
 DOOR_GUIDS = {sid: native_guid(0x5000 + sid) for sid in (11, 12, 13, 14)}
+SQUARE = ((0.0, 0.0, 0.0), (10.0, 0.0, 0.0), (10.0, 10.0, 0.0), (0.0, 10.0, 0.0))
+FAR = {11: '5,5,1', 12: '20,20,1', 13: '20,21,1', 14: '20,22,1'}  # only door 11 stands in SQUARE
 
 
-def door(mission, sid, locked='0', passing='1', lock_types='manual/key'):
+def door(mission, sid, locked='0', passing='1', lock_types='manual/key', pos='1,2,3'):
     e = E.SubElement(mission, 'Entity', Name='gm_door_%d' % sid, EntityClass='AnimDoor', EntityId=str(100 + sid),
-                     EntityGuid=DOOR_GUIDS[sid], Pos='1,2,3')
-    props = E.SubElement(e, 'Properties', object_Model='doors/x.cdf')
+                     EntityGuid=DOOR_GUIDS[sid], Pos=pos)
+    props = E.SubElement(e, 'Properties', object_Model='doors/x.cdf', bNoCrimeDoorLink='1')
     E.SubElement(props, 'Lock', bLocked=locked, esLockTypes=lock_types, bNeverLockByPassingNPC=passing,
                  fKeepUnlockedFrom='7.5', fKeepUnlockedTo='19.5', bDoLockOnMissingHomeArea='0')
     return e
 
 
-def mission(label=None):
+def mission(label=None, positions=None, garrison=False):
     root = E.Element('Objects')
     npc = E.SubElement(root, 'Entity', Name='villager', EntityClass='NPC', EntityId='1', EntityGuid=native_guid(1), Pos='0,0,0')
     hub = E.SubElement(root, 'Entity', Name='gm_person_home_villager', EntityClass='SchedulerHub', EntityId='2', EntityGuid=native_guid(2), Pos='0,0,0')
@@ -32,13 +36,20 @@ def mission(label=None):
     if label is not None: props.set('Label', label)
     E.SubElement(E.SubElement(npc, 'EntityLinks'), 'Link', Name='home', TargetId='2', TargetGuid=native_guid(2))
     E.SubElement(E.SubElement(hub, 'EntityLinks'), 'Link', Name='home_area', TargetId='3', TargetGuid=native_guid(AREA))
-    for sid in (11, 12, 13, 14): door(root, sid)
+    for sid in (11, 12, 13, 14): door(root, sid, pos=(positions or {}).get(sid, '1,2,3'))
     E.SubElement(root, 'Entity', Name='glue_item_16', EntityClass='Stash', EntityId='116', EntityGuid=native_guid(0x6016), Pos='0,0,0')
+    if garrison:  # a second registered home, whose source area links no door
+        guard = E.SubElement(root, 'Entity', Name='guard', EntityClass='NPC', EntityId='21', EntityGuid=native_guid(21), Pos='0,0,0')
+        hub = E.SubElement(root, 'Entity', Name='gm_person_home_guard', EntityClass='SchedulerHub', EntityId='22', EntityGuid=native_guid(22), Pos='0,0,0')
+        area = E.SubElement(root, 'Entity', Name='sa_garrison_home', EntityClass='TriggerArea', EntityId='23', EntityGuid=native_guid(GARRISON), Pos='0,0,0')
+        E.SubElement(area, 'Properties', bSaved_by_game='0')
+        E.SubElement(E.SubElement(guard, 'EntityLinks'), 'Link', Name='home', TargetId='22', TargetGuid=native_guid(22))
+        E.SubElement(E.SubElement(hub, 'EntityLinks'), 'Link', Name='home_area', TargetId='23', TargetGuid=native_guid(GARRISON))
     return root
 
 
-def source_area(misc='', links=None):
-    area = E.Element('Entity', Name='Ska_SA_Home9', EntityClass='SmartAreaShape', EntityId='900', EntityGuid='%016X' % AREA, Pos='0,0,0')
+def source_area(misc='', links=None, guid=AREA):
+    area = E.Element('Entity', Name='Ska_SA_Home9', EntityClass='SmartAreaShape', EntityId='900', EntityGuid='%016X' % guid, Pos='0,0,0')
     props = E.SubElement(area, 'Properties', guidSmartAreaTemplate='5fdc7a5e-0b61-43fe-bc6a-53423136d493')
     E.SubElement(props, 'Script', Misc=misc, bValidWithoutTemplate='0')
     container = E.SubElement(area, 'EntityLinks')
@@ -48,8 +59,16 @@ def source_area(misc='', links=None):
     return area
 
 
-def files(root):
-    return {'objects_mission0.xml': E.tostring(root), 'waitinglinks.xml': None}
+def files(root, fubar=None):
+    return {'objects_mission0.xml': E.tostring(root), 'waitinglinks.xml': None, 'triggerareas.fubar': fubar}
+
+
+def polygons(*areas, height=5.0):
+    return write_areas([TriggerArea(guid, height, points) for guid, points in areas], 7)
+
+
+def doors_of(data):
+    return {e.get('Name'): e for e in E.fromstring(data['objects_mission0.xml']).iter('Entity') if e.get('EntityClass') == 'AnimDoor'}
 
 
 def links_of(data, area_id='3'):
@@ -133,12 +152,90 @@ class HomeDoorLinkTests(unittest.TestCase):
         self.assertEqual(privacy_label('trespassMode:nightOnly'), 'private;semipublic')
         with self.assertRaises(ValueError): privacy_label('trespassMode:sometimes')
 
+    def test_linked_doors_drop_the_no_crime_door_link_flag_and_record_their_source(self):
+        result, report = convert(files(mission()), {native_guid(AREA): [source_area()]})
+        props = {n: d.find('Properties') for n, d in doors_of(result).items()}
+        self.assertEqual([props['gm_door_%d' % s].get('bNoCrimeDoorLink') for s in (11, 12, 13, 14)], ['0', '0', '0', '1'])
+        self.assertEqual(report['homes'][0]['door_source'], 'kcd1')
+        self.assertEqual((report['polygon_homes'], report['polygon_doors'], report['polygons']), (0, 0, False))
+        self.assertFalse(report['policy']['no_crime_door_link'])
+
+    def test_home_kcd1_never_linked_gets_the_doors_inside_its_polygon(self):
+        # 11 stands inside, 13 in the wall the east edge runs along (0.3 m outside), 12 beyond, 14 above the area.
+        root = mission(positions={11: '5,5,1', 12: '20,20,1', 13: '10.3,5,1', 14: '5,5,30'})
+        empty = {native_guid(AREA): [source_area(links=[])]}
+        result, report = convert(files(root, polygons((AREA, SQUARE))), empty)
+        area, links = links_of(result)
+        self.assertEqual(area.find('Properties').get('Label'), 'private;personal')
+        self.assertEqual(links, {(DEFINITION % 'basic', '111'), (DEFINITION % 'basic', '113')})
+        waiting = E.fromstring(result['waitinglinks.xml'])
+        self.assertEqual({(w.get('TargetId'), w.findtext('LinkDefinition')) for w in waiting.iter('WaitingLink')},
+                         {(DOOR_GUIDS[11], DEFINITION % 'basic'), (DOOR_GUIDS[13], DEFINITION % 'basic')})
+        doors = doors_of(result)
+        self.assertEqual([doors['gm_door_%d' % s].find('Properties/Lock').get('bNeverLockByPassingNPC') for s in (11, 12, 13, 14)], ['0', '1', '0', '1'])
+        self.assertEqual([doors['gm_door_%d' % s].find('Properties').get('bNoCrimeDoorLink') for s in (11, 12, 13, 14)], ['0', '1', '0', '1'])
+        home, = report['homes']
+        self.assertEqual((home['status'], home['door_source']), ('converted', POLYGON_LINK))
+        self.assertEqual([(d['name'], d['kind'], d['link'], d['source_id']) for d in home['doors']],
+                         [('gm_door_11', 'basic', POLYGON_LINK, '11'), ('gm_door_13', 'basic', POLYGON_LINK, '13')])
+        self.assertEqual((report['doors'], report['homes_with_doors'], report['polygon_homes'], report['polygon_doors'], report['polygons']),
+                         (2, 1, 1, 2, True))
+        twice, repeat = convert(result, empty)
+        self.assertEqual((twice['objects_mission0.xml'], twice['waitinglinks.xml']), (result['objects_mission0.xml'], result['waitinglinks.xml']))
+        self.assertEqual(repeat, report)
+
+    def test_a_lone_polygon_door_is_the_entrance_and_kcd1_links_always_win(self):
+        empty = {native_guid(AREA): [source_area(links=[])]}
+        result, report = convert(files(mission(positions=FAR), polygons((AREA, SQUARE))), empty)
+        _, links = links_of(result)
+        self.assertEqual(links, {(DEFINITION % 'entrance', '111')})
+        self.assertEqual(report['door_kinds'], {'entrance': 1, 'basic': 0, 'storage': 0})
+        # KCD1 linked door 12: door 11 inside the polygon is not added to an authored home.
+        result, report = convert(files(mission(positions=FAR), polygons((AREA, SQUARE))), {native_guid(AREA): [source_area(links=[('entrance', '12')])]})
+        _, links = links_of(result)
+        self.assertEqual((links, report['homes'][0]['door_source']), ({(DEFINITION % 'entrance', '112')}, 'kcd1'))
+        # A KCD1 link to a door that was never converted counts as authored too: pending, not guessed.
+        result, report = convert(files(mission(positions=FAR), polygons((AREA, SQUARE))), {native_guid(AREA): [source_area(links=[('', '17')])]},
+                                 source_doors={'17'})
+        _, links = links_of(result)
+        self.assertEqual((links, report['homes'][0]['pending']), (set(), [dict(link='', source_id='17', kind='basic')]))
+        # Without a polygon nothing is guessed, and a home with no source area never gets polygon doors.
+        result, report = convert(files(mission(positions=FAR)), empty)
+        _, links = links_of(result)
+        self.assertEqual((links, report['homes'][0]['door_source'], report['polygons']), (set(), 'no polygon', False))
+        result, report = convert(files(mission(positions=FAR), polygons((AREA, SQUARE))), {})
+        _, links = links_of(result)
+        self.assertEqual((links, report['homes'][0]['status']), (set(), 'no_source_area'))
+
+    def test_polygon_doors_another_home_links_stay_with_that_home(self):
+        # The garrison polygon holds doors 11 and 13; the villager's KCD1 link claims 11, so the garrison gets 13 alone, as its entrance.
+        root = mission(positions={11: '5,5,1', 12: '20,20,1', 13: '6,6,1', 14: '20,22,1'}, garrison=True)
+        areas = {native_guid(AREA): [source_area(links=[('entrance', '11')])], native_guid(GARRISON): [source_area(links=[], guid=GARRISON)]}
+        result, report = convert(files(root, polygons((GARRISON, SQUARE))), areas)
+        _, villager = links_of(result)
+        _, garrison = links_of(result, '23')
+        self.assertEqual((villager, garrison), ({(DEFINITION % 'entrance', '111')}, {(DEFINITION % 'entrance', '113')}))
+        self.assertEqual([(h['area'], h.get('door_source'), len(h['doors'])) for h in report['homes']],
+                         [('Ska_SA_Home9', 'kcd1', 1), ('sa_garrison_home', POLYGON_LINK, 1)])
+        self.assertEqual((report['doors'], report['homes_with_doors'], report['polygon_homes']), (2, 2, 1))
+
+    def test_containment_matches_the_package_gate(self):
+        polygon = (5.0, SQUARE)
+        self.assertTrue(inside((5, 5, 1), polygon))
+        self.assertTrue(inside((10.4, 5, 1), polygon))  # in the wall the edge runs along
+        self.assertFalse(inside((10.6, 5, 1), polygon))
+        self.assertTrue(inside((5, 5, 5.9), polygon))  # up to the area height plus 1 m
+        self.assertFalse(inside((5, 5, 6.1), polygon))
+        self.assertFalse(inside((5, 5, -1.1), polygon))
+        self.assertFalse(inside((5, 5, 1), (5.0, SQUARE[:2])))
+
     def test_stage_and_upgrade_rewrite_the_level_archive_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             mod = Path(tmp)/'mod'; source = Path(tmp)/'kcd1'
             (mod/'Data/Levels/kcd1_travel').mkdir(parents=True); (source/'Data/Levels/rataje').mkdir(parents=True)
             with zipfile.ZipFile(mod/LEVEL, 'w') as z:
                 z.writestr('objects_mission0.xml', E.tostring(mission()))
+                z.writestr('triggerareas.fubar', polygons((AREA, SQUARE)))
                 z.writestr('other.bin', b'keep')
             layer = E.Element('Objects'); layer.append(source_area())
             E.SubElement(layer, 'Entity', Name='door15', EntityClass='AnimDoor', EntityId='15', EntityGuid='%016X' % 0x15)
