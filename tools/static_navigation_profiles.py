@@ -19,10 +19,22 @@ from upgrade_map import read
 
 BASE = 'recast/rdnavmesh_1'
 VERSION = 1
+# Native tiles carry userId 0 (header offset 20) in every tile of both games. Layers that
+# loft_navigation appends carry this tag instead, so a profile re-run can tell them from
+# edits and let the loft converter rebuild them after the stacks are recomposed.
+AUTHORED_LAYER_TAG = 0x474d4c46
 
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+def authored(tile):
+    return len(tile) >= 24 and struct.unpack_from('<I', tile, 20)[0] == AUTHORED_LAYER_TAG
+
+
+def native_layers(tiles):
+    return tuple(t for t in tiles if not authored(t))
 
 
 def connections(tile):
@@ -130,6 +142,8 @@ def compose(entries, profiles, selected, native_mesh, mission):
             if key in doors:
                 raise ValueError('Duplicate converted door GUID')
             doors[key] = entity
+    # Authored layers (loft_navigation) are rebuilt after composition; compare native stacks only.
+    base = {key: native_layers(tiles) for key, tiles in base.items()}
     replacements, owners, evidence = {}, {}, []
     for name in selected:
         profile = records.get(name.lower())
@@ -207,7 +221,8 @@ def plan(package, source, target, selected, *, source_level='rataje', level='kcd
             stem = 'recast/rdnavmesh_' + name.lower() + '_1'
             selected_cells = decode(entries[index[stem+'.hdr']], entries[index[stem+'.nav']], settings, version)
             for cell, tiles in selected_cells.items():
-                if current.get(cell) not in (original.get(cell), tiles):
+                stack = current.get(cell)
+                if (stack if stack is None else native_layers(stack)) not in (original.get(cell), tiles):
                     raise ValueError('Existing navigation cell has unrecognized edits: ' + str(cell))
     changes, report = compose(entries, profiles, selected, native, mission)
     # Retaining an entity GUID while moving the physical door would still leave
