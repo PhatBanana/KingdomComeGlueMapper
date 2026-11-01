@@ -80,6 +80,56 @@ class FacialTests(unittest.TestCase):
                     importer.add(['dialog/quest/missing.ogg'])
             finally:importer.close()
 
+    def test_native_relocation_by_full_path_is_repeatable_and_guarded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline=self.native_archive(directory)
+            dest='animations/humans/facials/dialog/new/a.caf'
+            importer=NativeFacialImporter(directory)
+            try:
+                # 'elsewhere/b.ogg' shares its stem with a native track but not its path.
+                groups,missing=importer.relocation({'dialog/new/a.ogg':'source/a.ogg','dialog/new/b.ogg':'elsewhere/b.ogg'})
+                self.assertEqual(missing,['dialog/new/b.ogg'])
+                (name,group),=groups.items()
+                self.assertTrue(name.startswith(NativeFacialImporter.RELOCATED))
+                self.assertEqual(group['tracks'],{'animations/humans/facials/source/a.caf':dest})
+                self.assertEqual(importer.index_relocation(groups),1)
+                added=importer.records[2]
+                self.assertEqual((header_path(added),added[2]),(dest,3))
+                self.assertEqual(struct.unpack_from('<I',added[3],264)[0],zlib.crc32(name.encode()))
+                payload=importer.relocated_database(group)
+                _,clips,tracks=database(payload);_,original,native=database(fixture())
+                self.assertEqual([c['name'] for c in clips],[dest])
+                self.assertEqual(clips[0]['controllers'],original[0]['controllers'])
+                self.assertEqual(tracks,native)
+                index=container(importer.records)
+                with self.assertRaisesRegex(ValueError,'Invalid relocated recording path'):
+                    importer.relocation({'bad.ogg':'source/a.ogg'})
+            finally:importer.close()
+            resumed=NativeFacialImporter(directory,index)
+            try:
+                same,_=resumed.relocation({'dialog/new/a.ogg':'source/a.ogg'})
+                self.assertEqual(set(same),set(groups))
+                self.assertEqual(resumed.index_relocation(same,previous=list(groups)),0)
+                self.assertEqual(container(resumed.records),index)
+                # A changed rename set moves the clip to a new database and keeps the record identity.
+                grown,_=resumed.relocation({'dialog/new/a.ogg':'source/a.ogg','dialog/new/b.ogg':'source/b.ogg'})
+                (renamed,)=list(grown)
+                self.assertNotEqual(renamed,name)
+                self.assertEqual(resumed.index_relocation(grown,previous=list(groups)),2)
+                moved=resumed.indexed[dest]
+                self.assertEqual((moved[2],struct.unpack_from('<I',moved[3],264)[0]),(3,zlib.crc32(renamed.encode())))
+                self.assertEqual(len(resumed.records),4)
+                # Nothing relocated any more: the owned records go, the baseline stays.
+                self.assertEqual(resumed.index_relocation({},previous=[renamed]),2)
+                self.assertEqual(resumed.records,baseline)
+            finally:resumed.close()
+            foreign=renamed_header(baseline[0],dest,'animations/foreign.dba')
+            conflicted=NativeFacialImporter(directory,container([*baseline,(*foreign[:2],9,foreign[3])]))
+            try:
+                with self.assertRaisesRegex(ValueError,'Conflicting facial track'):
+                    conflicted.index_relocation(groups)
+            finally:conflicted.close()
+
     def test_rig_aliases_retain_original_curves_and_rebuild_metadata(self):
         blob = fixture()
         _, before, tracks = database(blob)
