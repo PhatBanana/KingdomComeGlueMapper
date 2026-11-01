@@ -1,4 +1,4 @@
-"""Converted shopkeepers trade through the native spoken shop dialogue instead of the silent generated one."""
+"""Converted shopkeepers keep the generated trade dialog and gain the native shop greeting."""
 from pathlib import Path
 import sys
 import tempfile
@@ -104,51 +104,66 @@ class NativeShopDialogueTests(unittest.TestCase):
         self.assertEqual(generated(dialogue('trader', role='p1_role', name='x', diagnostics=False)), ('trader', 'p1_role'))
         self.assertIsNone(generated(native_dialog('OBCHODNIK_Z_DIALOGU_MUZ')))
 
-    def test_ready_keepers_get_native_roles_and_lose_the_silent_dialog(self):
-        self.write()
+    def test_ready_keepers_greet_and_keep_the_generated_trade_dialog(self):
+        before = self.write()
         progress = []
         files, report = upgrade(self.package, self.game, notify=lambda *a: progress.append(a))
         self.assertEqual(files, {TRAVEL: digest(self.package / TRAVEL)})
         self.assertEqual([(p[1], p[2]) for p in progress], [(0, 1), (1, 1)])
-        self.assertEqual(report['replaced'], ['grocer', 'trader'])
+        self.assertEqual(report['greeted'], ['grocer', 'trader'])
         status = {row['dialog']: row['status'] for row in report['dialogs']}
-        self.assertEqual(status, {'gm_source_shop_1_trade': 'replaced', 'gm_source_shop_2_trade': 'replaced',
+        self.assertEqual(status, {'gm_source_shop_1_trade': 'greeting', 'gm_source_shop_2_trade': 'greeting',
                                   'gm_source_shop_3_trade': 'no_ready_to_sell_job', 'gm_tavern_trade': 'out_of_scope'})
         self.assertFalse(report['runtime_verified'])
         entries = self.entries()
         folder = ENTRY.rsplit('/', 1)[0] + '/'
-        self.assertNotIn(folder + 'gm_source_shop_1_trade.xml', entries)
-        self.assertNotIn(folder + 'gm_source_shop_2_trade.xml', entries)
-        self.assertIn(folder + 'gm_source_shop_3_trade.xml', entries)
-        self.assertIn(folder + 'gm_tavern_trade.xml', entries)
-        level = ET.fromstring(entries[ENTRY]).find('Skald/Level')
-        self.assertEqual([d.get('File') for d in level.find('Definitions')],
-                         ['world/open_world.xml', 'gm_source_shop_3_trade.xml', 'gm_tavern_trade.xml'])
-        self.assertEqual([n.tag for n in level.find('Nodes')], ['open_world', 'gm_source_shop_3_trade', 'gm_tavern_trade'])
-        self.assertEqual(self.operations(entries, 'Libs/Storm/roles/p1.xml')[-2:],
-                         [('addRole', 'OBCHODNIK_Z_DIALOGU_MUZ'), ('addShopRoles_greeting_man', None)])
-        self.assertEqual(self.operations(entries, 'Libs/Storm/roles/p2.xml')[-2:],
-                         [('addRole', 'OBCHODNICE_Z_DIALOGU_ZENA'), ('addShopRoles_greeting_woman', None)])
+        # Trade must not depend on shop_sellerReadyToSell: every generated dialog stays registered.
+        self.assertEqual(sorted(entries), sorted(self.travel))
+        self.assertEqual(entries[ENTRY], self.travel[ENTRY])
+        for number, person in (('1', 'trader'), ('2', 'grocer')):
+            blob = entries[folder + f'gm_source_shop_{number}_trade.xml']
+            body = ET.fromstring(blob).find('Skald/FaderDialog/Dialogue')
+            self.assertEqual(body.get('AllowGreeting'), 'true')
+            self.assertEqual(body.get('AllowFarewell'), 'false')
+            self.assertEqual(generated(blob), (person, f'p{number}_role'))
+            self.assertEqual(len([s for s in body.iter('Sequence') if s.get('Type') == 'OpenShop']), 1)
+        for name in ('gm_source_shop_3_trade.xml', 'gm_tavern_trade.xml'):
+            self.assertEqual(entries[folder + name], self.travel[folder + name])
+        self.assertEqual(self.operations(entries, 'Libs/Storm/roles/p1.xml'),
+                         [('addRole', 'p1_role'), ('addRole', 'SMLOUVANI_MUZ'), ('addShopRoles_greeting_man', None)])
+        self.assertEqual(self.operations(entries, 'Libs/Storm/roles/p2.xml'),
+                         [('addRole', 'p2_role'), ('addRole', 'SMLOUVANI_MUZ'), ('addShopRoles_greeting_woman', None)])
         self.assertEqual(entries['Libs/Storm/roles/p3.xml'], rule('p3', 'idler'))
-        before = (self.package / TRAVEL).read_bytes()
+        after = (self.package / TRAVEL).read_bytes()
+        self.assertNotEqual(after, before)
         files, report = upgrade(self.package, self.game)
-        self.assertEqual((files, report['replaced'], report['removed']), ({}, [], []))
-        self.assertEqual((self.package / TRAVEL).read_bytes(), before)
+        self.assertEqual((files, report['changed']), ({}, []))
+        self.assertEqual((self.package / TRAVEL).read_bytes(), after)
+
+    def test_spoken_trade_role_from_version_1_is_removed(self):
+        self.travel['Libs/Storm/roles/p1.xml'] = self.travel['Libs/Storm/roles/p1.xml'].replace(
+            b'</operations>', b'<addRole name="OBCHODNIK_Z_DIALOGU_MUZ"/><addShopRoles_greeting_man/></operations>')
+        self.write()
+        changes, report = plan(self.package, self.game)
+        row = {r['person']: r for r in report['dialogs']}['trader']
+        self.assertEqual((row['added'], row['removed_roles']), ([], ['OBCHODNIK_Z_DIALOGU_MUZ']))
+        self.assertEqual(self.operations(changes, 'Libs/Storm/roles/p1.xml'),
+                         [('addRole', 'p1_role'), ('addRole', 'SMLOUVANI_MUZ'), ('addShopRoles_greeting_man', None)])
 
     def test_keeper_without_own_roles_rule_keeps_the_generated_dialog(self):
         del self.travel['Libs/Storm/roles/p1.xml']
         self.write()
-        _, _, report = plan(self.package, self.game)
+        _, report = plan(self.package, self.game)
         self.assertEqual({r['person']: r['status'] for r in report['dialogs'] if r['person'] in ('trader', 'grocer')},
-                         {'trader': 'no_roles_rule', 'grocer': 'replaced'})
+                         {'trader': 'no_roles_rule', 'grocer': 'greeting'})
 
     def test_wired_generated_dialog_is_left_alone(self):
         self.travel[ENTRY] = self.travel[ENTRY].replace(b'<open_world Name="open_world"/>',
             b'<open_world Name="open_world"><Edge From="gm_source_shop_1_trade.dialog_started" To="x"/></open_world>')
         self.write()
-        _, removed, report = plan(self.package, self.game)
+        changes, report = plan(self.package, self.game)
         self.assertEqual({r['dialog']: r['status'] for r in report['dialogs']}['gm_source_shop_1_trade'], 'wired_dialog')
-        self.assertNotIn(ENTRY.rsplit('/', 1)[0] + '/gm_source_shop_1_trade.xml', removed)
+        self.assertNotIn(ENTRY.rsplit('/', 1)[0] + '/gm_source_shop_1_trade.xml', changes)
 
     def test_changed_native_dialog_or_greeting_operation_fails_before_writing(self):
         self.scripts['Quests/Final/Barbora/open_world/shop/nakupovani_z_dialogu_zena.xml'] = native_dialog('JINA_ROLE')

@@ -1,4 +1,4 @@
-"""Let converted shopkeepers talk through the native shop dialogue.
+"""Let converted shopkeepers greet Henry with the native shop greeting.
 
 Every converted source trader's talk screen was a generated FaderDialog
 (`region_travel_merchant.dialogue`, registered by
@@ -17,15 +17,24 @@ the native `shop` module the package already registers, and their recordings
 are already relocated. `shop_roles` left OBCHODNIK_Z_DIALOGU out on purpose so
 a keeper would not get a second Trade option beside the generated one.
 
-This step swaps the two for the generated source-shop dialogs: it adds the
-spoken-trade role and the greeting operation to the keeper's own Storm rule
-and removes the generated dialog's registration and file. It only acts when
-the native dialog can offer trade: the native Shop sequence requires
-`Port('seller_in_shop')`, i.e. the keeper's entity context
-`shop_sellerReadyToSell`, which the keeper's work behavior tree must set.
-Keepers without such a job, without their own roles rule, or whose dialog has
-been edited away from the generated shape are reported and keep the generated
-dialog. Other generated trade dialogs (tavern, charcoal) are reported only.
+Version 1 swapped the spoken trade dialog in for the generated one. In play
+(recipe 71 -5, 1 Nov 2026) that broke trade: the native Shop sequence, and the
+native greeting too, require `Port('seller_in_shop')`, which
+`utils.shop.is_seller_in_shop` reads straight from the keeper's entity context
+`shop_sellerReadyToSell`. A keeper away from that job offers no Trade at all,
+while the generated dialog trades whenever the shop resolves.
+
+So this step keeps the generated trade dialog, lets it greet
+(`AllowGreeting="true"`, as the native spoken trade dialog does; its OpenShop
+stays behind the explicit Trade topic), and adds only the greeting operation to
+the keeper's own Storm rule. The greeting plays while the keeper is at the stall
+(the greeting has the same seller_in_shop gate) and Trade works as before
+anywhere. A spoken-trade role left by version 1 is removed so a keeper never
+shows two Trade options. It only acts for keepers with a job whose behavior
+tree sets the context, since the greeting can never play otherwise. Keepers
+without such a job, without their own roles rule, or whose dialog has been
+edited away from the generated shape are reported. Other generated trade
+dialogs (tavern, charcoal) are reported only.
 """
 import json
 from pathlib import Path
@@ -36,7 +45,7 @@ import zipfile
 
 from upgrade_map import read, xml
 
-VERSION = 1
+VERSION = 2
 TRAVEL = 'Data/gluemappertravel.pak'
 LEVEL = 'Data/Levels/kcd1_travel/level.pak'
 ENTRY = 'Quests/GlueTravel/entry/kcd1_travel.xml'
@@ -52,11 +61,14 @@ READY = 'shop_sellerReadyToSell'
 
 
 def generated(blob):
-    """(keeper soul, keeper role) when the dialog is the silent generated trade shape, else None."""
+    """(keeper soul, keeper role) when the dialog is the silent generated trade shape, else None.
+
+    Greetings may already be on (this step's own output); the rest of the shape must match.
+    """
     root = ET.fromstring(blob)
     host = root.find('Skald/FaderDialog')
     dialogue = None if host is None else host.find('Dialogue')
-    if dialogue is None or dialogue.get('AllowGreeting') != 'false':
+    if dialogue is None or dialogue.get('AllowGreeting') not in ('false', 'true'):
         return None
     if any(r.find('Text') is not None for r in dialogue.iter('Response')):
         return None
@@ -147,7 +159,7 @@ def keeper_job_ids(mission, dialogs):
 
 
 def plan(package, target):
-    """Return (travel replacements, removed travel entries, report) without writing."""
+    """Return (travel replacements, report) without writing."""
     from shop_roles import keepers
     package, target = Path(package), Path(target)
     with zipfile.ZipFile(package / LEVEL) as level:
@@ -164,17 +176,12 @@ def plan(package, target):
         dialogs = {n: read(travel, n) for n in names
                    if posixpath.dirname(n) == posixpath.dirname(ENTRY) and n.endswith('_trade.xml')}
         ready = ready_trees(travel, tables, scripts, keeper_job_ids(mission, dialogs))
-    entry = ET.fromstring(entry_blob)
-    host = entry.find('Skald/Level')
-    if host is None:
-        raise ValueError('Entry graph is not a Level')
-    definitions, nodes = host.find('Definitions'), host.find('Nodes')
     jobs = {}
     for entity in mission:
         properties = entity.find('Properties')
         if properties is not None and (entity.get('Name') or '').startswith('gm_schedule_'):
             jobs.setdefault(entity.get('Name'), (properties.get('guidSmartObjectType') or '').lower())
-    changes, removed, rows = {}, [], []
+    changes, rows = {}, []
     for path in sorted(dialogs):
         name = posixpath.basename(path)[:-4]
         shape = generated(dialogs[path])
@@ -201,52 +208,48 @@ def plan(package, target):
         elif not keeper_jobs or not any(ready.get(identity) for identity in keeper_jobs):
             row['status'] = 'no_ready_to_sell_job'
         else:
-            row['status'] = 'replaced'
+            row['status'] = 'greeting'
         row['jobs_ready'] = [bool(ready.get(identity)) for identity in keeper_jobs]
-        if row['status'] != 'replaced':
+        if row['status'] != 'greeting':
             rows.append(row)
             continue
         file_name, root, rule = own
         operations = rule.find('operations')
-        present = {(o.tag, o.get('name')) for o in operations}
-        wanted = [('addRole', TRADE_ROLE[sex]), (GREETING[sex], None)]
-        added = [(tag, value) for tag, value in wanted if (tag, value) not in present]
-        for tag, value in added:
-            ET.SubElement(operations, tag, {'name': value} if value else {})
+        stale = [o for o in operations if o.tag == 'addRole' and o.get('name') in TRADE_ROLE.values()]
+        for operation in stale:
+            operations.remove(operation)
+        added = [] if operations.find(GREETING[sex]) is not None else [GREETING[sex]]
         if added:
+            ET.SubElement(operations, GREETING[sex])
+        if added or stale:
             role_files[file_name] = xml(root)
             changes[file_name] = role_files[file_name]
-        for definition in list(definitions if definitions is not None else []):
-            if definition.get('File') == name + '.xml':
-                definitions.remove(definition)
-        for node in list(nodes if nodes is not None else []):
-            if node.tag == name:
-                nodes.remove(node)
-        removed.append(path)
-        row.update(roles_file=file_name, added=[value or tag for tag, value in added])
+        dialog_root = ET.fromstring(dialogs[path])
+        body = dialog_root.find('Skald/FaderDialog/Dialogue')
+        if body.get('AllowGreeting') != 'true':
+            body.set('AllowGreeting', 'true')
+            changes[path] = xml(dialog_root)
+        row.update(roles_file=file_name, added=added, removed_roles=[o.get('name') for o in stale],
+                   greeting_allowed=path in changes)
         rows.append(row)
-    if removed:
-        changes[ENTRY] = xml(entry)
-    report = dict(version=VERSION, dialogs=rows, replaced=sorted(r['person'] for r in rows if r['status'] == 'replaced'),
-                  native_dialogs=NATIVE_DIALOG, trade_roles=TRADE_ROLE, greeting=GREETING,
-                  changed=sorted(changes), removed=sorted(removed), runtime_verified=False)
-    return changes, removed, report
+    report = dict(version=VERSION, dialogs=rows, greeted=sorted(r['person'] for r in rows if r['status'] == 'greeting'),
+                  native_dialogs=NATIVE_DIALOG, greeting=GREETING, changed=sorted(changes), runtime_verified=False)
+    return changes, report
 
 
 def upgrade(package, target, notify=lambda *a: None):
-    """Idempotent: once the generated dialogs are gone a second run changes nothing."""
+    """Idempotent: once the keepers greet and their dialogs allow it a second run changes nothing."""
     if target is None:
         raise ValueError('Game folder required to hand shopkeepers to the native shop dialogue')
     package = Path(package)
-    changes, removed, report = plan(package, target)
-    if not changes and not removed:
+    changes, report = plan(package, target)
+    if not changes:
         return {}, report
-    label = 'Give converted shopkeepers the native shop dialogue'
-    notify(label, 0, 1, ', '.join(report['replaced']))
+    label = 'Give converted shopkeepers the native shop greeting'
+    notify(label, 0, 1, ', '.join(report['greeted']))
     from setup_package_upgrade import rewrite
-    gone = set(removed)
-    rewrite(package, TRAVEL, changes, lambda name: name in gone)
-    notify(label, 1, 1, f"{len(report['replaced'])} keepers")
+    rewrite(package, TRAVEL, changes, lambda name: False)
+    notify(label, 1, 1, f"{len(report['greeted'])} keepers")
     from setup_campaign import digest
     return {TRAVEL: digest(package / TRAVEL)}, report
 
@@ -257,4 +260,4 @@ if __name__ == '__main__':
     parser.add_argument('--mod', type=Path, required=True, help='installed or staged package')
     parser.add_argument('--game', type=Path, required=True, help='KCD2 folder')
     arguments = parser.parse_args()
-    print(json.dumps(plan(arguments.mod, arguments.game)[2], indent=2))
+    print(json.dumps(plan(arguments.mod, arguments.game)[1], indent=2))

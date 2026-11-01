@@ -178,38 +178,53 @@ get a second Trade option beside the generated one.
 
 ### Change
 
-`tools/native_shop_dialogue.py` replaces the generated dialog for the
-`gm_source_shop_*_trade` keepers. It adds the spoken-trade role and the
-greeting operation to the keeper's own Storm rule, and removes the generated
-dialog's Definition, node and file. The native Shop sequence needs
-`Port('seller_in_shop')`, which is the keeper's `shop_sellerReadyToSell`
-context. The step therefore acts only when one of the keeper's schedule jobs
-has a behavior tree that sets that context. All five Skalitz source traders
-qualify: `ska_merchant1` and `ska_merchant4` on the native market seller,
-`ska_merchant2`, `ska_merchant3` and `ska_woman20` on converted work trees
-that set it. A keeper without such a job, without its own roles rule, with a
-wired dialog or with an edited dialog keeps the generated one and is reported.
-The tavern (`ska_blanka`) and charcoal (`ska_collierVarlet`) trade dialogs
-have the same silent shape but are out of scope and only reported.
+`tools/native_shop_dialogue.py` (version 2) keeps the generated dialog for the
+`gm_source_shop_*_trade` keepers and adds only the native greeting. It adds the
+greeting operation to the keeper's own Storm rule and sets
+`AllowGreeting="true"` on the generated dialog, which the native spoken trade
+dialog also allows. Its OpenShop stays behind the explicit Trade topic, so it
+is never a sole, automatic sequence. The native greeting starts only on
+`Port('obchodnik_je_v_obchode')`, the keeper's `shop_sellerReadyToSell`
+context, so the step acts only when one of the keeper's schedule jobs has a
+behavior tree that sets that context. All five Skalitz source traders qualify.
+A keeper without such a job, without its own roles rule, with a wired dialog or
+with an edited dialog is left alone and reported. The tavern (`ska_blanka`) and
+charcoal (`ska_collierVarlet`) trade dialogs are out of scope and only
+reported.
 
-Because `ska_merchant4` now gets native trade lines, `source_voice_fallbacks.SCOPE`
+Version 1 swapped in the spoken trade dialog (`OBCHODNIK(CE)_Z_DIALOGU_*`) and
+removed the generated one. In play on recipe 71 -5 (1 Nov 2026) trade broke for
+the Skalitz female trader. The native Shop sequence needs
+`Port('seller_in_shop')`, which `utils.shop.is_seller_in_shop` reads straight
+from `shop_sellerReadyToSell`, so a keeper away from her selling job offers no
+Trade at all. The generated dialog trades whenever the shop resolves, which
+the maintainer's merchant code relies on. Version 2 removes a spoken-trade role
+left by version 1, so a keeper never shows two Trade options. Henry's spoken
+"Co máš na prodej?" is not part of version 2.
+
+Because `ska_merchant4` now gets native greeting lines, `source_voice_fallbacks.SCOPE`
 also covers her: her imported voice `akem` gets fallback 68 (Mia Allis). The
 charcoal burner, on `rpro`'s fallback, was heard speaking on 31 Oct, which is
 the first in-game sign that the fallback works.
 
 **This changes behavior that comes from the maintainer's merchant code**
 (`region_travel_merchant.dialogue` and `campaign_merchant_work.add_trade_dialogue`
-still generate the dialog; this step replaces it afterwards). Upstream may
-prefer to stop generating it instead.
+generate the dialog with greetings off; this step turns them on for these
+keepers afterwards).
 
 ### Validation
 
-- `tests/test_native_shop_dialogue.py` (6): the generated shape is
-  recognised and a spoken dialog is not; ready keepers get the roles and lose
-  the dialog; a keeper whose job does not set the context, one without a roles
-  rule and a wired dialog are left alone; out-of-scope dialogs stay; a changed
-  native dialog or greeting operation fails before writing; a second run
-  changes nothing.
+- `tests/test_native_shop_dialogue.py` (7): the generated shape is
+  recognised, with greetings off or on, and a spoken dialog is not. Ready
+  keepers get the greeting and keep every generated dialog with exactly one
+  OpenShop. A spoken-trade role from version 1 is removed. A keeper whose job
+  does not set the context, one without a roles rule and a wired dialog are
+  left alone, and out-of-scope dialogs stay. A changed native dialog or
+  greeting operation fails before writing, and a second run changes nothing.
+- Version 2 plan, read only, on the moved-line-lipsync staged travel archive
+  with the -4 level (`D:\KCD\Builds\glue\diag\voice-lines-20261030\plan-fixa.json`):
+  five keepers get the greeting, five generated dialogs get `AllowGreeting="true"`,
+  nothing is removed. The paragraph below is the version 1 dry run.
 - Dry run on hard-linked copies of the -4 package
   (`D:\KCD\Builds\glue\diag\voice-lines-20261030\dry-run-4-report.json`):
   first run removes the five generated dialogs and modifies the five keepers'
