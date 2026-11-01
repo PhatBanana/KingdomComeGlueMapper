@@ -1,10 +1,13 @@
 """KCD1 haggle lines map onto KCD2's haggle skeleton by Decision and condition only."""
 from pathlib import Path
 import sys
+import re
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+import kcd1_shop_conversation
 from kcd1_shop_conversation import (PORTED_NAME, PORTED_ROLE, inventory, map_haggle, skeleton_differences,
                                     topic_aliases)
 
@@ -147,6 +150,34 @@ class HaggleMappingTests(unittest.TestCase):
         self.assertEqual((row['lines'], row['texted'], row['by_role']), (6, 2, {'HENRY': 2, 'SMLOUVANI_(MUZ)': 4}))
         self.assertEqual(row['voices'], {'rpro': {'recorded': 4, 'facial': 1}, 'bcas': {'recorded': 4, 'facial': 0},
                                          'tmck': {'recorded': 2, 'facial': 1}})
+
+
+    def test_no_native_role_token_survives_anywhere_in_the_port(self):
+        text = self.ported.decode('utf-8-sig')
+        self.assertEqual(re.findall(r'SMLOUVANI_(?:MUZ|ZENA)', text), [])
+        lists = [d.get('VoiceoverReductionRole') for d in self.root.iter('Decision') if d.get('VoiceoverReductionRole')]
+        lists += [q.get('VoiceCategoryRoles') for q in self.root.iter('Sequence') if q.get('VoiceCategoryRoles')]
+        self.assertEqual(set(lists), {PORTED_ROLE['man']})
+
+    def test_reviewed_condition_override_merges_lines_in_kcd1_order(self):
+        overrides = {('120', "gvar('dom') < 0.35"): "gvar('dom') < -0.35"}
+        with patch.dict(kcd1_shop_conversation.CONDITION_OVERRIDES, overrides, clear=True):
+            ported, report = map_haggle(HAGGLE_MAN, SKELETON, 'man')
+        strings = {q.get('Name'): [t.get('StringName') for t in q.findall('Elements/Response/Text')]
+                   for q in ET.fromstring(ported).iter('Sequence')}
+        self.assertEqual(strings['s5'], ['t120_low_a'])
+        self.assertEqual(report['condition_overrides'][0]['lines'], ['t120_low_a'])
+        self.assertNotIn('t120_low_a', [d['string'] for d in report['dropped_lines']])
+
+    def test_an_empty_kcd2_slot_keeps_its_position_and_drops_that_kcd1_line(self):
+        source = model('100', {'100': [sequence('1', '1', '130')],
+                               '130': [sequence('8', '', '0', '2', 't130_first'), sequence('9', '', '0', '2', 't130_second')]})
+        skeleton = SKELETON.replace(b'<Text StringName="smlo_stolen_a" Text="Kradene." />', b'')
+        ported, report = map_haggle(source, skeleton, 'man')
+        strings = {q.get('Name'): [t.get('StringName') for t in q.findall('Elements/Response/Text')]
+                   for q in ET.fromstring(ported).iter('Sequence')}
+        self.assertEqual((strings['s8'], strings['s9']), ([], ['t130_second']))
+        self.assertEqual([(d['reason'], d['string']) for d in report['dropped_lines']], [('empty_kcd2_slot', 't130_first')])
 
 
 if __name__ == '__main__':

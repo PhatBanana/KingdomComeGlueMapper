@@ -55,6 +55,16 @@ NATIVE_ROLE = {'man': 'SMLOUVANI_MUZ', 'woman': 'SMLOUVANI_ZENA'}
 PORTED_ROLE = {'man': 'GM_KCD1_SMLOUVANI_MUZ', 'woman': 'GM_KCD1_SMLOUVANI_ZENA'}
 PORTED_NAME = {'man': 'gm_kcd1_smlouvani_muz', 'woman': 'gm_kcd1_smlouvani_zena'}
 SOURCE_ROLE = {'man': 'SMLOUVANI_(MUZ)', 'woman': 'SMLOUVANI_(ZENA)'}
+# Reviewed exceptions to the same-condition rule: (KCD2 Decision, KCD1 condition) -> KCD2 condition.
+# 23528: KCD1's "No deal then." / "Forget it then." carried a KCD1-only condition;
+# KCD2 kept the lines unconditioned in the same order (seq57/seq58).
+CONDITION_OVERRIDES = {
+    ('23528', "var('negotiation_result_canceled') == 0"): '',
+    ('23528', "gvar('negotiation_merchantReaction_kind') == 4"): ''}
+# 23479 low band: KCD1 "< 0.35" sits before the mid band and overlaps it; KCD2 "< -0.35".
+# Off until Features decides (the KCD1 order does not show the band was shadowed).
+MAP_LOW_DOMINANCE = False
+LOW_DOMINANCE = ('23479', "gvar('negotiation_dominance') < 0.35", "gvar('negotiation_dominance') < -0.35")
 
 
 def condition(text):
@@ -80,7 +90,7 @@ def lines(model):
             for line in sequence['lines']:
                 response = line['response']
                 if response:
-                    found.append(dict(topic=tid, sequence=sequence['source']['sequence_id'],
+                    found.append(dict(topic=tid, sequence=sequence['source']['sequence_id'], order=len(found),
                                       condition=condition(sequence['entry'].get('entry_condition')),
                                       role=roles.get(response['role_id'], response['role_id']),
                                       string=response['string_name'], text=model['strings'].get(response['string_name']),
@@ -112,12 +122,19 @@ def inventory(models, facial_stems=None):
 
 
 def slots(sequence, role):
-    """Line slots of a KCD2 sequence for one speaker role, in document order."""
+    """Line slots of a KCD2 sequence for one speaker role, in document order.
+
+    A speaker Response without Text in a sequence that opens no Decision is an
+    empty slot (None): KCD2 kept the position but never wrote the line.
+    """
     own = [r for r in sequence.findall('Elements/Response') if r.get('Role') == role and r.find('Text') is not None]
     if own:
         return own
     silent = all(r.find('Text') is None for r in sequence.findall('Elements/Response'))
     nested = sequence.findall('Decision')
+    if silent and not nested and not sequence.get('VoiceCategory') and any(
+            r.get('Role') == role for r in sequence.findall('Elements/Response')):
+        return [None]
     if not silent or len(nested) != 1:
         return []
     found = []
@@ -173,6 +190,17 @@ def map_haggle(model, native, sex, aliases=None):
     by_topic = defaultdict(lambda: defaultdict(list))
     for line in lines(model):
         by_topic[aliases.get(line['topic'], line['topic'])][line['condition']].append(line)
+    overrides = dict(CONDITION_OVERRIDES)
+    if MAP_LOW_DOMINANCE:
+        overrides[LOW_DOMINANCE[:2]] = LOW_DOMINANCE[2]
+    applied = []
+    for (decision, source_condition), target_condition in overrides.items():
+        groups = by_topic.get(decision, {})
+        if source_condition in groups:
+            moved = groups.pop(source_condition)
+            groups[target_condition] = sorted(groups.get(target_condition, []) + moved, key=lambda l: l['order'])
+            applied.append(dict(decision=decision, kcd1=source_condition, kcd2=target_condition,
+                                lines=[l['string'] for l in moved]))
     renames, pairs, dropped, mismatched = {}, [], [], []
     for topic, groups in sorted(by_topic.items(), key=lambda item: int(item[0])):
         decision = decisions.get(topic)
@@ -194,6 +222,9 @@ def map_haggle(model, native, sex, aliases=None):
                 wanted = [l for l in groups[key] if l['role'] == speaker]
                 available = [slot for s in native_groups[key] for slot in slots(s, target)]
                 for line, slot in zip(wanted, available):
+                    if slot is None:
+                        dropped.append(dict(reason='empty_kcd2_slot', **brief(line)))
+                        continue
                     text = slot.find('Text')
                     renames[text.get('StringName')] = line['string']
                     pairs.append(dict(decision=topic, condition=key, role=target, native=text.get('StringName'),
@@ -214,7 +245,7 @@ def map_haggle(model, native, sex, aliases=None):
     blob = blob.replace(f'<FaderDialog Name="{name}"'.encode(), f'<FaderDialog Name="{PORTED_NAME[sex]}"'.encode(), 1)
     silent = silenced(root, set(removed))
     report = dict(sex=sex, kcd1_start=model['start_topic'], topic_aliases=aliases, native=NATIVE_HAGGLE[sex], name=PORTED_NAME[sex],
-                  role=PORTED_ROLE[sex], mapped=len(pairs), dropped=len(dropped), removed=len(removed),
+                  role=PORTED_ROLE[sex], condition_overrides=applied, mapped=len(pairs), dropped=len(dropped), removed=len(removed),
                   silenced=len(silent), player_choices_silenced=sum(1 for s in silent if s['player_choice']),
                   pairs=pairs, dropped_lines=dropped, condition_mismatches=mismatched, removed_responses=removed,
                   silenced_sequences=silent)
