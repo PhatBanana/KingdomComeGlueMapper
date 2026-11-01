@@ -61,9 +61,10 @@ SOURCE_ROLE = {'man': 'SMLOUVANI_(MUZ)', 'woman': 'SMLOUVANI_(ZENA)'}
 CONDITION_OVERRIDES = {
     ('23528', "var('negotiation_result_canceled') == 0"): '',
     ('23528', "gvar('negotiation_merchantReaction_kind') == 4"): ''}
-# 23479 low band: KCD1 "< 0.35" sits before the mid band and overlaps it; KCD2 "< -0.35".
-# Off until Features decides (the KCD1 order does not show the band was shadowed).
-MAP_LOW_DOMINANCE = False
+# 23479 low band: KCD1 "< 0.35" (priorities 0-1, before the mid band at 2-3) overlaps the
+# mid band; it fired for every dominance below 0.35, which contains KCD2's tightened
+# "< -0.35", so "Naturally." / "Sure, why not?" map onto KCD2's low band (Features, 1 Nov 2026).
+MAP_LOW_DOMINANCE = True
 LOW_DOMINANCE = ('23479', "gvar('negotiation_dominance') < 0.35", "gvar('negotiation_dominance') < -0.35")
 
 
