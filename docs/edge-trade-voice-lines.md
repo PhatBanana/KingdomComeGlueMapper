@@ -28,11 +28,13 @@ retail voices name one; only the two placeholder roots (`fejk` 1 and `fejka` 2,
 actors (`bcas` 0 -> `jbea` 2 -> `fejk` 3; `ggud` 0 -> `gand` 2), and level-2
 actors point at a root. `WHGame.dll` reads the `fallback_voice_id` column
 (the `voice_actor_id`, `voice_technical_name`, `fallback_voice_id`,
-`voice_name`, `abbreviation` column block) and exposes the cvar
-`wh_dlg_EnableFallbackVoice` ("Controls usage of generated dialogue voiceovers
-when the actual ones are not dubbed yet"); `fallback_voice_level` and
-`voice_groups` do not appear in the binary, so they are table-side metadata.
-The imported rows carried no fallback, which is the whole defect.
+`voice_name`, `abbreviation` column block) and nowhere else; `fallback_voice_level`
+and `voice_groups` do not appear in the binary, so they are table-side metadata.
+The cvar `wh_dlg_EnableFallbackVoice` is unrelated: its help text, "Controls
+usage of generated dialogue voiceovers when the actual ones are not dubbed
+yet", describes generated stand-in audio. An earlier revision of this note
+tied it to the fallback table; that was wrong. The imported rows carried no
+fallback.
 
 ### Change
 
@@ -151,106 +153,183 @@ includes `roles\dude.xml`; every line has a recording under the native scope.
   chance to confirm the mechanism; if it stays silent, the three earlier
   registrations are suspect too.
 
-## 3. Converted traders talk through the native shop dialogue
+## 3. Converted KCD1 traders keep KCD1's own shop conversation
 
-Added on 31 Oct 2026 after the -4 play session (recipe 71 on a plain launch):
-every Skalitz market trader and Henry were silent on the talk and trade
-screen, while the traders' world lines played with audio and subtitles. No
-record shows any converted trader's trade speech was ever heard, so this
-predates the feature branches.
+Sean's decision (1 Nov 2026): "all KDC1 NPCs should use their original lines
+and voices. KCD2 keeps KDC2. Keep the feel the same. If it did not exit in 1
+dont port it over for the time being." This replaces the earlier attempts:
+- the native spoken trade dialog (`native_shop_dialogue` v1, -5: no trade off
+  the stall);
+- the native shop greeting (v2, -6: silent talk screen);
+- an ungated native dialog with direct native voices (parked, never committed).
 
-### Cause
+`native_shop_dialogue` is retired.
 
-Each converted source trader's talk screen is a generated FaderDialog
-(`region_travel_merchant.dialogue`, registered as `<namespace>_trade` in the
-entry Level by `campaign_merchant_work.add_trade_dialogue`). It sets
-`AllowGreeting="false"` and `AllowFarewell="false"`, and none of its
-Responses carries Text, so neither side says anything. Trading works through
-its Shop and OpenShop sequences. Retail traders talk through Storm roles
-instead: `addShopRoles_greeting_*` gives the native greeting
-(`open_world/shop/greeting_obchodnika_*.xml`), and `OBCHODNIK_Z_DIALOGU_MUZ`
-or `OBCHODNICE_Z_DIALOGU_ZENA` select the spoken trade dialog
-(`open_world/shop/nakupovani_z_dialogu_*.xml`, Henry 8 lines, trader 5, with
-Shop, OpenShop and ShopDenied). Both dialogs are in the native `shop` module
-the package already registers, and their recordings are already relocated.
-`shop_roles.py` left the spoken-trade role out on purpose so a keeper would not
-get a second Trade option beside the generated one.
+### What KCD1 had
+
+KCD1 traders got `addShopRoles_man/woman`: `SMLOUVANI_(MUZ|ZENA)` for the haggle
+reactions in the shop screen, `VYJEDNAVANI_*` for negotiation, and `MERCHANT`
+for one unvoiced choice, "Let's talk trade." (topic 22069, a type-9 sequence
+that opens the shop). Every NPC greeted through `POZDRAV_(MUZ|ZENA)`.
+
+The live closures:
+- greeting 25570 (man) / 25697 (woman): 71 / 64 lines;
+- haggle 23469 (man) / 23605 (woman): 31 trader + 12 Henry lines each.
+
+Older generations of these closures have no English text or recordings. Every
+trader voice recorded its pools:
+- rpro (ska_merchant1, ska_merchant3, the collier's varlet);
+- bcas (ska_merchant2);
+- akem (ska_merchant4);
+- aric (ska_woman20);
+- bvac (ska_blanka);
+- tmck for Henry.
+
+KCD1 had no trade farewell.
 
 ### Change
 
-`tools/native_shop_dialogue.py` (version 2) keeps the generated dialog for the
-`gm_source_shop_*_trade` keepers and adds only the native greeting. It adds the
-greeting operation to the keeper's own Storm rule and sets
-`AllowGreeting="true"` on the generated dialog, which the native spoken trade
-dialog also allows. Its OpenShop stays behind the explicit Trade topic, so it
-is never a sole, automatic sequence. The native greeting starts only on
-`Port('obchodnik_je_v_obchode')`, the keeper's `shop_sellerReadyToSell`
-context, so the step acts only when one of the keeper's schedule jobs has a
-behavior tree that sets that context. All five Skalitz source traders qualify.
-A keeper without such a job, without its own roles rule, with a wired dialog or
-with an edited dialog is left alone and reported. The tavern (`ska_blanka`) and
-charcoal (`ska_collierVarlet`) trade dialogs are out of scope and only
-reported.
+`tools/kcd1_shop_conversation.py` converts; `tools/kcd1_shop_install.py` installs.
+The install covers the seven converted keepers only. Native KCD2 shopkeepers
+in the package keep the native dialogs.
 
-Version 1 swapped in the spoken trade dialog (`OBCHODNIK(CE)_Z_DIALOGU_*`) and
-removed the generated one. In play on recipe 71 -5 (1 Nov 2026) trade broke for
-the Skalitz female trader. The native Shop sequence needs
-`Port('seller_in_shop')`, which `utils.shop.is_seller_in_shop` reads straight
-from `shop_sellerReadyToSell`, so a keeper away from her selling job offers no
-Trade at all. The generated dialog trades whenever the shop resolves, which
-the maintainer's merchant code relies on. Version 2 removes a spoken-trade role
-left by version 1, so a keeper never shows two Trade options. Henry's spoken
-"Co máš na prodej?" is not part of version 2.
+- **Haggle.** KCD2's `open_world/shop/bribe_haggle_.../smlouvani_v_obchode_*`
+  descends from KCD1 23469: its Decisions keep the KCD1 topic ids, it reads the
+  same gvars, its ExitScripts run the sale, and the shop screen finds it by
+  the SMLOUVANI metarole.
+  - The port keeps that skeleton and swaps in the KCD1 text ids. A KCD1 line
+    maps only inside the Decision named after its topic, and only to a sequence
+    with the same entry condition. KCD1's female copy (23605...) aliases onto the
+    male ids that KCD2's female dialog uses.
+  - Every KCD2 Response without a KCD1 counterpart is removed. Sequences,
+    ports, scripts, jumps and OpenShop stay.
+  - The role becomes `GM_KCD1_SMLOUVANI_*` (role row metarole SMLOUVANI), and
+    the keeper loses `SMLOUVANI_*`, so exactly one haggle dialog binds. The
+    step checks that, and `shop_roles` skips ported keepers on a fresh build.
+  - `skeleton_differences` allows only text ids, removed responses, the dialog
+    name and the role token, and the step refuses to write otherwise.
+  - Reviewed exception: in Decision 23528, KCD1's "No deal then." and "Forget
+    it then." carried a KCD1-only condition (`negotiation_result_canceled == 0`,
+    `negotiation_merchantReaction_kind == 4`). KCD2 kept the same five lines
+    unconditioned, in the same order (seq57-seq61), so they map onto them and
+    the KCD1 condition is dropped.
+  - Reviewed exception: in Decision 23479, KCD1 gave "Naturally." and "Sure,
+    why not?" the condition "< 0.35". That band overlaps the mid band
+    (-0.35 to 0.35), and it comes first (priorities 0-1, mid band 2-3), so the
+    lines fired for every dominance below 0.35. That range contains KCD2's
+    tightened "< -0.35" band, whichever way KCD1 picked among valid sequences,
+    so the lines map onto KCD2's low band.
+  - Result: man 43 of 43 lines, woman 42 of 43.
+  - KCD2's female seq60 has no line, so the female "I'm finished. This is
+    going nowhere." has no slot.
+- **Greeting.** KCD1 25570/25697 become a KCD2 `Dialog` of Type "greeting",
+  shaped like KCD2's own common greeting.
+  - A gate on `!Port('uz_jsem_pozdravil')` fires `nastav_cooldown`. This is
+    KCD2's once-a-day greeting cooldown, standing in for KCD1's
+    `RemoveMetaRoleByName('POZDRAV')`. That substitution is a port, not an
+    addition.
+  - The KCD1 topics follow as Autoselect Decisions. Overlapping conditions stay
+    as KCD1 wrote them: the bleeding and appearance variants sit after the broad
+    reputation branch, so KCD1 cannot have taken the first valid sequence.
+  - The ports are wired to KCD2's greeting state node
+    (`utils.greetings_utils` timeandplayerstate) and cooldown, as KCD2's module
+    wires its common greeting.
+- **Trade.** KCD1's "Let's talk trade." becomes the generated trade dialog's
+  proven shape (Trade topic, OpenShop behind it, End dialog) bound to
+  `GM_KCD1_OBCHODNIK`, with KCD1's prompt string and greetings allowed.
+  - There is no seller_in_shop gate, so it trades on and off the stall.
+  - The seven generated per-keeper dialogs leave the archive and the entry
+    Level. The tavern and charcoal ones held only Trade/OpenShop/End.
+- **Storm.** Each keeper's own rule:
+  - adds the three roles;
+  - drops `SMLOUVANI_*`, the v1 spoken-trade role, the v2 shop greeting and the
+    native post-purchase farewell (`addShopRoles_ending_*`), because KCD1 had
+    no trade farewell;
+  - removes KCD2's common greeting and farewell (`POZDRAV_*`,
+    `ROZLOUCENI_S_HRACEM_COMMON_*`; the package Storm includes retail
+    greetingsAndEndings.xml, which comes earlier in source order);
+  - keeps `VYJEDNAVANI_*`, which is not a shop step.
+- **Assets.**
+  - The trader and Henry KCD1 recordings go to the module's audio scope
+    (`dialog/kcd1_travel/open_world/gm_kcd1_shop/`), with a dubbing row for
+    each speaker's own stem.
+  - The text goes to text_ui_dialog. The mod ships English only.
+  - The traders' KCD1 facial records go to the facial pak. Henry's KCD1
+    records target the KCD1 rig and are not imported.
 
-Because `ska_merchant4` now gets native greeting lines, `source_voice_fallbacks.SCOPE`
-also covers her: her imported voice `akem` gets fallback 68 (Mia Allis). The
-charcoal burner, on `rpro`'s fallback, was heard speaking on 31 Oct, which is
-the first in-game sign that the fallback works.
+Greeting adapter, KCD1 condition → KCD2 port (to tune after the first play
+test):
 
-**This changes behavior that comes from the maintainer's merchant code**
-(`region_travel_merchant.dialogue` and `campaign_merchant_work.add_trade_dialogue`
-generate the dialog with greetings off; this step turns them on for these
-keepers afterwards).
+| KCD1 | KCD1 meaning | KCD2 port |
+| --- | --- | --- |
+| greeting_reputation_5 / _4 | relationship ≥ 0.8 / 0.65-0.85 | reputace_dobra |
+| greeting_reputation_3 | 0.3-0.7 | reputace_stredni |
+| greeting_reputation_2 / _1 | 0.2-0.35 / < 0.25 | reputace_nizka |
+| GetActorAngriness < 0.25 | calm | nastvanost__klid |
+| angriness 0.2-0.4, 0.4-0.7, > 0.5, > 0.65 | not calm | nastvanost__neklid |
+| gvar playerIsBleeding == 1 | bleeding | hrac_je_zakrvaceny |
+| greeting_looksPoor | dirtiness > 0.25 | hrac_je_spinavy |
+| greeting_looksFancy | relative charisma > 0.5 | hrac_ma_alespon_vysoke_charisma |
+| HourOfDay 6-10 / 12-17 / 18-22 | time of day | je_rano / je_odpoledne / je_vecer |
+| greeting_looksKnightly | armour > 0.65 | FALSE (KCD2 has no such state) |
+| greeting_do_not_judge_clothes_*, expectsDude | named souls / soul tag | FALSE (none of the seven) |
+
+Known gaps, for later enhancements:
+- The "good knight" greetings can never play (6 male, 7 female lines).
+- In the haggle, these KCD2-only mechanics now run silently:
+  - the stolen-goods refusal funnel;
+  - the own-goods theft reaction;
+  - the no-deal funnel (dec2/seq64);
+  - the second line of KCD2's two-line reactions where KCD1 had one.
+- No silenced sequence is a player choice.
+
+### Why the talk screen needs a dubbing row (consistent, not proven)
+
+On -6, ska_merchant4 (imported voice akem, fallback aric) spoke her world bark
+but not her shop greeting in the talk screen. The installed English.pak had
+dubbing rows for `aric_gree_obchodnik_pro_cos_pr_9RFJ`, `aric_pozd_...`, bcas's
+leave line and the rpro market cries, and none for the akem stems. The dubbing
+table belongs to `wh::dialogmodule` (DialogueDubbingDatabase).
+
+So "the talk screen needs a row for the speaker's own stem, world speech does
+not" explains every observation so far. The port therefore adds a row for each
+speaker's own stem, and treats those rows as essential.
 
 ### Validation
 
-- `tests/test_native_shop_dialogue.py` (7): the generated shape is
-  recognised, with greetings off or on, and a spoken dialog is not. Ready
-  keepers get the greeting and keep every generated dialog with exactly one
-  OpenShop. A spoken-trade role from version 1 is removed. A keeper whose job
-  does not set the context, one without a roles rule and a wired dialog are
-  left alone, and out-of-scope dialogs stay. A changed native dialog or
-  greeting operation fails before writing, and a second run changes nothing.
-- Version 2 plan, read only, on the moved-line-lipsync staged travel archive
-  with the -4 level (`D:\KCD\Builds\glue\diag\voice-lines-20261030\plan-fixa.json`):
-  five keepers get the greeting, five generated dialogs get `AllowGreeting="true"`,
-  nothing is removed. The paragraph below is the version 1 dry run.
-- Dry run on hard-linked copies of the -4 package
-  (`D:\KCD\Builds\glue\diag\voice-lines-20261030\dry-run-4-report.json`):
-  first run removes the five generated dialogs and modifies the five keepers'
-  role files, the entry Level and the imported voice table; the second run of
-  all three steps changes nothing; the source archive is unchanged.
+- `tests/test_kcd1_shop_conversation.py`: haggle mapping, condition override,
+  empty slots, skeleton diff, role tokens, female aliasing, inventory, greeting
+  adapter and emitter, trade dialog.
+- `tests/test_kcd1_shop_install.py`:
+  - keeper rule changes and idempotence;
+  - the haggle-role guard, including custom operations;
+  - role rows;
+  - cloned haggle wiring;
+  - greeting wiring;
+  - registration;
+  - `shop_roles` skipping ported keepers.
+- Dry runs on hard links of the -5 backup and the installed -6:
+  `diag/voice-lines-20261030/kcd1-shop-port/dry-run-{5,6}-report.json`.
 
 ### Retail acceptance
 
-1. Talk to each Skalitz market trader: a greeting should play, then Henry asks
-   to trade and the trader answers before the shop opens. Expect James
-   Beaumont for `ska_merchant1` and `ska_merchant3`, Mia Allis for
-   `ska_merchant4`, Brian Caspe for `ska_merchant2`, and `ska_woman20`'s own
-   native voice.
-2. Exactly one Trade option per trader.
-3. Off duty (at night or away from the stall) the trader should not offer
-   Trade; that is the native `seller_in_shop` rule.
-4. Blanka and the collier keep their current trade screens.
+1. First talk of the day with each of the seven keepers: a KCD1 greeting in the
+   keeper's KCD1 voice, then "Let's talk trade." opens the shop, on and away
+   from the stall. Exactly one Trade option.
+2. Haggle: KCD1 reactions in the keeper's voice and Henry's KCD1 lines. Buying
+   and selling must complete (money and items move), since the sale runs in
+   the haggle dialog's scripts.
+3. No KCD2 greeting, shop greeting or post-purchase farewell on these keepers.
+   A native KCD2 shopkeeper (neu_zdena, rat_pesek, rato_innkeeper1) is unchanged.
 
 ## Wiring
 
-`setup_package_upgrade.finalize` runs the three steps (fallbacks, native shop
-dialogue, barrier bark) right after `setup_work_speech` on the completed-package fast path and on the full path,
-with receipt keys `source_voice_fallbacks`, `native_shop_dialogue` and
-`level_barrier_speech`. Both
+`setup_package_upgrade.finalize` runs the three steps (fallbacks, the KCD1 shop
+conversation, barrier bark) right after `setup_work_speech` on the
+completed-package fast path and on the full path, with receipt keys
+`source_voice_fallbacks`, `kcd1_shop_conversation` and `level_barrier_speech`. Both
 are idempotent and return the travel archive digest only when they changed
-it. `build_recipe.VERSION` 66 -> 70 (67, 68 and 69 belong to
+it. `build_recipe.VERSION` 66 -> 71 (67, 68 and 69 belong to
 `feat/home-door-locks`, `feat/loft-navmesh` and `feat/moved-line-lipsync`;
 whichever merges later rebases its bump). `desktop_setup.CONVERTERS` lists all three
 modules.
@@ -292,8 +371,6 @@ modules.
 2. Trade with and greet `ska_merchant2`: still Brian Caspe, unchanged.
 3. `ska_blanka` stays silent on native lines until her voice is added to
    `SCOPE`; that is the control.
-4. If a KCD2Mcp session is open, read the cvar `wh_dlg_EnableFallbackVoice`
-   (read-only); the step assumes it is on.
 5. Ride the east road to about 3930,1827. When the barrier stops Henry, one of
    the five lines should play: "No, I shouldn't leave now.", "I should go
    back.", "Hmm, I have to go back.", "No, I can't leave now." or "Oof... I

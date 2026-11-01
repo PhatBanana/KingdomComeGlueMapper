@@ -8,8 +8,7 @@ farewells, reactions) is recorded per native voice and looked up as
 `<abbreviation>_<text id>.ogg`; a synthetic voice has no such files. Retail
 covers exactly this with `fallback_voice_id`: all 91 recorded retail voices
 name another voice to use when their own recording is missing
-(Libs/Tables/skald/voice.xml; WHGame.dll reads the column and exposes the
-`wh_dlg_EnableFallbackVoice` cvar). The imported rows carried none, so a
+(Libs/Tables/skald/voice.xml; WHGame.dll names the column). The imported rows carried none, so a
 converted trader on a KCD1-only voice traded in silence (ska_merchant1, 29 Oct
 2026) while one bound to a native voice (ska_merchant2) spoke.
 
@@ -40,7 +39,7 @@ LEVEL = 'Data/Levels/kcd1_travel/level.pak'
 NATIVE_VOICES = 'Libs/Tables/skald/voice.xml'
 NATIVE_CHARACTERS = 'Libs/Tables/skald/skald_character.xml'
 # Souls whose imported voice receives the fallback now; the rest are reported.
-# ska_merchant4 joined when native_shop_dialogue gave her the native shop greeting
+# ska_merchant4 joined when the native shop greeting was tried for her (since replaced by kcd1_shop_install)
 # (the collier, on rpro's fallback, was heard speaking on 31 Oct 2026).
 SCOPE = ('ska_merchant1', 'ska_merchant4')
 COMPLETE_LEVEL = '2'
