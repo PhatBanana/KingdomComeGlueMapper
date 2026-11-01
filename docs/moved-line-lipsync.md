@@ -80,6 +80,37 @@ ever wanted, the module table above says what each group costs (skipping combat,
 barks would save about 395 MB raw / 250 MB deflated), and `stage(..., only=prefix)` runs a partial
 dry run. A bound would trade exactly those lines' lip sync for disk.
 
+## Retarget onto converted KCD1 faces (step version 2, not tested in game)
+
+In game on recipe 71 -6, converted NPCs stayed still on moved lines with a native track and, after a
+facials swap, without one: their KCD1 faces carry `*_blendWeightVertex` joints and no `FA_POSE` ones, so a
+native track cannot move them. KCD1 and native tracks store a pose weight the same way (the x of a float
+position track; native jaw ranges about 0.37, KCD1 about 0.5), so the step now copies native controllers
+onto the KCD1 joint names through the existing `select_database(..., aliases)` path:
+
+- `facial_rig_adapter.reverse_speech_mapping()`: 56 rows, 53 used. It inverts `speech_mapping()`; where the
+  forward table fans out (lower lip, squint) the left/upper pose drives the joint and the other is recorded as
+  unused. `REVERSE_EXTRA` adds 11 rows by name (S2 eye joints, `stickyLips`) or by meaning (U viseme to pucker,
+  upper-lip raisers, lip part, outer brow lowerer), each with its basis. KCD1 joints without a driver:
+  `mouthBack`, `left/rightMouthAngry`, `left/rightMouthSlide`, `fvFuck`, `pbm2`, and the S2 tongue joints
+  `tBack`, `tRoof`, `tTeeth`. On S1 faces 46 of 53 joints are driven, on S2 faces 53 of 63.
+- Amplitude: curves are copied unchanged. A native jaw opens about a quarter less than the KCD1 lines did;
+  native lines carry brows and cheeks that KCD1 lines barely moved. Blanka's faint KCD1 lip motion suggests
+  converted faces may need more than 1:1; that needs new curve data, not aliases, and only a play session
+  can tell.
+- When a package has converted faces (any `gm_person_*.pak` face skin), every relocated clip gets the
+  aliases (copies are renamed by the alias table, so an older package is rebuilt once), headers carry the new
+  controller counts, and the shared mood/gesture database `Animations/humans/facials/facials.dba` is written
+  aliased into `gluemapper_dialogue_facials.pak` beside the index (its 258 native headers are recounted; the
+  importers' baseline check accepts exactly that difference). Native controllers stay byte-for-byte, so native
+  heads, Henry included, play exactly as before. Without converted faces, the plain copies, native counts and
+  no gesture override come back.
+- Measured on the 6279abd full index with the -6 faces: 56 converted faces, 63 KCD1 joints, 53 aliases; 61,942
+  headers refreshed, the shard grows from 1,038,697,143 to 1,045,480,201 deflated bytes (1.65 GB raw), the
+  facials pak from 245 to 268 MB with the gesture override; first run 63 s, second run 8 s with no change.
+  665 sampled clips in 49 DBAs keep every native controller and track byte; every added controller reuses its
+  source pose's track; every header count matches its clip.
+
 ## Validation (offline)
 
 - `tests/test_dialogue_facials.py`: path matching, a stem-only match rejected, identity retention on

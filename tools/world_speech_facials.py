@@ -15,14 +15,19 @@ invented.
 Repeatable: output DBAs are named by their source and rename set, index records
 keep their identities, and nothing is rewritten when nothing changed.
 """
+import hashlib
 import json
 from pathlib import Path
 import zipfile
 
-from dialogue_facials import INDEX, NativeFacialImporter, container
+from dialogue_facials import GESTURES_MEMBER, INDEX, NativeFacialImporter, container, database
+from facial_rig_adapter import load_reverse_adapter
 from upgrade_map import read
 
-VERSION = 1
+# 2: when the package has converted KCD1 faces, every relocated clip also
+# drives their *_blendWeightVertex joints from its FA_POSE curves (see
+# facial_rig_adapter.reverse_speech_mapping). Native heads are unaffected.
+VERSION = 2
 FACIALS = 'Data/gluemapper_dialogue_facials.pak'
 SHARD = 'Data/gluemapper_world_speech_facials_{:04d}.pak'
 REPORT = 'world-speech-facials.json'
@@ -52,6 +57,27 @@ def members(package):
     return result
 
 
+def kcd1_face_joints(package):
+    """KCD1 *_blendWeightVertex joints over every converted face skin of a package."""
+    from audit_character_bodies import bone_table
+    from clothing_regions import read_chunks
+    names = set()
+    for path in sorted((Path(package)/'Data').glob('gm_person_*.pak')):
+        with zipfile.ZipFile(path) as z:
+            for name in z.namelist():
+                if name.lower().endswith('/part1_face.skin'):
+                    names.update(b['name'] for b in bone_table(read_chunks(z.read(name)))
+                                 if b['name'].endswith('_blendWeightVertex'))
+    return sorted(names)
+
+
+def alias_salt(aliases):
+    """Stable name of a controller alias table; '' when there is none."""
+    if not aliases: return ''
+    text = ';'.join(f'{s}:{",".join(map(str, t))}' for s, t in sorted(aliases.items()))
+    return hashlib.sha256(text.encode('ascii')).hexdigest()[:16]
+
+
 def plan(package, target, only=None):
     """Relocated recordings whose audio is already packaged, with the plan's scopes.
 
@@ -79,8 +105,8 @@ def plan(package, target, only=None):
     return dict(selected=selected, scopes=scope_reports), None
 
 
-def rewrite(source, destination, replacements):
-    """Copy an archive with members replaced or added; the destination changes atomically."""
+def rewrite(source, destination, replacements, remove=()):
+    """Copy an archive with members replaced, added or removed; the destination changes atomically."""
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     pending = destination.with_name(destination.name + '.facials-pending')
@@ -89,6 +115,7 @@ def rewrite(source, destination, replacements):
         for info in original.infolist():
             if info.filename in names: raise ValueError('Duplicate archive path: ' + info.filename)
             names.add(info.filename)
+            if info.filename in remove: continue
             out.writestr(info, replacements.get(info.filename, read(original, info.filename)))
         for name in sorted(set(replacements) - names):
             out.writestr(name, replacements[name])
@@ -157,25 +184,36 @@ def apply(package, target, destination, notify=lambda *a: None, only=None):
     notify(LABEL, 0, 1, 'Matching relocated recordings to native facial tracks')
     with zipfile.ZipFile(package / FACIALS) as z:
         existing = read(z, INDEX)
+        old_gestures = read(z, GESTURES_MEMBER) if GESTURES_MEMBER in z.namelist() else None
     previous = members(package)
     in_place = destination.resolve() == package.resolve()
+    joints = kcd1_face_joints(package)
+    aliases, rig = (load_reverse_adapter(target, joints) if joints else (None, None))
     importer = NativeFacialImporter(target, existing)
     try:
-        groups, missing = importer.relocation(planned['selected'])
-        changed_records = importer.index_relocation(groups, previous)
+        groups, missing = importer.relocation(planned['selected'], alias_salt(aliases))
         rebuild = not in_place or set(groups) != set(previous)
         archives = sorted(set(previous.values()))
+        counts = None
         if rebuild:
             writer = Shards(destination)
             try:
                 for index, (name, group) in enumerate(sorted(groups.items()), 1):
-                    writer.add(name, importer.relocated_database(group))
+                    writer.add(name, importer.relocated_database(group, aliases))
                     notify(LABEL, index, len(groups), name)
                 archives = writer.commit()
             finally:
                 writer.close()
-        if changed_records or not in_place:
-            rewrite(package / FACIALS, destination / FACIALS, {INDEX: container(importer.records)})
+            counts = getattr(importer, 'controller_counts', {})
+        changed_records = importer.index_relocation(groups, previous, counts)
+        gestures, gesture_records = importer.alias_gestures(aliases)
+        changed_records += gesture_records
+        gesture_changed = gestures != old_gestures
+        if changed_records or gesture_changed or not in_place:
+            replacements = {INDEX: container(importer.records)}
+            if gestures is not None: replacements[GESTURES_MEMBER] = gestures
+            rewrite(package / FACIALS, destination / FACIALS, replacements,
+                    remove=() if gestures is not None else (GESTURES_MEMBER,))
         index_headers, native_headers = len(importer.records), importer.native_count
     finally:
         importer.close()
@@ -198,9 +236,17 @@ def apply(package, target, destination, notify=lambda *a: None, only=None):
         tracked = sum(1 for group in groups.values() for dest in group['tracks'].values()
                       if dest.startswith('animations/humans/facials/' + prefix))
         scopes.append(dict(scope, facial_tracks=tracked, missing_tracks=sum(1 for m in missing if m.startswith(prefix))))
+    retarget = None if rig is None else dict(
+        kcd1_joints=len(joints), aliases=rig['aliases'], salt=alias_salt(aliases),
+        gesture_override=None if gestures is None else dict(member=GESTURES_MEMBER, bytes=len(gestures),
+                                                            clips=len(database(gestures)[1])),
+        kcd1_without_driver=rig['kcd1_without_driver'], amplitude=rig['amplitude'],
+        exact_acting_equivalence=False)
     details = dict(version=VERSION, scopes=scopes, recordings=len(planned['selected']),
                    facial_tracks=sum(len(group['tracks']) for group in groups.values()),
                    missing_tracks=sorted(missing), databases=databases, archives=archives,
+                   rig_retarget=None if rig is None else dict(retarget, rows=rig['rows'],
+                                                               fa_pose_without_target=rig['fa_pose_without_target']),
                    index_headers=index_headers, native_headers=native_headers)
     text = json.dumps(details, indent=2)
     report_path = destination / REPORT
@@ -213,7 +259,7 @@ def apply(package, target, destination, notify=lambda *a: None, only=None):
                   facial_tracks=details['facial_tracks'], missing_tracks=len(missing), databases=len(groups),
                   archives=archives, bytes=sum(d['bytes'] for d in databases),
                   compressed_bytes=sum(d['compressed'] for d in databases),
-                  index_headers=index_headers, native_headers=native_headers,
+                  index_headers=index_headers, native_headers=native_headers, rig_retarget=retarget,
                   changed=dict(index_records=changed_records, archives=rebuild, removed=removed),
                   runtime_verified=False)
     return files, removed, report

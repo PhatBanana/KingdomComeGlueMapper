@@ -79,6 +79,11 @@ def build(root, foreign=None):
     return package, target, index, data
 
 
+def read_member(path, name):
+    with zipfile.ZipFile(path) as z:
+        return z.read(name)
+
+
 def snapshot(package, names):
     return {n: (package/n).read_bytes() for n in names}
 
@@ -200,6 +205,92 @@ class WorldSpeechFacialTests(unittest.TestCase):
             self.assertEqual(found, {'a.dba': F.SHARD.format(0), 'b.dba': F.SHARD.format(1)})
             self.assertEqual(F.members(directory), found)
             self.assertFalse(list(Path(directory).rglob('*.facials-pending')))
+
+    def test_converted_faces_get_retargeted_controllers_and_repeat_cleanly(self):
+        from unittest.mock import patch
+        mouth = zlib.crc32(b'mouthOpen_blendWeightVertex')
+        rig = dict(aliases=1, kcd1_without_driver=[], fa_pose_without_target=[], rows=[], amplitude='unchanged')
+        with tempfile.TemporaryDirectory() as directory:
+            package, target, index, data = build(Path(directory))
+            relocate_audio(package, target)
+            plain, _, plain_report = F.upgrade(package, target)
+            self.assertIsNone(plain_report['rig_retarget'])
+            plain_dba = F.members(package)
+            # The fixture clip's controller 100 stands for an FA_POSE pose.
+            with patch.object(F, 'kcd1_face_joints', return_value=['mouthOpen_blendWeightVertex']), \
+                 patch.object(F, 'load_reverse_adapter', return_value=({100: (mouth,)}, rig)):
+                files, removed, report = F.upgrade(package, target)
+                self.assertEqual(report['rig_retarget']['aliases'], 1)
+                self.assertEqual(report['changed']['archives'], True)
+                self.assertNotEqual(set(F.members(package)), set(plain_dba))
+                (name,) = F.members(package)
+                with zipfile.ZipFile(package/SHARD) as z:
+                    _, clips, tracks = database(z.read(name))
+                _, original, native_tracks = database(data)
+                self.assertEqual(tracks, native_tracks)
+                self.assertEqual(clips[0]['count'], 2)
+                blocks = {struct.unpack_from('<I', clips[0]['controllers'], i)[0]: clips[0]['controllers'][i+4:i+20]
+                          for i in range(0, 40, 20)}
+                self.assertEqual(blocks, {100: original[0]['controllers'][4:], mouth: original[0]['controllers'][4:]})
+                with zipfile.ZipFile(package/F.FACIALS) as z:
+                    records = chunks(z.read(INDEX))
+                self.assertEqual(records[:3], index)
+                moved = records[3]
+                self.assertEqual((header_path(moved), struct.unpack_from('<I', moved[3], 312)[0]), (MOVED, 2))
+                self.assertEqual(struct.unpack_from('<I', moved[3], 264)[0], zlib.crc32(name.encode()))
+                before = snapshot(package, files)
+                again, removed, repeat = F.upgrade(package, target)
+                self.assertEqual(repeat['changed'], dict(index_records=0, archives=False, removed=[]))
+                self.assertEqual(snapshot(package, files), before)
+            # Without converted faces the plain copy and native count come back.
+            files, removed, report = F.upgrade(package, target)
+            self.assertEqual(set(F.members(package)), set(plain_dba))
+            with zipfile.ZipFile(package/F.FACIALS) as z:
+                self.assertEqual(struct.unpack_from('<I', chunks(z.read(INDEX))[3][3], 312)[0], 1)
+            self.assertEqual(files, plain)
+
+    def test_gesture_database_is_overridden_with_aliases_and_restored_without(self):
+        from unittest.mock import patch
+        from dialogue_facials import GESTURES, GESTURES_MEMBER
+        mouth = zlib.crc32(b'mouthOpen_blendWeightVertex')
+        rig = dict(aliases=1, kcd1_without_driver=[], fa_pose_without_target=[], rows=[], amplitude='unchanged')
+        idle = 'animations/humans/facials/gestures/fa_idle_happy1_01.caf'
+        with tempfile.TemporaryDirectory() as directory:
+            package, target, _, data = build(Path(directory))
+            # Native baseline: the line clips plus one mood idle in the shared gesture database.
+            gesture_blob = dba([idle])
+            records = chunks(read_member(target/'Data/Facials/Facials_english-part0.pak', INDEX))
+            header = bytearray(404); header[4:4+len(idle)] = idle.encode()
+            struct.pack_into('<I', header, 264, zlib.crc32(GESTURES.encode())); struct.pack_into('<I', header, 312, 1)
+            baseline = [*records, (0x3007, 0x971, 3, bytes(header))]
+            with zipfile.ZipFile(target/'Data/Facials/Facials_english-part0.pak', 'w', zipfile.ZIP_DEFLATED) as z:
+                z.writestr(INDEX, container(baseline)); z.writestr(DBA, data); z.writestr(GESTURES_MEMBER, gesture_blob)
+            write_pak(package/F.FACIALS, {INDEX: container(baseline)})
+            relocate_audio(package, target)
+            with patch.object(F, 'kcd1_face_joints', return_value=['mouthOpen_blendWeightVertex']), \
+                 patch.object(F, 'load_reverse_adapter', return_value=({100: (mouth,)}, rig)):
+                files, _, report = F.upgrade(package, target)
+                self.assertEqual(report['rig_retarget']['gesture_override']['member'], GESTURES_MEMBER)
+                with zipfile.ZipFile(package/F.FACIALS) as z:
+                    _, clips, tracks = database(z.read(GESTURES_MEMBER))
+                    index = chunks(z.read(INDEX))
+                self.assertEqual(clips[0]['count'], 2)
+                self.assertEqual(tracks, database(gesture_blob)[2])
+                recounted = next(r for r in index if header_path(r) == idle)
+                self.assertEqual(struct.unpack_from('<I', recounted[3], 312)[0], 2)
+                # The relaxed baseline check accepts exactly this difference on a later pass.
+                NativeFacialImporter(target, container(index)).close()
+                before = snapshot(package, files)
+                self.assertEqual(F.upgrade(package, target)[2]['changed']['index_records'], 0)
+                self.assertEqual(snapshot(package, files), before)
+            F.upgrade(package, target)
+            with zipfile.ZipFile(package/F.FACIALS) as z:
+                self.assertNotIn(GESTURES_MEMBER, z.namelist())
+                self.assertEqual(chunks(z.read(INDEX))[:3], baseline)
+            tampered = list(baseline); data2 = bytearray(tampered[0][3]); struct.pack_into('<I', data2, 312, 9)
+            tampered[0] = (*tampered[0][:3], bytes(data2))
+            with self.assertRaisesRegex(ValueError, 'baseline'):
+                NativeFacialImporter(target, container(tampered))
 
     def test_package_without_relocated_world_is_skipped_without_a_game(self):
         with tempfile.TemporaryDirectory() as directory:
