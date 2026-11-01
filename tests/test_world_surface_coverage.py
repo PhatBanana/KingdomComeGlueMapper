@@ -28,14 +28,15 @@ class CoverageTests(unittest.TestCase):
         full=transforms([[0,0,0]],[1],[[255,255,255]])[0]
         np.testing.assert_allclose(full[:,:3],np.eye(3),atol=1e-14)
 
-    def test_terrain_alignment_uses_normal_and_yaw(self):
+    def test_stored_tilt_bytes_define_terrain_alignment(self):
+        from vegetation_tilt import tilt_bytes
         normal=np.array([[0,-1,1.]])/np.sqrt(2)
-        t=transforms([[0,0,0]],[1],[[123,47,0]],1,normal)[0,:,:3]
-        np.testing.assert_allclose(t[:,2],normal[0]);np.testing.assert_allclose(t.T@t,np.eye(3),atol=1e-14)
-        self.assertAlmostEqual(np.linalg.det(t),1.)
-        flat=transforms([[0,0,0]],[1],[[123,47,0]],1,[[0,0,1]])[0,:,:3]
-        np.testing.assert_allclose(flat,np.eye(3))
-        with self.assertRaises(ValueError):transforms([[0,0,0]],[1],[[0,0,0]],1)
+        x,y=tilt_bytes(normal,1,[123])
+        t=transforms([[0,0,0]],[1],[[x[0],y[0],123]])[0,:,:3]
+        self.assertLess(np.degrees(np.arccos(t[:,2]@normal[0])),1.2)
+        np.testing.assert_allclose(t.T@t,np.eye(3),atol=1e-14);self.assertAlmostEqual(np.linalg.det(t),1.)
+        # Bytes are authoritative: an unbaked aligned record stays upright.
+        np.testing.assert_allclose(transforms([[0,0,0]],[1],[[0,0,0]])[0,:,:3],np.eye(3))
 
     def test_surface_normal_samples_bilinear_height(self):
         h=HeightField.__new__(HeightField)
