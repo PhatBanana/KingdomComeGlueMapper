@@ -323,6 +323,157 @@ def skeleton_differences(native, ported, sex, removed=()):
     return problems
 
 
+# KCD1 greeting conditions call engine functions KCD2 dialogs do not have. They
+# become ports wired to KCD2's own greeting state node (utils.greetings_utils
+# timeandplayerstate), longest pattern first. A state KCD2 does not track is
+# FALSE: none of the seven converted keepers is in KCD1's do-not-judge lists or
+# carries the expectsDude tag, and KCD2 has no "looks knightly" state.
+GREETING_ADAPTER = (
+    ('GetActorAngriness()[1] > 0.2 & GetActorAngriness()[1] < 0.4', "Port('nastvanost__neklid')"),
+    ('GetActorAngriness()[1] > 0.4 & GetActorAngriness()[1] < 0.7', "Port('nastvanost__neklid')"),
+    ('GetActorAngriness()[1] > 0.65', "Port('nastvanost__neklid')"),
+    ('GetActorAngriness()[1] > 0.5', "Port('nastvanost__neklid')"),
+    ('GetActorAngriness()[1] < 0.25', "Port('nastvanost__klid')"),
+    ('HourOfDay() > 6 & HourOfDay() < 10', "Port('je_rano')"),
+    ('HourOfDay() > 12 & HourOfDay() < 17', "Port('je_odpoledne')"),
+    ('HourOfDay() > 18 & HourOfDay() < 22', "Port('je_vecer')"),
+    ("gvar('playerIsBleeding') == 1", "Port('hrac_je_zakrvaceny')"),
+    ('greeting_reputation_5', "Port('reputace_dobra')"),
+    ('greeting_reputation_4', "Port('reputace_dobra')"),
+    ('greeting_reputation_3', "Port('reputace_stredni')"),
+    ('greeting_reputation_2', "Port('reputace_nizka')"),
+    ('greeting_reputation_1', "Port('reputace_nizka')"),
+    ('greeting_looksPoor', "Port('hrac_je_spinavy')"),
+    ('greeting_looksFancy', "Port('hrac_ma_alespon_vysoke_charisma')"),
+    ('greeting_looksKnightly', 'FALSE'),
+    ('greeting_do_not_judge_clothes_men', 'FALSE'),
+    ('greeting_do_not_judge_clothes_women', 'FALSE'),
+    ('expectsDude', 'FALSE'))
+GREETING_SOURCE_ROLE = {'man': 'POZDRAV_(MUZ)', 'woman': 'POZDRAV_(ZENA)'}
+GREETING_ROLE = {'man': 'GM_KCD1_POZDRAV_MUZ', 'woman': 'GM_KCD1_POZDRAV_ZENA'}
+GREETING_NAME = {'man': 'gm_kcd1_pozdrav_muz', 'woman': 'gm_kcd1_pozdrav_zena'}
+GREETED = 'uz_jsem_pozdravil'
+COOLDOWN = 'nastav_cooldown'
+# The only script in the KCD1 greeting closures: KCD2's once-a-day cooldown stands in for it.
+METAROLE_SCRIPT = re.compile(r"dc\['POZDRAV_\((?:MUZ|ZENA)\)'\]\.soul:RemoveMetaRoleByName\('POZDRAV'\)")
+
+
+def adapt_condition(text):
+    """KCD2 condition for a KCD1 greeting condition ('' when always true); unknown terms are refused."""
+    text = condition(text)
+    if text == '0':
+        return 'FALSE'
+    for pattern, port in GREETING_ADAPTER:
+        text = text.replace(pattern, port)
+    rest = re.sub(r"Port\('[a-z_]+'\)|FALSE|[()!&| ]", '', text)
+    if rest:
+        raise ValueError('Unadapted KCD1 greeting condition: ' + rest)
+    text = re.sub(r'\s+', ' ', text.replace('&', ' AND ').replace('|', ' OR ')).strip()
+    return re.sub(r'\(\s+', '(', re.sub(r'\s+\)', ')', text))
+
+
+def emit_greeting(model, sex):
+    """(KCD2 greeting Dialog bytes, report) for one KCD1 greeting closure."""
+    roles = {r: row['role_name'] for r, row in model['roles'].items()}
+    source_role, role = GREETING_SOURCE_ROLE[sex], GREETING_ROLE[sex]
+    database = ET.Element('Database', Name='brambora')
+    dialog = ET.SubElement(ET.SubElement(database, 'Skald'), 'Dialog', Name=GREETING_NAME[sex])
+    ports = ET.SubElement(dialog, 'Ports')
+    body = ET.Element('Dialogue', Type='greeting', TechnicalStatus='Enabled')
+    souls = ET.SubElement(body, 'SelectedSouls')
+    ET.SubElement(souls, 'SelectedSoul', Role='HRAC')
+    ET.SubElement(souls, 'SelectedSoul', Role=role)
+    root_decision = ET.SubElement(body, 'Decision', Name='greeting', Priority='General')
+    gate = ET.SubElement(ET.SubElement(root_decision, 'Sequences'), 'Sequence', Name='greet', EndType='Decision',
+                         EntryCondition=f"!Port('{GREETED}')")
+    ET.SubElement(ET.SubElement(gate, 'Triggers'), 'Port', Name=COOLDOWN)
+    ET.SubElement(ET.SubElement(gate, 'Elements'), 'Response', Role='HRAC')
+    used, emitted, lines_out, scripts = {GREETED}, set(), [], []
+
+    def topic(tid, parent):
+        emitted.add(tid)
+        decision = ET.SubElement(parent, 'Decision', Name='t' + tid, Priority='General', Autoselect='true')
+        sequences = ET.SubElement(decision, 'Sequences')
+        records = model['topics'][tid]['sequences']
+        # Overlapping conditions stay as KCD1 wrote them: specific variants (bleeding,
+        # dirty, fancy) sit after the broad reputation branch, so KCD1 cannot have taken
+        # the first valid sequence; Autoselect picks among the valid ones.
+        for record in records:
+            entry_condition = adapt_condition(record['entry'].get('entry_condition'))
+            source = record['source']
+            if source['script']:
+                if not METAROLE_SCRIPT.fullmatch(source['script'].strip()):
+                    raise ValueError('Unexpected KCD1 greeting script in sequence ' + source['sequence_id'])
+                scripts.append(source['sequence_id'])
+            attrs = dict(Name='s' + source['sequence_id'])
+            if entry_condition:
+                attrs['EntryCondition'] = entry_condition
+                used.update(re.findall(r"Port\('([a-z_]+)'\)", entry_condition))
+            sequence = ET.SubElement(sequences, 'Sequence', attrs)
+            elements = ET.SubElement(sequence, 'Elements')
+            spoken = [l['response'] for l in record['lines'] if l['response']]
+            for response in spoken:
+                if roles.get(response['role_id']) != source_role:
+                    raise ValueError('Unexpected KCD1 greeting speaker: ' + str(roles.get(response['role_id'])))
+                item = ET.SubElement(elements, 'Response', Role=role)
+                ET.SubElement(item, 'Text', StringName=response['string_name'], Text=model['strings'][response['string_name']])
+                lines_out.append(dict(topic=tid, sequence=source['sequence_id'], string=response['string_name']))
+            if not spoken:
+                ET.SubElement(elements, 'Response', Role=role)
+            following = source['next']
+            if following == '0':
+                continue
+            if following in emitted:
+                sequence.set('EndType', 'GoTo')
+                sequence.set('GoToDecision', 't' + following)
+            else:
+                sequence.set('EndType', 'Decision')
+                topic(following, sequence)
+
+    start = model['topics'][model['start_topic']]['sequences']
+    if len(start) != 1 or any(l['response'] for l in start[0]['lines']) or start[0]['source']['next'] == '0':
+        raise ValueError('KCD1 greeting start topic changed')
+    if start[0]['source']['script'].strip():
+        if not METAROLE_SCRIPT.fullmatch(start[0]['source']['script'].strip()):
+            raise ValueError('Unexpected KCD1 greeting start script')
+        scripts.append(start[0]['source']['sequence_id'])
+    topic(start[0]['source']['next'], gate)
+    for name in sorted(used):
+        ET.SubElement(ports, 'Port', Name=name, Direction='In', Type='bool')
+    ET.SubElement(ports, 'Port', Name=COOLDOWN, Direction='Out', Type='trigger')
+    dialog.append(body)
+    from upgrade_map import xml
+    unreachable = sorted({l['string'] for l in lines_out if not satisfiable(path_condition(body, 's' + l['sequence']))})
+    report = dict(sex=sex, kcd1_start=model['start_topic'], name=GREETING_NAME[sex], role=role,
+                  topics=len(emitted), lines=len(lines_out), ports=sorted(used - {GREETED}),
+                  replaced_scripts=scripts, unreachable_lines=unreachable,
+                  adapter={k: v for k, v in GREETING_ADAPTER})
+    return xml(database), report
+
+
+def path_condition(body, name):
+    """Conjunction of the entry conditions from the greeting root down to sequence `name`."""
+    parents = {child: parent for parent in body.iter() for child in parent}
+    node = next(s for s in body.iter('Sequence') if s.get('Name') == name)
+    parts = []
+    while node is not None:
+        if node.tag == 'Sequence' and node.get('EntryCondition'):
+            parts.append(f"({node.get('EntryCondition')})")
+        node = parents.get(node)
+    return ' AND '.join(reversed(parts))
+
+
+def satisfiable(expression):
+    """Whether some assignment of the ports makes a greeting condition true (ports are independent)."""
+    ports = sorted(set(re.findall(r"Port\('([a-z_]+)'\)", expression)))
+    python = expression.replace('FALSE', 'False').replace(' AND ', ' and ').replace(' OR ', ' or ').replace('!', ' not ')
+    python = re.sub(r"Port\('([a-z_]+)'\)", r'p["\1"]', python)
+    for mask in range(1 << len(ports)):
+        if eval(python or 'True', {}, {'p': {port: bool(mask >> i & 1) for i, port in enumerate(ports)}}):
+            return True
+    return False
+
+
 def facial_stems(source, target):
     """Stems that carry a KCD1 facial record."""
     from dialogue_facials import FacialImporter

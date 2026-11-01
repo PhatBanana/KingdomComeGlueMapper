@@ -8,8 +8,8 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import kcd1_shop_conversation
-from kcd1_shop_conversation import (PORTED_NAME, PORTED_ROLE, inventory, map_haggle, skeleton_differences,
-                                    topic_aliases)
+from kcd1_shop_conversation import (GREETING_ROLE, PORTED_NAME, PORTED_ROLE, adapt_condition, emit_greeting, inventory,
+                                    map_haggle, satisfiable, skeleton_differences, topic_aliases)
 
 ROLES = {'1': {'role_name': 'HENRY'}, '2': {'role_name': 'SMLOUVANI_(MUZ)'}, '3': {'role_name': 'SMLOUVANI_(ZENA)'}}
 
@@ -178,6 +178,66 @@ class HaggleMappingTests(unittest.TestCase):
                    for q in ET.fromstring(ported).iter('Sequence')}
         self.assertEqual((strings['s8'], strings['s9']), ([], ['t130_second']))
         self.assertEqual([(d['reason'], d['string']) for d in report['dropped_lines']], [('empty_kcd2_slot', 't130_first')])
+
+
+
+GREETING_ROLES = {'4': {'role_name': 'POZDRAV_(MUZ)'}}
+
+
+def greeting_model(script="dc['POZDRAV_(MUZ)'].soul:RemoveMetaRoleByName('POZDRAV')"):
+    def seq(sid, cond, nxt, string=None):
+        record = sequence(sid, cond, nxt, '4', string)
+        record['source']['script'] = ''
+        return record
+    start = seq('1', '1', '20')
+    start['source']['script'] = script
+    return dict(start_topic='10', roles=GREETING_ROLES,
+                strings={'g_kind': 'Greetings!', 'g_blood': 'You are bleeding!', 'g_knight': 'Good knight.', 'g_any': 'Yes?'},
+                topics={'10': dict(source={}, sequences=[start]),
+                        '20': dict(source={}, sequences=[seq('2', 'greeting_reputation_5', '30'),
+                                                         seq('3', "greeting_reputation_5 & gvar('playerIsBleeding') == 1", '40'),
+                                                         seq('4', 'greeting_reputation_4 & greeting_looksKnightly', '0', 'g_knight'),
+                                                         seq('5', '', '30')]),
+                        '30': dict(source={}, sequences=[seq('6', '', '0', 'g_kind'), seq('7', '', '0', 'g_any')]),
+                        '40': dict(source={}, sequences=[seq('8', '', '0', 'g_blood')])})
+
+
+class GreetingTests(unittest.TestCase):
+    def test_kcd1_functions_become_kcd2_greeting_ports(self):
+        self.assertEqual(adapt_condition("(greeting_reputation_5 | greeting_reputation_4) & gvar('playerIsBleeding') == 1"),
+                         "(Port('reputace_dobra') OR Port('reputace_dobra')) AND Port('hrac_je_zakrvaceny')")
+        self.assertEqual(adapt_condition('GetActorAngriness()[1] > 0.2 & GetActorAngriness()[1] < 0.4'), "Port('nastvanost__neklid')")
+        self.assertEqual(adapt_condition('HourOfDay() > 6 & HourOfDay() < 10'), "Port('je_rano')")
+        self.assertEqual(adapt_condition('!expectsDude'), '!FALSE')
+        self.assertEqual((adapt_condition('1'), adapt_condition('0')), ('', 'FALSE'))
+        with self.assertRaisesRegex(ValueError, 'Unadapted'):
+            adapt_condition("IsActor('rat_bernard')[1]")
+        self.assertTrue(satisfiable("Port('a') AND !Port('b')"))
+        self.assertFalse(satisfiable("Port('a') AND FALSE"))
+
+    def test_greeting_is_a_once_a_day_kcd2_greeting_with_kcd1_lines(self):
+        blob, report = emit_greeting(greeting_model(), 'man')
+        dialog = ET.fromstring(blob).find('Skald/Dialog')
+        body = dialog.find('Dialogue')
+        self.assertEqual(body.get('Type'), 'greeting')
+        gate = body.find('Decision/Sequences/Sequence')
+        self.assertEqual(gate.get('EntryCondition'), "!Port('uz_jsem_pozdravil')")
+        self.assertEqual([p.get('Name') for p in gate.findall('Triggers/Port')], ['nastav_cooldown'])
+        ports = {p.get('Name'): p.get('Direction') for p in dialog.find('Ports')}
+        self.assertEqual(ports, {'hrac_je_zakrvaceny': 'In', 'reputace_dobra': 'In', 'uz_jsem_pozdravil': 'In', 'nastav_cooldown': 'Out'})
+        speakers = {r.get('Role') for r in body.iter('Response')} - {'HRAC'}
+        self.assertEqual(speakers, {GREETING_ROLE['man']})
+        texts = [t.get('StringName') for t in body.iter('Text')]
+        self.assertEqual(sorted(texts), ['g_any', 'g_blood', 'g_kind', 'g_knight'])
+        # Topic 30 is emitted once; the second reference jumps to it.
+        jumps = [s.get('GoToDecision') for s in body.iter('Sequence') if s.get('EndType') == 'GoTo']
+        self.assertEqual(jumps, ['t30'])
+        self.assertEqual(report['replaced_scripts'], ['1'])
+        self.assertEqual(report['unreachable_lines'], ['g_knight'])
+
+    def test_unexpected_greeting_script_is_refused(self):
+        with self.assertRaisesRegex(ValueError, 'Unexpected KCD1 greeting start script'):
+            emit_greeting(greeting_model("Game.SomethingElse()"), 'man')
 
 
 if __name__ == '__main__':
