@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import kcd1_shop_conversation
-from kcd1_shop_conversation import (GREETING_ROLE, PORTED_NAME, PORTED_ROLE, adapt_condition, emit_greeting, inventory,
+from kcd1_shop_conversation import (GREETING_ROLE, PORTED_NAME, PORTED_ROLE, adapt_condition, emit_greeting, emit_trade, inventory,
                                     map_haggle, satisfiable, skeleton_differences, topic_aliases)
 
 ROLES = {'1': {'role_name': 'HENRY'}, '2': {'role_name': 'SMLOUVANI_(MUZ)'}, '3': {'role_name': 'SMLOUVANI_(ZENA)'}}
@@ -238,6 +238,33 @@ class GreetingTests(unittest.TestCase):
     def test_unexpected_greeting_script_is_refused(self):
         with self.assertRaisesRegex(ValueError, 'Unexpected KCD1 greeting start script'):
             emit_greeting(greeting_model("Game.SomethingElse()"), 'man')
+
+
+
+class TradeTests(unittest.TestCase):
+    def trade_model(self, kind='9', string=None):
+        record = sequence('42432', '1', '0', '4', string)
+        record['source'].update(type=kind, ui_prompt='t22069_ui')
+        return dict(start_topic='22069', roles=GREETING_ROLES, strings={'t22069_ui': "Let's talk trade.", 'x': 'x'},
+                    topics={'22069': dict(source={}, sequences=[record])})
+
+    def test_trade_choice_opens_the_shop_for_any_keeper_with_the_role(self):
+        blob, report = emit_trade(self.trade_model())
+        body = ET.fromstring(blob).find('Skald/FaderDialog/Dialogue')
+        self.assertEqual((body.get('AllowGreeting'), body.get('AllowFarewell'), body.get('NonSpeakerRoles')),
+                         ('true', 'false', 'GM_KCD1_OBCHODNIK'))
+        self.assertEqual([q.get('Soul') for q in body.iter('SelectedSoul')], [None, None])
+        types = [q.get('Type') for q in body.iter('Sequence') if q.get('Type')]
+        self.assertEqual(types, ['Shop', 'OpenShop'])
+        self.assertNotIn('seller_in_shop', blob.decode())
+        prompts = {(u.get('StringName'), u.get('Text')) for u in body.iter('UiPrompt')}
+        self.assertIn(('t22069_ui', "Let's talk trade."), prompts)
+        self.assertEqual(report['kcd1_sequence'], '42432')
+
+    def test_changed_trade_source_is_refused(self):
+        for model in (self.trade_model(kind='0'), self.trade_model(string='x')):
+            with self.assertRaisesRegex(ValueError, 'trade choice changed'):
+                emit_trade(model)
 
 
 if __name__ == '__main__':

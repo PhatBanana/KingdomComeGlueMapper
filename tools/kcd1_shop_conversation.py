@@ -451,6 +451,43 @@ def emit_greeting(model, sex):
     return xml(database), report
 
 
+TRADE_ROLE = 'GM_KCD1_OBCHODNIK'
+TRADE_NAME = 'gm_kcd1_obchod'
+
+
+def emit_trade(model):
+    """(KCD2 trade FaderDialog bytes, report) for KCD1's trade choice 22069.
+
+    KCD1 offers one unvoiced choice, "Let's talk trade.", whose type-9 sequence
+    opens the shop. The KCD2 form is the generated trade dialog's proven shape
+    (Trade topic, OpenShop behind it, End dialog) bound to a role instead of a
+    soul, with KCD1's prompt string and greetings allowed. There is no seller_in_shop
+    gate, so it trades on and off the stall.
+    """
+    from region_travel_merchant import dialogue
+    sequences = [s for t in model['topics'].values() for s in t['sequences']]
+    if len(sequences) != 1 or sequences[0]['source']['type'] != '9' or any(l['response'] for l in sequences[0]['lines']):
+        raise ValueError('KCD1 trade choice changed')
+    prompt = sequences[0]['source']['ui_prompt']
+    root = ET.fromstring(dialogue('', role=TRADE_ROLE, name=TRADE_NAME, trade_string=prompt, diagnostics=False))
+    dialog = root.find('Skald/FaderDialog')
+    dialog.remove(dialog.find('Ports'))
+    body = dialog.find('Dialogue')
+    body.set('AllowGreeting', 'true')
+    for soul in body.iter('SelectedSoul'):
+        soul.attrib.pop('Soul', None)
+    for sequence in body.iter('Sequence'):
+        triggers = sequence.find('Triggers')
+        if triggers is not None:
+            sequence.remove(triggers)
+        for ui in sequence.findall('UiPrompt'):
+            if ui.get('StringName') == prompt:
+                ui.set('Text', model['strings'][prompt])
+    from upgrade_map import xml
+    return xml(root), dict(name=TRADE_NAME, role=TRADE_ROLE, kcd1_topic=model['start_topic'],
+                           kcd1_sequence=sequences[0]['source']['sequence_id'], prompt=prompt, text=model['strings'][prompt])
+
+
 def path_condition(body, name):
     """Conjunction of the entry conditions from the greeting root down to sequence `name`."""
     parents = {child: parent for parent in body.iter() for child in parent}
