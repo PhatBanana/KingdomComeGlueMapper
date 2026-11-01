@@ -60,7 +60,7 @@ class DesktopSetupTests(unittest.TestCase):
         for name in ('character_pub_cleaning', 'character_pub_rest', 'setup_pub_cleaning', 'campaign_work_speech',
                      'source_work_coverage', 'setup_work_coverage', 'character_dice_resources',
                      'character_dice_policy', 'character_gambler_work', 'setup_gambler_work', 'campaign_work_metaroles',
-                     'campaign_market_speech', 'setup_work_speech', 'source_voice_fallbacks', 'level_barrier_speech',
+                     'campaign_market_speech', 'setup_work_speech', 'source_voice_fallbacks', 'level_barrier_speech', 'native_shop_dialogue',
                      'gambler_dialogue_registration',
                      'gambler_schedule_activation', 'setup_crime_services', 'world_crime_services',
                      'world_crime_graphs', 'crime_site_geometry', 'cinematic_scene', 'cinematic_scene_profiles',

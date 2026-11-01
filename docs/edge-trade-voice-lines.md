@@ -53,7 +53,8 @@ named by 10 voices, 432 shop / 35 greeting / 15 farewell recordings) ahead of
 `gand` (83, 9 voices, 375 / 33 / 15), and women `aric` (68, Mia Allis, 317 /
 71 / 18). The rule and the top candidates are written into the receipt.
 
-Only the voices of the souls in `SCOPE = ('ska_merchant1',)` are changed:
+Only the voices of the souls in `SCOPE` are changed (first `ska_merchant1`;
+`ska_merchant4` was added with section 3):
 `rpro` gets `fallback_voice_id="144"` and keeps `fallback_voice_level="0"`,
 which is how retail writes a level-0 actor. Because the voice is shared, the
 change also covers `ska_merchant3` and `ska_collierVarlet`. An existing,
@@ -64,7 +65,7 @@ it has or would get; on the installed package:
 | Keeper | Voice | Native shop / greet / bye | Fallback | Status |
 | --- | --- | --- | --- | --- |
 | ska_merchant1, ska_merchant3, ska_collierVarlet | rpro (imported) | 0 / 0 / 0 | jbea | applied |
-| ska_merchant4 | akem (imported, woman) | 0 / 0 / 0 | aric | candidate, not applied |
+| ska_merchant4 | akem (imported, woman) | 0 / 0 / 0 | aric | applied (section 3) |
 | ska_blanka | bvac (imported, woman) | 0 / 0 / 0 | aric | candidate, not applied |
 | ska_merchant2 | bcas (native) | 199 / 33 / 15 | jbea (retail) | native voice |
 | ska_woman20, neu_zdena | aric (native) | 317 / 71 / 18 | fejka (retail root) | native voice |
@@ -150,20 +151,98 @@ includes `roles\dude.xml`; every line has a recording under the native scope.
   chance to confirm the mechanism; if it stays silent, the three earlier
   registrations are suspect too.
 
+## 3. Converted traders talk through the native shop dialogue
+
+Added on 31 Oct 2026 after the -4 play session (recipe 71 on a plain launch):
+every Skalitz market trader and Henry were silent on the talk and trade
+screen, while the traders' world lines played with audio and subtitles. No
+record shows any converted trader's trade speech was ever heard, so this
+predates the feature branches.
+
+### Cause
+
+Each converted source trader's talk screen is a generated FaderDialog
+(`region_travel_merchant.dialogue`, registered as `<namespace>_trade` in the
+entry Level by `campaign_merchant_work.add_trade_dialogue`). It sets
+`AllowGreeting="false"` and `AllowFarewell="false"`, and none of its
+Responses carries Text, so neither side says anything. Trading works through
+its Shop and OpenShop sequences. Retail traders talk through Storm roles
+instead: `addShopRoles_greeting_*` gives the native greeting
+(`open_world/shop/greeting_obchodnika_*.xml`), and `OBCHODNIK_Z_DIALOGU_MUZ`
+or `OBCHODNICE_Z_DIALOGU_ZENA` select the spoken trade dialog
+(`open_world/shop/nakupovani_z_dialogu_*.xml`, Henry 8 lines, trader 5, with
+Shop, OpenShop and ShopDenied). Both dialogs are in the native `shop` module
+the package already registers, and their recordings are already relocated.
+`shop_roles.py` left the spoken-trade role out on purpose so a keeper would not
+get a second Trade option beside the generated one.
+
+### Change
+
+`tools/native_shop_dialogue.py` replaces the generated dialog for the
+`gm_source_shop_*_trade` keepers. It adds the spoken-trade role and the
+greeting operation to the keeper's own Storm rule, and removes the generated
+dialog's Definition, node and file. The native Shop sequence needs
+`Port('seller_in_shop')`, which is the keeper's `shop_sellerReadyToSell`
+context. The step therefore acts only when one of the keeper's schedule jobs
+has a behavior tree that sets that context. All five Skalitz source traders
+qualify: `ska_merchant1` and `ska_merchant4` on the native market seller,
+`ska_merchant2`, `ska_merchant3` and `ska_woman20` on converted work trees
+that set it. A keeper without such a job, without its own roles rule, with a
+wired dialog or with an edited dialog keeps the generated one and is reported.
+The tavern (`ska_blanka`) and charcoal (`ska_collierVarlet`) trade dialogs
+have the same silent shape but are out of scope and only reported.
+
+Because `ska_merchant4` now gets native trade lines, `source_voice_fallbacks.SCOPE`
+also covers her: her imported voice `akem` gets fallback 68 (Mia Allis). The
+charcoal burner, on `rpro`'s fallback, was heard speaking on 31 Oct, which is
+the first in-game sign that the fallback works.
+
+**This changes behavior that comes from the maintainer's merchant code**
+(`region_travel_merchant.dialogue` and `campaign_merchant_work.add_trade_dialogue`
+still generate the dialog; this step replaces it afterwards). Upstream may
+prefer to stop generating it instead.
+
+### Validation
+
+- `tests/test_native_shop_dialogue.py` (6): the generated shape is
+  recognised and a spoken dialog is not; ready keepers get the roles and lose
+  the dialog; a keeper whose job does not set the context, one without a roles
+  rule and a wired dialog are left alone; out-of-scope dialogs stay; a changed
+  native dialog or greeting operation fails before writing; a second run
+  changes nothing.
+- Dry run on hard-linked copies of the -4 package
+  (`D:\KCD\Builds\glue\diag\voice-lines-20261030\dry-run-4-report.json`):
+  first run removes the five generated dialogs and modifies the five keepers'
+  role files, the entry Level and the imported voice table; the second run of
+  all three steps changes nothing; the source archive is unchanged.
+
+### Retail acceptance
+
+1. Talk to each Skalitz market trader: a greeting should play, then Henry asks
+   to trade and the trader answers before the shop opens. Expect James
+   Beaumont for `ska_merchant1` and `ska_merchant3`, Mia Allis for
+   `ska_merchant4`, Brian Caspe for `ska_merchant2`, and `ska_woman20`'s own
+   native voice.
+2. Exactly one Trade option per trader.
+3. Off duty (at night or away from the stall) the trader should not offer
+   Trade; that is the native `seller_in_shop` rule.
+4. Blanka and the collier keep their current trade screens.
+
 ## Wiring
 
-`setup_package_upgrade.finalize` runs both steps right after
-`setup_work_speech` on the completed-package fast path and on the full path,
-with receipt keys `source_voice_fallbacks` and `level_barrier_speech`. Both
+`setup_package_upgrade.finalize` runs the three steps (fallbacks, native shop
+dialogue, barrier bark) right after `setup_work_speech` on the completed-package fast path and on the full path,
+with receipt keys `source_voice_fallbacks`, `native_shop_dialogue` and
+`level_barrier_speech`. Both
 are idempotent and return the travel archive digest only when they changed
 it. `build_recipe.VERSION` 66 -> 70 (67, 68 and 69 belong to
 `feat/home-door-locks`, `feat/loft-navmesh` and `feat/moved-line-lipsync`;
-whichever merges later rebases its bump). `desktop_setup.CONVERTERS` lists both
+whichever merges later rebases its bump). `desktop_setup.CONVERTERS` lists all three
 modules.
 
 ## Validation
 
-- `tests/test_source_voice_fallbacks.py` (7): the rule picks the most
+- `tests/test_source_voice_fallbacks.py` (8): the rule picks the most
   referenced complete Czech merchant voice of the right sex and skips German,
   mixed-sex, partially recorded and non-merchant voices; only the scoped voice
   is written; shared users are covered; a second run changes nothing; an
@@ -177,10 +256,10 @@ modules.
 - `tests/test_setup_package_upgrade.py`: both steps run on both finalization
   paths with the game folder and a progress callback; `tests/test_desktop_setup.py`
   lists them in the converter inventory.
-- Full suite on the branch: 2,319 tests, 0 failures, 19 skipped and the same 9
+- Full suite on the branch: 2,326 tests, 0 failures, 19 skipped and the same 9
   environment errors (missing `webview` and `numba` in the system Python, parallel
   bake workers) that the untouched 47f031a worktree shows with 2,304 tests; logs in
-  `D:\KCD\Builds\glue\diagoice-lines-20261030\`.
+  `D:\KCD\Builds\glue\diag\voice-lines-20261030\`.
 - Dry run on hard-linked copies of the installed recipe-66 package
   (`D:\KCD\Builds\glue\diag\voice-lines-20261030\dry-run-report.json`):
   fallback step 3.5 s then 3.2 s, barrier step 3.5 s then 2.6 s; the second
@@ -196,8 +275,8 @@ modules.
    Beaumont's voice (with subtitles as before). `ska_merchant3`'s market cries
    stay in his KCD1 voice.
 2. Trade with and greet `ska_merchant2`: still Brian Caspe, unchanged.
-3. `ska_merchant4` and `ska_blanka` stay silent on native lines until their
-   voices are added to `SCOPE`; that is the control.
+3. `ska_blanka` stays silent on native lines until her voice is added to
+   `SCOPE`; that is the control.
 4. If a KCD2Mcp session is open, read the cvar `wh_dlg_EnableFallbackVoice`
    (read-only); the step assumes it is on.
 5. Ride the east road to about 3930,1827. When the barrier stops Henry, one of
@@ -207,5 +286,5 @@ modules.
    the recording path is native, so the line should also lip-sync. A Mod Tools
    build should no longer log `Unable to force monolog via metarole` for
    `HRAC_NEMUZE_Z_MAPY`.
-6. After the first confirmation: add `ska_merchant4` and `ska_blanka` to
-   `SCOPE` (one line) and rebuild; then consider the deep-water barks.
+6. After the first confirmation: add `ska_blanka` to `SCOPE` (one line) and
+   rebuild; then consider the deep-water barks.

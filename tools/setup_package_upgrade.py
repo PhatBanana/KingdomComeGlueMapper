@@ -150,6 +150,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from source_voice_fallbacks import upgrade as fallback_voices
         files, report = fallback_voices(package, target, notify=notify)
         receipt['files'].update(files); receipt['source_voice_fallbacks'] = report
+        from native_shop_dialogue import upgrade as native_shop_dialogue
+        files, report = native_shop_dialogue(package, target, notify=notify)
+        receipt['files'].update(files); receipt['native_shop_dialogue'] = report
         from level_barrier_speech import upgrade as register_barrier_bark
         files, report = register_barrier_bark(package, target, notify=notify)
         receipt['files'].update(files); receipt['level_barrier_speech'] = report
@@ -507,6 +510,11 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from source_voice_fallbacks import upgrade as fallback_voices
     voice_files, voice_report = fallback_voices(package, target, notify=notify)
     receipt['files'].update(voice_files); receipt['source_voice_fallbacks'] = voice_report
+    # Converted traders' generated trade dialog is silent; hand them to the
+    # native spoken trade dialog and greeting after the shop roles are final.
+    from native_shop_dialogue import upgrade as native_shop_dialogue
+    shop_files, shop_report = native_shop_dialogue(package, target, notify=notify)
+    receipt['files'].update(shop_files); receipt['native_shop_dialogue'] = shop_report
     from level_barrier_speech import upgrade as register_barrier_bark
     barrier_files, barrier_report = register_barrier_bark(package, target, notify=notify)
     receipt['files'].update(barrier_files); receipt['level_barrier_speech'] = barrier_report

@@ -40,7 +40,9 @@ LEVEL = 'Data/Levels/kcd1_travel/level.pak'
 NATIVE_VOICES = 'Libs/Tables/skald/voice.xml'
 NATIVE_CHARACTERS = 'Libs/Tables/skald/skald_character.xml'
 # Souls whose imported voice receives the fallback now; the rest are reported.
-SCOPE = ('ska_merchant1',)
+# ska_merchant4 joined when native_shop_dialogue gave her the native trade dialog
+# (the collier, on rpro's fallback, was heard speaking on 31 Oct 2026).
+SCOPE = ('ska_merchant1', 'ska_merchant4')
 COMPLETE_LEVEL = '2'
 REQUIRED_GROUPS = frozenset(('Czechs', 'Merchants'))
 FOLDERS = {'shop': 'shop', 'greetings': 'pozdravy_na_zacatku_dialogu', 'farewells': 'rozlouceni_na_konci_dialogu'}

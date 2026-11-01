@@ -145,6 +145,14 @@ class SourceVoiceFallbackTests(unittest.TestCase):
         self.assertEqual(counts['nogr'], {'shop': 3, 'greetings': 1, 'farewells': 0})
         self.assertNotIn('relocated', ' '.join(counts))
 
+    def test_default_scope_covers_merchant1_and_merchant4(self):
+        self.write()
+        files, report = upgrade(self.package, self.game)
+        self.assertEqual({v['voice']: v['status'] for v in report['voices']}, {'bvac': 'sex_unresolved', 'rpro': 'applied', 'akem': 'applied'})
+        rows, _ = self.imported()
+        self.assertEqual((rows['rpro']['fallback_voice_id'], rows['akem']['fallback_voice_id']), ('83', '68'))
+
+    @patch.object(source_voice_fallbacks, 'SCOPE', ('ska_merchant1',))
     def test_scoped_imported_voice_gets_the_retail_pattern_fallback(self):
         self.write()
         progress = []
@@ -189,6 +197,7 @@ class SourceVoiceFallbackTests(unittest.TestCase):
         self.assertEqual({v['voice']: v['status'] for v in report['voices']}, {'bvac': 'sex_unresolved', 'rpro': 'present', 'akem': 'candidate'})
         self.assertEqual((self.package / TRAVEL).read_bytes(), before)
 
+    @patch.object(source_voice_fallbacks, 'SCOPE', ('ska_merchant1',))
     def test_existing_different_fallback_is_kept_and_reported(self):
         self.travel[IMPORTED] = IMPORTED_VOICES.replace(b'voice_technical_name="gm_source_rpro"', b'voice_technical_name="gm_source_rpro" fallback_voice_id="144"')
         before = self.write()
