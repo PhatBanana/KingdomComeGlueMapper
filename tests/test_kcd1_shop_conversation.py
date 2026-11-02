@@ -8,7 +8,8 @@ import xml.etree.ElementTree as ET
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import kcd1_shop_conversation
-from kcd1_shop_conversation import (GREETING_ROLE, PORTED_NAME, PORTED_ROLE, adapt_condition, emit_greeting, emit_trade, inventory,
+from kcd1_shop_conversation import (FAREWELL_NAME, FAREWELL_ROLE, GREETING_ROLE, PORTED_NAME, PORTED_ROLE, adapt_condition,
+                                    emit_farewell, emit_greeting, emit_trade, inventory,
                                     map_haggle, satisfiable, skeleton_differences, topic_aliases)
 
 ROLES = {'1': {'role_name': 'HENRY'}, '2': {'role_name': 'SMLOUVANI_(MUZ)'}, '3': {'role_name': 'SMLOUVANI_(ZENA)'}}
@@ -238,6 +239,50 @@ class GreetingTests(unittest.TestCase):
     def test_unexpected_greeting_script_is_refused(self):
         with self.assertRaisesRegex(ValueError, 'Unexpected KCD1 greeting start script'):
             emit_greeting(greeting_model("Game.SomethingElse()"), 'man')
+
+
+FAREWELL_ROLES = {'1': {'role_name': 'HENRY'}, '5': {'role_name': 'ROZLOUCENI_(MUZ)'}}
+
+
+def farewell_model(speaker='5'):
+    def seq(sid, cond, nxt, string=None, who='5'):
+        record = sequence(sid, cond, nxt, who, string)
+        record['source']['script'] = ''
+        return record
+    return dict(start_topic='15518', roles=FAREWELL_ROLES,
+                strings={'f_good': 'Take care.', 'f_good2': 'Goodbye.', 'f_low': 'Bye.', 'f_used': 'Why are you keeping me?'},
+                topics={'15518': dict(source={}, sequences=[seq('1', 'greeting_reputation_4 | greeting_reputation_5', '20'),
+                                                            seq('2', 'greeting_reputation_1', '30'),
+                                                            seq('3', "greeting_reputation_1 & var('isUsed') == 0", '40')]),
+                        '20': dict(source={}, sequences=[seq('4', '', '0', 'f_good', speaker), seq('5', '', '0', 'f_good2')]),
+                        '30': dict(source={}, sequences=[seq('6', '', '0', 'f_low')]),
+                        '40': dict(source={}, sequences=[seq('7', '', '0', 'f_used')])})
+
+
+class FarewellTests(unittest.TestCase):
+    def test_farewell_is_the_keepers_kcd2_ending_monolog_with_kcd1_pools(self):
+        blob, report = emit_farewell(farewell_model(), 'man')
+        dialog = ET.fromstring(blob).find('Skald/Dialog')
+        self.assertEqual(dialog.get('Name'), FAREWELL_NAME['man'])
+        body = dialog.find('Dialogue')
+        self.assertEqual((body.get('Type'), body.get('Initiator')), ('ingame monolog', 'NonPlayer'))
+        self.assertIsNone(body.find('SelectedSouls'))
+        self.assertEqual({p.get('Name') for p in dialog.find('Ports')}, {'reputace_dobra', 'reputace_nizka'})
+        self.assertEqual({r.get('Role') for r in body.iter('Response')}, {FAREWELL_ROLE['man']})
+        bands = [s.get('EntryCondition') for s in body.find('Decision/Sequences')]
+        self.assertEqual(bands, ["Port('reputace_dobra') OR Port('reputace_dobra')", "Port('reputace_nizka')",
+                                 "Port('reputace_nizka') AND FALSE"])
+        leaves = [s for s in body.iter('Sequence') if s.find('Elements/Response/Text') is not None]
+        self.assertEqual({s.get('EndType') for s in leaves}, {'EndDialogue'})
+        self.assertEqual((report['lines'], report['unreachable_lines']), (4, ['f_used']))
+
+    def test_a_henry_line_or_a_script_in_the_farewell_is_refused(self):
+        with self.assertRaisesRegex(ValueError, 'Unexpected KCD1 farewell speaker'):
+            emit_farewell(farewell_model(speaker='1'), 'man')
+        scripted = farewell_model()
+        scripted['topics']['20']['sequences'][0]['source']['script'] = 'Game.Something()'
+        with self.assertRaisesRegex(ValueError, 'Unexpected KCD1 farewell script'):
+            emit_farewell(scripted, 'man')
 
 
 

@@ -75,7 +75,8 @@ def crime_check(wrapper_blob):
 
 CUSTOM = {'addShopRoles_essential_man': ['SMLOUVANI_MUZ', 'VYJEDNAVANI_MUZ'], 'addShopRoles_ending_man': ['OBCHODNIK_SE_LOUCI']}
 METAROLES = {'SMLOUVANI_MUZ': 'SMLOUVANI', 'SMLOUVANI_ZENA': 'SMLOUVANI', 'VYJEDNAVANI_MUZ': 'VYJEDNAVANI',
-             'GM_KCD1_SMLOUVANI_MUZ': 'SMLOUVANI', 'GM_KCD1_SMLOUVANI_ZENA': 'SMLOUVANI'}
+             'GM_KCD1_SMLOUVANI_MUZ': 'SMLOUVANI', 'GM_KCD1_SMLOUVANI_ZENA': 'SMLOUVANI',
+             'ROZLOUCENI_S_HRACEM_COMMON_MUZ': 'ROZLOUCENI', 'GM_KCD1_ROZLOUCENI_MUZ': 'ROZLOUCENI'}
 RULE = (b'<storm><rules><rule name="gm_person_1_roles"><selectors><hasName name="ska_merchant1" /></selectors><operations>'
         b'<addRole name="gm_person_1_role" /><addRole name="SMLOUVANI_MUZ" /><addRole name="VYJEDNAVANI_MUZ" />'
         b'<addRole name="OBCHODNIK_Z_DIALOGU_MUZ" /><addShopRoles_ending_man /><addShopRoles_greeting_man /></operations></rule></rules></storm>')
@@ -96,10 +97,13 @@ class InstallTests(unittest.TestCase):
         operations = [(o.tag, o.get('name')) for o in rule.find('operations')]
         self.assertEqual(operations, [('addRole', 'gm_person_1_role'), ('addRole', 'VYJEDNAVANI_MUZ'),
                                       ('addRole', 'GM_KCD1_OBCHODNIK'), ('addRole', 'GM_KCD1_POZDRAV_MUZ'),
-                                      ('addRole', 'GM_KCD1_SMLOUVANI_MUZ')] + [('removeRole', r) for r in REMOVE_NATIVE])
+                                      ('addRole', 'GM_KCD1_SMLOUVANI_MUZ'), ('addRole', 'GM_KCD1_ROZLOUCENI_MUZ')]
+                         + [('removeRole', r) for r in REMOVE_NATIVE])
         self.assertEqual(sorted(removed), ['OBCHODNIK_Z_DIALOGU_MUZ', 'SMLOUVANI_MUZ', 'addShopRoles_ending_man',
                                            'addShopRoles_greeting_man'])
         self.assertEqual(haggle_roles(rule, METAROLES, CUSTOM), ['GM_KCD1_SMLOUVANI_MUZ'])
+        # KCD2's common farewell is removed, so the KCD1 one is the keeper's only ROZLOUCENI role.
+        self.assertEqual(haggle_roles(rule, METAROLES, CUSTOM, 'ROZLOUCENI'), ['GM_KCD1_ROZLOUCENI_MUZ'])
         self.assertEqual(port_rule(rule, 'man'), ([], []))
 
     def test_haggle_guard_sees_native_roles_hidden_in_custom_operations(self):
@@ -111,7 +115,25 @@ class InstallTests(unittest.TestCase):
     def test_role_rows_give_only_the_haggle_roles_the_smlouvani_metarole(self):
         rows = {r.get('role_name'): r.get('metarole_name') for r in ET.fromstring(role_rows()).iter('role')}
         self.assertEqual(rows, {'GM_KCD1_OBCHODNIK': 'NPC', 'GM_KCD1_POZDRAV_MUZ': 'NPC', 'GM_KCD1_POZDRAV_ZENA': 'NPC',
-                                'GM_KCD1_SMLOUVANI_MUZ': 'SMLOUVANI', 'GM_KCD1_SMLOUVANI_ZENA': 'SMLOUVANI'})
+                                'GM_KCD1_SMLOUVANI_MUZ': 'SMLOUVANI', 'GM_KCD1_SMLOUVANI_ZENA': 'SMLOUVANI',
+                                'GM_KCD1_ROZLOUCENI_MUZ': 'ROZLOUCENI', 'GM_KCD1_ROZLOUCENI_ZENA': 'ROZLOUCENI'})
+
+    def test_farewell_is_fed_by_the_kcd2_state_node_and_declared_in_the_module(self):
+        from kcd1_shop_install import farewell_nodes, module
+        state, dialog = farewell_nodes('woman', ['reputace_dobra', 'reputace_nizka'])
+        self.assertEqual((state.tag, state.get('Namespace')), ('timeandplayerstate', 'utils.greetings_utils'))
+        self.assertEqual([e.attrib for e in state.findall('Edge')],
+                         [{'From': 'gm_kcd1_rozlouceni_zena.GM_KCD1_ROZLOUCENI_ZENA', 'To': 'npc'}])
+        self.assertEqual([(e.get('From'), e.get('To')) for e in dialog.findall('Edge')],
+                         [('gm_kcd1_rozlouceni_zena_state.reputace_dobra', 'reputace_dobra'),
+                          ('gm_kcd1_rozlouceni_zena_state.reputace_nizka', 'reputace_nizka')])
+        with self.assertRaisesRegex(ValueError, 'Farewell port without'):
+            farewell_nodes('man', ['npc_zna_jindricha'])
+        graph = ET.fromstring(module(NATIVE_MODULE, {'man': [], 'woman': []}, {'man': ['reputace_dobra'], 'woman': []}))
+        files = [d.get('File') for d in graph.iter('Definition')]
+        self.assertIn('gm_kcd1_rozlouceni_muz.xml', files)
+        self.assertIn('gm_kcd1_rozlouceni_zena.xml', files)
+        self.assertEqual(len(graph.find('Skald/Gameplay/Nodes').findall('gm_kcd1_rozlouceni_muz')), 1)
 
     def test_haggle_wiring_is_cloned_onto_the_ported_dialog_and_role(self):
         nodes = haggle_nodes(NATIVE_MODULE, 'man')
@@ -220,10 +242,17 @@ class InstallTests(unittest.TestCase):
         self.assertNotIn(CRIME_HOST, changes[TRAVEL])
         self.assertTrue({'general', 'greetings_utils'} <= set(report['utils_libraries']))
         # Every ported line has its KCD1 facial track, whether this run adds them or the package already has them.
-        self.assertEqual(report['facial_lines'], 510)
+        self.assertEqual(report['facial_lines'], 620)
+        self.assertEqual(report['facial_missing'], [])
         if report['changed']:
-            self.assertIn(HOST, changes[TRAVEL])
-            self.assertEqual(len(report['recordings_added']), 510)
+            self.assertTrue({FOLDER + 'gm_kcd1_rozlouceni_muz.xml', FOLDER + 'gm_kcd1_rozlouceni_zena.xml'} <= set(changes[TRAVEL]))
+            if HOST in changes[TRAVEL]:
+                # Unported install: the whole port.
+                self.assertEqual(len(report['recordings_added']), 620)
+            else:
+                # A v2 port (510 lines, no farewell): only the 110 keeper farewell recordings are added.
+                self.assertEqual(len(report['recordings_added']), 110)
+                self.assertEqual(report['facial_tracks_added'], 110)
         else:
             # Already ported: the audits above still ran; plan writes and removes nothing.
             self.assertEqual({a: c for a, c in changes.items() if c}, {})

@@ -174,6 +174,8 @@ that opens the shop). Every NPC greeted through `POZDRAV_(MUZ|ZENA)`.
 
 The live closures:
 - greeting 25570 (man) / 25697 (woman): 71 / 64 lines;
+- farewell 15518 (man) / 15547 (woman), branch type 3, role
+  `ROZLOUCENI_(MUZ|ZENA)`: 25 / 20 keeper lines, Henry silent;
 - haggle 23469 (man) / 23605 (woman): 31 trader + 12 Henry lines each.
 
 Older generations of these closures have no English text or recordings. Every
@@ -185,7 +187,11 @@ trader voice recorded its pools:
 - bvac (ska_blanka);
 - tmck for Henry.
 
-KCD1 had no trade farewell.
+KCD1 had no trade farewell, but every NPC said a generic farewell when the
+talk screen closed. Henry voiced only the haggle; "Let's talk trade." has no
+recording for any speaker. On unified-3 (2 Nov) the keepers were silent on
+leaving, because the port had removed KCD2's common farewell without porting
+KCD1's.
 
 ### Change
 
@@ -234,6 +240,19 @@ in the package keep the native dialogs.
   - The ports are wired to KCD2's greeting state node
     (`utils.greetings_utils` timeandplayerstate) and cooldown, as KCD2's module
     wires its common greeting.
+- **Farewell.** KCD1 15518/15547 become a KCD2 `Dialog` shaped like KCD2's
+  common farewell (`rozlouceni_na_konci_dialogu/ending_npc_se_louci_s_hracem__common_*`):
+  Type "ingame monolog", Initiator NonPlayer, no selected souls, leaves ending
+  the dialogue. It binds through `GM_KCD1_ROZLOUCENI_*` (metarole ROZLOUCENI),
+  which replaces the removed `ROZLOUCENI_S_HRACEM_COMMON_*`; the step checks
+  that exactly one ROZLOUCENI role binds to each keeper.
+  - The KCD1 reputation bands pick a pool of five lines, Autoselect picks
+    one, through the same adapter as the greeting (reputace_dobra / stredni /
+    nizka from the same state node).
+  - The man's fifth pool ("Why are you keeping me?" and four more) also needs
+    KCD1's dialogue variable `isUsed == 0`, which KCD2 has no counterpart for.
+    It is adapted to FALSE and reported unreachable, like the knightly
+    greetings.
 - **Trade.** KCD1's "Let's talk trade." becomes the generated trade dialog's
   proven shape (Trade topic, OpenShop behind it, End dialog) bound to
   `GM_KCD1_OBCHODNIK`, with KCD1's prompt string and greetings allowed.
@@ -241,15 +260,16 @@ in the package keep the native dialogs.
   - The seven generated per-keeper dialogs leave the archive and the entry
     Level. The tavern and charcoal ones held only Trade/OpenShop/End.
 - **Storm.** Each keeper's own rule:
-  - adds the three roles;
+  - adds the four roles;
   - drops `SMLOUVANI_*`, the v1 spoken-trade role, the v2 shop greeting and the
     native post-purchase farewell (`addShopRoles_ending_*`), because KCD1 had
     no trade farewell;
   - removes KCD2's common greeting and farewell (`POZDRAV_*`,
     `ROZLOUCENI_S_HRACEM_COMMON_*`; the package Storm includes retail
-    greetingsAndEndings.xml, which comes earlier in source order);
+    greetingsAndEndings.xml, which comes earlier in source order); the KCD1
+    greeting and farewell replace them;
   - keeps `VYJEDNAVANI_*`, which is not a shop step.
-- **Hosting.** The five dialogs sit in a `gm_kcd1_shop` Gameplay module under
+- **Hosting.** The seven dialogs sit in a `gm_kcd1_shop` Gameplay module under
   `Quests/GlueTravel/kcd1_shop/`, registered in the project-level `open_world`
   voice namespace (`smithing_voice/open_world.xml`) beside the prayer and
   barrier registrations.
@@ -296,6 +316,7 @@ test):
 
 Known gaps, for later enhancements:
 - The "good knight" greetings can never play (6 male, 7 female lines).
+- The man's `isUsed` farewell pool can never play (5 lines).
 - In the haggle, these KCD2-only mechanics now run silently:
   - the stolen-goods refusal funnel;
   - the own-goods theft reaction;
@@ -319,13 +340,14 @@ speaker's own stem, and treats those rows as essential.
 
 - `tests/test_kcd1_shop_conversation.py`: haggle mapping, condition override,
   empty slots, skeleton diff, role tokens, female aliasing, inventory, greeting
-  adapter and emitter, trade dialog.
+  adapter and emitter, farewell emitter and its refusals, trade dialog.
 - `tests/test_kcd1_shop_install.py`:
   - keeper rule changes and idempotence;
   - the haggle-role guard, including custom operations;
   - role rows;
   - cloned haggle wiring;
   - greeting wiring;
+  - farewell wiring and the one-ROZLOUCENI-role guard;
   - registration;
   - `shop_roles` skipping ported keepers.
 - Dry runs on hard links of the -5 backup and the installed -6:
@@ -339,7 +361,10 @@ speaker's own stem, and treats those rows as essential.
 2. Haggle: KCD1 reactions in the keeper's voice and Henry's KCD1 lines. Buying
    and selling must complete (money and items move), since the sale runs in
    the haggle dialog's scripts.
-3. No KCD2 greeting, shop greeting or post-purchase farewell on these keepers.
+3. Ending the conversation: the keeper says one KCD1 farewell line in the
+   keeper's voice ("Take care.", "Farewell.", "Bye."...), Henry says nothing.
+4. No KCD2 greeting, shop greeting, common farewell or post-purchase farewell
+   on these keepers.
    A native KCD2 shopkeeper (neu_zdena, rat_pesek, rato_innkeeper1) is unchanged.
 
 ## Wiring

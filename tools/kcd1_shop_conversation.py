@@ -7,6 +7,8 @@ haggle reactions in the shop screen, `VYJEDNAVANI_*` for negotiation and
 generations without English text or recordings are cut content):
 
 - greeting 25570 (man) / 25697 (woman), branch type 2;
+- farewell 15518 (man) / 15547 (woman), branch type 3 (`ROZLOUCENI_(MUZ|ZENA)`),
+  the keeper's line after the talk screen closes; Henry says nothing;
 - trade choice 22069, one type-9 sequence, prompt only;
 - haggle 23469 (man) / 23605 (woman), trader and Henry lines.
 
@@ -43,6 +45,7 @@ VERSION = 1
 SEXES = ('man', 'woman')
 WHITESPACE = b' \t\n\r'
 GREETING = {'man': '25570', 'woman': '25697'}
+FAREWELL = {'man': '15518', 'woman': '15547'}
 HAGGLE = {'man': '23469', 'woman': '23605'}
 TRADE = '22069'
 # Speaker voices of the converted traders (KCD1 abbreviations, as imported).
@@ -75,10 +78,10 @@ def condition(text):
 
 
 def load_models(source):
-    """KCD1 models of the greeting, trade and haggle closures, keyed by (part, sex)."""
+    """KCD1 models of the greeting, farewell, trade and haggle closures, keyed by (part, sex)."""
     from campaign_dialogue import load_many
-    keys = [('greeting', s) for s in SEXES] + [('haggle', s) for s in SEXES] + [('trade', None)]
-    starts = [GREETING[s] if p == 'greeting' else HAGGLE[s] if p == 'haggle' else TRADE for p, s in keys]
+    keys = [(p, s) for p in ('greeting', 'farewell', 'haggle') for s in SEXES] + [('trade', None)]
+    starts = [{'greeting': GREETING, 'farewell': FAREWELL, 'haggle': HAGGLE}[p][s] if s else TRADE for p, s in keys]
     return dict(zip(keys, load_many(source, [(None, start) for start in starts])))
 
 
@@ -349,7 +352,9 @@ GREETING_ADAPTER = (
     ('greeting_looksKnightly', 'FALSE'),
     ('greeting_do_not_judge_clothes_men', 'FALSE'),
     ('greeting_do_not_judge_clothes_women', 'FALSE'),
-    ('expectsDude', 'FALSE'))
+    ('expectsDude', 'FALSE'),
+    # Farewell 15518's "why are you keeping me" pool: a KCD1 dialogue variable with no KCD2 counterpart.
+    ("var('isUsed') == 0", 'FALSE'))
 GREETING_SOURCE_ROLE = {'man': 'POZDRAV_(MUZ)', 'woman': 'POZDRAV_(ZENA)'}
 GREETING_ROLE = {'man': 'GM_KCD1_POZDRAV_MUZ', 'woman': 'GM_KCD1_POZDRAV_ZENA'}
 GREETING_NAME = {'man': 'gm_kcd1_pozdrav_muz', 'woman': 'gm_kcd1_pozdrav_zena'}
@@ -373,23 +378,15 @@ def adapt_condition(text):
     return re.sub(r'\(\s+', '(', re.sub(r'\s+\)', ')', text))
 
 
-def emit_greeting(model, sex):
-    """(KCD2 greeting Dialog bytes, report) for one KCD1 greeting closure."""
+def closure_writer(model, source_role, role, kind, used, emitted, lines_out, scripts, leaf_end=None):
+    """topic(tid, parent): write a KCD1 closure from topic tid down as nested Autoselect Decisions.
+
+    Every spoken line must be source_role's; it is written for role. Ports read by the
+    adapted conditions go to `used`, written lines to `lines_out`, the sequences whose
+    script is the POZDRAV metarole removal to `scripts` (any other script is refused).
+    `leaf_end` sets the EndType of sequences that end the closure.
+    """
     roles = {r: row['role_name'] for r, row in model['roles'].items()}
-    source_role, role = GREETING_SOURCE_ROLE[sex], GREETING_ROLE[sex]
-    database = ET.Element('Database', Name='brambora')
-    dialog = ET.SubElement(ET.SubElement(database, 'Skald'), 'Dialog', Name=GREETING_NAME[sex])
-    ports = ET.SubElement(dialog, 'Ports')
-    body = ET.Element('Dialogue', Type='greeting', TechnicalStatus='Enabled')
-    souls = ET.SubElement(body, 'SelectedSouls')
-    ET.SubElement(souls, 'SelectedSoul', Role='HRAC')
-    ET.SubElement(souls, 'SelectedSoul', Role=role)
-    root_decision = ET.SubElement(body, 'Decision', Name='greeting', Priority='General')
-    gate = ET.SubElement(ET.SubElement(root_decision, 'Sequences'), 'Sequence', Name='greet', EndType='Decision',
-                         EntryCondition=f"!Port('{GREETED}')")
-    ET.SubElement(ET.SubElement(gate, 'Triggers'), 'Port', Name=COOLDOWN)
-    ET.SubElement(ET.SubElement(gate, 'Elements'), 'Response', Role='HRAC')
-    used, emitted, lines_out, scripts = {GREETED}, set(), [], []
 
     def topic(tid, parent):
         emitted.add(tid)
@@ -404,7 +401,7 @@ def emit_greeting(model, sex):
             source = record['source']
             if source['script']:
                 if not METAROLE_SCRIPT.fullmatch(source['script'].strip()):
-                    raise ValueError('Unexpected KCD1 greeting script in sequence ' + source['sequence_id'])
+                    raise ValueError(f'Unexpected KCD1 {kind} script in sequence ' + source['sequence_id'])
                 scripts.append(source['sequence_id'])
             attrs = dict(Name='s' + source['sequence_id'])
             if entry_condition:
@@ -415,7 +412,7 @@ def emit_greeting(model, sex):
             spoken = [l['response'] for l in record['lines'] if l['response']]
             for response in spoken:
                 if roles.get(response['role_id']) != source_role:
-                    raise ValueError('Unexpected KCD1 greeting speaker: ' + str(roles.get(response['role_id'])))
+                    raise ValueError(f'Unexpected KCD1 {kind} speaker: ' + str(roles.get(response['role_id'])))
                 item = ET.SubElement(elements, 'Response', Role=role)
                 ET.SubElement(item, 'Text', StringName=response['string_name'], Text=model['strings'][response['string_name']])
                 lines_out.append(dict(topic=tid, sequence=source['sequence_id'], string=response['string_name']))
@@ -423,6 +420,8 @@ def emit_greeting(model, sex):
                 ET.SubElement(elements, 'Response', Role=role)
             following = source['next']
             if following == '0':
+                if leaf_end:
+                    sequence.set('EndType', leaf_end)
                 continue
             if following in emitted:
                 sequence.set('EndType', 'GoTo')
@@ -430,7 +429,26 @@ def emit_greeting(model, sex):
             else:
                 sequence.set('EndType', 'Decision')
                 topic(following, sequence)
+    return topic
 
+
+def emit_greeting(model, sex):
+    """(KCD2 greeting Dialog bytes, report) for one KCD1 greeting closure."""
+    source_role, role = GREETING_SOURCE_ROLE[sex], GREETING_ROLE[sex]
+    database = ET.Element('Database', Name='brambora')
+    dialog = ET.SubElement(ET.SubElement(database, 'Skald'), 'Dialog', Name=GREETING_NAME[sex])
+    ports = ET.SubElement(dialog, 'Ports')
+    body = ET.Element('Dialogue', Type='greeting', TechnicalStatus='Enabled')
+    souls = ET.SubElement(body, 'SelectedSouls')
+    ET.SubElement(souls, 'SelectedSoul', Role='HRAC')
+    ET.SubElement(souls, 'SelectedSoul', Role=role)
+    root_decision = ET.SubElement(body, 'Decision', Name='greeting', Priority='General')
+    gate = ET.SubElement(ET.SubElement(root_decision, 'Sequences'), 'Sequence', Name='greet', EndType='Decision',
+                         EntryCondition=f"!Port('{GREETED}')")
+    ET.SubElement(ET.SubElement(gate, 'Triggers'), 'Port', Name=COOLDOWN)
+    ET.SubElement(ET.SubElement(gate, 'Elements'), 'Response', Role='HRAC')
+    used, emitted, lines_out, scripts = {GREETED}, set(), [], []
+    topic = closure_writer(model, source_role, role, 'greeting', used, emitted, lines_out, scripts)
     start = model['topics'][model['start_topic']]['sequences']
     if len(start) != 1 or any(l['response'] for l in start[0]['lines']) or start[0]['source']['next'] == '0':
         raise ValueError('KCD1 greeting start topic changed')
@@ -449,6 +467,43 @@ def emit_greeting(model, sex):
                   topics=len(emitted), lines=len(lines_out), ports=sorted(used - {GREETED}),
                   replaced_scripts=scripts, unreachable_lines=unreachable,
                   adapter={k: v for k, v in GREETING_ADAPTER})
+    return xml(database), report
+
+
+FAREWELL_SOURCE_ROLE = {'man': 'ROZLOUCENI_(MUZ)', 'woman': 'ROZLOUCENI_(ZENA)'}
+FAREWELL_ROLE = {'man': 'GM_KCD1_ROZLOUCENI_MUZ', 'woman': 'GM_KCD1_ROZLOUCENI_ZENA'}
+FAREWELL_NAME = {'man': 'gm_kcd1_rozlouceni_muz', 'woman': 'gm_kcd1_rozlouceni_zena'}
+
+
+def emit_farewell(model, sex):
+    """(KCD2 farewell Dialog bytes, report) for one KCD1 farewell closure.
+
+    KCD1's farewell branch picks a pool by reputation band and the keeper says one
+    of its lines; Henry is a silent participant. KCD2 plays the same moment as the
+    NonPlayer monolog bound to a ROZLOUCENI role (ending_npc_se_louci_s_hracem__common_*),
+    so the closure keeps that Dialogue shape and KCD1's own pools and lines.
+    """
+    role = FAREWELL_ROLE[sex]
+    database = ET.Element('Database', Name='brambora')
+    dialog = ET.SubElement(ET.SubElement(database, 'Skald'), 'Dialog', Name=FAREWELL_NAME[sex])
+    ports = ET.SubElement(dialog, 'Ports')
+    body = ET.Element('Dialogue', Type='ingame monolog', TechnicalStatus='Enabled', Initiator='NonPlayer',
+                      ForceMood='noScope', ClashPriority='Flavor')
+    used, emitted, lines_out, scripts = set(), set(), [], []
+    start = model['topics'][model['start_topic']]['sequences']
+    if not start or any(l['response'] for s in start for l in s['lines']) or any(s['source']['next'] == '0' for s in start):
+        raise ValueError('KCD1 farewell start topic changed')
+    closure_writer(model, FAREWELL_SOURCE_ROLE[sex], role, 'farewell', used, emitted, lines_out, scripts,
+                   leaf_end='EndDialogue')(model['start_topic'], body)
+    if scripts:
+        raise ValueError('Unexpected KCD1 farewell scripts: ' + ', '.join(scripts))
+    for name in sorted(used):
+        ET.SubElement(ports, 'Port', Name=name, Direction='In', Type='bool')
+    dialog.append(body)
+    from upgrade_map import xml
+    unreachable = sorted({l['string'] for l in lines_out if not satisfiable(path_condition(body, 's' + l['sequence']))})
+    report = dict(sex=sex, kcd1_start=model['start_topic'], name=FAREWELL_NAME[sex], role=role,
+                  topics=len(emitted), lines=len(lines_out), ports=sorted(used), unreachable_lines=unreachable)
     return xml(database), report
 
 

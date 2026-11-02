@@ -1,26 +1,30 @@
 """Install the ported KCD1 shop conversation for the seven converted traders.
 
-kcd1_shop_conversation turns KCD1's greeting, trade choice and haggle closures
-into KCD2 dialogs. This step puts them in the package, for the converted KCD1
-keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
+kcd1_shop_conversation turns KCD1's greeting, farewell, trade choice and haggle
+closures into KCD2 dialogs. This step puts them in the package, for the converted
+KCD1 keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
 
 - a `gm_kcd1_shop` Gameplay module in Quests/GlueTravel/kcd1_shop/, registered
   in the project-level open_world voice namespace (smithing_voice/open_world.xml)
   beside the prayer and barrier registrations. It holds the two greetings, the
-  two haggle dialogs and the trade dialog. The greetings are wired to KCD2's
-  greeting state node and once-a-day cooldown, as KCD2's common greeting is.
+  two farewells, the two haggle dialogs and the trade dialog. The greetings are
+  wired to KCD2's greeting state node and once-a-day cooldown, as KCD2's common
+  greeting is; the farewells to the same state node's reputation outputs, as
+  KCD2's common farewell is.
   The haggle dialogs' denial buff, theft message and tutorial outputs are wired
   as in KCD2's haggle module. The module carries a private utils closure
   (native/) for those two utils graphs; entry/world/open_world.xml belongs to
   the crime step and is never written here;
 - role rows: GM_KCD1_SMLOUVANI_* carry metarole SMLOUVANI, which the shop
-  screen uses to find the haggle (and so the sale); the greeting and trade
-  roles carry NPC;
-- each keeper's own Storm rule gains the three roles and loses the native
+  screen uses to find the haggle (and so the sale); GM_KCD1_ROZLOUCENI_* carry
+  ROZLOUCENI, which plays the farewell after the talk screen closes; the
+  greeting and trade roles carry NPC;
+- each keeper's own Storm rule gains the four roles and loses the native
   haggle role, the native spoken-trade role (v1), the native shop greeting (v2)
   and the native post-purchase farewell. It also removes KCD2's common greeting
-  and farewell. KCD1 had no trade farewell, and KCD1 NPCs keep only their KCD1
-  lines. Negotiation (VYJEDNAVANI) stays native: it is not a shop step;
+  and farewell, which the KCD1 ones replace. KCD1 had no trade farewell, and
+  KCD1 NPCs keep only their KCD1 lines. Negotiation (VYJEDNAVANI) stays native:
+  it is not a shop step;
 - the keepers' generated trade dialogs leave the archive and the entry Level;
 - the KCD1 recordings of the trader voices and Henry go to the module's audio
   scope, each with a dubbing row for its own stem. The text goes to
@@ -28,8 +32,8 @@ keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
   the same FacialImporter (and rig adapter) main uses for Henry's tavern lines.
   Source headers are keyed by lowercase stem; KCD1 recording names are not.
 
-Before writing it checks that exactly one role with metarole SMLOUVANI binds
-to each keeper, audits the module's node types and asset aliases through their
+Before writing it checks that exactly one role with metarole SMLOUVANI and one
+with ROZLOUCENI bind to each keeper, audits the module's node types and asset aliases through their
 packaged scopes, and copies the native Project Types the graphs use. It is
 idempotent, so a saved -5 (v1) or -6 (v2) package and a fresh build end in the
 same state. The pre-release layout under entry/world/ (step version 1, never
@@ -49,7 +53,7 @@ import zipfile
 import kcd1_shop_conversation as conversation
 from upgrade_map import read, xml
 
-VERSION = 2
+VERSION = 3
 TRAVEL = 'Data/gluemappertravel.pak'
 LEVEL = 'Data/Levels/kcd1_travel/level.pak'
 ENGLISH = 'Localization/English.pak'
@@ -84,16 +88,18 @@ GREETING_STATE = {'hrac_je_spinavy', 'hrac_je_zakrvaceny', 'hrac_ma_alespon_vyso
 
 
 def roles_for(sex):
-    return (conversation.TRADE_ROLE, conversation.GREETING_ROLE[sex], conversation.PORTED_ROLE[sex])
+    return (conversation.TRADE_ROLE, conversation.GREETING_ROLE[sex], conversation.PORTED_ROLE[sex],
+            conversation.FAREWELL_ROLE[sex])
 
 
 def role_rows():
-    """The package role rows: only the haggle roles carry SMLOUVANI."""
+    """The package role rows: only the haggle roles carry SMLOUVANI, only the farewells ROZLOUCENI."""
     root = ET.Element('database', name='barbora')
     roles = ET.SubElement(root, 'roles', version='1')
     names = [(conversation.TRADE_ROLE, 'NPC')]
     for sex in conversation.SEXES:
-        names += [(conversation.GREETING_ROLE[sex], 'NPC'), (conversation.PORTED_ROLE[sex], 'SMLOUVANI')]
+        names += [(conversation.GREETING_ROLE[sex], 'NPC'), (conversation.PORTED_ROLE[sex], 'SMLOUVANI'),
+                  (conversation.FAREWELL_ROLE[sex], 'ROZLOUCENI')]
     for name, metarole in names:
         ET.SubElement(roles, 'role', _locked='false', _role_string_name='role_' + name, metarole_name=metarole, role_name=name)
     return xml(root)
@@ -143,12 +149,12 @@ def port_rule(rule, sex):
     return [f'{tag}:{role}' for tag, role in added], removed
 
 
-def haggle_roles(rule, metaroles, custom):
-    """Roles with metarole SMLOUVANI that a rule adds, custom operations expanded."""
+def haggle_roles(rule, metaroles, custom, metarole='SMLOUVANI'):
+    """Roles with the metarole (SMLOUVANI by default) that a rule adds, custom operations expanded."""
     found = []
     for operation in rule.find('operations'):
         names = [operation.get('name')] if operation.tag == 'addRole' else custom.get(operation.tag, [])
-        found += [n for n in names if metaroles.get(n) == 'SMLOUVANI']
+        found += [n for n in names if metaroles.get(n) == metarole]
     return found
 
 
@@ -183,6 +189,21 @@ def greeting_nodes(sex, ports):
     return nodes
 
 
+def farewell_nodes(sex, ports):
+    """Module nodes feeding one ported farewell, after KCD2's common farewell wiring (rozlouceni_na_konci_dialogu)."""
+    dialog, role = conversation.FAREWELL_NAME[sex], conversation.FAREWELL_ROLE[sex]
+    state = f'{dialog}_state'
+    node = ET.Element('timeandplayerstate', Name=state, Namespace='utils.greetings_utils')
+    ET.SubElement(node, 'Asset', Name='player', Alias='player')
+    ET.SubElement(node, 'Edge', {'From': f'{dialog}.{role}', 'To': 'npc'})
+    farewell = ET.Element(dialog, Name=dialog)
+    for port in ports:
+        if port not in GREETING_STATE:
+            raise ValueError('Farewell port without a KCD2 state output: ' + port)
+        ET.SubElement(farewell, 'Edge', {'From': f'{state}.{port}', 'To': port})
+    return [node, farewell]
+
+
 def haggle_nodes(native_module, sex):
     """The native haggle module's nodes for one dialog, cloned onto the ported dialog and role."""
     native_name = PurePosixPath(conversation.NATIVE_HAGGLE[sex]).stem
@@ -214,10 +235,11 @@ def haggle_nodes(native_module, sex):
 
 def dialog_names():
     return [conversation.TRADE_NAME] + [n for sex in conversation.SEXES
-                                        for n in (conversation.GREETING_NAME[sex], conversation.PORTED_NAME[sex])]
+                                        for n in (conversation.GREETING_NAME[sex], conversation.PORTED_NAME[sex],
+                                                  conversation.FAREWELL_NAME[sex])]
 
 
-def module(native_module, greeting_ports, utils=True):
+def module(native_module, greeting_ports, farewell_ports, utils=True):
     """The module graph; with utils it declares and instantiates its private native/utils.xml."""
     root = ET.Element('Database', Name='brambora')
     host = ET.SubElement(ET.SubElement(root, 'Skald'), 'Gameplay', Name=MODULE, VoiceNamespace='true')
@@ -229,6 +251,7 @@ def module(native_module, greeting_ports, utils=True):
     for sex in conversation.SEXES:
         nodes.extend(greeting_nodes(sex, greeting_ports[sex]))
         nodes.extend(haggle_nodes(native_module, sex))
+        nodes.extend(farewell_nodes(sex, farewell_ports[sex]))
     nodes.append(ET.Element(conversation.TRADE_NAME, Name=conversation.TRADE_NAME))
     if utils:
         ET.SubElement(nodes, 'utils', Name='utils')
@@ -532,7 +555,7 @@ def plan(package, source, target):
 
     models = conversation.load_models(source)
     aliases = {'man': None, 'woman': conversation.topic_aliases(models[('haggle', 'woman')], models[('haggle', 'man')])}
-    dialogs, reports, ports, lines = {}, {}, {}, []
+    dialogs, reports, ports, farewell_ports, lines = {}, {}, {}, {}, []
     by_voice = {sex: sorted({voices[p] for p in SCOPE if people[p] == sex}) for sex in conversation.SEXES}
     for sex in conversation.SEXES:
         unknown = set(by_voice[sex]) - set(conversation.VOICES[sex])
@@ -546,22 +569,26 @@ def plan(package, source, target):
             raise ValueError('Native haggle role left in the ported dialog')
         greeting, greeting_report = conversation.emit_greeting(models[('greeting', sex)], sex)
         dialogs[conversation.PORTED_NAME[sex]], dialogs[conversation.GREETING_NAME[sex]] = haggle, greeting
-        ports[sex] = greeting_report['ports']
+        farewell, farewell_report = conversation.emit_farewell(models[('farewell', sex)], sex)
+        dialogs[conversation.FAREWELL_NAME[sex]] = farewell
+        ports[sex], farewell_ports[sex] = greeting_report['ports'], farewell_report['ports']
         reports[sex] = dict(haggle={k: v for k, v in haggle_report.items() if k not in ('pairs', 'removed_responses')},
-                            greeting={k: v for k, v in greeting_report.items() if k != 'adapter'}, voices=by_voice[sex])
+                            greeting={k: v for k, v in greeting_report.items() if k != 'adapter'},
+                            farewell=farewell_report, voices=by_voice[sex])
         mapped = {p['string'] for p in haggle_report['pairs']}
         for line in conversation.lines(models[('haggle', sex)]):
             if line['string'] in mapped:
                 henry = line['role'] == 'HENRY'
                 lines.append(dict(string=line['string'], text=line['text'], rows=line['voices'],
                                   voices=[conversation.HENRY_VOICE] if henry else by_voice[sex]))
-        for line in conversation.lines(models[('greeting', sex)]):
-            lines.append(dict(string=line['string'], text=line['text'], rows=line['voices'], voices=by_voice[sex]))
+        for part in ('greeting', 'farewell'):
+            for line in conversation.lines(models[(part, sex)]):
+                lines.append(dict(string=line['string'], text=line['text'], rows=line['voices'], voices=by_voice[sex]))
     trade, trade_report = conversation.emit_trade(models[('trade', None)])
     dialogs[conversation.TRADE_NAME] = trade
 
     folder = {FOLDER + name + '.xml': blob for name, blob in dialogs.items()}
-    folder[FOLDER + MODULE + '.xml'] = module(native_module, ports)
+    folder[FOLDER + MODULE + '.xml'] = module(native_module, ports, farewell_ports)
     with zipfile.ZipFile(target / 'Data/Scripts.pak') as scripts:
         closure = utils_closure(scripts, folder[FOLDER + MODULE + '.xml'])
     folder.update(closure)
@@ -580,16 +607,17 @@ def plan(package, source, target):
         file_name, root, rule = own
         before = xml(root)
         added, removed = port_rule(rule, people[person])
-        bound = haggle_roles(rule, metaroles, custom)
-        if bound != [conversation.PORTED_ROLE[people[person]]]:
-            raise ValueError(f'{person} binds {len(bound)} haggle dialogs: {bound}')
-        for name, blob in role_files.items():
-            if name == file_name:
-                continue
-            for other in ET.fromstring(blob).iter('rule'):
-                if [s.get('name') for s in other.findall('selectors/hasName')] == [person] \
-                        and other.find('operations') is not None and haggle_roles(other, metaroles, custom):
-                    raise ValueError(f'Another rule gives {person} a haggle role: {name}')
+        for metarole, ported in (('SMLOUVANI', conversation.PORTED_ROLE), ('ROZLOUCENI', conversation.FAREWELL_ROLE)):
+            bound = haggle_roles(rule, metaroles, custom, metarole)
+            if bound != [ported[people[person]]]:
+                raise ValueError(f'{person} binds {len(bound)} {metarole} dialogs: {bound}')
+            for name, blob in role_files.items():
+                if name == file_name:
+                    continue
+                for other in ET.fromstring(blob).iter('rule'):
+                    if [s.get('name') for s in other.findall('selectors/hasName')] == [person] \
+                            and other.find('operations') is not None and haggle_roles(other, metaroles, custom, metarole):
+                        raise ValueError(f'Another rule gives {person} a {metarole} role: {name}')
         after = xml(root)
         if after != before:
             role_files[file_name] = role_changes[file_name] = after
@@ -672,6 +700,8 @@ def plan(package, source, target):
                   trade=trade_report, removed_dialogs=removed_dialogs, role_table=ROLE_TABLE,
                   recordings_added=sorted(media), text_rows=len(texts), facial_lines=len(tracked),
                   facial_tracks_added=len(added),
+                  # No KCD1 base-pak track (e.g. patch-only); they play without lip-sync here.
+                  facial_missing=sorted(set(ported) - tracked),
                   changed={archive: sorted(entries) for archive, entries in changes.items() if entries},
                   runtime_verified=False)
     return changes, removed_dialogs, report
