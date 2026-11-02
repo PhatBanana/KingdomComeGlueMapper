@@ -45,9 +45,28 @@ def requests(blob, tree_name):
     return result
 
 
-def assess(request, model):
-    """Return precise blockers; never convert unsupported cooldowns to zero."""
+def carried_cooldown(source):
+    """Native Skald Cooldown for a source sequence timeout, or None when it has none.
+
+    KCD1 timeouts are whole seconds before a sequence may be selected again;
+    KCD2's own market cries state the same contract as Cooldown="10s"/"45s".
+    Whether the source counted game or real time is not proven.
+    """
+    timeout = source.get('timeout', '0')
+    if not re.fullmatch(r'\d+', timeout):
+        raise ValueError('Invalid source sequence timeout: ' + timeout)
+    return str(int(timeout)) + 's' if int(timeout) else None
+
+
+def assess(request, model, *, carried_cooldowns=False):
+    """Return precise blockers; never convert unsupported cooldowns to zero.
+
+    `carried_cooldowns` states that the emitter writes each nonzero source
+    timeout as the sequence's native Cooldown; those are then reported, not
+    blocked. Any other caller keeps failing closed on them.
+    """
     blockers = [dict(reason=x) for x in request['blockers']]
+    carried = []
     if request['alias'] != model.get('alias'):
         raise ValueError('Work speech model does not match requested alias')
     for topic in model['topics'].values():
@@ -57,6 +76,8 @@ def assess(request, model):
             timeout = source.get('timeout', '0')
             if not re.fullmatch(r'\d+', timeout):
                 blockers.append(dict(reason='invalid_source_timeout', sequence=identity, value=timeout))
+            elif int(timeout) and carried_cooldowns:
+                carried.append(dict(sequence=identity, source_timeout=timeout, cooldown=carried_cooldown(source)))
             elif int(timeout):
                 blockers.append(dict(reason='source_cooldown_not_lowered', sequence=identity, value=timeout))
             if source.get('flags', '0') != '0':
@@ -65,13 +86,15 @@ def assess(request, model):
     # The caller must also lower the surrounding source work/gates and register
     # actors, voices, dialogue effects, and cancellation. This check alone is
     # deliberately not a runnable-job certificate.
-    return dict(alias=request['alias'], source_path=request['source_path'],
-                repeat=request['repeat'], blockers=blockers,
-                speech_contract_supported=not blockers, runtime_verified=False)
+    report = dict(alias=request['alias'], source_path=request['source_path'],
+                  repeat=request['repeat'], blockers=blockers,
+                  speech_contract_supported=not blockers, runtime_verified=False)
+    if carried: report['carried_cooldowns'] = carried
+    return report
 
 
-def require_supported(request, model):
-    report = assess(request, model)
+def require_supported(request, model, *, carried_cooldowns=False):
+    report = assess(request, model, carried_cooldowns=carried_cooldowns)
     if report['blockers']:
         reasons = sorted({b['reason'] for b in report['blockers']})
         raise ValueError('Unsupported work speech ' + str(request['alias']) + ': ' + ', '.join(reasons))
