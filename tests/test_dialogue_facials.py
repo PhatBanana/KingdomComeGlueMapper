@@ -9,7 +9,36 @@ from pathlib import Path
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from dialogue_facials import (chunks, container, database, select_database, header_path,
                              renamed_header, aliased_controllers, NativeFacialImporter, INDEX)
-from facial_rig_adapter import controller_aliases
+from facial_rig_adapter import controller_aliases, reverse_speech_mapping, load_reverse_adapter, speech_mapping
+
+
+class ReverseRigTests(unittest.TestCase):
+    def test_reverse_table_inverts_forward_rows_with_one_driver_per_joint(self):
+        mapping, rows = reverse_speech_mapping()
+        drivers = {}
+        for pose, joints in mapping.items():
+            for joint in joints:
+                self.assertNotIn(joint, drivers)
+                drivers[joint] = pose
+        self.assertEqual(drivers['mouthOpen_blendWeightVertex'], 'FA_POSE_C_jawDrop')
+        self.assertEqual(drivers['lowLipDown_blendWeightVertex'], 'FA_POSE_L_lowLipDepressor')
+        unused = [r for r in rows if not r['used']]
+        self.assertEqual({r['fa_pose'] for r in unused}, {'FA_POSE_R_lowLipDepressor', 'FA_POSE_L_squint_low', 'FA_POSE_R_squint_low'})
+        # Every forward pair is accounted for, used or not.
+        forward = {(t, s) for s, ts in speech_mapping().items() for t in ts}
+        self.assertTrue(forward <= {(r['fa_pose'], r['kcd1']) for r in rows})
+        self.assertTrue(all(r['basis'] for r in rows))
+
+    def test_adapter_keeps_only_joints_a_face_has(self):
+        mapping, _ = reverse_speech_mapping()
+        native = set(mapping) | {'FA_POSE_C_chinRaise'}
+        aliases, report = load_reverse_adapter(None, {'mouthOpen_blendWeightVertex', 'mouthBack_blendWeightVertex'}, native)
+        self.assertEqual(aliases, {zlib.crc32(b'FA_POSE_C_jawDrop'): (zlib.crc32(b'mouthOpen_blendWeightVertex'),)})
+        self.assertEqual(report['kcd1_without_driver'], ['mouthBack_blendWeightVertex'])
+        self.assertIn('FA_POSE_C_chinRaise', report['fa_pose_without_target'])
+        self.assertFalse(report['exact_acting_equivalence'])
+        with self.assertRaisesRegex(ValueError, 'Missing source'):
+            load_reverse_adapter(None, {'mouthOpen_blendWeightVertex'}, {'FA_POSE_C_O'})
 
 
 def fixture():
@@ -79,6 +108,56 @@ class FacialTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'lip-sync track'):
                     importer.add(['dialog/quest/missing.ogg'])
             finally:importer.close()
+
+    def test_native_relocation_by_full_path_is_repeatable_and_guarded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            baseline=self.native_archive(directory)
+            dest='animations/humans/facials/dialog/new/a.caf'
+            importer=NativeFacialImporter(directory)
+            try:
+                # 'elsewhere/b.ogg' shares its stem with a native track but not its path.
+                groups,missing=importer.relocation({'dialog/new/a.ogg':'source/a.ogg','dialog/new/b.ogg':'elsewhere/b.ogg'})
+                self.assertEqual(missing,['dialog/new/b.ogg'])
+                (name,group),=groups.items()
+                self.assertTrue(name.startswith(NativeFacialImporter.RELOCATED))
+                self.assertEqual(group['tracks'],{'animations/humans/facials/source/a.caf':dest})
+                self.assertEqual(importer.index_relocation(groups),1)
+                added=importer.records[2]
+                self.assertEqual((header_path(added),added[2]),(dest,3))
+                self.assertEqual(struct.unpack_from('<I',added[3],264)[0],zlib.crc32(name.encode()))
+                payload=importer.relocated_database(group)
+                _,clips,tracks=database(payload);_,original,native=database(fixture())
+                self.assertEqual([c['name'] for c in clips],[dest])
+                self.assertEqual(clips[0]['controllers'],original[0]['controllers'])
+                self.assertEqual(tracks,native)
+                index=container(importer.records)
+                with self.assertRaisesRegex(ValueError,'Invalid relocated recording path'):
+                    importer.relocation({'bad.ogg':'source/a.ogg'})
+            finally:importer.close()
+            resumed=NativeFacialImporter(directory,index)
+            try:
+                same,_=resumed.relocation({'dialog/new/a.ogg':'source/a.ogg'})
+                self.assertEqual(set(same),set(groups))
+                self.assertEqual(resumed.index_relocation(same,previous=list(groups)),0)
+                self.assertEqual(container(resumed.records),index)
+                # A changed rename set moves the clip to a new database and keeps the record identity.
+                grown,_=resumed.relocation({'dialog/new/a.ogg':'source/a.ogg','dialog/new/b.ogg':'source/b.ogg'})
+                (renamed,)=list(grown)
+                self.assertNotEqual(renamed,name)
+                self.assertEqual(resumed.index_relocation(grown,previous=list(groups)),2)
+                moved=resumed.indexed[dest]
+                self.assertEqual((moved[2],struct.unpack_from('<I',moved[3],264)[0]),(3,zlib.crc32(renamed.encode())))
+                self.assertEqual(len(resumed.records),4)
+                # Nothing relocated any more: the owned records go, the baseline stays.
+                self.assertEqual(resumed.index_relocation({},previous=[renamed]),2)
+                self.assertEqual(resumed.records,baseline)
+            finally:resumed.close()
+            foreign=renamed_header(baseline[0],dest,'animations/foreign.dba')
+            conflicted=NativeFacialImporter(directory,container([*baseline,(*foreign[:2],9,foreign[3])]))
+            try:
+                with self.assertRaisesRegex(ValueError,'Conflicting facial track'):
+                    conflicted.index_relocation(groups)
+            finally:conflicted.close()
 
     def test_rig_aliases_retain_original_curves_and_rebuild_metadata(self):
         blob = fixture()
