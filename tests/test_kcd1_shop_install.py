@@ -222,6 +222,24 @@ class InstallTests(unittest.TestCase):
         self.assertTrue({'general', 'greetings_utils'} <= set(report['utils_libraries']))
         if report['changed']:
             self.assertEqual(len(report['recordings_added']), 510)
+            self.assertEqual(report['facial_lines'], 510)
+
+    def test_mixed_case_recordings_find_their_lowercase_source_facial_track(self):
+        from kcd1_shop_install import facial_selection
+        trader = AUDIO_SCOPE + 'akem_t23606_s45918_4_smlouvani__E7MY.ogg'
+        henry = AUDIO_SCOPE + 'tmck_t22069_s1_1_obchod__Ab3x.ogg'
+        silent = AUDIO_SCOPE + 'rpro_t25570_s2_1_pozdrav__ZZ.ogg'
+        ported = {trader: b'a', henry: b'h', silent: b's'}
+        headers = {'akem_t23606_s45918_4_smlouvani__e7my': [('x', 'r')], 'tmck_t22069_s1_1_obchod__ab3x': [('y', 'r')]}
+        tracked, added = facial_selection(ported, headers, {})
+        self.assertEqual(tracked, {trader, henry})
+        self.assertEqual(sorted(added), sorted([trader, henry]))
+        # A rerun, or a package installed with the case-sensitive lookup, adds only the tracks still missing.
+        indexed = {'animations/humans/facials/' + trader[:-4].lower() + '.caf': None}
+        self.assertEqual(facial_selection(ported, headers, indexed)[1], {henry: b'h'})
+        headers['rpro_t25570_s2_1_pozdrav__zz'] = [('a', 'r'), ('b', 'r')]
+        with self.assertRaisesRegex(ValueError, 'Ambiguous'):
+            facial_selection(ported, headers, {})
 
     @unittest.skipUnless((GAME / 'Data/Scripts.pak').is_file(), 'KCD2 required')
     def test_crime_prepare_accepts_the_ported_entry_after_the_port(self):

@@ -269,8 +269,13 @@ in the package keep the native dialogs.
     (`dialog/open_world/gm_kcd1_shop/`; the Project adds no folder), with a
     dubbing row for each speaker's own stem.
   - The text goes to text_ui_dialog. The mod ships English only.
-  - The traders' KCD1 facial records go to the facial pak. Henry's KCD1
-    records target the KCD1 rig and are not imported.
+  - Every line's KCD1 facial record goes to the facial pak through the same
+    `FacialImporter` and rig adapter main uses for Henry's tavern lines: 486
+    trader and 24 Henry tracks on -6. KCD1 recording stems keep mixed-case
+    hash suffixes (`…_smlouvani__E7MY`) while the source headers are lowercase,
+    so the lookup lowercases the stem; before that only 70 tracks matched.
+    Tracks already in the index are skipped, so a package from the -7 port
+    gains its 440 missing tracks and a second run changes nothing.
 
 Greeting adapter, KCD1 condition → KCD2 port (to tune after the first play
 test):

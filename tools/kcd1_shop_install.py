@@ -24,8 +24,9 @@ keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
 - the keepers' generated trade dialogs leave the archive and the entry Level;
 - the KCD1 recordings of the trader voices and Henry go to the module's audio
   scope, each with a dubbing row for its own stem. The text goes to
-  text_ui_dialog, and the traders' KCD1 facial records to the facial pak
-  (Henry's target the KCD1 rig and are not imported).
+  text_ui_dialog, and every line's KCD1 facial record to the facial pak through
+  the same FacialImporter (and rig adapter) main uses for Henry's tavern lines.
+  Source headers are keyed by lowercase stem; KCD1 recording names are not.
 
 Before writing it checks that exactly one role with metarole SMLOUVANI binds
 to each keeper, audits the module's node types and asset aliases through their
@@ -468,6 +469,21 @@ def recordings(source, lines):
     return found
 
 
+def facial_selection(ported, source_headers, indexed):
+    """(recordings with exactly one KCD1 facial track, those not yet in the facial index).
+
+    Covers every ported recording, not only the ones this run adds to English.pak,
+    so a package installed before the lowercase lookup gets its missing tracks."""
+    headers = {n: source_headers.get(Path(n).stem.lower(), []) for n in ported}
+    ambiguous = sorted(n for n, found in headers.items() if len(found) > 1)
+    if ambiguous:
+        raise ValueError('Ambiguous KCD1 shop lip-sync track: ' + ambiguous[0])
+    tracked = {n for n, found in headers.items() if found}
+    added = {n: ported[n] for n in sorted(tracked)
+             if 'animations/humans/facials/' + n[:-4].lower() + '.caf' not in indexed}
+    return tracked, added
+
+
 def plan(package, source, target):
     """Return (archive -> replacements, travel removals, report) without writing."""
     from shop_roles import keepers
@@ -611,6 +627,7 @@ def plan(package, source, target):
 
     found = recordings(source, lines)
     media = {scope + wave + '.ogg': data for (voice, string, wave), data in found.items()}
+    ported = dict(media)
     texts = {l['string']: l['text'] for l in lines}
     texts[trade_report['prompt']] = trade_report['text']
     with zipfile.ZipFile(package / ENGLISH) as english:
@@ -635,18 +652,16 @@ def plan(package, source, target):
         current_text = read(localized, 'text_ui_dialog.xml')
     merged = merge_audio_strings(current_text, xml(rows_root))
     text_changes = {'text_ui_dialog.xml': merged} if merged != current_text else {}
-    facial_changes, facial_lines = {}, 0
-    trader_media = {n: b for n, b in media.items() if not n.rsplit('/', 1)[1].startswith(conversation.HENRY_VOICE + '_')}
-    if trader_media:
+    facial_changes, tracked, added = {}, set(), {}
+    if ported:
         from dialogue_facials import FacialImporter, INDEX
         with zipfile.ZipFile(package / FACIALS) as facial_pak:
             index = read(facial_pak, INDEX)
         importer = FacialImporter(source, target, index)
         try:
-            supported = {n: b for n, b in trader_media.items() if len(importer.source_headers.get(Path(n).stem, [])) == 1}
-            facial_lines = len(supported)
-            if supported:
-                importer.add(supported)
+            tracked, added = facial_selection(ported, importer.source_headers, importer.indexed)
+            if added:
+                importer.add(added)
                 facial_changes = importer.resources()
         finally:
             importer.close()
@@ -655,7 +670,8 @@ def plan(package, source, target):
                   utils_closure=sorted(closure), utils_libraries=utils_libraries(closure), **audit,
                   keepers=keepers_report, dialogs=reports,
                   trade=trade_report, removed_dialogs=removed_dialogs, role_table=ROLE_TABLE,
-                  recordings_added=sorted(media), text_rows=len(texts), facial_lines=facial_lines,
+                  recordings_added=sorted(media), text_rows=len(texts), facial_lines=len(tracked),
+                  facial_tracks_added=len(added),
                   changed={archive: sorted(entries) for archive, entries in changes.items() if entries},
                   runtime_verified=False)
     return changes, removed_dialogs, report
