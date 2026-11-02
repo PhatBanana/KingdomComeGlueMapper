@@ -249,10 +249,25 @@ in the package keep the native dialogs.
     `ROZLOUCENI_S_HRACEM_COMMON_*`; the package Storm includes retail
     greetingsAndEndings.xml, which comes earlier in source order);
   - keeps `VYJEDNAVANI_*`, which is not a shop step.
+- **Hosting.** The five dialogs sit in a `gm_kcd1_shop` Gameplay module under
+  `Quests/GlueTravel/kcd1_shop/`, registered in the project-level `open_world`
+  voice namespace (`smithing_voice/open_world.xml`) beside the prayer and
+  barrier registrations.
+  - `entry/world/open_world.xml` is the crime step's wrapper: it must hold
+    exactly the native systems and `utils`, and is rebuilt from native data.
+    The -7 build failed when the port registered there. The port never writes
+    it now, and refuses a package that still has that pre-release layout.
+  - The module brings its own `native/utils.xml` closure, packaged by
+    `world_gameplay_basis.package_dependencies`. Besides `general` and
+    `greetings_utils`, timeandplayerstate pulls in `item`, `reputation`, `rpg`
+    and `time`.
+  - Before writing, the step resolves every node type through the packaged
+    scopes and every asset alias through the module's ancestors. It also
+    copies the native Project Types the graphs use (`RPGStatInterval` on -6).
 - **Assets.**
   - The trader and Henry KCD1 recordings go to the module's audio scope
-    (`dialog/kcd1_travel/open_world/gm_kcd1_shop/`), with a dubbing row for
-    each speaker's own stem.
+    (`dialog/open_world/gm_kcd1_shop/`; the Project adds no folder), with a
+    dubbing row for each speaker's own stem.
   - The text goes to text_ui_dialog. The mod ships English only.
   - The traders' KCD1 facial records go to the facial pak. Henry's KCD1
     records target the KCD1 rig and are not imported.

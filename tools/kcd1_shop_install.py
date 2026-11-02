@@ -4,12 +4,15 @@ kcd1_shop_conversation turns KCD1's greeting, trade choice and haggle closures
 into KCD2 dialogs. This step puts them in the package, for the converted KCD1
 keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
 
-- a `gm_kcd1_shop` Gameplay module beside the package's native shop copy in
-  entry/world/open_world.xml, holding the two greetings, the two haggle
-  dialogs and the trade dialog. The greetings are wired to KCD2's greeting state
-  node and once-a-day cooldown, as KCD2's common greeting is. The haggle
-  dialogs' denial buff, theft message and tutorial outputs are wired as in
-  KCD2's haggle module;
+- a `gm_kcd1_shop` Gameplay module in Quests/GlueTravel/kcd1_shop/, registered
+  in the project-level open_world voice namespace (smithing_voice/open_world.xml)
+  beside the prayer and barrier registrations. It holds the two greetings, the
+  two haggle dialogs and the trade dialog. The greetings are wired to KCD2's
+  greeting state node and once-a-day cooldown, as KCD2's common greeting is.
+  The haggle dialogs' denial buff, theft message and tutorial outputs are wired
+  as in KCD2's haggle module. The module carries a private utils closure
+  (native/) for those two utils graphs; entry/world/open_world.xml belongs to
+  the crime step and is never written here;
 - role rows: GM_KCD1_SMLOUVANI_* carry metarole SMLOUVANI, which the shop
   screen uses to find the haggle (and so the sale); the greeting and trade
   roles carry NPC;
@@ -25,11 +28,16 @@ keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
   (Henry's target the KCD1 rig and are not imported).
 
 Before writing it checks that exactly one role with metarole SMLOUVANI binds
-to each keeper. It is idempotent, so a saved -5 (v1) or -6 (v2) package and a
-fresh build end in the same state.
+to each keeper, audits the module's node types and asset aliases through their
+packaged scopes, and copies the native Project Types the graphs use. It is
+idempotent, so a saved -5 (v1) or -6 (v2) package and a fresh build end in the
+same state. The pre-release layout under entry/world/ (step version 1, never
+shipped) is refused, not migrated, because removing it would rewrite the crime
+wrapper.
 """
 from collections import defaultdict
 import copy
+import io
 import json
 from pathlib import Path, PurePosixPath
 import posixpath
@@ -40,16 +48,26 @@ import zipfile
 import kcd1_shop_conversation as conversation
 from upgrade_map import read, xml
 
-VERSION = 1
+VERSION = 2
 TRAVEL = 'Data/gluemappertravel.pak'
 LEVEL = 'Data/Levels/kcd1_travel/level.pak'
 ENGLISH = 'Localization/English.pak'
 ENGLISH_XML = 'Localization/English_xml.pak'
 FACIALS = 'Data/gluemapper_dialogue_facials.pak'
 ENTRY = 'Quests/GlueTravel/entry/kcd1_travel.xml'
-HOST = 'Quests/GlueTravel/entry/world/open_world.xml'
-FOLDER = 'Quests/GlueTravel/entry/world/kcd1_shop/'
+PROJECT = 'Quests/GlueTravel/GlueTravel_kcd1.xml'
+HOST = 'Quests/GlueTravel/smithing_voice/open_world.xml'
+FOLDER = 'Quests/GlueTravel/kcd1_shop/'
 MODULE = 'gm_kcd1_shop'
+AUDIO_SCOPE = 'dialog/open_world/gm_kcd1_shop/'
+CRIME_HOST = 'Quests/GlueTravel/entry/world/open_world.xml'
+OLD_FOLDER = 'Quests/GlueTravel/entry/world/kcd1_shop/'
+OLD_AUDIO_SCOPE = 'dialog/kcd1_travel/open_world/gm_kcd1_shop/'
+NATIVE_PROJECT = 'Quests/Final/Barbora.xml'
+NATIVE_UTILS = 'quests/final/barbora/utils/'
+STUB_ENTRY = 'gm_kcd1_shop_stub/entry.xml'
+STUB_WRAPPER = 'quests/final/barbora/gm_kcd1_shop_stub.xml'
+STUB_MODULE = 'quests/final/barbora/open_world/' + MODULE + '.xml'
 ROLE_TABLE = 'Libs/Tables/rpg/role__gm_kcd1_shop.xml'
 ROLE_FILES = 'libs/storm/roles/'
 SCOPE = ('ska_merchant1', 'ska_merchant2', 'ska_merchant3', 'ska_merchant4', 'ska_woman20', 'ska_collierVarlet',
@@ -198,35 +216,202 @@ def dialog_names():
                                         for n in (conversation.GREETING_NAME[sex], conversation.PORTED_NAME[sex])]
 
 
-def module(native_module, greeting_ports):
+def module(native_module, greeting_ports, utils=True):
+    """The module graph; with utils it declares and instantiates its private native/utils.xml."""
     root = ET.Element('Database', Name='brambora')
     host = ET.SubElement(ET.SubElement(root, 'Skald'), 'Gameplay', Name=MODULE, VoiceNamespace='true')
     definitions, nodes = ET.SubElement(host, 'Definitions'), ET.SubElement(host, 'Nodes')
     for name in dialog_names():
         ET.SubElement(definitions, 'Definition', File=name + '.xml')
+    if utils:
+        ET.SubElement(definitions, 'Definition', File='native/utils.xml')
     for sex in conversation.SEXES:
         nodes.extend(greeting_nodes(sex, greeting_ports[sex]))
         nodes.extend(haggle_nodes(native_module, sex))
     nodes.append(ET.Element(conversation.TRADE_NAME, Name=conversation.TRADE_NAME))
+    if utils:
+        ET.SubElement(nodes, 'utils', Name='utils')
     return xml(root)
 
 
 def register(host_blob):
-    """Host Gameplay with the module declared and instantiated once."""
+    """Project-level open_world wrapper with the module declared and instantiated once."""
     root = ET.fromstring(host_blob)
-    host = root.find('Skald/Gameplay')
-    if host is None or host.get('Name') != 'open_world':
-        raise ValueError('Package open_world host changed: ' + HOST)
-    file = posixpath.relpath(FOLDER + MODULE + '.xml', posixpath.dirname(HOST))
+    skald = root.find('Skald')
+    host = skald[0] if skald is not None and len(skald) == 1 else None
+    if host is None or host.tag != 'Gameplay' or host.get('Name') != 'open_world' or host.get('VoiceNamespace') != 'true':
+        raise ValueError('Project voice namespace wrapper changed: ' + HOST)
     definitions, nodes = host.find('Definitions'), host.find('Nodes')
-    if not definitions.findall(f"Definition[@File='{file}']"):
-        ET.SubElement(definitions, 'Definition', File=file)
+    if definitions is None or nodes is None:
+        raise ValueError('Project voice namespace wrapper has no definitions or nodes')
+    file = posixpath.relpath(FOLDER + MODULE + '.xml', posixpath.dirname(HOST))
+    declared = [d for d in definitions if posixpath.basename(d.get('File') or '') == MODULE + '.xml']
     instances = nodes.findall(MODULE)
-    if len(instances) > 1 or any(i.get('Name') != MODULE or len(i) for i in instances):
+    if len(declared) > 1 or any(d.get('File') != file for d in declared) or len(instances) > 1 \
+            or any(i.get('Name') != MODULE or len(i) for i in instances):
         raise ValueError('Existing KCD1 shop module registration requires review')
+    if not declared:
+        ET.SubElement(definitions, 'Definition', File=file)
     if not instances:
         ET.SubElement(nodes, MODULE, Name=MODULE)
     return xml(root)
+
+
+def check_project(project_blob):
+    """The Project declares and instantiates the project-level open_world wrapper exactly once."""
+    from gambler_dialogue_registration import one
+    project = ET.fromstring(project_blob).find('Skald/Project')
+    if project is None:
+        raise ValueError('Project graph host changed: ' + PROJECT)
+    one(project.findall("Definitions/Definition[@File='smithing_voice/open_world.xml']"), 'project voice namespace definition')
+    one(project.findall("Nodes/open_world[@Name='open_world']"), 'project voice namespace instance')
+
+
+def utils_closure(scripts, module_blob):
+    """{path: graph} of the module's private utils shell, homed in FOLDER + 'native/'.
+
+    world_gameplay_basis.package_dependencies only scans the nodes of copied
+    children, so a native-looking copy of the module (its dialogs stripped) is
+    put beside the native utils under a stub wrapper and entry; only the utils
+    shell and the graphs it reaches are kept.
+    """
+    from world_gameplay_basis import package_dependencies
+    names = {n.lower(): n for n in scripts.namelist()}
+    copy_root = ET.fromstring(module_blob)
+    definitions = copy_root.find('Skald/Gameplay/Definitions')
+    nodes = copy_root.find('Skald/Gameplay/Nodes')
+    for definition in list(definitions):
+        definitions.remove(definition)
+    for node in nodes.findall('utils'):
+        nodes.remove(node)
+    stub_wrapper = ET.Element('Database', Name='brambora')
+    host = ET.SubElement(ET.SubElement(stub_wrapper, 'Skald'), 'Gameplay', Name='open_world', VoiceNamespace='true')
+    ET.SubElement(ET.SubElement(host, 'Definitions'), 'Definition',
+                  File=posixpath.relpath(STUB_MODULE, posixpath.dirname(STUB_WRAPPER)))
+    ET.SubElement(ET.SubElement(host, 'Nodes'), MODULE, Name=MODULE)
+    stub_entry = ET.Element('Database', Name='brambora')
+    host = ET.SubElement(ET.SubElement(stub_entry, 'Skald'), 'Module', Name='entry')
+    ET.SubElement(ET.SubElement(host, 'Definitions'), 'Definition',
+                  File=posixpath.relpath(STUB_WRAPPER, posixpath.dirname(STUB_ENTRY)))
+    ET.SubElement(ET.SubElement(host, 'Nodes'), 'open_world', Name='open_world')
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, 'w') as view:
+        for name in sorted(n for n in names if n.startswith(NATIVE_UTILS)):
+            view.writestr(names[name], read(scripts, names[name]))
+        view.writestr(STUB_MODULE, xml(copy_root))
+    with zipfile.ZipFile(buffer) as view:
+        graphs = package_dependencies({STUB_ENTRY: xml(stub_entry), STUB_WRAPPER: xml(stub_wrapper)},
+                                      STUB_ENTRY, STUB_WRAPPER, view)
+    native = posixpath.dirname(STUB_ENTRY) + '/world/native/'
+    if native + 'utils.xml' not in graphs:
+        raise ValueError('KCD1 shop module needs no utils closure; module wiring changed')
+    kept, pending = {}, ['utils.xml']
+    while pending:
+        name = pending.pop()
+        if name in kept:
+            continue
+        path = native + name
+        if path not in graphs:
+            raise ValueError('Utils closure references a missing graph: ' + name)
+        kept[name] = graphs[path]
+        for definition in ET.fromstring(graphs[path]).iter('Definition'):
+            file = definition.get('File')
+            if '/' in file:
+                raise ValueError('Utils closure reference leaves its folder: ' + file)
+            pending.append(file)
+    return {FOLDER + 'native/' + name: blob for name, blob in sorted(kept.items())}
+
+
+def project_bindings(project_blob, native_project_blob, graphs):
+    """Project with the native player assets and the native Types the graphs use; (blob, added names)."""
+    from gambler_dialogue_registration import one, semantic_xml
+    root = ET.fromstring(project_blob)
+    project = root.find('Skald/Project')
+    native = ET.fromstring(native_project_blob).find('Skald/Project')
+    added = []
+    assets = project.find('Assets')
+    if assets is None:
+        assets = ET.SubElement(project, 'Assets')
+    for alias in ('player', 'player_any'):
+        template = one(native.findall(f"Assets/SoulAsset[@Name='{alias}']"), 'native ' + alias)
+        existing = assets.findall(f"*[@Name='{alias}']")
+        if existing:
+            bound = one(existing, 'inherited ' + alias)
+            if bound.tag != 'SoulAsset' or bound.get('SharedSoulGuids') != template.get('SharedSoulGuids'):
+                raise ValueError('Conflicting native player binding: ' + alias)
+        else:
+            assets.append(copy.deepcopy(template))
+            added.append('asset:' + alias)
+    used = {v for blob in graphs.values() for e in ET.fromstring(blob).iter()
+            for k, v in e.attrib.items() if k in ('Type', 'TypeT')}
+    types = project.find('Types')
+    if types is None:
+        types = ET.SubElement(project, 'Types')
+    for native_type in native.findall('Types/Type'):
+        name = native_type.get('TypeName')
+        if name not in used:
+            continue
+        old = types.findall(f"Type[@TypeName='{name}']")
+        if not old:
+            types.append(copy.deepcopy(native_type))
+            added.append('type:' + name)
+        elif semantic_xml(one(old, 'project type ' + name)) != semantic_xml(native_type):
+            raise ValueError('Conflicting inherited native type: ' + name)
+    return (xml(root) if added else project_blob), added
+
+
+def check_assets(graphs, path, inherited):
+    """Every Asset alias from path down is bound by an enclosing Assets section; returns the graphs walked."""
+    walked = 1
+    host = ET.fromstring(graphs[path]).find('Skald')[0]
+    scope = inherited | {a.get('Name') for a in host.findall('Assets/*')}
+    missing = {a.get('Alias') for a in host.iter('Asset')} - scope
+    if missing:
+        raise ValueError(f'Unbound assets in {path}: {sorted(missing)}')
+    for definition in host.findall('Definitions/Definition'):
+        walked += check_assets(graphs, posixpath.dirname(path) + '/' + definition.get('File'), scope)
+    return walked
+
+
+def hosted(hosts, folder, native_project, native_definitions):
+    """(folder graphs registered in the project-level wrapper, audit report); hosts holds PROJECT and HOST.
+
+    Node types resolve through the folder's own scopes, asset aliases through
+    the module's ancestors, and the crime wrapper is never part of the result.
+    """
+    from world_gameplay_basis import validate_dependency_scopes
+    check_project(hosts[PROJECT])
+    root = FOLDER + MODULE + '.xml'
+    if any(not p.startswith(FOLDER) for p in folder):
+        raise ValueError('KCD1 shop graphs outside ' + FOLDER)
+    validated = validate_dependency_scopes(folder, root, native_definitions)
+    desired = dict(folder)
+    desired[HOST] = register(hosts[HOST])
+    desired[PROJECT], added = project_bindings(hosts[PROJECT], native_project, folder)
+    inherited = {a.get('Name') for a in ET.fromstring(desired[PROJECT]).findall('Skald/Project/Assets/*')}
+    inherited |= {a.get('Name') for a in ET.fromstring(desired[HOST]).find('Skald')[0].findall('Assets/*')}
+    walked = check_assets(desired, root, inherited)
+    if CRIME_HOST in desired:
+        raise ValueError('The crime wrapper must not be written by the KCD1 shop port: ' + CRIME_HOST)
+    return desired, dict(validated_graphs=validated, asset_checked_graphs=walked, project_added=added)
+
+
+def utils_libraries(closure):
+    """Library namespaces the utils shell declares, e.g. ['general', 'greetings_utils']."""
+    shells = [posixpath.basename(p) for p in closure if posixpath.basename(p).startswith('utils_')]
+    return sorted(s[len('utils_'):-len('.xml')] for s in shells)
+
+
+def old_layout(travel_names, crime_blob, english_names):
+    """Pre-release (step version 1) traces: files under entry/world/, a crime-wrapper registration, audio."""
+    found = sorted(n for n in travel_names if n.startswith(OLD_FOLDER))
+    if crime_blob is not None:
+        host = ET.fromstring(crime_blob).find('Skald')[0]
+        if host.findall('Nodes/' + MODULE) or any(posixpath.basename(d.get('File') or '') == MODULE + '.xml'
+                                                    for d in host.findall('Definitions/Definition')):
+            found.append(CRIME_HOST + ' registers ' + MODULE)
+    found += sorted(n for n in english_names if n.lower().startswith(OLD_AUDIO_SCOPE))
+    return found
 
 
 def keeper_voices(travel_names, read_travel, target, people):
@@ -296,22 +481,32 @@ def plan(package, source, target):
         raise ValueError('KCD1 shop port scope is not a shopkeeper: ' + ', '.join(outside))
     with zipfile.ZipFile(package / TRAVEL) as travel:
         names = set(travel.namelist())
-        for required in (ENTRY, HOST):
+        for required in (ENTRY, PROJECT, HOST):
             if required not in names:
-                raise ValueError('Missing package graph: ' + required)
+                raise ValueError('Missing package graph (smithing voice stage): ' + required)
         role_files = {n: read(travel, n) for n in names if n.lower().startswith(ROLE_FILES)}
-        entry_blob, host_blob = read(travel, ENTRY), read(travel, HOST)
+        entry_blob, host_blob, project_blob = read(travel, ENTRY), read(travel, HOST), read(travel, PROJECT)
+        crime_blob = read(travel, CRIME_HOST) if CRIME_HOST in names else None
         generated_dialogs = {n: read(travel, n) for n in names
                              if posixpath.dirname(n) == posixpath.dirname(ENTRY) and n.endswith('_trade.xml')}
         role_tables = {n: read(travel, n) for n in names if n.startswith('Libs/Tables/rpg/role__') and n != ROLE_TABLE}
         quest_files = {n: read(travel, n) for n in names if n.startswith('Quests/') and n.endswith('.xml')}
         voices = keeper_voices(names, lambda n: read(travel, n), target, SCOPE)
+    with zipfile.ZipFile(package / ENGLISH) as english:
+        stale = old_layout(names, crime_blob, english.namelist())
+    if stale:
+        raise ValueError('Pre-release KCD1 shop layout (step version 1) found; it was never shipped and is not '
+                         'migrated, because removing it would rewrite the crime wrapper. Rebuild from a package '
+                         'without it: ' + ', '.join(stale[:5]) + (f' (+{len(stale) - 5} more)' if len(stale) > 5 else ''))
+    check_project(project_blob)
     with zipfile.ZipFile(target / 'Data/Scripts.pak') as scripts, \
             zipfile.ZipFile(target / 'Data/IPL_GameData.pak') as gamedata, zipfile.ZipFile(target / 'Data/Tables.pak') as tables:
         native_module = read(scripts, NATIVE_HAGGLE_MODULE)
+        native_project = read(scripts, NATIVE_PROJECT)
         natives = {sex: read(scripts, conversation.NATIVE_HAGGLE[sex]) for sex in conversation.SEXES}
         custom = {o.get('name'): [a.get('name') for a in o if a.tag == 'addRole']
                   for o in ET.fromstring(read(gamedata, 'Libs/Storm/common/roles_operations.xml')).iter('customOperation')}
+        native_definitions = read(gamedata, 'Libs/concept/definitions.xml')
         metaroles = {r.get('role_name'): r.get('metarole_name')
                      for r in ET.fromstring(read(tables, 'Libs/Tables/rpg/role.xml')).iter('role')}
     for blob in role_tables.values():
@@ -349,12 +544,17 @@ def plan(package, source, target):
     trade, trade_report = conversation.emit_trade(models[('trade', None)])
     dialogs[conversation.TRADE_NAME] = trade
 
-    desired = {FOLDER + name + '.xml': blob for name, blob in dialogs.items()}
-    desired[FOLDER + MODULE + '.xml'] = module(native_module, ports)
-    desired[HOST] = register(host_blob)
+    folder = {FOLDER + name + '.xml': blob for name, blob in dialogs.items()}
+    folder[FOLDER + MODULE + '.xml'] = module(native_module, ports)
+    with zipfile.ZipFile(target / 'Data/Scripts.pak') as scripts:
+        closure = utils_closure(scripts, folder[FOLDER + MODULE + '.xml'])
+    folder.update(closure)
+    desired, audit = hosted({PROJECT: project_blob, HOST: host_blob}, folder, native_project, native_definitions)
     desired[ROLE_TABLE] = rows
     chain = voice_namespace({**quest_files, **desired}, FOLDER + conversation.TRADE_NAME + '.xml')
     scope = 'dialog/' + '/'.join(chain).lower() + '/'
+    if scope != AUDIO_SCOPE:
+        raise ValueError('KCD1 shop dialogs would resolve to another audio scope: ' + scope)
 
     keepers_report, role_changes = [], {}
     for person in SCOPE:
@@ -406,6 +606,8 @@ def plan(package, source, target):
         present_travel = set(travel.namelist())
         current = {p: read(travel, p) for p in desired if p in present_travel}
     travel_changes = {p: b for p, b in desired.items() if current.get(p) != b}
+    if CRIME_HOST in desired or CRIME_HOST in travel_changes:
+        raise ValueError('The crime wrapper must not be written by the KCD1 shop port: ' + CRIME_HOST)
 
     found = recordings(source, lines)
     media = {scope + wave + '.ogg': data for (voice, string, wave), data in found.items()}
@@ -449,7 +651,9 @@ def plan(package, source, target):
         finally:
             importer.close()
     changes = {TRAVEL: travel_changes, ENGLISH: english_changes, ENGLISH_XML: text_changes, FACIALS: facial_changes}
-    report = dict(version=VERSION, scope=list(SCOPE), audio_scope=scope, keepers=keepers_report, dialogs=reports,
+    report = dict(version=VERSION, scope=list(SCOPE), host=HOST, module=FOLDER + MODULE + '.xml', audio_scope=scope,
+                  utils_closure=sorted(closure), utils_libraries=utils_libraries(closure), **audit,
+                  keepers=keepers_report, dialogs=reports,
                   trade=trade_report, removed_dialogs=removed_dialogs, role_table=ROLE_TABLE,
                   recordings_added=sorted(media), text_rows=len(texts), facial_lines=facial_lines,
                   changed={archive: sorted(entries) for archive, entries in changes.items() if entries},

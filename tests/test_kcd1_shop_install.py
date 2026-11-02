@@ -1,14 +1,77 @@
 """The ported KCD1 shop conversation binds to the seven keepers and nothing else changes behaviour."""
 from pathlib import Path
+import os
 import sys
+import tempfile
 import unittest
 import xml.etree.ElementTree as ET
+import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from kcd1_shop_install import (FOLDER, HOST, MODULE, REMOVE_NATIVE, generated, greeting_nodes, haggle_nodes,
-                               haggle_roles, own_rule, port_rule, register, role_rows)
+from kcd1_shop_install import (AUDIO_SCOPE, CRIME_HOST, ENTRY, FOLDER, HOST, MODULE, OLD_FOLDER, PROJECT, REMOVE_NATIVE,
+                               generated, greeting_nodes, haggle_nodes, haggle_roles, hosted, old_layout, own_rule,
+                               port_rule, register, role_rows)
 from region_travel_merchant import dialogue
 from shop_roles import add_haggle_roles
+from world_gameplay_basis import SYSTEMS
+
+GAME = Path(os.environ.get('KCD2_ROOT', 'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance2'))
+SOURCE = Path(os.environ.get('KCD1_ROOT', 'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance'))
+INSTALLED = GAME / 'Mods/kingdomcomegluemapper'
+
+PROJECT_XML = (b'<Database><Skald><Project Name="GlueTravel_kcd1"><Definitions><Definition File="entry/kcd1_travel.xml" />'
+               b'<Definition File="smithing_voice/open_world.xml" /></Definitions><Assets>'
+               b'<SoulAsset Name="player" SharedSoulGuids="g1" /><SoulAsset Name="player_any" SharedSoulGuids="g2" /></Assets>'
+               b'<Types><Type TypeName="wh::rpgmodule::Souls" Kind="array" /></Types>'
+               b'<Nodes><kcd1_travel Name="kcd1_travel" /><open_world Name="open_world" /></Nodes></Project></Skald></Database>')
+WRAPPER_XML = (b'<Database><Skald><Gameplay Name="open_world" VoiceNamespace="true"><Definitions>'
+               b'<Definition File="minihry.xml" /><Definition File="../level_barrier_speech/stavy_hrace_unavahlad.xml" />'
+               b'</Definitions><Nodes><minihry Name="minihry" /><stavy_hrace_unavahlad Name="stavy_hrace_unavahlad" />'
+               b'</Nodes></Gameplay></Skald></Database>')
+ENTRY_XML = (b'<Database><Skald><Level Name="kcd1_travel"><Definitions><Definition File="world/open_world.xml" />'
+             b'</Definitions><Nodes><open_world Name="open_world" /></Nodes></Level></Skald></Database>')
+CRIME_XML = (b'<Database><Skald><Gameplay Name="open_world"><Definitions><Definition File="native/utils.xml" /></Definitions>'
+             b'<Assets /><Nodes>' + b''.join(f'<{s} Name="{s}" />'.encode() for s in (*SYSTEMS, 'utils')) +
+             b'</Nodes></Gameplay></Skald></Database>')
+NATIVE_PROJECT = (b'<Database><Skald><Project Name="Barbora"><Assets><SoulAsset Name="player" SharedSoulGuids="g1" />'
+                  b'<SoulAsset Name="player_any" SharedSoulGuids="g2" /></Assets><Types>'
+                  b'<Type TypeName="wh::rpgmodule::Souls" Kind="array" /><Type TypeName="RPGStatInterval" Kind="enum" />'
+                  b'<Type TypeName="unused" Kind="enum" /></Types></Project></Skald></Database>')
+BUILTINS = b'<Definitions><Nodes><Definition TypeName="MakeArray" /><Definition TypeName="Function" /></Nodes></Definitions>'
+
+
+def graph(tag, name, body=b'', attrs=b''):
+    return b'<Database><Skald><%s Name="%s"%s>%s</%s></Skald></Database>' % (tag, name.encode(), attrs, body, tag)
+
+
+def folder_graphs():
+    """A module shaped like the port's: a dialog, a namespaced utils node with an asset, and its private utils shell."""
+    return {
+        FOLDER + MODULE + '.xml': graph(b'Gameplay', MODULE, b'<Definitions><Definition File="gm_kcd1_obchod.xml" />'
+                                        b'<Definition File="native/utils.xml" /></Definitions><Nodes>'
+                                        b'<timeandplayerstate Name="s" Namespace="utils.greetings_utils">'
+                                        b'<Asset Name="player" Alias="player_any" /></timeandplayerstate>'
+                                        b'<MakeArray Name="a" TypeT="wh::rpgmodule::Souls" /><gm_kcd1_obchod Name="gm_kcd1_obchod" />'
+                                        b'<utils Name="utils" /></Nodes>', b' VoiceNamespace="true"'),
+        FOLDER + 'gm_kcd1_obchod.xml': graph(b'FaderDialog', 'gm_kcd1_obchod'),
+        FOLDER + 'native/utils.xml': graph(b'Module', 'utils', b'<Definitions><Definition File="utils_greetings_utils.xml" />'
+                                           b'</Definitions><Nodes><greetings_utils Name="greetings_utils" /></Nodes>'),
+        FOLDER + 'native/utils_greetings_utils.xml': graph(b'Module', 'greetings_utils', b'<Definitions>'
+                                                           b'<Definition File="abc.xml" /></Definitions><Nodes>'
+                                                           b'<timeandplayerstate Name="timeandplayerstate" /></Nodes>'),
+        FOLDER + 'native/abc.xml': graph(b'Module', 'timeandplayerstate', b'<Nodes><Function Name="f" Type="RPGStatInterval" />'
+                                         b'<Function Name="g"><Asset Name="Receiver" Alias="player" /></Function></Nodes>'),
+    }
+
+
+def travel_fixture():
+    return {PROJECT: PROJECT_XML, HOST: WRAPPER_XML, ENTRY: ENTRY_XML, CRIME_HOST: CRIME_XML}
+
+
+def crime_check(wrapper_blob):
+    """world_crime_graphs.prepare's registration check."""
+    nodes = ET.fromstring(wrapper_blob).find('Skald')[0].find('Nodes')
+    return {n.tag for n in nodes} == set(SYSTEMS) | {'utils'}
 
 CUSTOM = {'addShopRoles_essential_man': ['SMLOUVANI_MUZ', 'VYJEDNAVANI_MUZ'], 'addShopRoles_ending_man': ['OBCHODNIK_SE_LOUCI']}
 METAROLES = {'SMLOUVANI_MUZ': 'SMLOUVANI', 'SMLOUVANI_ZENA': 'SMLOUVANI', 'VYJEDNAVANI_MUZ': 'VYJEDNAVANI',
@@ -73,14 +136,105 @@ class InstallTests(unittest.TestCase):
             greeting_nodes('man', ['hrac_je_rytir'])
 
     def test_module_registration_is_idempotent(self):
-        host = (b'<Database><Skald><Gameplay Name="open_world" VoiceNamespace="true"><Definitions>'
-                b'<Definition File="native/a.xml" /></Definitions><Nodes><a Name="a" /></Nodes></Gameplay></Skald></Database>')
-        once = register(host)
+        once = register(WRAPPER_XML)
         self.assertEqual(register(once), once)
         gameplay = ET.fromstring(once).find('Skald/Gameplay')
-        self.assertIn('kcd1_shop/gm_kcd1_shop.xml', [d.get('File') for d in gameplay.find('Definitions')])
-        self.assertEqual(len(gameplay.find('Nodes').findall(MODULE)), 1)
-        self.assertTrue(FOLDER.startswith(HOST.rsplit('/', 1)[0]))
+        self.assertEqual([d.get('File') for d in gameplay.find('Definitions')][-1], '../kcd1_shop/gm_kcd1_shop.xml')
+        self.assertEqual([n.tag for n in gameplay.find('Nodes')], ['minihry', 'stavy_hrace_unavahlad', MODULE])
+        self.assertEqual(HOST, 'Quests/GlueTravel/smithing_voice/open_world.xml')
+        self.assertFalse(FOLDER.startswith(CRIME_HOST.rsplit('/', 1)[0]))
+
+    def test_registration_refuses_another_wrapper_host_or_a_conflicting_registration(self):
+        for host in (CRIME_XML, WRAPPER_XML.replace(b' VoiceNamespace="true"', b''),
+                     WRAPPER_XML.replace(b'Gameplay', b'Module')):
+            with self.assertRaisesRegex(ValueError, 'wrapper changed'):
+                register(host)
+        for conflict in (b'<Definition File="../entry/world/kcd1_shop/gm_kcd1_shop.xml" />', b''):
+            node = b'<gm_kcd1_shop Name="other" />' if not conflict else b''
+            host = WRAPPER_XML.replace(b'</Definitions>', conflict + b'</Definitions>').replace(b'</Nodes>', node + b'</Nodes>')
+            with self.assertRaisesRegex(ValueError, 'requires review'):
+                register(host)
+
+    def test_port_then_crime_in_build_order_leaves_the_crime_wrapper_alone(self):
+        """Regression for -7: the port ran before crime and registered inside the crime-owned wrapper."""
+        travel = travel_fixture()
+        desired, audit = hosted({PROJECT: travel[PROJECT], HOST: travel[HOST]}, folder_graphs(), NATIVE_PROJECT, BUILTINS)
+        self.assertNotIn(CRIME_HOST, desired)
+        package = Path(self.enterContext(tempfile.TemporaryDirectory())) / 'travel.pak'
+        with zipfile.ZipFile(package, 'w') as archive:
+            for name, blob in {**travel, **desired}.items():
+                archive.writestr(name, blob)
+        with zipfile.ZipFile(package) as archive:
+            after = archive.read(CRIME_HOST)
+            project = ET.fromstring(archive.read(PROJECT))
+            wrapper = ET.fromstring(archive.read(HOST))
+        self.assertEqual(after, CRIME_XML)
+        self.assertTrue(crime_check(after))
+        self.assertEqual(audit, dict(validated_graphs=5, asset_checked_graphs=5, project_added=['type:RPGStatInterval']))
+        self.assertEqual([t.get('TypeName') for t in project.iter('Type')], ['wh::rpgmodule::Souls', 'RPGStatInterval'])
+        self.assertEqual(len(wrapper.findall('Skald/Gameplay/Nodes/' + MODULE)), 1)
+        again, audit = hosted({PROJECT: desired[PROJECT], HOST: desired[HOST]}, folder_graphs(), NATIVE_PROJECT, BUILTINS)
+        self.assertEqual((again, audit['project_added']), (desired, []))
+
+    def test_hosting_audits_types_assets_and_project_bindings(self):
+        folder = folder_graphs()
+        broken = dict(folder)
+        broken[FOLDER + 'native/utils.xml'] = broken[FOLDER + 'native/utils.xml'].replace(b'greetings_utils', b'general')
+        with self.assertRaisesRegex(ValueError, 'Missing literal dependency|Unresolved'):
+            hosted({PROJECT: PROJECT_XML, HOST: WRAPPER_XML}, broken, NATIVE_PROJECT, BUILTINS)
+        unbound = dict(folder)
+        unbound[FOLDER + 'native/abc.xml'] = unbound[FOLDER + 'native/abc.xml'].replace(b'Alias="player"', b'Alias="horse"')
+        with self.assertRaisesRegex(ValueError, "Unbound assets .*horse"):
+            hosted({PROJECT: PROJECT_XML, HOST: WRAPPER_XML}, unbound, NATIVE_PROJECT, BUILTINS)
+        missing = PROJECT_XML.replace(b'<SoulAsset Name="player_any" SharedSoulGuids="g2" />', b'')
+        desired, audit = hosted({PROJECT: missing, HOST: WRAPPER_XML}, folder, NATIVE_PROJECT, BUILTINS)
+        self.assertIn('asset:player_any', audit['project_added'])
+        conflicting = PROJECT_XML.replace(b'SharedSoulGuids="g2"', b'SharedSoulGuids="other"')
+        with self.assertRaisesRegex(ValueError, 'Conflicting native player binding'):
+            hosted({PROJECT: conflicting, HOST: WRAPPER_XML}, folder, NATIVE_PROJECT, BUILTINS)
+        with self.assertRaisesRegex(ValueError, 'Conflicting inherited native type'):
+            hosted({PROJECT: PROJECT_XML.replace(b'Kind="array"', b'Kind="list"'), HOST: WRAPPER_XML}, folder,
+                   NATIVE_PROJECT, BUILTINS)
+        with self.assertRaisesRegex(ValueError, 'Expected one project voice namespace instance'):
+            hosted({PROJECT: PROJECT_XML.replace(b'<open_world Name="open_world" />', b''), HOST: WRAPPER_XML}, folder,
+                   NATIVE_PROJECT, BUILTINS)
+        with self.assertRaisesRegex(ValueError, 'outside'):
+            hosted({PROJECT: PROJECT_XML, HOST: WRAPPER_XML}, {**folder, CRIME_HOST: CRIME_XML}, NATIVE_PROJECT, BUILTINS)
+
+    def test_pre_release_layout_is_detected_everywhere_it_could_be(self):
+        crime = CRIME_XML.replace(b'</Nodes>', b'<gm_kcd1_shop Name="gm_kcd1_shop" /></Nodes>')
+        found = old_layout([OLD_FOLDER + 'gm_kcd1_shop.xml', HOST], crime,
+                           ['dialog/kcd1_travel/open_world/gm_kcd1_shop/rpro_x.ogg', AUDIO_SCOPE + 'rpro_x.ogg'])
+        self.assertEqual(found, [OLD_FOLDER + 'gm_kcd1_shop.xml', CRIME_HOST + ' registers ' + MODULE,
+                                 'dialog/kcd1_travel/open_world/gm_kcd1_shop/rpro_x.ogg'])
+        self.assertEqual(old_layout([HOST], CRIME_XML, [AUDIO_SCOPE + 'rpro_x.ogg']), [])
+
+    @unittest.skipUnless((INSTALLED / 'Data/gluemappertravel.pak').is_file() and (SOURCE / 'Data').is_dir(),
+                         'installed package and both games required')
+    def test_plan_on_the_installed_package_is_rehosted_and_audited(self):
+        from kcd1_shop_install import TRAVEL, plan
+        changes, removed, report = plan(INSTALLED, SOURCE, GAME)
+        self.assertGreater(report['validated_graphs'], 0)
+        self.assertGreater(report['asset_checked_graphs'], 0)
+        self.assertEqual(report['audio_scope'], AUDIO_SCOPE)
+        self.assertNotIn(CRIME_HOST, changes[TRAVEL])
+        self.assertIn(HOST, changes[TRAVEL])
+        self.assertTrue({'general', 'greetings_utils'} <= set(report['utils_libraries']))
+        if report['changed']:
+            self.assertEqual(len(report['recordings_added']), 510)
+
+    @unittest.skipUnless((GAME / 'Data/Scripts.pak').is_file(), 'KCD2 required')
+    def test_crime_prepare_accepts_the_ported_entry_after_the_port(self):
+        import world_crime_graphs
+        from upgrade_map import xml
+        entry = ET.fromstring(ENTRY_XML)
+        level = entry.find('Skald/Level')
+        ET.SubElement(level.find('Definitions'), 'Definition', File='gm_tavern_trade.xml')
+        desired, _ = hosted({PROJECT: PROJECT_XML, HOST: WRAPPER_XML}, folder_graphs(), NATIVE_PROJECT, BUILTINS)
+        self.assertNotIn(CRIME_HOST, desired)
+        with zipfile.ZipFile(GAME / 'Data/Scripts.pak') as scripts:
+            graphs, _ = world_crime_graphs.prepare(xml(entry), CRIME_XML, ENTRY, CRIME_HOST, scripts, 'gm_test_faction')
+        self.assertFalse(any(p.startswith(FOLDER) for p in graphs))
 
     def test_generated_dialog_shape_and_own_rule(self):
         self.assertEqual(generated(dialogue('ska_blanka', role='gm_tavern_dialog_508', name='gm_tavern_trade', diagnostics=False)),
