@@ -22,6 +22,7 @@ from vegetation import verify_target_hlods
 from water_volumes import read_water
 from world_surface_scene import tile_origins
 from vegetation_gi import POLICY,GI_ENABLED,eligible_instance
+from vegetation_tilt import HeightField,bake as bake_tilt
 
 
 def gi_mode(flags):
@@ -42,55 +43,18 @@ def vegetation_group(terrain,index):
             'alignment':alignment,'gi_enabled':bool(flags&256),'flags':flags}
 
 
-class HeightField:
-    def __init__(self,terrain):
-        self.heights=np.full((4097,4097),np.nan,dtype=np.float64)
-        for node in terrain.nodes:
-            if node['depth']!=6 or node['size']<2:continue
-            size=node['size'];v=node['values'];x,y=round(v[2]),round(v[3])
-            packed=np.frombuffer(terrain.data,'<u4',size*size,node['samples']).reshape(size,size)
-            z=v[8]+(packed>>20)*v[9]
-            q=np.linspace(0,size-1,65);lo=np.minimum(q.astype(int),size-2);f=q-lo
-            expanded=(z[lo,:]*(1-f[:,None])+z[lo+1,:]*f[:,None])
-            expanded=expanded[:,lo]*(1-f[None,:])+expanded[:,lo+1]*f[None,:]
-            self.heights[x:x+65,y:y+65]=expanded
-        if not np.isfinite(self.heights).all():raise ValueError('Terrain height coverage incomplete')
-
-    def height(self,x,y):
-        x=np.clip(x,0,4096);y=np.clip(y,0,4096)
-        ix=np.minimum(x.astype(int),4095);iy=np.minimum(y.astype(int),4095)
-        fx=x-ix;fy=y-iy;h=self.heights
-        return (h[ix,iy]*(1-fx)+h[ix+1,iy]*fx)*(1-fy)+(h[ix,iy+1]*(1-fx)+h[ix+1,iy+1]*fx)*fy
-
-    def normal(self,positions):
-        x,y=positions[:,0],positions[:,1];r=.55
-        h1=self.height(x-r,y-r);h2=self.height(x-r,y+r)
-        h3=self.height(x+r,y-r);h4=self.height(x+r,y+r)
-        a=np.stack((np.full(len(x),2*r),np.full(len(x),-2*r),h3-h2),axis=1)
-        b=np.stack((np.full(len(x),2*r),np.full(len(x),2*r),h4-h1),axis=1)
-        normal=np.cross(a,b);return normal/np.linalg.norm(normal,axis=1)[:,None]
-
-
-def transforms(positions,scales,angles,alignment=0.,normals=None):
+def transforms(positions,scales,angles):
     positions=np.asarray(positions,float);scales=np.asarray(scales,float);angles=np.asarray(angles,float)
     if positions.ndim!=2 or positions.shape[1]!=3 or angles.shape!=positions.shape or scales.shape!=(len(positions),):raise ValueError('Invalid vegetation arrays')
     if not np.isfinite(positions).all() or not np.isfinite(scales).all() or np.any(scales<=0) or not np.isfinite(angles).all():raise ValueError('Invalid vegetation transform')
     # Bytes are Z,X,Y in the stream; caller supplies X,Y,Z. 255 is a full turn.
+    # KCD2 terrain alignment is baked into the X/Y bytes (vegetation_tilt).
     x,y,z=(angles*(2*np.pi/255)).T
     sx,cx=np.sin(x),np.cos(x);sy,cy=np.sin(y),np.cos(y);sz,cz=np.sin(z),np.cos(z)
     rotation=np.empty((len(positions),3,3))
     rotation[:,0,:]=np.stack((cy*cz,sx*sy*cz-cx*sz,cx*sy*cz+sx*sz),axis=1)
     rotation[:,1,:]=np.stack((cy*sz,sx*sy*sz+cx*cz,cx*sy*sz-sx*cz),axis=1)
     rotation[:,2,:]=np.stack((-sy,sx*cy,cx*cy),axis=1)
-    if alignment:
-        if normals is None:raise ValueError('Aligned vegetation requires terrain normals')
-        up=np.asarray(normals,dtype=float)*alignment+np.array([0,0,1])*(1-alignment)
-        up/=np.linalg.norm(up,axis=1)[:,None]
-        forward=np.cross(np.array([-1.,0,0]),up);forward/=np.linalg.norm(forward,axis=1)[:,None]
-        right=np.cross(forward,up)
-        basis=np.stack((right,forward,up),axis=2)
-        yaw=np.zeros_like(rotation);yaw[:,0,0]=cz;yaw[:,0,1]=-sz;yaw[:,1,0]=sz;yaw[:,1,1]=cz;yaw[:,2,2]=1
-        rotation=basis@yaw
     result=np.empty((len(positions),3,4));result[:,:,:3]=rotation*scales[:,None,None];result[:,:,3]=positions
     return result
 
@@ -153,7 +117,12 @@ def augment(source,output,include_vegetation=True):
             cursor+=104 if kind==1 else 64
     assets=Assets(plan['pak_root'],plan['overrides'])
     if assets.catalog_digest()!=plan['asset_catalog_digest']:raise ValueError('Asset catalog changed')
-    height=HeightField(terrain) if include_vegetation else None;jobs={tuple(j['origin']):dict(j) for j in plan['tiles']}
+    height=HeightField(terrain) if include_vegetation else None
+    if include_vegetation:
+        # Same idempotent tilt bake as the package stage, so older packages bake identically.
+        from lod_ratio_metadata import imported
+        data,_=bake_tilt(terrain.data,data,imported,height)
+    jobs={tuple(j['origin']):dict(j) for j in plan['tiles']}
     all_transforms=[];all_groups=[];metadata={};count=0;errors={}
     for group,offsets in sorted(selected.items()):
         definition=groups[group]
@@ -163,7 +132,7 @@ def augment(source,output,include_vegetation=True):
         if not meta['triangles']:counts['proxy_only']+=len(offsets);continue
         values=np.array([struct.unpack_from('<4f',data,o+44) for o in offsets])
         angles=np.array([[data[o+62],data[o+63],data[o+61]] for o in offsets])
-        matrices=transforms(values[:,:3],values[:,3],angles,definition['alignment'],height.normal(values[:,:3]) if definition['alignment'] else None)
+        matrices=transforms(values[:,:3],values[:,3],angles)
         corners=np.array(list(itertools.product(*zip(*meta['bounds']))))
         points=corners[None,:,:]@matrices[:,:,:3].transpose(0,2,1)+matrices[:,None,:,3]
         low=points.min(1);high=points.max(1)
