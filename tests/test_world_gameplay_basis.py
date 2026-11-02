@@ -34,8 +34,42 @@ class WorldGameplayBasisTests(unittest.TestCase):
             for path, data in self.native_files.items(): z.writestr(path, data)
 
     def run_apply(self):
-        with zipfile.ZipFile(self.script_path) as scripts, zipfile.ZipFile(self.native_path) as native, patch('world_gameplay_basis.SYSTEMS', ('combat',)):
+        with zipfile.ZipFile(self.script_path) as scripts, zipfile.ZipFile(self.native_path) as native, \
+                patch('world_gameplay_basis.SYSTEMS', ('combat',)), patch('world_gameplay_basis.DROPPED', ()):
             return apply(self.files, self.graphs, 'Quests/GlueTravel/project.xml', 'test_level', native, scripts, guid)
+
+    def test_kcd1_world_split_keeps_interactive_systems_and_drops_small_talk(self):
+        from world_gameplay_basis import WORLD_GROUPS, SYSTEMS, DROPPED, refuse_dropped_groups
+        names = [n for n, _, _ in WORLD_GROUPS]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertTrue(all(reason for _, _, reason in WORLD_GROUPS))
+        self.assertEqual(set(DROPPED), {'reakce_na_stav_hrace', 'reputace', 'spanek_npc', 'pozdravy_a_rozlouceni_mezi_npc',
+                                        'pozdravy_na_zacatku_dialogu', 'rozlouceni_na_konci_dialogu', 'reakce_pratelskych_nepratel'})
+        for kept in ('combat', 'boj_a_zraneni', 'battle_barks', 'punishment_barks', 'shop', 'repair', 'sharpening',
+                     'perky', 'statistical_perks', 'requestplayerholsterweapon', 'generic_action_prompts'):
+            self.assertIn(kept, SYSTEMS)
+        refuse_dropped_groups(b'<Database><Skald><Gameplay Name="open_world"><Nodes><combat Name="combat"/></Nodes></Gameplay></Skald></Database>')
+        with self.assertRaisesRegex(ValueError, 'spanek_npc.*rebuild the package'):
+            refuse_dropped_groups(b'<Database><Skald><Gameplay Name="open_world"><Nodes><combat Name="combat"/><spanek_npc Name="spanek_npc"/></Nodes></Gameplay></Skald></Database>')
+
+    def test_crime_wrapper_accepts_only_the_kept_systems(self):
+        from world_gameplay_basis import SYSTEMS, DROPPED
+        from world_crime_graphs import prepare
+        def wrapper(names):
+            nodes = ''.join(f'<{n} Name="{n}"/>' for n in names)
+            return f'<Database><Skald><Gameplay Name="open_world"><Definitions/><Nodes>{nodes}</Nodes></Gameplay></Skald></Database>'.encode()
+        with zipfile.ZipFile(self.script_path) as scripts:
+            # A controller built before the KCD1-only world still registers small talk.
+            with self.assertRaisesRegex(ValueError, 'explicit migration required'):
+                prepare(b'<Database/>', wrapper((*SYSTEMS, *DROPPED, 'utils')), 'e.xml', 'w.xml', scripts, 'faction')
+            with self.assertRaisesRegex(ValueError, 'explicit migration required'):
+                prepare(b'<Database/>', wrapper((*SYSTEMS[:-1], 'utils')), 'e.xml', 'w.xml', scripts, 'faction')
+
+    def test_retail_baseline_must_still_list_every_dropped_group(self):
+        with zipfile.ZipFile(self.script_path) as scripts, zipfile.ZipFile(self.native_path) as native, \
+                patch('world_gameplay_basis.SYSTEMS', ('combat',)), patch('world_gameplay_basis.DROPPED', ('spanek_npc',)):
+            with self.assertRaisesRegex(ValueError, 'Native baseline system set changed'):
+                apply(self.files, self.graphs, 'Quests/GlueTravel/project.xml', 'test_level', native, scripts, guid)
 
     def test_destination_binding_and_native_dependency_preservation(self):
         files, graphs, report = self.run_apply()
