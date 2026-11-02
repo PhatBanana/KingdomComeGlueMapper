@@ -345,8 +345,11 @@ def apply(files, graphs, graph_path, level, native_level, scripts, identity):
             ET.SubElement(definitions, 'Definition', File=posixpath.relpath(path, posixpath.dirname(wrapper_path)))
             nodes.append(copy.deepcopy(instances[0]))
             selected_paths |= paths
+        decision = next(((kept, reason) for n, kept, reason in WORLD_GROUPS if n == name), None)
         inventory.append(dict(name=name, registered=selected, input_ports=ports,
-                              inherited_assets=sorted(missing), graph_count=len(paths), runtime_verified=False))
+                              inherited_assets=sorted(missing), graph_count=len(paths), runtime_verified=False,
+                              **({} if decision is None else dict(kcd1_world='kept' if decision[0] else 'dropped',
+                                                                   reason=decision[1]))))
     if ({r['name'] for r in inventory if r['registered']} != set(SYSTEMS)
             or not set(DROPPED) <= {r['name'] for r in inventory}):
         raise ValueError('Native baseline system set changed')

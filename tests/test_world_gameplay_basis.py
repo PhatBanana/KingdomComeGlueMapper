@@ -48,6 +48,11 @@ class WorldGameplayBasisTests(unittest.TestCase):
         for kept in ('combat', 'boj_a_zraneni', 'battle_barks', 'punishment_barks', 'shop', 'repair', 'sharpening',
                      'perky', 'statistical_perks', 'requestplayerholsterweapon', 'generic_action_prompts'):
             self.assertIn(kept, SYSTEMS)
+        # The receipt keeps each module's decision so filler can be re-enabled later.
+        _, _, report = self.run_apply()
+        combat = next(r for r in report['systems'] if r['name'] == 'combat')
+        self.assertEqual((combat['kcd1_world'], combat['registered']), ('kept', True))
+        self.assertTrue(combat['reason'])
         refuse_dropped_groups(b'<Database><Skald><Gameplay Name="open_world"><Nodes><combat Name="combat"/></Nodes></Gameplay></Skald></Database>')
         with self.assertRaisesRegex(ValueError, 'spanek_npc.*rebuild the package'):
             refuse_dropped_groups(b'<Database><Skald><Gameplay Name="open_world"><Nodes><combat Name="combat"/><spanek_npc Name="spanek_npc"/></Nodes></Gameplay></Skald></Database>')
