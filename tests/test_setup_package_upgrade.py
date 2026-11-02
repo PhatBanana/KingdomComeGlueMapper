@@ -231,6 +231,9 @@ class UpgradeTests(unittest.TestCase):
             from forge_loft import VERSION as LOFT_VERSION
             loft_report = {'version': LOFT_VERSION, 'runtime_verified': False}
             loft_upgrade = self.enterContext(patch('forge_loft.upgrade', return_value=({}, loft_report)))
+            from hearth_fire_placement import VERSION as HEARTH_VERSION
+            hearth_report = {'version': HEARTH_VERSION, 'moved': [], 'runtime_verified': False}
+            hearth_upgrade = self.enterContext(patch('hearth_fire_placement.upgrade', return_value=({}, hearth_report)))
             lights_report = {'version': 1, 'runtime_verified': False}
             lights_upgrade = self.enterContext(patch('procedural_lights.upgrade', return_value=({}, lights_report)))
             inventory_upgrade = self.enterContext(patch('setup_starting_inventory.upgrade', return_value=({}, {'new_game_only': True})))
@@ -285,6 +288,8 @@ class UpgradeTests(unittest.TestCase):
                     invitation_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     loft_upgrade.assert_called_once_with(p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['forge_loft'], loft_report)
+                    self.assertEqual([Path(a) for a in hearth_upgrade.call_args_list[0].args], [p, p])
+                    self.assertEqual(result['hearth_fire_placement'], hearth_report)
                     lights_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['procedural_lights'], lights_report)
                     encounters.assert_called_once()
