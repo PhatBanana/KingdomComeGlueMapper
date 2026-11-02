@@ -11,6 +11,22 @@ from .source import Source
 def main():
     parser = argparse.ArgumentParser(description='Emulate converted quest/NPC logic without launching KCD2.')
     sub = parser.add_subparsers(dest='command', required=True)
+    controllers = sub.add_parser('controllers', help='Audit registered source controller quest-state operations')
+    controllers.add_argument('--kcd1', type=Path, required=True)
+    controllers.add_argument('--quest', nargs='+', required=True)
+    controllers.add_argument('--output', type=Path, required=True)
+    controllers.add_argument('--kcd2', type=Path, help='Also audit whole behavior conversion and structural simulator coverage')
+    controllers.add_argument('--follow-dependencies', action='store_true',
+        help='Recursively import statically named quest dependencies')
+    campaign_parser = sub.add_parser('campaign', help='Audit every source quest with per-quest checkpoints')
+    campaign_parser.add_argument('--kcd1', type=Path, required=True)
+    campaign_parser.add_argument('--first', nargs='+', default=[], help='Source quest names to audit first; all remaining records follow')
+    campaign_parser.add_argument('--output', type=Path, required=True)
+    campaign_parser.add_argument('--inventory-bindings', type=Path,
+        help='JSON with explicit item_map, registered target item IDs and player_asset')
+    campaign_parser.add_argument('--kcd2', type=Path, help='Read actual target item registrations')
+    campaign_parser.add_argument('--mod', type=Path, help='Include item definitions from this installed mod')
+    campaign_parser.add_argument('--player-asset', help='Player alias for target inventory tracking')
     run = sub.add_parser('run', help='Run JSON scenarios and write JSON/HTML/JUnit reports')
     run.add_argument('scenarios', type=Path, nargs='+')
     run.add_argument('--output', type=Path, required=True)
@@ -25,6 +41,38 @@ def main():
     demo = sub.add_parser('demo', help='Generate runnable fixtures using the production converters')
     demo.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
+    if args.command == 'controllers':
+        from .controllers import audit as controller_audit
+        result = controller_audit(args.kcd1, args.quest, args.output,
+            lambda done,total,name: print(f'{done}/{total} {name}', flush=True),
+            follow_dependencies=args.follow_dependencies, target_game=args.kcd2)
+        operations = result.get('controller_operations', {})
+        print(json.dumps(dict(converted=len(operations.get('converted', [])),
+            unresolved=len(operations.get('unresolved', [])),
+            missing_quest_dependencies=result.get('missing_quest_dependencies', []),
+            behavior_coverage=result.get('behavior_coverage'),
+            native_runtime_verified=False), indent=2))
+        # Conversion and structural coverage cannot establish a completed quest run.
+        return 1
+    if args.command == 'campaign':
+        from .campaign import campaign
+        if args.inventory_bindings and any((args.kcd2, args.mod, args.player_asset)):
+            parser.error('--inventory-bindings cannot be combined with --kcd2, --mod or --player-asset')
+        if args.mod and not args.kcd2:
+            parser.error('--mod requires --kcd2')
+        if bool(args.kcd2) != bool(args.player_asset):
+            parser.error('--kcd2 and --player-asset must be provided together')
+        bindings = None
+        if args.kcd2:
+            from .item_bindings import installed
+            bindings = installed(args.kcd2, args.mod, args.player_asset)
+        elif args.inventory_bindings:
+            bindings = json.loads(args.inventory_bindings.read_text(encoding='utf-8'))
+        result = campaign(args.kcd1, args.output, args.first,
+                          lambda done, total, name, status: print(f'{done}/{total} {name}: {status}', flush=True),
+                          inventory=bindings)
+        print(json.dumps(dict(statuses=result['statuses'], probes=result['probes']), indent=2))
+        return int(any(q['status'] != 'LOCAL_STATE_PROBES_EXECUTED' for q in result['quests']))
     if args.command == 'audit':
         if args.source_graphs and not args.kcd1: parser.error('--source-graphs requires --kcd1')
         from .audit import run as run_audit
