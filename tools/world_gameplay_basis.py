@@ -12,16 +12,46 @@ from campaign_entity_links import append_links
 from upgrade_map import read, xml
 
 NATIVE = 'quests/final/barbora/open_world.xml'
-# These have no campaign input ports or inherited regional asset dependencies.
+# Native open-world modules with no campaign input ports or inherited regional
+# asset dependencies, and whether the imported KCD1 world instantiates them.
 # Expansion is deliberate: a dependency audit is not proof of runtime parity.
-SYSTEMS = (
-    'combat', 'boj_a_zraneni', 'reakce_na_stav_hrace', 'reputace',
-    'spanek_npc', 'pozdravy_a_rozlouceni_mezi_npc',
-    'pozdravy_na_zacatku_dialogu', 'rozlouceni_na_konci_dialogu',
-    'reakce_pratelskych_nepratel', 'statistical_perks', 'perky',
-    'requestplayerholsterweapon', 'generic_action_prompts',
-    'battle_barks', 'punishment_barks', 'shop', 'repair', 'sharpening',
+# KCD1 NPCs speak KCD1 lines only, so KCD2 small talk, which would borrow KCD2
+# voices, stays out until it is chosen as filler; interactive systems stay.
+WORLD_GROUPS = (
+    ('combat', True, 'fight barks: kept as filler until KCD1 combat barks are ported'),
+    ('boj_a_zraneni', True, 'fight and wound barks: kept as filler'),
+    ('battle_barks', True, 'battle barks: kept as filler'),
+    ('punishment_barks', True, 'crime system: fines and arrests'),
+    ('shop', True, 'trade system'),
+    ('repair', True, 'repair service'),
+    ('sharpening', True, 'sharpening service'),
+    ('statistical_perks', True, 'perk system'),
+    ('perky', True, 'perk system'),
+    ('requestplayerholsterweapon', True, 'holster prompt'),
+    ('generic_action_prompts', True, 'action prompts'),
+    ('reakce_na_stav_hrace', False, "small talk: reactions to Henry's state"),
+    ('reputace', False, 'small talk: reputation remarks'),
+    ('spanek_npc', False, 'small talk: sleep mutters'),
+    ('pozdravy_a_rozlouceni_mezi_npc', False, 'small talk: NPC-to-NPC greetings and goodbyes'),
+    ('pozdravy_na_zacatku_dialogu', False, 'small talk: greetings at dialogue start'),
+    ('rozlouceni_na_konci_dialogu', False, 'small talk: goodbyes at dialogue end'),
+    ('reakce_pratelskych_nepratel', False, 'small talk: friendly-enemy reactions'),
 )
+SYSTEMS = tuple(name for name, kept, _ in WORLD_GROUPS if kept)
+DROPPED = tuple(name for name, kept, _ in WORLD_GROUPS if not kept)
+
+
+def refuse_dropped_groups(wrapper_blob):
+    """A package built before the KCD1-only world cannot be migrated in place.
+
+    Its crime and speech receipts hash the old controller; removing modules
+    there would leave relocated speech and receipts out of step. Rebuild.
+    """
+    nodes = ET.fromstring(wrapper_blob).find('Skald')[0].find('Nodes')
+    present = sorted({n.tag for n in nodes} & set(DROPPED)) if nodes is not None else []
+    if present:
+        raise ValueError('Package registers KCD2 small talk dropped from the KCD1 world ('
+                         + ', '.join(present) + '); rebuild the package')
 
 
 def validate_dependency_scopes(graphs, wrapper_path, native_definitions):
@@ -317,7 +347,8 @@ def apply(files, graphs, graph_path, level, native_level, scripts, identity):
             selected_paths |= paths
         inventory.append(dict(name=name, registered=selected, input_ports=ports,
                               inherited_assets=sorted(missing), graph_count=len(paths), runtime_verified=False))
-    if {r['name'] for r in inventory if r['registered']} != set(SYSTEMS):
+    if ({r['name'] for r in inventory if r['registered']} != set(SYSTEMS)
+            or not set(DROPPED) <= {r['name'] for r in inventory}):
         raise ValueError('Native baseline system set changed')
     # Copy only inherited type declarations actually used by selected graphs.
     used_types = {v for p in selected_paths for e in native.get(p).iter()

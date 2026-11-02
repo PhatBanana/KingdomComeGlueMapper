@@ -86,6 +86,13 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     source, target = (None if p is None else Path(p) for p in (source, target))
     receipt = verify_package(package)
     eligible(receipt)
+    # Refuse before any stage writes: the KCD1-only world is not migrated in place.
+    if (package/'Data/gluemappertravel.pak').is_file():
+        from world_gameplay_basis import refuse_dropped_groups
+        with zipfile.ZipFile(package/'Data/gluemappertravel.pak') as z:
+            for name in z.namelist():
+                if name.lower() in ('quests/gluetravel/entry/world/open_world.xml', 'quests/gluetravel/world/open_world.xml'):
+                    refuse_dropped_groups(read(z, name))
     if receipt.get('travel_bridge', {}).get('destination') != 'kcd1_travel':
         raise ValueError('Expected the established playable travel world')
     # Resolve stale derived metadata before spending time on unrelated builders.
