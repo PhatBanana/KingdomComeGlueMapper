@@ -56,12 +56,16 @@ class QuestConditions:
         self.sequences = dict(sequences or {})
         self.area_assets = dict(area_assets or {})
         self.context_entities = dict(context_entities or {})
+        # Set by an emitter that writes positive source timeouts as the native
+        # sequence Cooldown attribute; otherwise they cannot be dropped here.
+        self.carried_cooldowns = False
 
     def sequence_condition(self, sid, expression=None, stack=()):
         """Preserve eligibility and source cooldown, including referenced sequences.
 
         KCD1 cooldown -1 disables a sequence after use; zero has no cooldown.
-        Positive cooldowns require an elapsed-time adapter and cannot be dropped.
+        Positive cooldowns require an elapsed-time adapter and cannot be dropped,
+        unless the emitter carries them (`carried_cooldowns`).
         Native SequenceUsed accepts the emitted sequence name in this dialogue.
         """
         if sid in stack or len(stack) >= 64:
@@ -71,7 +75,7 @@ class QuestConditions:
         record = self.sequences[sid]
         source, entry = record['source'], record['entry']
         cooldown = source.get('timeout', '0')
-        if cooldown not in ('0', '-1'):
+        if cooldown not in ('0', '-1') and not (self.carried_cooldowns and cooldown.isdigit()):
             raise ValueError('Unconverted dialogue sequence cooldown: ' + sid + ':' + cooldown)
         if entry.get('npc_entry_condition'):
             raise ValueError('Unconverted NPC dialogue condition')
@@ -116,6 +120,7 @@ class QuestConditions:
                 nested = QuestConditions([], self.functions, self.registered_items,
                                          self.participant_assets, self.sequences, self.area_assets, self.context_entities)
                 nested.quests = self.quests
+                nested.carried_cooldowns = self.carried_cooldowns
                 record = self.sequences.get(sid)
                 if record and (record['source'].get('type', '0') != '0'
                                or record['source'].get('group', '0') != '0'
