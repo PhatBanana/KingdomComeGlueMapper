@@ -74,9 +74,23 @@ def crime_check(wrapper_blob):
     return {n.tag for n in nodes} == set(SYSTEMS) | {'utils'}
 
 CUSTOM = {'addShopRoles_essential_man': ['SMLOUVANI_MUZ', 'VYJEDNAVANI_MUZ'], 'addShopRoles_ending_man': ['OBCHODNIK_SE_LOUCI']}
+GENERIC_CUSTOM = {
+    'addShopRoles_essential_man': ['SMLOUVANI_MUZ', 'VYJEDNAVANI_MUZ', 'OBCHODNIK_Z_CHATU', 'OBCHODNIK_Z_DIALOGU_MUZ'],
+    'addShopRoles_essential_woman': ['SMLOUVANI_ZENA', 'VYJEDNAVANI_ZENA', 'OBCHODNICE_Z_CHATU', 'OBCHODNICE_Z_DIALOGU_ZENA'],
+    'addShopRoles_greeting_man': ['OBCHODNIK_ZDRAVI'], 'addShopRoles_greeting_woman': ['OBCHODNICE_ZDRAVI'],
+    'addShopRoles_ending_man': ['OBCHODNIK_SE_LOUCI'], 'addShopRoles_ending_woman': ['OBCHODNICE_SE_LOUCI']}
+GENERIC_SHOP_XML = b'<storm><rules>' + b''.join(
+    f'<rule name="shop_{kind}{sex}"><selectors><isWoman /></selectors><operations>'
+    f'<addShopRoles_essential_{sex} />{"<addShopRoles_greeting_%s /><addShopRoles_ending_%s />" % (sex, sex) if not kind else ""}'
+    f'</operations></rule>'.encode()
+    for sex in ('man', 'woman') for kind in ('', 'isLightTrader_', 'isVeryLightTrader_', 'isUltraLightTrader_')) + b'</rules></storm>'
+ZORA_RULE = (b'<storm><rules><rule name="gm_neuhof_zora_roles"><selectors><hasName name="neu_zdena" /></selectors><operations>'
+             b'<addRole name="GM_NEUHOF_HORSE_TRADER" /><addRole name="SMLOUVANI_ZENA" /><addRole name="VYJEDNAVANI_ZENA" />'
+             b'<addShopRoles_ending_woman /></operations></rule></rules></storm>')
 METAROLES = {'SMLOUVANI_MUZ': 'SMLOUVANI', 'SMLOUVANI_ZENA': 'SMLOUVANI', 'VYJEDNAVANI_MUZ': 'VYJEDNAVANI',
              'GM_KCD1_SMLOUVANI_MUZ': 'SMLOUVANI', 'GM_KCD1_SMLOUVANI_ZENA': 'SMLOUVANI',
-             'ROZLOUCENI_S_HRACEM_COMMON_MUZ': 'ROZLOUCENI', 'GM_KCD1_ROZLOUCENI_MUZ': 'ROZLOUCENI'}
+             'ROZLOUCENI_S_HRACEM_COMMON_MUZ': 'ROZLOUCENI', 'GM_KCD1_ROZLOUCENI_MUZ': 'ROZLOUCENI',
+             'VYJEDNAVANI_ZENA': 'VYJEDNAVANI', 'GM_KCD1_ROZLOUCENI_ZENA': 'ROZLOUCENI'}
 RULE = (b'<storm><rules><rule name="gm_person_1_roles"><selectors><hasName name="ska_merchant1" /></selectors><operations>'
         b'<addRole name="gm_person_1_role" /><addRole name="SMLOUVANI_MUZ" /><addRole name="VYJEDNAVANI_MUZ" />'
         b'<addRole name="OBCHODNIK_Z_DIALOGU_MUZ" /><addShopRoles_ending_man /><addShopRoles_greeting_man /></operations></rule></rules></storm>')
@@ -105,6 +119,42 @@ class InstallTests(unittest.TestCase):
         # KCD2's common farewell is removed, so the KCD1 one is the keeper's only ROZLOUCENI role.
         self.assertEqual(haggle_roles(rule, METAROLES, CUSTOM, 'ROZLOUCENI'), ['GM_KCD1_ROZLOUCENI_MUZ'])
         self.assertEqual(port_rule(rule, 'man'), ([], []))
+
+    def test_generic_trader_roles_are_removed_and_the_keeper_keeps_one_haggle_and_one_trade(self):
+        from kcd1_shop_install import TRADE_STYLE, generic_shop_roles, keeper_roles
+        generic = generic_shop_roles(GENERIC_SHOP_XML, GENERIC_CUSTOM, METAROLES)
+        self.assertEqual(generic['woman'], ['OBCHODNICE_SE_LOUCI', 'OBCHODNICE_ZDRAVI', 'OBCHODNICE_Z_CHATU',
+                                            'OBCHODNICE_Z_DIALOGU_ZENA', 'SMLOUVANI_ZENA'])
+        rule = ET.fromstring(ZORA_RULE).find('rules/rule')
+        # Before the port the generic rule hands her a second haggle and KCD2's spoken and chat trade.
+        before = keeper_roles(rule, GENERIC_CUSTOM, generic['woman'])
+        self.assertEqual([r for r in before if TRADE_STYLE.fullmatch(r)], ['OBCHODNICE_Z_CHATU', 'OBCHODNICE_Z_DIALOGU_ZENA'])
+        added, removed = port_rule(rule, 'woman', generic['woman'])
+        self.assertEqual(removed, ['SMLOUVANI_ZENA', 'addShopRoles_ending_woman'])
+        roles = keeper_roles(rule, GENERIC_CUSTOM, generic['woman'])
+        self.assertEqual([r for r in roles if r == 'GM_KCD1_OBCHODNIK' or TRADE_STYLE.fullmatch(r)], ['GM_KCD1_OBCHODNIK'])
+        self.assertEqual([r for r in roles if METAROLES.get(r) == 'SMLOUVANI'], ['GM_KCD1_SMLOUVANI_ZENA'])
+        # Negotiation and the maintainer's own role stay; nothing generic but VYJEDNAVANI survives.
+        self.assertIn('VYJEDNAVANI_ZENA', roles)
+        self.assertIn('GM_NEUHOF_HORSE_TRADER', roles)
+        self.assertFalse(set(generic['woman']) & set(roles))
+        # Removing a role the keeper never had is a no-op, so the result is the same without the generic rule.
+        self.assertEqual(keeper_roles(rule, GENERIC_CUSTOM, []), [r for r in roles if r not in generic['woman']])
+        self.assertEqual(port_rule(rule, 'woman', generic['woman']), ([], []))
+        with self.assertRaisesRegex(ValueError, 'generic shop rules changed'):
+            generic_shop_roles(GENERIC_SHOP_XML.replace(b'shop_isUltraLightTrader_man', b'renamed'), GENERIC_CUSTOM, METAROLES)
+
+    @unittest.skipUnless((GAME / 'Data/Tables.pak').is_file(), 'KCD2 required')
+    def test_a_keeper_on_a_retail_character_takes_its_voice_from_kcd2s_character_table(self):
+        from kcd1_shop_install import keeper_voices
+        souls = (b'<database><souls><soul soul_name="neu_zdena" skald_character_name="char_GENERIC_WOMAN_MERCHANT_CZECH_03" />'
+                 b'</souls></database>')
+        files = {'Libs/Tables/rpg/soul__x.xml': souls}
+        voices, groups = keeper_voices(files, files.get, GAME, ['neu_zdena'])
+        self.assertEqual(voices, {'neu_zdena': 'aric'})
+        self.assertIn('Merchants', groups['neu_zdena'])
+        with self.assertRaisesRegex(ValueError, 'Cannot resolve the voice'):
+            keeper_voices(files, files.get, GAME, ['nobody'])
 
     def test_haggle_guard_sees_native_roles_hidden_in_custom_operations(self):
         root = ET.fromstring(RULE.replace(b'<addRole name="SMLOUVANI_MUZ" />', b'<addShopRoles_essential_man />'))
@@ -244,6 +294,11 @@ class InstallTests(unittest.TestCase):
         # Every ported line has its KCD1 facial track, whether this run adds them or the package already has them.
         self.assertEqual(report['facial_lines'], 620)
         self.assertEqual(report['facial_missing'], [])
+        # neu_zdena speaks the aric lines ska_woman20 already brings; every keeper drops the generic trader roles.
+        keepers = {k['person']: k for k in report['keepers']}
+        self.assertEqual((keepers['neu_zdena']['voice'], keepers['neu_zdena']['merchant_voice']), ('aric', True))
+        self.assertTrue(all('OBCHODNIK_Z_DIALOGU_MUZ' in k['generic_removed'] or 'OBCHODNICE_Z_DIALOGU_ZENA' in k['generic_removed']
+                            for k in keepers.values()))
         if report['changed']:
             self.assertTrue({FOLDER + 'gm_kcd1_rozlouceni_muz.xml', FOLDER + 'gm_kcd1_rozlouceni_zena.xml'} <= set(changes[TRAVEL]))
             if HOST in changes[TRAVEL]:

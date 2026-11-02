@@ -1,4 +1,7 @@
-"""Install the ported KCD1 shop conversation for the seven converted traders.
+"""Install the ported KCD1 shop conversation for the seven converted Skalitz traders and neu_zdena.
+
+neu_zdena sits on one of KCD2's own characters (her KCD1 voice aric is that character's voice), so
+her voice comes from retail's character table; her own rule is the horse-trader one, kept as it is.
 
 kcd1_shop_conversation turns KCD1's greeting, farewell, trade choice and haggle
 closures into KCD2 dialogs. This step puts them in the package, for the converted
@@ -22,7 +25,9 @@ KCD1 keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
 - each keeper's own Storm rule gains the four roles and loses the native
   haggle role, the native spoken-trade role (v1), the native shop greeting (v2)
   and the native post-purchase farewell. It also removes KCD2's common greeting
-  and farewell, which the KCD1 ones replace. KCD1 had no trade farewell, and
+  and farewell, which the KCD1 ones replace, and every role retail's generic trader
+  rules (roles/world/shop.xml) would add except negotiation: their haggle, spoken
+  and chat trade, shop greeting, post-purchase endings and customer gossip. KCD1 had no trade farewell, and
   KCD1 NPCs keep only their KCD1 lines. Negotiation (VYJEDNAVANI) stays native:
   it is not a shop step;
 - the keepers' generated trade dialogs leave the archive and the entry Level;
@@ -32,8 +37,9 @@ KCD1 keepers in SCOPE only (native KCD2 shopkeepers keep the native dialogs):
   the same FacialImporter (and rig adapter) main uses for Henry's tavern lines.
   Source headers are keyed by lowercase stem; KCD1 recording names are not.
 
-Before writing it checks that exactly one role with metarole SMLOUVANI and one
-with ROZLOUCENI bind to each keeper, audits the module's node types and asset aliases through their
+Before writing it checks, as if the generic trader rules selected every keeper,
+that exactly one role with metarole SMLOUVANI, one with ROZLOUCENI and one
+Trade role (the port's own) bind to each keeper, audits the module's node types and asset aliases through their
 packaged scopes, and copies the native Project Types the graphs use. It is
 idempotent, so a saved -5 (v1) or -6 (v2) package and a fresh build end in the
 same state. The pre-release layout under entry/world/ (step version 1, never
@@ -76,11 +82,23 @@ STUB_MODULE = 'quests/final/barbora/open_world/' + MODULE + '.xml'
 ROLE_TABLE = 'Libs/Tables/rpg/role__gm_kcd1_shop.xml'
 ROLE_FILES = 'libs/storm/roles/'
 SCOPE = ('ska_merchant1', 'ska_merchant2', 'ska_merchant3', 'ska_merchant4', 'ska_woman20', 'ska_collierVarlet',
-         'ska_blanka')
+         'ska_blanka', 'neu_zdena')
 DROP_ROLES = frozenset(('SMLOUVANI_MUZ', 'SMLOUVANI_ZENA', 'OBCHODNIK_Z_DIALOGU_MUZ', 'OBCHODNICE_Z_DIALOGU_ZENA'))
 DROP_OPERATIONS = frozenset(('addShopRoles_greeting_man', 'addShopRoles_greeting_woman',
                              'addShopRoles_ending_man', 'addShopRoles_ending_woman'))
 REMOVE_NATIVE = ('POZDRAV_MUZ', 'POZDRAV_ZENA', 'ROZLOUCENI_S_HRACEM_COMMON_MUZ', 'ROZLOUCENI_S_HRACEM_COMMON_ZENA')
+# Retail's generic trader rules (IPL_GameData Libs/Storm/roles/world/shop.xml) give any open-world
+# full or lighter trader with a merchant voice KCD2's haggle, spoken and chat trade, shop greeting,
+# post-purchase endings and customer gossip. A ported keeper removes every role they add except
+# negotiation (VYJEDNAVANI), whether or not the rule selects it: removing an absent role is a no-op
+# (retail crime_bandit removes four roles no rule adds).
+GENERIC_SHOP = 'Libs/Storm/roles/world/shop.xml'
+GENERIC_SHOP_RULES = {sex: tuple(f'shop_{kind}{sex}' for kind in ('', 'isLightTrader_', 'isVeryLightTrader_',
+                                                                  'isUltraLightTrader_'))
+                      for sex in ('man', 'woman')}
+KEPT_METAROLES = frozenset(('VYJEDNAVANI',))
+# The KCD2 roles whose dialogs offer Trade in the talk screen, besides the port's own.
+TRADE_STYLE = re.compile(r'OBCHODNI(?:K|CE)_Z_(?:DIALOGU_(?:MUZ|ZENA)|CHATU)')
 NATIVE_HAGGLE_MODULE = 'Quests/Final/Barbora/open_world/shop/bribe_haggle_negotiation_vyjednavani_smlouvani_podplaceni.xml'
 GREETING_STATE = {'hrac_je_spinavy', 'hrac_je_zakrvaceny', 'hrac_ma_alespon_vysoke_charisma', 'je_odpoledne', 'je_rano',
                   'je_vecer', 'nastvanost__klid', 'nastvanost__neklid', 'reputace_dobra', 'reputace_nizka',
@@ -133,8 +151,45 @@ def own_rule(role_files, person):
     return None
 
 
-def port_rule(rule, sex):
-    """Edit one keeper's operations in place; returns (added, removed) names."""
+def generic_shop_roles(shop_blob, custom, metaroles):
+    """{sex: roles retail's generic trader rules add, negotiation excepted}, custom operations expanded."""
+    rules = {r.get('name'): r for r in ET.fromstring(shop_blob).iter('rule')}
+    result = {}
+    for sex, names in GENERIC_SHOP_RULES.items():
+        missing = [n for n in names if n not in rules]
+        if missing:
+            raise ValueError('Retail generic shop rules changed: ' + ', '.join(missing))
+        roles = []
+        for name in names:
+            for operation in rules[name].find('operations'):
+                if operation.tag == 'addRole':
+                    roles.append(operation.get('name'))
+                elif operation.tag in custom:
+                    roles += custom[operation.tag]
+                else:
+                    raise ValueError(f'Unknown operation {operation.tag} in retail shop rule {name}')
+        result[sex] = sorted({r for r in roles if metaroles.get(r) not in KEPT_METAROLES})
+    return result
+
+
+def keeper_roles(rule, custom, generic):
+    """A keeper's roles from its own rule on top of every generic shop role, own removals applied."""
+    added, removed = list(generic), set()
+    for operation in rule.find('operations'):
+        if operation.tag == 'addRole':
+            added.append(operation.get('name'))
+        elif operation.tag == 'removeRole':
+            removed.add(operation.get('name'))
+        else:
+            added += custom.get(operation.tag, [])
+    return [r for r in dict.fromkeys(added) if r not in removed]
+
+
+def port_rule(rule, sex, generic=()):
+    """Edit one keeper's operations in place; returns (added, removed) names.
+
+    generic: the roles retail's generic trader rules give this sex (generic_shop_roles), removed too.
+    """
     operations = rule.find('operations')
     removed = []
     for operation in list(operations):
@@ -143,6 +198,7 @@ def port_rule(rule, sex):
             removed.append(operation.get('name') or operation.tag)
     present = {(o.tag, o.get('name')) for o in operations}
     wanted = [('addRole', role) for role in roles_for(sex)] + [('removeRole', role) for role in REMOVE_NATIVE]
+    wanted += [('removeRole', role) for role in generic if role not in REMOVE_NATIVE]
     added = [(tag, role) for tag, role in wanted if (tag, role) not in present]
     for tag, role in added:
         ET.SubElement(operations, tag, name=role)
@@ -439,28 +495,40 @@ def old_layout(travel_names, crime_blob, english_names):
 
 
 def keeper_voices(travel_names, read_travel, target, people):
-    """{person: voice abbreviation} from the package soul, character and voice tables."""
+    """({person: voice abbreviation}, {person: voice groups}) from the package soul, character and voice tables.
+
+    A keeper on one of KCD2's own characters (neu_zdena on char_GENERIC_WOMAN_MERCHANT_CZECH_03) takes
+    the character from retail's skald_character tables; the package's own rows win.
+    """
+    voices, groups, characters = {}, {}, defaultdict(set)
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as tables:
-        voices = {v.get('voice_id'): v.get('abbreviation')
-                  for v in ET.fromstring(read(tables, 'Libs/Tables/skald/voice.xml')).iter('voice')}
-    souls, characters = {}, defaultdict(set)
+        for v in ET.fromstring(read(tables, 'Libs/Tables/skald/voice.xml')).iter('voice'):
+            voices[v.get('voice_id')], groups[v.get('voice_id')] = v.get('abbreviation'), v.get('voice_groups') or ''
+        for name in tables.namelist():
+            if name.startswith('Libs/Tables/skald/skald_character') and name.endswith('.xml'):
+                for row in ET.fromstring(read(tables, name)).iter('skald_character'):
+                    characters[row.get('skald_character_name')].add(row.get('voice_id'))
+    souls, packaged = {}, defaultdict(set)
     for name in travel_names:
         if name.startswith('Libs/Tables/rpg/soul__'):
             for soul in ET.fromstring(read_travel(name)).iter('soul'):
                 souls[soul.get('soul_name')] = soul.get('skald_character_name')
         elif name.startswith('Libs/Tables/skald/skald_character__'):
             for row in ET.fromstring(read_travel(name)).iter('skald_character'):
-                characters[row.get('skald_character_name')].add(row.get('voice_id'))
+                packaged[row.get('skald_character_name')].add(row.get('voice_id'))
         elif name.startswith('Libs/Tables/skald/voice__'):
             for voice in ET.fromstring(read_travel(name)).iter('voice'):
-                voices[voice.get('voice_id')] = voice.get('abbreviation')
-    result = {}
+                voices[voice.get('voice_id')], groups[voice.get('voice_id')] = \
+                    voice.get('abbreviation'), voice.get('voice_groups') or ''
+    characters.update(packaged)
+    result, result_groups = {}, {}
     for person in people:
         ids = characters.get(souls.get(person), set())
         if len(ids) != 1 or next(iter(ids)) not in voices:
             raise ValueError(f'Cannot resolve the voice of {person}: {sorted(ids)}')
         result[person] = voices[next(iter(ids))]
-    return result
+        result_groups[person] = groups[next(iter(ids))].split(';')
+    return result, result_groups
 
 
 def recordings(source, lines):
@@ -530,7 +598,7 @@ def plan(package, source, target):
                              if posixpath.dirname(n) == posixpath.dirname(ENTRY) and n.endswith('_trade.xml')}
         role_tables = {n: read(travel, n) for n in names if n.startswith('Libs/Tables/rpg/role__') and n != ROLE_TABLE}
         quest_files = {n: read(travel, n) for n in names if n.startswith('Quests/') and n.endswith('.xml')}
-        voices = keeper_voices(names, lambda n: read(travel, n), target, SCOPE)
+        voices, voice_groups = keeper_voices(names, lambda n: read(travel, n), target, SCOPE)
     with zipfile.ZipFile(package / ENGLISH) as english:
         stale = old_layout(names, crime_blob, english.namelist())
     if stale:
@@ -545,6 +613,7 @@ def plan(package, source, target):
         natives = {sex: read(scripts, conversation.NATIVE_HAGGLE[sex]) for sex in conversation.SEXES}
         custom = {o.get('name'): [a.get('name') for a in o if a.tag == 'addRole']
                   for o in ET.fromstring(read(gamedata, 'Libs/Storm/common/roles_operations.xml')).iter('customOperation')}
+        generic_shop = read(gamedata, GENERIC_SHOP)
         native_definitions = read(gamedata, 'Libs/concept/definitions.xml')
         metaroles = {r.get('role_name'): r.get('metarole_name')
                      for r in ET.fromstring(read(tables, 'Libs/Tables/rpg/role.xml')).iter('role')}
@@ -552,6 +621,7 @@ def plan(package, source, target):
         metaroles.update({r.get('role_name'): r.get('metarole_name') for r in ET.fromstring(blob).iter('role')})
     rows = role_rows()
     metaroles.update({r.get('role_name'): r.get('metarole_name') for r in ET.fromstring(rows).iter('role')})
+    generic = generic_shop_roles(generic_shop, custom, metaroles)
 
     models = conversation.load_models(source)
     aliases = {'man': None, 'woman': conversation.topic_aliases(models[('haggle', 'woman')], models[('haggle', 'man')])}
@@ -606,10 +676,16 @@ def plan(package, source, target):
             raise ValueError('KCD1 shop keeper without its own roles rule: ' + person)
         file_name, root, rule = own
         before = xml(root)
-        added, removed = port_rule(rule, people[person])
+        sex = people[person]
+        added, removed = port_rule(rule, sex, generic[sex])
+        # Checked as if the generic trader rules select the keeper: they may, and it cannot be told offline.
+        roles = keeper_roles(rule, custom, generic[sex])
+        trade = [r for r in roles if r == conversation.TRADE_ROLE or TRADE_STYLE.fullmatch(r)]
+        if trade != [conversation.TRADE_ROLE]:
+            raise ValueError(f'{person} would offer {len(trade)} Trade options: {trade}')
         for metarole, ported in (('SMLOUVANI', conversation.PORTED_ROLE), ('ROZLOUCENI', conversation.FAREWELL_ROLE)):
-            bound = haggle_roles(rule, metaroles, custom, metarole)
-            if bound != [ported[people[person]]]:
+            bound = [r for r in roles if metaroles.get(r) == metarole]
+            if bound != [ported[sex]]:
                 raise ValueError(f'{person} binds {len(bound)} {metarole} dialogs: {bound}')
             for name, blob in role_files.items():
                 if name == file_name:
@@ -621,8 +697,10 @@ def plan(package, source, target):
         after = xml(root)
         if after != before:
             role_files[file_name] = role_changes[file_name] = after
-        keepers_report.append(dict(person=person, sex=people[person], voice=voices[person], roles_file=file_name,
-                                   added=added, removed=removed))
+        keepers_report.append(dict(
+            person=person, sex=sex, voice=voices[person], roles_file=file_name, added=added, removed=removed,
+            # retail hasMerchantVoiceOrNoCharacter reads the voice's groups; the other selectors are runtime state
+            merchant_voice='Merchants' in voice_groups[person], generic_removed=list(generic[sex])))
     desired.update(role_changes)
 
     entry = ET.fromstring(entry_blob)

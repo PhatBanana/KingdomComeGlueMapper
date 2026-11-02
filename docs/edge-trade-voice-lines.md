@@ -196,8 +196,18 @@ KCD1's.
 ### Change
 
 `tools/kcd1_shop_conversation.py` converts; `tools/kcd1_shop_install.py` installs.
-The install covers the seven converted keepers only. Native KCD2 shopkeepers
-in the package keep the native dialogs.
+The install covers the seven converted Skalitz keepers and neu_zdena (Neuhof,
+KCD1 voice aric). Native KCD2 shopkeepers in the package keep the native
+dialogs; rato_innkeeper1 (KCD1 rpro, now rlaz) and rat_pesek (KCD1 ccla, now
+dosg, no "Let's talk trade." in KCD1) wait on a decision about their voices.
+
+neu_zdena sits on KCD2's own `char_GENERIC_WOMAN_MERCHANT_CZECH_03`, whose
+voice is aric, so the step reads a keeper's voice from retail's character
+table when the package has no row. She speaks the aric lines ska_woman20
+already brings (64 greeting, 20 farewell, 31 haggle, all with KCD1 facial
+tracks); no recording is added for her. Her own rule is the maintainer's
+`gm_neuhof_zora_roles` (GM_NEUHOF_HORSE_TRADER, kept), and her horse-sales
+dialog stays.
 
 - **Haggle.** KCD2's `open_world/shop/bribe_haggle_.../smlouvani_v_obchode_*`
   descends from KCD1 23469: its Decisions keep the KCD1 topic ids, it reads the
@@ -268,8 +278,23 @@ in the package keep the native dialogs.
     `ROZLOUCENI_S_HRACEM_COMMON_*`; the package Storm includes retail
     greetingsAndEndings.xml, which comes earlier in source order); the KCD1
     greeting and farewell replace them;
+  - removes every role retail's generic trader rules add (`roles/world/shop.xml`:
+    `shop_man`/`shop_woman` and the isLight/isVeryLight/isUltraLight variants,
+    selectors `isValidOpenworldNpc`, `hasMerchantVoiceOrNoCharacter`, sex,
+    trader kind), expanded from roles_operations.xml at plan time: their haggle,
+    spoken and chat trade (`*_Z_DIALOGU_*`, `*_Z_CHATU`), shop greeting,
+    post-purchase endings and customer gossip, 9 roles per sex. Whether those
+    rules select a keeper depends on runtime state, so the step removes them for
+    all eight; removing an absent role is a no-op (retail `crime_bandit` removes
+    four roles no rule adds; the men's rules here already removed `POZDRAV_ZENA`
+    on unified-3). The plan reports per keeper whether its voice is in KCD2's
+    `Merchants` group: ska_woman20 and neu_zdena (aric) are, merchant2 (bcas,
+    Guards;Czechs) and the gm_source voices are not;
   - keeps `VYJEDNAVANI_*`, which is not a shop step.
-- **Hosting.** The seven dialogs sit in a `gm_kcd1_shop` Gameplay module under
+  - The step checks, as if the generic rules selected the keeper, that exactly
+    one SMLOUVANI role, one ROZLOUCENI role and one Trade role (the port's
+    `GM_KCD1_OBCHODNIK`) remain.
+- **Hosting.** The seven port dialogs sit in a `gm_kcd1_shop` Gameplay module under
   `Quests/GlueTravel/kcd1_shop/`, registered in the project-level `open_world`
   voice namespace (`smithing_voice/open_world.xml`) beside the prayer and
   barrier registrations.
@@ -355,9 +380,11 @@ speaker's own stem, and treats those rows as essential.
 
 ### Retail acceptance
 
-1. First talk of the day with each of the seven keepers: a KCD1 greeting in the
+1. First talk of the day with each of the eight keepers: a KCD1 greeting in the
    keeper's KCD1 voice, then "Let's talk trade." opens the shop, on and away
-   from the stall. Exactly one Trade option.
+   from the stall. Exactly one Trade option and one haggle at every keeper;
+   check ska_merchant2 and ska_woman20 first, then neu_zdena (who also keeps
+   her horse-sales option).
 2. Haggle: KCD1 reactions in the keeper's voice and Henry's KCD1 lines. Buying
    and selling must complete (money and items move), since the sale runs in
    the haggle dialog's scripts.
