@@ -33,15 +33,16 @@ from audio_mapping import EnglishRecordings
 from shop_roles import keepers
 from upgrade_map import read, xml
 
-VERSION = 1
+VERSION = 2
 TRAVEL = 'Data/gluemappertravel.pak'
 LEVEL = 'Data/Levels/kcd1_travel/level.pak'
 NATIVE_VOICES = 'Libs/Tables/skald/voice.xml'
 NATIVE_CHARACTERS = 'Libs/Tables/skald/skald_character.xml'
-# Souls whose imported voice receives the fallback now; the rest are reported.
-# ska_merchant4 joined when the native shop greeting was tried for her (since replaced by kcd1_shop_install)
-# (the collier, on rpro's fallback, was heard speaking on 31 Oct 2026).
-SCOPE = ('ska_merchant1', 'ska_merchant4')
+# Souls whose imported voice receives the fallback now; the rest are reported. Empty since Sean's ruling
+# of 2 Nov 2026 ("Stay quiet"): an imported KCD1 voice never borrows a KCD2 voice, so its speakers stay
+# silent where KCD1 recorded nothing. A fallback an earlier version wrote on an imported voice outside
+# SCOPE (rpro -> 144, akem -> 68) is removed.
+SCOPE = ()
 COMPLETE_LEVEL = '2'
 REQUIRED_GROUPS = frozenset(('Czechs', 'Merchants'))
 FOLDERS = {'shop': 'shop', 'greetings': 'pozdravy_na_zacatku_dialogu', 'farewells': 'rozlouceni_na_konci_dialogu'}
@@ -174,7 +175,11 @@ def plan(package, target):
         sex = next(iter(found)) if len(found) == 1 else None
         choice = (options.get(sex) or [None])[0] if sex else None
         existing = row.get('fallback_voice_id')
-        if voice_id not in selected:
+        if voice_id not in selected and existing is not None:
+            del row.attrib['fallback_voice_id']
+            touched.add(path)
+            state = 'removed'
+        elif voice_id not in selected:
             state = 'candidate' if choice else ('sex_unresolved' if sex is None else 'no_candidate')
         elif choice is None:
             raise ValueError('No native fallback voice for imported voice ' + str(row.get('abbreviation')))

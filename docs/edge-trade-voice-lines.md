@@ -55,7 +55,25 @@ named by 10 voices, 432 shop / 35 greeting / 15 farewell recordings) ahead of
 `gand` (83, 9 voices, 375 / 33 / 15), and women `aric` (68, Mia Allis, 317 /
 71 / 18). The rule and the top candidates are written into the receipt.
 
-Only the voices of the souls in `SCOPE` are changed (first `ska_merchant1`;
+**Superseded on 2 Nov 2026.** Sean ruled that imported KCD1 voices never
+borrow a KCD2 voice: "Stay quiet". `SCOPE` is now empty, and the step removes
+any fallback an earlier version wrote on an imported voice (rpro → 144,
+akem → 68), reporting it as `removed`; a second run changes nothing. The
+rule and the candidates stay in the report, so the choice can be revisited.
+The speakers of imported voices (ska_merchant1, ska_merchant3, the collier's
+varlet, ska_merchant4, rato_innkeeper1; ska_blanka's bvac never had one) are
+silent wherever KCD1 recorded nothing: KCD2 world speech (fight barks, crime
+shouts, reactions; 671 lines per rpro speaker, 270 for akem on unified-6) and
+KCD2's dice minigame roles (KOSTKY_*, KOSTKAR_*, KIBIC_*, CUMIL_*). No KCD1
+line relied on the fallback: the shop port, the farewell and the converted
+cries are all recorded in the speaker's own voice. Native voices (bcas, aric,
+ccla) keep their retail `fallback_voice_id`; removing that would override a
+retail voice row for every speaker of that voice and is not done. What the
+engine does when a line has neither a recording nor a fallback (silent with
+or without a subtitle, or skipped) is not known offline; it is on the
+acceptance list.
+
+Before that ruling, only the voices of the souls in `SCOPE` were changed (first `ska_merchant1`;
 `ska_merchant4` was added with section 3):
 `rpro` gets `fallback_voice_id="144"` and keeps `fallback_voice_level="0"`,
 which is how retail writes a level-0 actor. Because the voice is shared, the
@@ -211,15 +229,14 @@ KCD2's own Chris Clarke (86, the same id as in KCD1), so nothing is imported.
 
 What else they speak changes voice with them. Measured on unified-6 against
 the roles they keep after the port (diag `innkeeper-pesek/survey-storm-after-u6.json`):
-- rato_innkeeper1: 518 KCD2 lines had an rlaz recording and have no rpro one.
-  327 of them play through rpro's fallback 144 (James Beaumont), set by
-  `source_voice_fallbacks` for ska_merchant1; 191 are silent. Most are combat,
-  crime-assistance (SVEPOMOC_CIVILISTA, 138) and surrender barks.
+- rato_innkeeper1: 518 KCD2 lines had an rlaz recording and have no rpro one;
+  all are silent now that rpro has no fallback ("Stay quiet"). Most are
+  combat, crime-assistance (SVEPOMOC_CIVILISTA, 138) and surrender barks.
 - rat_pesek: 206 lines had a dosg recording and have no ccla one. 72 play
   through ccla's own retail fallback 83 (Gabriel Andrews); 134 are silent.
   12 of them are KCD2 negotiation (VYJEDNAVANI) lines.
-No fallback is added; whether imported or KCD1-voiced keepers should borrow a
-KCD2 voice is open with Sean. No converted KCD1 dialogue reaches either soul,
+ccla is a retail voice, so its retail fallback (83) stays, as for every other
+ccla speaker in the world. No converted KCD1 dialogue reaches either soul,
 so the switch breaks none.
 
 **Trade path (deviations).** Both keep the maintainer's silent talk-screen
@@ -436,6 +453,9 @@ speaker's own stem, and treats those rows as essential.
    keeper's voice ("Take care.", "Farewell.", "Bye."...), Henry says nothing.
 4. No KCD2 greeting, shop greeting, common farewell or post-purchase farewell
    on these keepers.
+5. Start a fight near ska_merchant1 (or any rpro/akem keeper): no sound is
+   expected for his KCD2 fight barks and crime shouts. Note whether a
+   subtitle appears, the line is skipped, or kcd.log says anything.
    A native KCD2 shopkeeper (neu_zdena, rat_pesek, rato_innkeeper1) is unchanged.
 
 ## Wiring

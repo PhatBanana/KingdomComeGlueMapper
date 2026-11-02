@@ -145,12 +145,23 @@ class SourceVoiceFallbackTests(unittest.TestCase):
         self.assertEqual(counts['nogr'], {'shop': 3, 'greetings': 1, 'farewells': 0})
         self.assertNotIn('relocated', ' '.join(counts))
 
-    def test_default_scope_covers_merchant1_and_merchant4(self):
+    def test_imported_voices_stay_quiet_and_earlier_fallbacks_are_removed(self):
+        # Sean, 2 Nov 2026: "Stay quiet". The default scope is empty, so no imported voice borrows a KCD2 one,
+        # and the rpro and akem fallbacks an earlier version wrote come off; a second run changes nothing.
+        self.assertEqual(source_voice_fallbacks.SCOPE, ())
+        self.travel[IMPORTED] = (IMPORTED_VOICES
+                                 .replace(b'voice_technical_name="gm_source_rpro"', b'voice_technical_name="gm_source_rpro" fallback_voice_id="144"')
+                                 .replace(b'voice_technical_name="gm_source_akem"', b'voice_technical_name="gm_source_akem" fallback_voice_id="68"'))
         self.write()
         files, report = upgrade(self.package, self.game)
-        self.assertEqual({v['voice']: v['status'] for v in report['voices']}, {'bvac': 'sex_unresolved', 'rpro': 'applied', 'akem': 'applied'})
-        rows, _ = self.imported()
-        self.assertEqual((rows['rpro']['fallback_voice_id'], rows['akem']['fallback_voice_id']), ('83', '68'))
+        self.assertEqual(report['changed'], [IMPORTED])
+        self.assertEqual({v['voice']: v['status'] for v in report['voices']}, {'bvac': 'sex_unresolved', 'rpro': 'removed', 'akem': 'removed'})
+        rows, keep = self.imported()
+        self.assertFalse(any('fallback_voice_id' in row for row in rows.values()))
+        self.assertEqual(keep, b'<keep/>')
+        files, report = upgrade(self.package, self.game)
+        self.assertEqual((files, report['changed']), ({}, []))
+        self.assertEqual({v['voice']: v['status'] for v in report['voices']}, {'bvac': 'sex_unresolved', 'rpro': 'candidate', 'akem': 'candidate'})
 
     @patch.object(source_voice_fallbacks, 'SCOPE', ('ska_merchant1',))
     def test_scoped_imported_voice_gets_the_retail_pattern_fallback(self):
