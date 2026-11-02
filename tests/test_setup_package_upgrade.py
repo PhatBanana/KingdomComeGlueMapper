@@ -254,6 +254,11 @@ class UpgradeTests(unittest.TestCase):
                 speech_order.append('crime')
                 return {}, {'version':1,'status':'bound_native_services','runtime_verified':False}
             crime = self.enterContext(patch('setup_crime_services.upgrade', side_effect=add_crime))
+            tilt_after_crime = []  # the tilt stage follows the last HLOD writer (the stocks removal above) on both paths
+            def bake_tilt(*args, **kwargs):
+                tilt_after_crime.append(crime.call_count)
+                return {}, {'version': 1, 'policy': 'kcd2-baked-terrain-tilt-v1', 'applicable': False, 'runtime_verified': False}
+            self.enterContext(patch('vegetation_tilt.upgrade_package', side_effect=bake_tilt))
             from world_speech_audio import upgrade as real_speech
             def relocate_speech(*args, **kwargs):
                 speech_order.append('speech')
@@ -274,6 +279,7 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual(speech_order,['crime','speech'])
                     self.assertEqual(result['crime_services']['status'],'bound_native_services')
                     self.assertEqual(result['world_actor_contracts']['player_context'],'player_henry')
+                    self.assertEqual(tilt_after_crime, [1])
                     intro_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     inventory_upgrade.assert_called_once_with(p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     invitation_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
@@ -293,6 +299,7 @@ class UpgradeTests(unittest.TestCase):
                         self.assertEqual(speech_order,['crime','speech','crime','speech'])
                         self.assertIn('world_speech_audio',resumed)
                         self.assertEqual(resumed['world_actor_contracts']['player_context'],'player_henry')
+                        self.assertEqual(tilt_after_crime, [1, 2])
                     self.assertEqual(len(result['female_clothing']['corrected_components']), 1)
                     with zipfile.ZipFile(p/'Data/pickup-clothing.pak') as z:
                         self.assertEqual(ET.fromstring(z.read(female_member)).find('.//SkinElement').get('KeepBodyLayer'), 'true')
