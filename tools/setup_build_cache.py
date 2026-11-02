@@ -46,7 +46,7 @@ def converter_identity():
     import importlib.metadata
     import sys
     ignored = ('GLUEMAPPER_BUILD_CACHE', 'GLUEMAPPER_REBUILD_CACHE', 'GLUEMAPPER_IMPORTED_CACHE',
-               'GLUEMAPPER_FULL_VERIFY', 'GLUEMAPPER_PROFILE')
+               'GLUEMAPPER_FULL_VERIFY', 'GLUEMAPPER_PROFILE', 'GLUEMAPPER_ARCHIVE_DIRECTORY_CACHE')
     settings = {k: v for k, v in os.environ.items() if k.startswith('GLUEMAPPER_')
                 and k not in ignored and not k.endswith('_WORKERS')}
     libraries = sorted((d.metadata['Name'] or '', d.version) for d in importlib.metadata.distributions())
