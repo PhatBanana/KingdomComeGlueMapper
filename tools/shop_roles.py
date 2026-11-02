@@ -18,6 +18,9 @@ from upgrade_map import xml
 
 HAGGLE = {'man': ('SMLOUVANI_MUZ', 'VYJEDNAVANI_MUZ'), 'woman': ('SMLOUVANI_ZENA', 'VYJEDNAVANI_ZENA')}
 ENDING = {'man': 'addShopRoles_ending_man', 'woman': 'addShopRoles_ending_woman'}
+# Keepers on the ported KCD1 haggle (kcd1_shop_install) bind that dialog through its own
+# SMLOUVANI role; adding the native one would bind a second haggle dialog.
+PORTED_HAGGLE = frozenset(('GM_KCD1_SMLOUVANI_MUZ', 'GM_KCD1_SMLOUVANI_ZENA'))
 ROLE_FILES = 'libs/storm/roles/'
 
 
@@ -48,7 +51,7 @@ def add_haggle_roles(role_files, people):
     left alone whatever order the files sort in. Returns the changed files and
     a report; running it again changes nothing.
     """
-    changed, added, done = {}, [], set()
+    changed, added, ported, done = {}, [], [], set()
     for name in sorted(role_files):
         if not name.lower().startswith(ROLE_FILES) or not name.lower().endswith('.xml'):
             continue
@@ -64,6 +67,9 @@ def add_haggle_roles(role_files, people):
                 continue
             person = selected[0]; sex = people[person]; done.add(person)
             present = {(o.tag, o.get('name')) for o in operations}
+            if any(tag == 'addRole' and role in PORTED_HAGGLE for tag, role in present):
+                ported.append(person)
+                continue
             wanted = [('addRole', role) for role in HAGGLE[sex]] + [(ENDING[sex], None)]
             new = [(tag, role) for tag, role in wanted if (tag, role) not in present]
             for tag, role in new:
@@ -72,5 +78,5 @@ def add_haggle_roles(role_files, people):
                 touched = True; added.append(person)
         if touched:
             changed[name] = xml(root)
-    return changed, dict(version=1, keepers=len(people), added=sorted(added),
+    return changed, dict(version=1, keepers=len(people), added=sorted(added), ported_kcd1=sorted(ported),
                          without_roles_rule=sorted(set(people) - done), runtime_verified=False)
