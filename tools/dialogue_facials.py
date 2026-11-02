@@ -168,6 +168,27 @@ def select_database(blob, mapping, aliases=None):
     return result
 
 
+GESTURES = 'animations/humans/facials/facials.dba'
+GESTURES_MEMBER = 'Animations/humans/facials/facials.dba'
+
+
+def baseline_preserved(records, baseline):
+    """True when `records` start with the native baseline.
+
+    The one accepted difference is the controller count (bytes 312-316) of a
+    native header whose clip lives in the shared mood/gesture database, which
+    a rig-aliased mod override of that database legitimately raises.
+    """
+    if len(records) < len(baseline): return False
+    gestures = zlib.crc32(GESTURES.encode('ascii'))
+    for have, native in zip(records, baseline):
+        if have == native: continue
+        if (have[:3] != native[:3] or struct.unpack_from('<I', native[3], 264)[0] != gestures
+                or have[3][:312] != native[3][:312] or have[3][316:] != native[3][316:]):
+            return False
+    return True
+
+
 class FacialImporter:
     def __init__(self, source, target, existing=None):
         from facial_rig_adapter import load_speech_adapter
@@ -196,7 +217,7 @@ class FacialImporter:
         if len(baselines)!=1: raise ValueError('Expected one native English facial index')
         baseline=baselines[0]
         self.records = chunks(existing) if existing else baseline
-        if self.records[:len(baseline)] != baseline:
+        if not baseline_preserved(self.records, baseline):
             raise ValueError('Existing facial index does not preserve native baseline')
         self.native_count=len(baseline)
         self.indexed={header_path(r):r for r in self.records}
@@ -293,13 +314,151 @@ class NativeFacialImporter(FacialImporter):
                 original = header_path(record)
                 self.source_headers[Path(original).stem].append((original, record))
             self.records = chunks(existing) if existing is not None else list(baseline)
-            if self.records[:len(baseline)] != baseline:
+            if not baseline_preserved(self.records, baseline):
                 raise ValueError('Existing facial index does not preserve native baseline')
             self.native_count = len(baseline)
             self.indexed = {header_path(r): r for r in self.records}
             if len(self.indexed) != len(self.records): raise ValueError('Duplicate facial index paths')
+            self.native_tracks = {header_path(r): r for r in baseline}
             self.next_id = max(r[2] for r in self.records) + 1
             self.outputs = {}; self.receipts = []
         except Exception:
             self.close()
             raise
+
+    RELOCATED = 'animations/humans/facials/dialog/glueworld/'
+
+    def relocation(self, mapping, salt=''):
+        """Group relocated native recordings by the native DBA holding their tracks.
+
+        `mapping` is {relocated audio path: original audio path}. A track is
+        found by its full original facial path, never by its file stem, because
+        one stem may recur under several native directories. Returns
+        ({output DBA path: dict(source, archive, tracks={original caf: new caf})},
+        [relocated recordings without a native track]). The output DBA path
+        hashes the source DBA and the exact rename set, so a later pass can
+        recognise an unchanged copy without rebuilding it. `salt` names a
+        controller transform (rig aliases); a changed transform renames every
+        copy, so an earlier pass's output is rebuilt rather than reused.
+        """
+        groups, missing = defaultdict(dict), []
+        for audio, original in sorted(mapping.items()):
+            if not audio.lower().startswith('dialog/') or not audio.lower().endswith('.ogg') or '..' in audio.split('/'):
+                raise ValueError('Invalid relocated recording path: ' + audio)
+            if not original.lower().endswith('.ogg') or '..' in original.split('/'):
+                raise ValueError('Invalid native recording path: ' + original)
+            source = 'animations/humans/facials/' + original[:-4].lower() + '.caf'
+            record = self.native_tracks.get(source)
+            if record is None:
+                missing.append(audio)
+                continue
+            crc = struct.unpack_from('<I', record[3], 264)[0]
+            if crc not in self.dbas: raise ValueError('Missing native lip-sync database: ' + source)
+            dest = 'animations/humans/facials/' + audio[:-4].lower() + '.caf'
+            if groups[crc].get(source, dest) != dest:
+                raise ValueError('Native recording relocated to two paths: ' + original)
+            groups[crc][source] = dest
+        result = {}
+        for crc, tracks in groups.items():
+            pak, name = self.dbas[crc]
+            parts = [name.lower(), *(s + '\t' + d for s, d in sorted(tracks.items()))]
+            if salt: parts.append('aliases\t' + salt)
+            identity = hashlib.sha256('\n'.join(parts).encode('ascii')).hexdigest()[:24]
+            result[self.RELOCATED + identity + '.dba'] = dict(source=name, archive=Path(pak.filename).name, tracks=tracks)
+        return result, missing
+
+    def index_relocation(self, groups, previous=(), counts=None):
+        """Add or refresh the header of every relocated track; drop stale ones.
+
+        `previous` names output DBAs of earlier passes, so their headers can be
+        replaced or removed; a header at a relocated path that belongs to any
+        other import is a conflict. Record identities are retained, so an
+        unchanged relocation leaves the index byte-identical. `counts` gives the
+        controller count of each relocated clip as written (aliases add
+        controllers); without it, a header already pointing at the same copy
+        keeps its count and a new one takes the native count. Returns the
+        number of records added, replaced or removed.
+        """
+        owned = {zlib.crc32(p.encode('ascii')) for p in (*previous, *groups)}
+        wanted = {}
+        for dest_dba, group in groups.items():
+            for source, dest in group['tracks'].items():
+                if dest in wanted: raise ValueError('Two native tracks relocated to one path: ' + dest)
+                record = renamed_header(self.native_tracks[source], dest, dest_dba)
+                count = (counts or {}).get(dest)
+                old = self.indexed.get(dest)
+                if count is None and old is not None and old[3][264:268] == record[3][264:268]:
+                    count = struct.unpack_from('<I', old[3], 312)[0]
+                if count is not None:
+                    data = bytearray(record[3]); struct.pack_into('<I', data, 312, count)
+                    record = (*record[:3], bytes(data))
+                wanted[dest] = record
+        positions = {header_path(r): i for i, r in enumerate(self.records) if i >= self.native_count}
+        changes = 0
+        for dest, record in wanted.items():
+            old = self.indexed.get(dest)
+            if old is None:
+                record = (record[0], record[1], self.next_id, record[3]); self.next_id += 1
+                self.records.append(record); self.indexed[dest] = record; changes += 1
+            elif old[3] != record[3]:
+                if struct.unpack_from('<I', old[3], 264)[0] not in owned:
+                    raise ValueError('Conflicting facial track at relocated path: ' + dest)
+                record = (record[0], record[1], old[2], record[3])
+                self.records[positions[dest]] = record; self.indexed[dest] = record; changes += 1
+        stale = {header_path(r) for r in self.records[self.native_count:]
+                 if struct.unpack_from('<I', r[3], 264)[0] in owned and header_path(r) not in wanted}
+        if stale:
+            self.records = [r for i, r in enumerate(self.records) if i < self.native_count or header_path(r) not in stale]
+            for path in stale: del self.indexed[path]
+            changes += len(stale)
+        return changes
+
+    def alias_gestures(self, aliases):
+        """Rig-aliased copy of the shared mood/gesture database, or None.
+
+        Mood idles (fa_idle_*) and ADLG_FA_* gestures live in one native DBA
+        that a mod can override at the same path. With aliases, every clip
+        also drives the aliased joints and its native header's controller
+        count follows; without, the native counts are restored and None is
+        returned so the caller drops its override. Returns (payload, changes).
+        """
+        crc = zlib.crc32(GESTURES.encode('ascii'))
+        if crc not in self.dbas: return None, 0
+        payload, counts = None, {}
+        if aliases:
+            pak, name = self.dbas[crc]
+            blob = read(pak, name)
+            _, entries, _ = database(blob)
+            payload = select_database(blob, {e['name']: e['name'] for e in entries}, aliases)
+            counts = {e['name']: e['count'] for e in database(payload)[1]}
+        changes = 0
+        for i in range(self.native_count):
+            record = self.records[i]
+            if struct.unpack_from('<I', record[3], 264)[0] != crc: continue
+            path = header_path(record)
+            native = self.native_tracks[path]
+            count = counts.get(path, struct.unpack_from('<I', native[3], 312)[0])
+            data = bytearray(record[3]); struct.pack_into('<I', data, 312, count)
+            if bytes(data) != record[3]:
+                record = (*record[:3], bytes(data))
+                self.records[i] = record; self.indexed[path] = record; changes += 1
+        return payload, changes
+
+    def relocated_database(self, group, aliases=None):
+        """The renamed copy of one native DBA; curves and native controllers stay byte-for-byte.
+
+        `aliases` ({native controller CRC: target CRCs}) adds controllers that
+        reuse the native tracks, e.g. KCD1 blend joints driven by FA_POSE poses.
+        Each clip's written controller count goes to `controller_counts`.
+        """
+        pak, name = self.dbas[zlib.crc32(group['source'].lower().encode('ascii'))]
+        payload = select_database(read(pak, name), group['tracks'], aliases)
+        _, entries, _ = database(payload)
+        counts = {e['name']: e['count'] for e in entries}
+        for source, dest in group['tracks'].items():
+            native = struct.unpack_from('<I', self.native_tracks[source][3], 312)[0]
+            if counts.get(dest) is None or counts[dest] < native or (not aliases and counts[dest] != native):
+                raise ValueError('Relocated facial controller count differs from its header: ' + dest)
+        if not hasattr(self, 'controller_counts'): self.controller_counts = {}
+        self.controller_counts.update(counts)
+        return payload
