@@ -35,25 +35,55 @@ A dropped group is not instantiated, so its lines are never requested. Its recor
 package"). The crime and speech receipts hash the old controller, so an in-place removal would leave
 them out of step. Rebuild instead. Recipe 66 -> 67.
 
+## Shop flavour
+`SHOP_FLAVOUR` lists the KCD2 small talk inside the kept `shop` module, each row with its reason:
+- the welcome on entering a shop (`privitani_v_obchode__muz/__zena`);
+- the keeper's gossip with a customer and with a guard;
+- the KCD2 stall cries (`vyvolavani_obchodniku_na_trhu`).
+
+`cut_shop_flavour` removes them and every node fed only by them, applied repeatedly: 20 condition nodes
+(angriness, charisma, time and state, `math::boolean`). It refuses rather than reach a kept sub-dialogue or a
+node with side effects.
+
+The cut runs where `package_dependencies` copies retail `shop.xml`, so the crime wrapper's repackaging gets
+it too. It keeps the talk-start greeting, the buy dialogues, haggling and negotiation, and the shop ending
+(farewells, after-repair lines, a reward).
+
+The ported KCD1 shop conversation (voice-lines branch) carries its own graphs and utils closure, and does not
+depend on any of the cut sub-dialogues; reviewed by that branch.
+
 ## Measured (dry run on a staged copy of the installed recipe-71 package)
 | Measure | Before | After |
 | --- | --- | --- |
-| Relocated KCD2 world recordings | 64,670 | 51,452 |
-| Of those with a native facial track | 61,942 | 48,825 |
-| Referenced responses | 8,923 | 5,609 |
+| Relocated KCD2 world recordings | 64,670 | 46,148 |
+| Of those with a native facial track | 61,942 | 44,165 |
+| Referenced responses (groups only) | 8,923 | 5,609 |
 
-Removed by group: reactions to Henry 3,282, dialogue-start greetings 3,122, NPC greetings 2,448,
-sleep 1,182, dialogue-end goodbyes 1,115, reputation 1,058, friendly-enemy reactions 1,011.
+Removed by group:
+- shop flavour 5,304;
+- reactions to Henry 3,282;
+- dialogue-start greetings 3,122;
+- NPC greetings 2,448;
+- sleep 1,182;
+- dialogue-end goodbyes 1,115;
+- reputation 1,058;
+- friendly-enemy reactions 1,011.
 
-The package gate's known facial gap shrinks to 2,627 untracked open-world lines (from 2,728).
+Repackaging the world controller twice gives identical graphs (360, all dependency scopes validated).
+
+The package gate's known facial gap shrinks to 1,983 untracked open-world lines (from 2,728).
 
 ## In game (not yet checked)
 - **Goes quiet:**
   - converted NPCs greeting each other or Henry in passing;
   - "Greetings"/"Farewell" lines around a conversation;
   - remarks about Henry's clothes, blood, weapon or crouching;
-  - sleep mutters and reputation remarks.
+  - sleep mutters and reputation remarks;
+  - shop welcomes on entering, merchant gossip, and KCD2 stall cries.
 - **Must still play:**
+  - trade, buying and haggling for every keeper; KCD2's shop greeting and farewell for the three
+    keepers outside the KCD1 shop port (rato_innkeeper1, rat_pesek, neu_zdena);
+  - repair end lines and reward;
   - ported KCD1 shop talk and haggling;
   - Blanka's KCD1 dialogue;
   - the KCD1 market cries;
@@ -63,6 +93,5 @@ The package gate's known facial gap shrinks to 2,627 untracked open-world lines 
   - fight barks.
 
 ## Not done here
-The KCD2 shop module's own flavour stays for now: shop welcomes, farewells and merchant gossip, plus
-the KCD2 stall cries. These sit inside the kept `shop` module, wired to its trade logic, so removing
-them is graph surgery inside one module. That is a separate step.
+The three keepers outside the KCD1 shop port keep KCD2's shop greeting and farewell. That's their only
+shop speech; whether those go too is a KCD1-fidelity decision.

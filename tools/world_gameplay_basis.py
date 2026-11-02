@@ -6,6 +6,7 @@ must not depend on resolving parent-directory segments across mounted paks.
 import copy
 import hashlib
 import posixpath
+import re
 import xml.etree.ElementTree as ET
 
 from campaign_entity_links import append_links
@@ -39,6 +40,50 @@ WORLD_GROUPS = (
 )
 SYSTEMS = tuple(name for name, kept, _ in WORLD_GROUPS if kept)
 DROPPED = tuple(name for name, kept, _ in WORLD_GROUPS if not kept)
+# KCD2 small talk inside the kept shop module. The trade dialogues, haggling,
+# the talk-start greeting and the shop ending (repair lines, reward) stay.
+SHOP = 'quests/final/barbora/open_world/shop.xml'
+SHOP_FLAVOUR = (
+    ('privitani_v_obchode__muz', 'small talk: welcome on entering a shop'),
+    ('privitani_v_obchode__zena', 'small talk: welcome on entering a shop'),
+    ('gossip_u_obchodnika_se_zakaznikem', 'small talk: keeper gossips with a customer'),
+    ('gossip_obchodnik_s_ochrankou', 'small talk: keeper gossips with a guard'),
+    ('vyvolavani_obchodniku_na_trhu', 'small talk: KCD2 stall cries'),
+)
+# Node kinds a cut may remove besides the sub-dialogues: reads with no effect.
+QUERY_NODES = frozenset(('HasAngrinessFlag_Soul', 'HasReputationFlag_SoulToSoul', 'MakeArray', 'ObjectProperties',
+                         'timeandplayerstate', 'is_shoprepair_denied', 'is_seller_in_shop',
+                         'getrelativecharismaininterval'))
+QUERY_METHOD = re.compile(r'^math::|::(Check|Get|Create|Is|Has|Make)\w*$')
+
+
+def cut_shop_flavour(host, local):
+    """Remove SHOP_FLAVOUR sub-dialogues and every node fed by a removed one.
+
+    `local` maps the module's child names to their graphs. Refuses rather than
+    reaching a kept sub-dialogue or removing a node that is not a pure query.
+    Returns the removed node names.
+    """
+    cut = {name for name, _ in SHOP_FLAVOUR}
+    if not cut <= set(local): raise ValueError('Native shop flavour changed: ' + ', '.join(sorted(cut - set(local))))
+    nodes = host.find('Nodes')
+    removed = {n.get('Name') for n in nodes if n.tag in cut}
+    while True:
+        fed = [n for n in nodes if n.get('Name') not in removed and any(
+            (e.get('From') or '').split('.')[0] in removed for e in n.iter('Edge'))]
+        if not fed: break
+        for n in fed:
+            if n.tag in local or not (n.tag in QUERY_NODES or n.tag == 'Function' and QUERY_METHOD.search(n.get('MethodName', ''))):
+                raise ValueError('Shop flavour cut would reach ' + n.tag + ' ' + str(n.get('Name')))
+            removed.add(n.get('Name'))
+    for n in [n for n in nodes if n.get('Name') in removed]: nodes.remove(n)
+    definitions = host.find('Definitions')
+    for d in [d for d in definitions if local_name(local, d) in cut]: definitions.remove(d)
+    return sorted(removed)
+
+
+def local_name(local, definition):
+    return next((name for name, path in local.items() if posixpath.basename(path) == posixpath.basename(definition.get('File')).lower()), None)
 
 
 def refuse_dropped_groups(wrapper_blob):
@@ -184,6 +229,9 @@ def package_dependencies(graphs, entry_path, wrapper_path, scripts):
             child = posixpath.normpath(posixpath.join(posixpath.dirname(path), definition.get('File'))).lower()
             module = ET.fromstring(read(scripts, names[child])).find('Skald')[0]
             local[module.get('Name')] = child
+        if path == SHOP:
+            # Also reached when the crime wrapper repackages from Scripts.pak.
+            cut_shop_flavour(root.find('Skald')[0], local)
         for node in root.findall('.//Nodes/*'):
             namespace = node.get('Namespace', '')
             if namespace.startswith('utils.'):
@@ -400,4 +448,5 @@ def apply(files, graphs, graph_path, level, native_level, scripts, identity):
     graphs = package_dependencies(graphs, entry_path, wrapper_path, scripts)
     return files, graphs, dict(systems=inventory, native_dependencies={p: native.cache[p][1] for p in sorted(selected_paths)},
         service_bindings=[dict(source=a.get('Name'), target=b.get('Name'), label=l) for a,b,l in links],
+        shop_flavour_cut=[dict(name=n, reason=r) for n, r in SHOP_FLAVOUR],
         runtime_verified=False, full_trosky_parity=False)

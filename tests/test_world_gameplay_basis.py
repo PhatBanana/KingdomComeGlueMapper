@@ -57,6 +57,31 @@ class WorldGameplayBasisTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'spanek_npc.*rebuild the package'):
             refuse_dropped_groups(b'<Database><Skald><Gameplay Name="open_world"><Nodes><combat Name="combat"/><spanek_npc Name="spanek_npc"/></Nodes></Gameplay></Skald></Database>')
 
+    def test_shop_flavour_cut_removes_its_condition_chain_and_keeps_trade(self):
+        from world_gameplay_basis import cut_shop_flavour, SHOP_FLAVOUR
+        cut = [n for n, _ in SHOP_FLAVOUR]
+        def shop(extra=''):
+            definitions = ''.join(f'<Definition File="shop/{n}.xml"/>' for n in (*cut, 'greeting_obchodnika_'))
+            subs = ''.join(f'<{n} Name="{n}"/>' for n in cut[1:])
+            return ET.fromstring(f'''<Database><Skald><Gameplay Name="shop"><Definitions>{definitions}</Definitions><Nodes>
+                <{cut[0]} Name="{cut[0]}"/>{subs}
+                <HasAngrinessFlag_Soul Name="angry"><Edge From="{cut[0]}.ROLE" To="soul"/></HasAngrinessFlag_Soul>
+                <Function Name="or1" MethodName="math::boolean::Or"><Edge From="angry.flag" To="a"/></Function>
+                <greeting_obchodnika_ Name="greeting_obchodnika_"/>
+                <addopenworldcooldown Name="cooldown"><Edge From="greeting_obchodnika_.ROLE" To="npc"/></addopenworldcooldown>
+                {extra}</Nodes></Gameplay></Skald></Database>''').find('Skald')[0]
+        local = {n: f'quests/final/barbora/open_world/shop/{n}.xml' for n in (*cut, 'greeting_obchodnika_')}
+        host = shop()
+        removed = cut_shop_flavour(host, local)
+        self.assertEqual(set(removed), {*cut, 'angry', 'or1'})
+        self.assertEqual([n.get('Name') for n in host.find('Nodes')], ['greeting_obchodnika_', 'cooldown'])
+        self.assertEqual([d.get('File') for d in host.find('Definitions')], ['shop/greeting_obchodnika_.xml'])
+        # A side effect or a kept sub-dialogue downstream of the cut stops it.
+        for extra in ('<AddReward Name="reward"><Edge From="or1.bool" To="x"/></AddReward>',
+                      '<greeting_obchodnika_ Name="second"><Edge From="angry.flag" To="x"/></greeting_obchodnika_>'):
+            with self.assertRaisesRegex(ValueError, 'would reach'):
+                cut_shop_flavour(shop(extra), local)
+
     def test_crime_wrapper_accepts_only_the_kept_systems(self):
         from world_gameplay_basis import SYSTEMS, DROPPED
         from world_crime_graphs import prepare
