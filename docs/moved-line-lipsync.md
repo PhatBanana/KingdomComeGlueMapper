@@ -138,7 +138,14 @@ onto the KCD1 joint names through the existing `select_database(..., aliases)` p
 - Native tracks drive `FA_POSE_*` controllers. Converted KCD1 heads have no such joints (issue #57,
   point 1), so the first visible beneficiaries are native-rig speakers: Henry's own replies and any
   native-template NPC. Converted NPCs need the rig mapping as well.
-- The 2,728 lines without a native track stay as in retail.
+- The 2,728 lines without a native track stay as in retail: no native header exists for them at any
+  path or stem (checked on -8), so there is nothing to relocate.
+- KCD1 source tracks (not tested in game): `FacialImporter` also reads KCD1's `Data/patch/*.pak`
+  facial indexes, later patch winning, for stems the base `Animations*.pak` lacks. `ipl_patch_010900`
+  adds 24,339 such clips, among them ska_merchant2's 9 IPL market cries (`bcas_t26856_*`), whose base
+  `000520_bcas.dba` predates them. Clips the patches re-export (31,697 differ from base) keep the base
+  version, which matches the base and IPL audio the import ships. Needs a clean build; the recipe
+  number is unchanged.
 - The facial index grows from 124 MB to 145 MB; no engine cap is known.
 - The shard is 34 MB under its 1 GiB bound; more relocated lines spill into a second shard
   automatically (the engine mounts every pak in the mod's Data folder).
