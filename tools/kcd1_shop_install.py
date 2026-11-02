@@ -82,7 +82,8 @@ STUB_MODULE = 'quests/final/barbora/open_world/' + MODULE + '.xml'
 ROLE_TABLE = 'Libs/Tables/rpg/role__gm_kcd1_shop.xml'
 ROLE_FILES = 'libs/storm/roles/'
 SCOPE = ('ska_merchant1', 'ska_merchant2', 'ska_merchant3', 'ska_merchant4', 'ska_woman20', 'ska_collierVarlet',
-         'ska_blanka', 'neu_zdena')
+         'ska_blanka', 'neu_zdena', 'rato_innkeeper1', 'rat_pesek')
+CHARACTER_TABLE = 'Libs/Tables/skald/skald_character__gm_kcd1_shop.xml'
 DROP_ROLES = frozenset(('SMLOUVANI_MUZ', 'SMLOUVANI_ZENA', 'OBCHODNIK_Z_DIALOGU_MUZ', 'OBCHODNICE_Z_DIALOGU_ZENA'))
 DROP_OPERATIONS = frozenset(('addShopRoles_greeting_man', 'addShopRoles_greeting_woman',
                              'addShopRoles_ending_man', 'addShopRoles_ending_woman'))
@@ -105,9 +106,31 @@ GREETING_STATE = {'hrac_je_spinavy', 'hrac_je_zakrvaceny', 'hrac_ma_alespon_vyso
                   'reputace_stredni'}
 
 
-def roles_for(sex):
-    return (conversation.TRADE_ROLE, conversation.GREETING_ROLE[sex], conversation.PORTED_ROLE[sex],
-            conversation.FAREWELL_ROLE[sex])
+def roles_for(sex, trade=True):
+    """The port's roles; trade=False for a keeper whose own rule already opens the shop (see own_trade)."""
+    return ((conversation.TRADE_ROLE,) if trade else ()) + (conversation.GREETING_ROLE[sex], conversation.PORTED_ROLE[sex],
+                                                            conversation.FAREWELL_ROLE[sex])
+
+
+def shop_dialog_roles(quest_files, skip=()):
+    """Roles bound by a talk-screen FaderDialog that opens a shop, outside the dialogs in skip."""
+    roles = set()
+    for path, blob in quest_files.items():
+        if path in skip or b'OpenShop' not in blob or b'<FaderDialog' not in blob:
+            continue
+        for dialogue in ET.fromstring(blob).iter('Dialogue'):
+            if any(s.get('Type') == 'OpenShop' for s in dialogue.iter('Sequence')) and dialogue.get('NonSpeakerRoles'):
+                roles.update(dialogue.get('NonSpeakerRoles').split(','))
+    return roles
+
+
+def own_trade(rule, custom, shop_roles):
+    """The roles in a keeper's own rule that already open its shop (e.g. the maintainer's rattay_miller)."""
+    found = []
+    for operation in rule.find('operations'):
+        names = [operation.get('name')] if operation.tag == 'addRole' else custom.get(operation.tag, [])
+        found += [n for n in names if n in shop_roles]
+    return found
 
 
 def role_rows():
@@ -185,10 +208,11 @@ def keeper_roles(rule, custom, generic):
     return [r for r in dict.fromkeys(added) if r not in removed]
 
 
-def port_rule(rule, sex, generic=()):
+def port_rule(rule, sex, generic=(), trade=True):
     """Edit one keeper's operations in place; returns (added, removed) names.
 
     generic: the roles retail's generic trader rules give this sex (generic_shop_roles), removed too.
+    trade: whether the keeper gets the port's "Let's talk trade." role.
     """
     operations = rule.find('operations')
     removed = []
@@ -197,7 +221,7 @@ def port_rule(rule, sex, generic=()):
             operations.remove(operation)
             removed.append(operation.get('name') or operation.tag)
     present = {(o.tag, o.get('name')) for o in operations}
-    wanted = [('addRole', role) for role in roles_for(sex)] + [('removeRole', role) for role in REMOVE_NATIVE]
+    wanted = [('addRole', role) for role in roles_for(sex, trade)] + [('removeRole', role) for role in REMOVE_NATIVE]
     wanted += [('removeRole', role) for role in generic if role not in REMOVE_NATIVE]
     added = [(tag, role) for tag, role in wanted if (tag, role) not in present]
     for tag, role in added:
@@ -494,41 +518,104 @@ def old_layout(travel_names, crime_blob, english_names):
     return found
 
 
-def keeper_voices(travel_names, read_travel, target, people):
-    """({person: voice abbreviation}, {person: voice groups}) from the package soul, character and voice tables.
+def voice_tables(travel_names, read_travel, target):
+    """({voice_id: (abbreviation, groups)}, {character: [rows]}, {soul_name: character}).
 
-    A keeper on one of KCD2's own characters (neu_zdena on char_GENERIC_WOMAN_MERCHANT_CZECH_03) takes
-    the character from retail's skald_character tables; the package's own rows win.
+    Retail's voice and skald_character tables, then the package's own rows, which win per character:
+    a keeper may sit on one of KCD2's own characters (neu_zdena on char_GENERIC_WOMAN_MERCHANT_CZECH_03).
     """
-    voices, groups, characters = {}, {}, defaultdict(set)
+    voices, characters, packaged, souls = {}, defaultdict(list), defaultdict(list), {}
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as tables:
         for v in ET.fromstring(read(tables, 'Libs/Tables/skald/voice.xml')).iter('voice'):
-            voices[v.get('voice_id')], groups[v.get('voice_id')] = v.get('abbreviation'), v.get('voice_groups') or ''
+            voices[v.get('voice_id')] = (v.get('abbreviation'), (v.get('voice_groups') or '').split(';'))
         for name in tables.namelist():
             if name.startswith('Libs/Tables/skald/skald_character') and name.endswith('.xml'):
                 for row in ET.fromstring(read(tables, name)).iter('skald_character'):
-                    characters[row.get('skald_character_name')].add(row.get('voice_id'))
-    souls, packaged = {}, defaultdict(set)
+                    characters[row.get('skald_character_name')].append(dict(row.attrib))
     for name in travel_names:
         if name.startswith('Libs/Tables/rpg/soul__'):
             for soul in ET.fromstring(read_travel(name)).iter('soul'):
                 souls[soul.get('soul_name')] = soul.get('skald_character_name')
         elif name.startswith('Libs/Tables/skald/skald_character__'):
             for row in ET.fromstring(read_travel(name)).iter('skald_character'):
-                packaged[row.get('skald_character_name')].add(row.get('voice_id'))
+                packaged[row.get('skald_character_name')].append(dict(row.attrib))
         elif name.startswith('Libs/Tables/skald/voice__'):
             for voice in ET.fromstring(read_travel(name)).iter('voice'):
-                voices[voice.get('voice_id')], groups[voice.get('voice_id')] = \
-                    voice.get('abbreviation'), voice.get('voice_groups') or ''
+                voices[voice.get('voice_id')] = (voice.get('abbreviation'), (voice.get('voice_groups') or '').split(';'))
     characters.update(packaged)
+    return voices, characters, souls
+
+
+def keeper_voices(travel_names, read_travel, target, people):
+    """({person: voice abbreviation}, {person: voice groups}) from the package soul, character and voice tables."""
+    voices, characters, souls = voice_tables(travel_names, read_travel, target)
     result, result_groups = {}, {}
     for person in people:
-        ids = characters.get(souls.get(person), set())
+        ids = {row.get('voice_id') for row in characters.get(souls.get(person), [])}
         if len(ids) != 1 or next(iter(ids)) not in voices:
             raise ValueError(f'Cannot resolve the voice of {person}: {sorted(ids)}')
-        result[person] = voices[next(iter(ids))]
-        result_groups[person] = groups[next(iter(ids))].split(';')
+        result[person], result_groups[person] = voices[next(iter(ids))]
     return result, result_groups
+
+
+def source_voices(source, people):
+    """{person: KCD1 voice abbreviation} from KCD1's soul, v_soul_character_data and voice tables."""
+    from campaign_sources import retail_sources
+    files = retail_sources(source, dict(soul=('Tables.pak', 'Libs/Tables/rpg/soul.xml'),
+                                        data=('Tables.pak', 'Libs/Tables/rpg/v_soul_character_data.xml'),
+                                        abbr=('Tables.pak', 'Libs/Tables/text/v_voice_abbreviation.xml')))
+    rows = {k: [r.attrib for r in ET.fromstring(v['data']).findall('./table/rows/row')] for k, v in files.items()}
+    ids = {r['soul_name']: r['soul_id'] for r in rows['soul']}
+    voice = {r['soul_id']: r['voice_id'] for r in rows['data']}
+    abbreviation = {r['voice_id']: r['abbreviation'] for r in rows['abbr']}
+    result = {}
+    for person in people:
+        found = abbreviation.get(voice.get(ids.get(person)))
+        if found is None:
+            raise ValueError('Cannot resolve the KCD1 voice of ' + person)
+        result[person] = found
+    return result
+
+
+def switch_voices(soul_tables, character_table, voices, characters, switches):
+    """Put each switched keeper on its KCD1 voice: (changed tables, report).
+
+    switches: {person: KCD1 abbreviation}. The keeper's current character row (retail or packaged)
+    is copied unchanged as gm_voice_<person> in the port's own character table, with only voice_id
+    changed, and the soul row points at it. Nothing else about the character changes.
+    """
+    ids = {}
+    for voice_id, (abbreviation, _) in voices.items():
+        ids.setdefault(abbreviation, []).append(voice_id)
+    table = ET.fromstring(character_table) if character_table else ET.Element('database', name='barbora')
+    container = table.find('skald_characters')
+    if container is None:
+        container = ET.SubElement(table, 'skald_characters', version='1')
+    changed, report = {}, []
+    for person, abbreviation in sorted(switches.items()):
+        if len(ids.get(abbreviation, [])) != 1:
+            raise ValueError(f'KCD1 voice {abbreviation} of {person} is not a single KCD2 or imported voice')
+        rows = [(path, root, soul) for path, root in soul_tables.items() for soul in root.iter('soul')
+                if soul.get('soul_name') == person]
+        if len(rows) != 1:
+            raise ValueError('Expected one package soul row for ' + person)
+        path, root, soul = rows[0]
+        current = characters.get(soul.get('skald_character_name'), [])
+        if len(current) != 1:
+            raise ValueError(f'Missing or ambiguous character of {person}: {soul.get("skald_character_name")}')
+        identity = 'gm_voice_' + person
+        for old in container.findall("skald_character[@skald_character_name='" + identity + "']"):
+            container.remove(old)
+        ET.SubElement(container, 'skald_character', dict(current[0], skald_character_name=identity,
+                                                         voice_id=ids[abbreviation][0]))
+        report.append(dict(person=person, character=soul.get('skald_character_name'), now=identity,
+                           voice=abbreviation, voice_id=ids[abbreviation][0],
+                           previous_voice=voices.get(current[0].get('voice_id'), ('?',))[0]))
+        soul.set('skald_character_name', identity)
+        changed[path] = xml(root)
+    if switches:
+        changed[CHARACTER_TABLE] = xml(table)
+    return changed, report
 
 
 def recordings(source, lines):
@@ -599,6 +686,17 @@ def plan(package, source, target):
         role_tables = {n: read(travel, n) for n in names if n.startswith('Libs/Tables/rpg/role__') and n != ROLE_TABLE}
         quest_files = {n: read(travel, n) for n in names if n.startswith('Quests/') and n.endswith('.xml')}
         voices, voice_groups = keeper_voices(names, lambda n: read(travel, n), target, SCOPE)
+        voice_rows, characters, _ = voice_tables(names, lambda n: read(travel, n), target)
+        soul_tables = {n: ET.fromstring(read(travel, n)) for n in names if n.startswith('Libs/Tables/rpg/soul__')}
+        character_table = read(travel, CHARACTER_TABLE) if CHARACTER_TABLE in names else None
+    # Every keeper speaks in its KCD1 voice. A keeper the package voices differently (rato_innkeeper1
+    # rlaz -> rpro, rat_pesek dosg -> ccla) is switched as a whole: its other lines play in that voice too.
+    kcd1_voices = source_voices(source, SCOPE)
+    switches = {p: kcd1_voices[p] for p in SCOPE if voices[p] != kcd1_voices[p]}
+    voice_changes, voice_report = switch_voices(soul_tables, character_table, voice_rows, characters, switches)
+    for person in switches:
+        voices[person] = kcd1_voices[person]
+        voice_groups[person] = next(g for a, g in voice_rows.values() if a == kcd1_voices[person])
     with zipfile.ZipFile(package / ENGLISH) as english:
         stale = old_layout(names, crime_blob, english.namelist())
     if stale:
@@ -669,6 +767,9 @@ def plan(package, source, target):
     if scope != AUDIO_SCOPE:
         raise ValueError('KCD1 shop dialogs would resolve to another audio scope: ' + scope)
 
+    # Shop dialogs that stay: not the port's own, not the generated per-keeper ones it removes below.
+    removed_generated = {p for p, b in generated_dialogs.items() if (generated(b) or (None,))[0] in SCOPE}
+    shop_roles = shop_dialog_roles(quest_files, {p for p in quest_files if p.startswith(FOLDER)} | removed_generated)
     keepers_report, role_changes = [], {}
     for person in SCOPE:
         own = own_rule(role_files, person)
@@ -677,11 +778,14 @@ def plan(package, source, target):
         file_name, root, rule = own
         before = xml(root)
         sex = people[person]
-        added, removed = port_rule(rule, sex, generic[sex])
+        # A keeper whose own rule already opens its shop (the maintainer's rattay_innkeeper and
+        # rattay_miller dialogs) keeps that as its one Trade option instead of "Let's talk trade.".
+        kept_trade = own_trade(rule, custom, shop_roles)
+        added, removed = port_rule(rule, sex, generic[sex], trade=not kept_trade)
         # Checked as if the generic trader rules select the keeper: they may, and it cannot be told offline.
         roles = keeper_roles(rule, custom, generic[sex])
-        trade = [r for r in roles if r == conversation.TRADE_ROLE or TRADE_STYLE.fullmatch(r)]
-        if trade != [conversation.TRADE_ROLE]:
+        trade = [r for r in roles if r == conversation.TRADE_ROLE or TRADE_STYLE.fullmatch(r) or r in shop_roles]
+        if trade != (kept_trade or [conversation.TRADE_ROLE]):
             raise ValueError(f'{person} would offer {len(trade)} Trade options: {trade}')
         for metarole, ported in (('SMLOUVANI', conversation.PORTED_ROLE), ('ROZLOUCENI', conversation.FAREWELL_ROLE)):
             bound = [r for r in roles if metaroles.get(r) == metarole]
@@ -700,8 +804,10 @@ def plan(package, source, target):
         keepers_report.append(dict(
             person=person, sex=sex, voice=voices[person], roles_file=file_name, added=added, removed=removed,
             # retail hasMerchantVoiceOrNoCharacter reads the voice's groups; the other selectors are runtime state
-            merchant_voice='Merchants' in voice_groups[person], generic_removed=list(generic[sex])))
+            merchant_voice='Merchants' in voice_groups[person], generic_removed=list(generic[sex]),
+            trade=trade[0]))
     desired.update(role_changes)
+    desired.update(voice_changes)
 
     entry = ET.fromstring(entry_blob)
     level_host = entry.find('Skald/Level')
@@ -774,7 +880,7 @@ def plan(package, source, target):
     changes = {TRAVEL: travel_changes, ENGLISH: english_changes, ENGLISH_XML: text_changes, FACIALS: facial_changes}
     report = dict(version=VERSION, scope=list(SCOPE), host=HOST, module=FOLDER + MODULE + '.xml', audio_scope=scope,
                   utils_closure=sorted(closure), utils_libraries=utils_libraries(closure), **audit,
-                  keepers=keepers_report, dialogs=reports,
+                  keepers=keepers_report, voice_switches=voice_report, dialogs=reports,
                   trade=trade_report, removed_dialogs=removed_dialogs, role_table=ROLE_TABLE,
                   recordings_added=sorted(media), text_rows=len(texts), facial_lines=len(tracked),
                   facial_tracks_added=len(added),

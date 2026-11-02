@@ -156,6 +156,48 @@ class InstallTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Cannot resolve the voice'):
             keeper_voices(files, files.get, GAME, ['nobody'])
 
+    def test_a_keeper_switches_to_its_kcd1_voice_on_a_copy_of_its_own_character(self):
+        from kcd1_shop_install import CHARACTER_TABLE, switch_voices
+        souls = {'Libs/Tables/rpg/soul__x.xml': ET.fromstring(
+            b'<database><souls><soul soul_name="rat_pesek" skald_character_name="char_GENERIC_MAN_COMMONER_07" />'
+            b'<soul soul_name="other" skald_character_name="char_GENERIC_MAN_COMMONER_07" /></souls></database>')}
+        voices = {'149': ('dosg', ['Guards']), '86': ('ccla', ['Merchants']), '100105': ('rpro', [''])}
+        characters = {'char_GENERIC_MAN_COMMONER_07': [dict(skald_character_name='char_GENERIC_MAN_COMMONER_07', age='2',
+                                                          gender='0', voice_categories='generic christian', voice_id='149')]}
+        changed, report = switch_voices(souls, None, voices, characters, {'rat_pesek': 'ccla'})
+        rows = [s.attrib for s in ET.fromstring(changed['Libs/Tables/rpg/soul__x.xml']).iter('soul')]
+        self.assertEqual([r['skald_character_name'] for r in rows], ['gm_voice_rat_pesek', 'char_GENERIC_MAN_COMMONER_07'])
+        character = ET.fromstring(changed[CHARACTER_TABLE]).find('skald_characters/skald_character').attrib
+        # Only the name and the voice change; the rest of the character is the keeper's own.
+        self.assertEqual(character, dict(characters['char_GENERIC_MAN_COMMONER_07'][0],
+                                         skald_character_name='gm_voice_rat_pesek', voice_id='86'))
+        self.assertEqual((report[0]['previous_voice'], report[0]['voice']), ('dosg', 'ccla'))
+        self.assertEqual(switch_voices(souls, None, voices, characters, {}), ({}, []))
+        with self.assertRaisesRegex(ValueError, 'not a single KCD2 or imported voice'):
+            switch_voices(souls, None, voices, characters, {'rat_pesek': 'nobody'})
+
+    def test_a_keeper_whose_own_rule_opens_its_shop_keeps_that_as_its_one_trade_option(self):
+        from kcd1_shop_install import own_trade, shop_dialog_roles
+        miller = (b'<Database><Skald><FaderDialog Name="rattay_miller"><Dialogue NonSpeakerRoles="GM_RATTAY_MILLER">'
+                  b'<Decision><Sequences><Sequence Name="trade" Type="Shop"><Decision><Sequences>'
+                  b'<Sequence Name="open_shop" Type="OpenShop" /></Sequences></Decision></Sequence></Sequences>'
+                  b'</Decision></Dialogue></FaderDialog></Skald></Database>')
+        horses = miller.replace(b'Type="OpenShop"', b'Type="Horses"').replace(b'GM_RATTAY_MILLER', b'GM_NEUHOF_HORSE_TRADER')
+        quests = {'Quests/GlueTravel/rattay_miller.xml': miller, 'Quests/GlueTravel/horse.xml': horses,
+                  FOLDER + 'gm_kcd1_obchod.xml': miller.replace(b'GM_RATTAY_MILLER', b'GM_KCD1_OBCHODNIK')}
+        roles = shop_dialog_roles(quests, {FOLDER + 'gm_kcd1_obchod.xml'})
+        self.assertEqual(roles, {'GM_RATTAY_MILLER'})
+        rule = ET.fromstring(RULE.replace(b'gm_person_1_role', b'GM_RATTAY_MILLER')).find('rules/rule')
+        self.assertEqual(own_trade(rule, CUSTOM, roles), ['GM_RATTAY_MILLER'])
+        port_rule(rule, 'man', trade=False)
+        self.assertNotIn(('addRole', 'GM_KCD1_OBCHODNIK'), [(o.tag, o.get('name')) for o in rule.find('operations')])
+
+    @unittest.skipUnless((SOURCE / 'Data/Tables.pak').is_file(), 'KCD1 required')
+    def test_kcd1_voices_come_from_kcd1s_own_tables(self):
+        from kcd1_shop_install import source_voices
+        self.assertEqual(source_voices(SOURCE, ['rato_innkeeper1', 'rat_pesek', 'neu_zdena', 'ska_merchant1']),
+                         {'rato_innkeeper1': 'rpro', 'rat_pesek': 'ccla', 'neu_zdena': 'aric', 'ska_merchant1': 'rpro'})
+
     def test_haggle_guard_sees_native_roles_hidden_in_custom_operations(self):
         root = ET.fromstring(RULE.replace(b'<addRole name="SMLOUVANI_MUZ" />', b'<addShopRoles_essential_man />'))
         rule = root.find('rules/rule')
@@ -291,23 +333,28 @@ class InstallTests(unittest.TestCase):
         self.assertEqual(report['audio_scope'], AUDIO_SCOPE)
         self.assertNotIn(CRIME_HOST, changes[TRAVEL])
         self.assertTrue({'general', 'greetings_utils'} <= set(report['utils_libraries']))
-        # Every ported line has its KCD1 facial track, whether this run adds them or the package already has them.
-        self.assertEqual(report['facial_lines'], 620)
+        # Every ported line has its KCD1 facial track, whether this run adds them or the package already has them:
+        # 510 conversation and 110 farewell lines, and rat_pesek's 127 ccla lines.
+        self.assertEqual(report['facial_lines'], 747)
         self.assertEqual(report['facial_missing'], [])
-        # neu_zdena speaks the aric lines ska_woman20 already brings; every keeper drops the generic trader roles.
+        # Every keeper speaks in its KCD1 voice and drops the generic trader roles.
         keepers = {k['person']: k for k in report['keepers']}
-        self.assertEqual((keepers['neu_zdena']['voice'], keepers['neu_zdena']['merchant_voice']), ('aric', True))
+        self.assertEqual({p: k['voice'] for p, k in keepers.items() if p in ('neu_zdena', 'rato_innkeeper1', 'rat_pesek')},
+                         {'neu_zdena': 'aric', 'rato_innkeeper1': 'rpro', 'rat_pesek': 'ccla'})
         self.assertTrue(all('OBCHODNIK_Z_DIALOGU_MUZ' in k['generic_removed'] or 'OBCHODNICE_Z_DIALOGU_ZENA' in k['generic_removed']
                             for k in keepers.values()))
+        # The innkeeper and the miller keep the maintainer's shop dialog as their one Trade option.
+        self.assertEqual((keepers['rato_innkeeper1']['trade'], keepers['rat_pesek']['trade']),
+                         ('GMTRAVEL_RATTAY_INNKEEPER', 'GM_RATTAY_MILLER'))
         if report['changed']:
-            self.assertTrue({FOLDER + 'gm_kcd1_rozlouceni_muz.xml', FOLDER + 'gm_kcd1_rozlouceni_zena.xml'} <= set(changes[TRAVEL]))
             if HOST in changes[TRAVEL]:
                 # Unported install: the whole port.
-                self.assertEqual(len(report['recordings_added']), 620)
+                self.assertEqual(len(report['recordings_added']), 747)
             else:
-                # A v2 port (510 lines, no farewell): only the 110 keeper farewell recordings are added.
-                self.assertEqual(len(report['recordings_added']), 110)
-                self.assertEqual(report['facial_tracks_added'], 110)
+                # A v2 port (no farewell) adds the 110 farewell recordings, every port before the innkeeper
+                # and the miller adds Pesek's 127 ccla lines.
+                self.assertIn(len(report['recordings_added']), (237, 127))
+                self.assertEqual(report['facial_tracks_added'], len(report['recordings_added']))
         else:
             # Already ported: the audits above still ran; plan writes and removes nothing.
             self.assertEqual({a: c for a, c in changes.items() if c}, {})

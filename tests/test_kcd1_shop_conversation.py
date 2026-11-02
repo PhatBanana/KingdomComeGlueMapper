@@ -150,7 +150,7 @@ class HaggleMappingTests(unittest.TestCase):
         row = report['haggle_man']
         self.assertEqual((row['lines'], row['texted'], row['by_role']), (6, 2, {'HENRY': 2, 'SMLOUVANI_(MUZ)': 4}))
         self.assertEqual(row['voices'], {'rpro': {'recorded': 4, 'facial': 1}, 'bcas': {'recorded': 4, 'facial': 0},
-                                         'tmck': {'recorded': 2, 'facial': 1}})
+                                         'ccla': {'recorded': 0, 'facial': 0}, 'tmck': {'recorded': 2, 'facial': 1}})
 
 
     def test_no_native_role_token_survives_anywhere_in_the_port(self):

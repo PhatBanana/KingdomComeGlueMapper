@@ -196,10 +196,49 @@ KCD1's.
 ### Change
 
 `tools/kcd1_shop_conversation.py` converts; `tools/kcd1_shop_install.py` installs.
-The install covers the seven converted Skalitz keepers and neu_zdena (Neuhof,
-KCD1 voice aric). Native KCD2 shopkeepers in the package keep the native
-dialogs; rato_innkeeper1 (KCD1 rpro, now rlaz) and rat_pesek (KCD1 ccla, now
-dosg, no "Let's talk trade." in KCD1) wait on a decision about their voices.
+The install covers all ten keepers of the package: the seven converted Skalitz
+keepers, neu_zdena (Neuhof, KCD1 voice aric), rato_innkeeper1 (Rattay inn,
+KCD1 rpro) and rat_pesek (Rattay mill, KCD1 ccla).
+
+**Every keeper speaks in its KCD1 voice** (KCD1 soul → v_soul_character_data →
+v_voice_abbreviation). Sean, 2 Nov: "Switch to KCD1 voices". The innkeeper
+(rlaz) and Pesek (dosg) sat on KCD2 generic characters with another voice, so
+the step switches each as a whole: the keeper's current character row is
+copied unchanged as `gm_voice_<person>` into the port's own
+`skald_character__gm_kcd1_shop.xml` with only `voice_id` changed, and the soul
+row points at it. rpro is the imported `gm_source_rpro` (100105); ccla is
+KCD2's own Chris Clarke (86, the same id as in KCD1), so nothing is imported.
+
+What else they speak changes voice with them. Measured on unified-6 against
+the roles they keep after the port (diag `innkeeper-pesek/survey-storm-after-u6.json`):
+- rato_innkeeper1: 518 KCD2 lines had an rlaz recording and have no rpro one.
+  327 of them play through rpro's fallback 144 (James Beaumont), set by
+  `source_voice_fallbacks` for ska_merchant1; 191 are silent. Most are combat,
+  crime-assistance (SVEPOMOC_CIVILISTA, 138) and surrender barks.
+- rat_pesek: 206 lines had a dosg recording and have no ccla one. 72 play
+  through ccla's own retail fallback 83 (Gabriel Andrews); 134 are silent.
+  12 of them are KCD2 negotiation (VYJEDNAVANI) lines.
+No fallback is added; whether imported or KCD1-voiced keepers should borrow a
+KCD2 voice is open with Sean. No converted KCD1 dialogue reaches either soul,
+so the switch breaks none.
+
+**Trade path (deviations).** Both keep the maintainer's silent talk-screen
+dialog as their single Trade option instead of the port's "Let's talk trade.":
+- rat_pesek (`rattay_miller`, "(Trade)"): KCD1 had no "Let's talk trade." for
+  him; he traded through his own miller dialogs (MLYNAR_PESEK, including
+  buying stolen goods), which are not in the mod. Keeping the maintainer's
+  Trade option is a deviation from KCD1, chosen over leaving him untradeable.
+- rato_innkeeper1 (`rattay_innkeeper`, "(Trade)" plus room rental): KCD1 gave
+  him "Let's talk trade."; adding it would be a second Trade option beside the
+  maintainer's, so the label stays "(Trade)". His KCD1 bed rental ("A place to
+  sleep..."), his own HOSPODSKY topics, "Does anyone here need help?", the
+  German steel and Talmberg ale requests and the bath-house guest lines are
+  not ported; the rental runs on the maintainer's silent KCD2 dialog.
+Both get the KCD1 greeting, farewell and haggle. Pesek's ccla lines are 71
+greeting, 25 farewell and 31 haggle recordings, all with KCD1 base-pak facial
+tracks (none patch-only); the innkeeper's rpro lines are already in the module.
+A keeper keeps its own Trade option when its own rule binds a talk-screen
+dialog with OpenShop (the port's own and the generated ones it removes aside).
 
 neu_zdena sits on KCD2's own `char_GENERIC_WOMAN_MERCHANT_CZECH_03`, whose
 voice is aric, so the step reads a keeper's voice from retail's character
@@ -380,11 +419,16 @@ speaker's own stem, and treats those rows as essential.
 
 ### Retail acceptance
 
-1. First talk of the day with each of the eight keepers: a KCD1 greeting in the
+1. First talk of the day with each of the ten keepers: a KCD1 greeting in the
    keeper's KCD1 voice, then "Let's talk trade." opens the shop, on and away
    from the stall. Exactly one Trade option and one haggle at every keeper;
    check ska_merchant2 and ska_woman20 first, then neu_zdena (who also keeps
-   her horse-sales option).
+   her horse-sales option). rato_innkeeper1 and rat_pesek: the maintainer's
+   "(Trade)" is their one Trade option (and the innkeeper's room rental
+   stays); their greeting, haggle and farewell are KCD1's, in rpro and ccla,
+   and their other speech is in those voices too (some of it silent, some of
+   the innkeeper's through James Beaumont, some of Pesek's through Gabriel
+   Andrews).
 2. Haggle: KCD1 reactions in the keeper's voice and Henry's KCD1 lines. Buying
    and selling must complete (money and items move), since the sale runs in
    the haggle dialog's scripts.
