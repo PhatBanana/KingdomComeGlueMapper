@@ -218,11 +218,19 @@ class InstallTests(unittest.TestCase):
         self.assertGreater(report['asset_checked_graphs'], 0)
         self.assertEqual(report['audio_scope'], AUDIO_SCOPE)
         self.assertNotIn(CRIME_HOST, changes[TRAVEL])
-        self.assertIn(HOST, changes[TRAVEL])
         self.assertTrue({'general', 'greetings_utils'} <= set(report['utils_libraries']))
+        # Every ported line has its KCD1 facial track, whether this run adds them or the package already has them.
+        self.assertEqual(report['facial_lines'], 510)
         if report['changed']:
+            self.assertIn(HOST, changes[TRAVEL])
             self.assertEqual(len(report['recordings_added']), 510)
-            self.assertEqual(report['facial_lines'], 510)
+        else:
+            # Already ported: the audits above still ran; plan writes and removes nothing.
+            self.assertEqual({a: c for a, c in changes.items() if c}, {})
+            self.assertEqual(removed, [])
+            self.assertEqual(report['recordings_added'], [])
+            self.assertEqual(report['facial_tracks_added'], 0)
+            self.assertEqual(report['project_added'], [])
 
     def test_mixed_case_recordings_find_their_lowercase_source_facial_track(self):
         from kcd1_shop_install import facial_selection
