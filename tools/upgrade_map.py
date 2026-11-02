@@ -24,6 +24,18 @@ def read(archive, name):
         return stream.read()
 
 
+def archive_signature(archive):
+    """Identity of an archive file for per-build memos; None for in-memory archives."""
+    name = getattr(archive, 'filename', None)
+    if not isinstance(name, (str, os.PathLike)):
+        return None
+    try:
+        stat = os.stat(name)
+    except OSError:
+        return None
+    return Path(name).resolve(), stat.st_size, stat.st_mtime_ns
+
+
 _DIGESTS = {}
 _DIGESTS_LOCK = threading.Lock()
 _DIGEST_LIMIT = 200_000  # bounds the memo to a few tens of MB
