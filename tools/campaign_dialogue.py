@@ -327,11 +327,11 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
         branch = branches[0]
         expected_type = '6' if kind == 'Dialog' else '0'
         if metarole_dispatch is not None:
-            if kind != 'Dialog' or branch.get('branch_type_id') != '4':
-                raise ValueError('Work metarole dispatch requires its source ambient branch')
-            from campaign_work_metaroles import validate_dispatch
+            from campaign_work_metaroles import DISPATCHED_BRANCH_TYPES, validate_dispatch
+            if kind != 'Dialog' or branch.get('branch_type_id') not in DISPATCHED_BRANCH_TYPES:
+                raise ValueError('Work metarole dispatch requires its source ambient or monolog branch')
             validate_dispatch(model, metarole_dispatch)
-            expected_type = '4'
+            expected_type = branch['branch_type_id']
         if branch.get('branch_type_id', '0') != expected_type or branch.get('reputation_condition_id'):
             raise ValueError('Dialogue branch type/reputation policy requires conversion')
         priority = branch['priority']

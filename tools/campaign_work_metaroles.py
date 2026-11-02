@@ -6,6 +6,12 @@ import xml.etree.ElementTree as E
 from campaign_actor_dialogues import register_roles
 from campaign_quest_graph import identifier, xml
 
+# Source branch types a work monologue request reaches. KCD1's shop tree (sa_shop2
+# `merchant`) asks only for metarole('MERCHANT_VYVOLAVANI'), and the cry branches it
+# serves are ambient (4) or in-world monolog (6), split with no pattern (butcher woman
+# 4, butcher man 6). KCD2 plays both as Type="ingame monolog".
+DISPATCHED_BRANCH_TYPES = ('4', '6')
+
 
 def resolve(tables, soul_names, requested):
     """Select memberships by source identities, never voice/name proximity."""
@@ -71,10 +77,10 @@ def partition(models):
     for topic, model in models.items():
         report = assess(dict(alias=model['alias'], blockers=[], repeat=True,
                              source_path='metarole/topic/' + topic), model, carried_cooldowns=True)
-        # Metarole dispatch is proven for ambient branches (type 4) only; any
+        # Metarole dispatch is proven for DISPATCHED_BRANCH_TYPES only; any
         # other source branch type stays dormant instead of failing the step.
         branch_types = sorted({b.get('branch_type_id') for b in model.get('branch', [])})
-        if branch_types and branch_types != ['4']:
+        if branch_types and not set(branch_types) <= set(DISPATCHED_BRANCH_TYPES):
             report['blockers'].append(dict(reason='source_branch_not_ambient', value=','.join(branch_types)))
             report['speech_contract_supported'] = False
         if report['speech_contract_supported']:
