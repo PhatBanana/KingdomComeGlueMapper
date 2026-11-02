@@ -105,6 +105,13 @@ def plan(package, target, only=None):
     return dict(selected=selected, scopes=scope_reports), None
 
 
+def member(name, compression):
+    """A member with a fixed timestamp, so equal contents give equal archive bytes."""
+    info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+    info.compress_type = compression
+    return info
+
+
 def rewrite(source, destination, replacements, remove=()):
     """Copy an archive with members replaced, added or removed; the destination changes atomically."""
     destination = Path(destination)
@@ -118,7 +125,7 @@ def rewrite(source, destination, replacements, remove=()):
             if info.filename in remove: continue
             out.writestr(info, replacements.get(info.filename, read(original, info.filename)))
         for name in sorted(set(replacements) - names):
-            out.writestr(name, replacements[name])
+            out.writestr(member(name, zipfile.ZIP_STORED), replacements[name])
     with zipfile.ZipFile(pending) as check:
         if check.testzip() is not None: raise ValueError('Facial index archive verification failed')
     pending.replace(destination)
@@ -146,7 +153,7 @@ class Shards:
             raise ValueError('Relocated facial database exceeds the shard limit: ' + name)
         if self.out is None or (self.count and self.out.fp.tell() + len(payload) + 2 ** 20 > SHARD_BYTES):
             self._open()
-        self.out.writestr(name, payload)
+        self.out.writestr(member(name, zipfile.ZIP_DEFLATED), payload)
         self.count += 1
 
     def close(self):
