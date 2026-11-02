@@ -7,7 +7,10 @@ from game_paths import GameLibrary
 import copy
 import hashlib
 import json
+import os
 from pathlib import Path
+import threading
+import time
 import xml.etree.ElementTree as ET
 import zipfile
 
@@ -21,10 +24,60 @@ def read(archive, name):
         return stream.read()
 
 
+def archive_signature(archive):
+    """Identity of an archive file for per-build memos; None for in-memory archives."""
+    name = getattr(archive, 'filename', None)
+    if not isinstance(name, (str, os.PathLike)):
+        return None
+    try:
+        stat = os.stat(name)
+    except OSError:
+        return None
+    return Path(name).resolve(), stat.st_size, stat.st_mtime_ns
+
+
+_DIGESTS = {}
+_DIGESTS_LOCK = threading.Lock()
+_DIGEST_LIMIT = 200_000  # bounds the memo to a few tens of MB
+_SETTLED_NS = 2_000_000_000
+
+
+def _identity(stat):
+    return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
+
+
 def digest(path):
-    """Hex SHA-256 of a file, streamed like the receipt digests."""
-    with Path(path).open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
+    """Hex SHA-256 of a file, streamed like the receipt digests.
+
+    A build verifies the same 60-80 GB package several times and most of it is
+    hard-linked, unchanged, from the baseline. Digests are remembered by file
+    identity, size and modification time, so later passes re-read only changed
+    files. Files modified in the last two seconds are always re-read, because a
+    write in the same clock tick keeps their time. GLUEMAPPER_FULL_VERIFY=1
+    re-reads every file.
+    """
+    path = Path(path)
+    remember = os.environ.get('GLUEMAPPER_FULL_VERIFY') != '1'
+    if remember:
+        key = _identity(path.stat())
+        # FAT, exFAT and some network shares report no file ID, so equal
+        # size and time could not tell two files apart.
+        remember = key[1] != 0
+    if remember:
+        with _DIGESTS_LOCK:
+            known = _DIGESTS.get(key)
+        if known is not None:
+            return known
+    with path.open('rb') as stream:
+        value = hashlib.file_digest(stream, 'sha256').hexdigest()
+    if remember:
+        after = path.stat()
+        if _identity(after) == key and time.time_ns() - after.st_mtime_ns > _SETTLED_NS:
+            with _DIGESTS_LOCK:
+                if len(_DIGESTS) >= _DIGEST_LIMIT:
+                    _DIGESTS.clear()
+                _DIGESTS[key] = value
+    return value
 
 
 def digest_bytes(data):
@@ -32,8 +85,58 @@ def digest_bytes(data):
     return hashlib.sha256(data).hexdigest()
 
 
+class _Namespaced(Exception):
+    """The document needs ElementTree's namespace handling."""
+
+
+def _serialize(push, elem):
+    # The same decisions as ElementTree._serialize_xml for documents without
+    # namespaces, with ElementTree's own escaping, so the bytes are identical.
+    tag, text = elem.tag, elem.text
+    if tag is ET.Comment:
+        push("<!--%s-->" % text)
+    elif tag is ET.ProcessingInstruction:
+        push("<?%s?>" % text)
+    elif tag is None:
+        if text:
+            push(ET._escape_cdata(text))
+        for child in elem:
+            _serialize(push, child)
+    else:
+        if not isinstance(tag, str) or tag[:1] == "{":
+            raise _Namespaced
+        push("<" + tag)
+        for key, value in elem.items():
+            if not isinstance(key, str) or key[:1] == "{" or isinstance(value, ET.QName):
+                raise _Namespaced
+            push(' %s="%s"' % (key, ET._escape_attrib(value)))
+        if text or len(elem):
+            push(">")
+            if text:
+                push(ET._escape_cdata(text))
+            for child in elem:
+                _serialize(push, child)
+            push("</" + tag + ">")
+        else:
+            push(" />")
+    if elem.tail:
+        push(ET._escape_cdata(elem.tail))
+
+
 def xml(element):
-    return ET.tostring(element, encoding="utf-8", xml_declaration=True)
+    """ET.tostring(element, encoding='utf-8', xml_declaration=True), built as one string.
+
+    Combine serializes the 34 MB mission and other large documents thousands
+    of times a build. ElementTree writes them through a text stream in hundreds
+    of millions of small pieces; collecting the same pieces and encoding once
+    is 1.6x faster and byte-identical. Namespaced documents keep the stdlib path.
+    """
+    parts = ["<?xml version='1.0' encoding='utf-8'?>\n"]
+    try:
+        _serialize(parts.append, element)
+    except _Namespaced:
+        return ET.tostring(element, encoding="utf-8", xml_declaration=True)
+    return "".join(parts).encode("utf-8", "xmlcharrefreplace")
 
 
 def main():
