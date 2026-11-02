@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'tools'))
 from dialogue_facials import (chunks, container, database, select_database, header_path,
-                             renamed_header, aliased_controllers, NativeFacialImporter, INDEX)
+                             renamed_header, aliased_controllers, NativeFacialImporter, INDEX, source_tracks)
 from facial_rig_adapter import controller_aliases, reverse_speech_mapping, load_reverse_adapter, speech_mapping
 
 
@@ -212,5 +212,39 @@ class FacialTests(unittest.TestCase):
         record=chunks(fixture())[0];data=bytearray(record[3]);struct.pack_into('<I',data,12,9000000)
         with self.assertRaisesRegex(ValueError,'counts'):
             database(container([(record[0],record[1],record[2],bytes(data))]))
+
+    def test_source_patch_tracks_fill_only_stems_the_base_lacks(self):
+        db='animations/humans/facials/000520_bcas.dba'
+        def header(path,marker=0):
+            data=bytearray(404);raw=path.encode();data[4:260]=raw+bytes(256-len(raw))
+            struct.pack_into('<I',data,264,zlib.crc32(db.encode()));data[400]=marker
+            return (0x3007,0x971,1,bytes(data))
+        def index(*records):return container([(*r[:2],i+1,r[3]) for i,r in enumerate(records)])
+        a,b='animations/humans/facials/source/a.caf','animations/humans/facials/source/b.caf'
+        with tempfile.TemporaryDirectory() as directory:
+            data=Path(directory)/'Data';(data/'patch').mkdir(parents=True)
+            with zipfile.ZipFile(data/'Animations-part0.pak','w') as z:
+                z.writestr('Animations/Animations.img',index(header(a)));z.writestr(db,b'base')
+            with zipfile.ZipFile(data/'patch/ipl_patch_010100.pak','w') as z:
+                z.writestr('Animations/Animations.img',index(header(a,1),header(b,1)));z.writestr(db,b'early')
+            with zipfile.ZipFile(data/'patch/ipl_patch_010100b.pak','w') as z:
+                twin='animations/humans/facials/other/c.caf'
+                z.writestr('Animations/Animations.img',index(header(a,2),header(b,2),header(twin),
+                    header('animations/humans/facials/source/c.caf')));z.writestr(db,b'latest')
+            archives,dbas,headers,patch_dbas=source_tracks(directory)
+            try:
+                # A re-exported base clip keeps the base header and database.
+                self.assertEqual([p for p,_ in headers['a']],[a]);self.assertEqual(headers['a'][0][1][3],header(a)[3]);self.assertNotIn(a,patch_dbas)
+                self.assertEqual(read_member(*dbas[zlib.crc32(db.encode())]),b'base')
+                # A patch-only clip takes the latest patch's header and its database.
+                self.assertEqual([p for p,_ in headers['b']],[b]);self.assertEqual(headers['b'][0][1][3],header(b,2)[3])
+                self.assertEqual(Path(patch_dbas[b][0].filename).name,'ipl_patch_010100b.pak')
+                self.assertEqual(read_member(*patch_dbas[b]),b'latest')
+                # A stem recurring in two patch folders stays without a track.
+                self.assertNotIn('c',headers)
+            finally:
+                for pak in archives:pak.close()
+
+def read_member(pak,name):return pak.read(name)
 
 if __name__=='__main__':unittest.main()
