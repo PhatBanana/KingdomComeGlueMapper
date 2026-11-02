@@ -168,6 +168,10 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from world_speech_audio import upgrade as upgrade_world_speech
         files, report = upgrade_world_speech(package, target, notify)
         receipt['files'].update(files); receipt['world_speech_audio'] = report
+        from world_speech_facials import upgrade as upgrade_world_facials
+        files, removed, report = upgrade_world_facials(package, target, notify)
+        receipt['files'].update(files); receipt['world_speech_facials'] = report
+        for name in removed: receipt['files'].pop(name, None)
         from setup_source_appearances import apply as upgrade_appearances
         upgrade_appearances(package, receipt, source, target, notify, cancelled)
         from world_actor_contracts import upgrade as upgrade_actor_contracts
@@ -541,6 +545,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from world_speech_audio import upgrade as upgrade_world_speech
     speech_files, speech_report = upgrade_world_speech(package, target, notify)
     receipt['files'].update(speech_files); receipt['world_speech_audio'] = speech_report
+    # Relocated recordings look up their facial track at the new path; index the
+    # native tracks there once the recordings and every facial import are final.
+    from world_speech_facials import upgrade as upgrade_world_facials
+    facial_files, facial_removed, facial_report = upgrade_world_facials(package, target, notify)
+    receipt['files'].update(facial_files); receipt['world_speech_facials'] = facial_report
+    for name in facial_removed: receipt['files'].pop(name, None)
     from setup_source_appearances import apply as upgrade_appearances
     upgrade_appearances(package, receipt, source, target, notify, cancelled)
     from world_actor_contracts import upgrade as upgrade_actor_contracts

@@ -60,6 +60,80 @@ def controller_aliases(source_names, target_names, mapping):
     return result
 
 
+# Native KCD2 poses with a KCD1 counterpart the forward table does not name.
+# (FA_POSE source, KCD1 targets without the _blendWeightVertex suffix, basis).
+REVERSE_EXTRA = (
+    ('C_eyesDown', ('eye_down',), 'name: S2 heads spell eyeDown as eye_down'),
+    ('C_eyesLeft', ('eye_left',), 'name: S2 spelling of eyeLeft'),
+    ('C_eyesRight', ('eye_right',), 'name: S2 spelling of eyeRight'),
+    ('C_eyesUp', ('eye_up',), 'name: S2 spelling of eyeUp'),
+    ('C_sticky_center', ('stickyLips',), 'name: centre lip stickiness'),
+    ('C_U', ('leftPucker', 'rightPucker'), 'semantic: the U viseme rounds and protrudes the lips'),
+    ('L_upLipRaise', ('leftMouthUp',), 'semantic: left upper lip raiser (S2 heads only)'),
+    ('R_upLipRaise', ('rightMouthUp',), 'semantic: right upper lip raiser (S2 heads only)'),
+    ('C_lipPart', ('mouthUp', 'mouth_up'), 'semantic, low confidence: upper lip parts from the lower lip'),
+    ('L_browsLowerer', ('leftBrowsDownOut',), 'semantic: the native lowerer covers inner and outer brow'),
+    ('R_browsLowerer', ('rightBrowsDownOut',), 'semantic: the native lowerer covers inner and outer brow'),
+)
+
+
+def reverse_speech_mapping():
+    """FA_POSE pose -> KCD1 blend joints, with one provenance row per pair.
+
+    Inverts speech_mapping. Where the forward table fans one KCD1 control out
+    to two native poses (lower lip, squint), the first native pose drives it
+    and the second is recorded as unused, since one joint takes one driver.
+    """
+    mapping, rows, driven = {}, [], set()
+    for source, targets in speech_mapping().items():
+        for target in targets:
+            if source in driven:
+                rows.append(dict(fa_pose=target, kcd1=source, basis='forward table', used=False,
+                                 note='second native pose of a fanned-out control'))
+                continue
+            driven.add(source)
+            mapping.setdefault(target, []).append(source)
+            rows.append(dict(fa_pose=target, kcd1=source, basis='forward table', used=True))
+    for pose, targets, basis in REVERSE_EXTRA:
+        for target in targets:
+            name = target + '_blendWeightVertex'
+            if name in driven:
+                raise ValueError('Competing reverse facial driver: ' + name)
+            driven.add(name)
+            mapping.setdefault('FA_POSE_' + pose, []).append(name)
+            rows.append(dict(fa_pose='FA_POSE_' + pose, kcd1=name, basis=basis, used=True))
+    return mapping, rows
+
+
+def load_reverse_adapter(target, kcd1_names, native_names=None):
+    """Aliases that let a native track drive the KCD1 blend joints a package's faces carry.
+
+    `kcd1_names` are the *_blendWeightVertex joints of the converted faces;
+    rows whose KCD1 joint no face has are dropped, so S1-only packages get no
+    S2 rows. Curves are not rescaled: both rigs store the weight as the x of a
+    float position track (native jaw ranges ~0.37, KCD1 ~0.5).
+    """
+    if native_names is None:
+        with ExitStack() as stack:
+            chr_blob, _ = Assets(Path(target), stack).get('objects/characters/humans/male/skeleton/male.chr')
+        native_names = {b['name'] for b in bone_table(read_chunks(chr_blob))}
+    kcd1_names = set(kcd1_names)
+    full, rows = reverse_speech_mapping()
+    mapping = {}
+    for pose, joints in full.items():
+        present = [j for j in joints if j in kcd1_names]
+        if present: mapping[pose] = present
+    aliases = controller_aliases(set(native_names), kcd1_names, mapping)
+    driven = {j for joints in mapping.values() for j in joints}
+    report = dict(rows=[dict(r, present=r['kcd1'] in kcd1_names) for r in rows],
+                  aliases=sum(len(v) for v in mapping.values()),
+                  kcd1_without_driver=sorted(kcd1_names - driven),
+                  fa_pose_without_target=sorted(n for n in native_names if n.startswith('FA_POSE_') and n not in mapping),
+                  amplitude='copied unchanged; native and KCD1 weights share the x channel of float position tracks',
+                  exact_acting_equivalence=False)
+    return aliases, report
+
+
 def load_speech_adapter(source, target):
     # Reference assets establish the two rig vocabularies. No soul, recording,
     # quest or conversation is selected by these asset names.
