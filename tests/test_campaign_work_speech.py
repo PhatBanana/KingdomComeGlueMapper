@@ -38,6 +38,35 @@ class WorkSpeechTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'source_cooldown_not_lowered'):
             require_supported(request, self.model('900'))
 
+    def test_carried_cooldown_is_reported_not_blocked_and_never_zeroed(self):
+        request = requests(self.source(), 'work')[0]
+        report = assess(request, self.model('35'), carried_cooldowns=True)
+        self.assertTrue(report['speech_contract_supported'])
+        self.assertEqual(report['carried_cooldowns'], [dict(sequence='38', source_timeout='35', cooldown='35s')])
+        require_supported(request, self.model('35'), carried_cooldowns=True)
+        # Flags and malformed timeouts still block when cooldowns are carried.
+        flagged = assess(request, self.model('35', '1'), carried_cooldowns=True)
+        self.assertEqual([b['reason'] for b in flagged['blockers']], ['source_sequence_flags_not_lowered'])
+        bad = assess(request, self.model('-5'), carried_cooldowns=True)
+        self.assertEqual([b['reason'] for b in bad['blockers']], ['invalid_source_timeout'])
+        self.assertNotIn('carried_cooldowns', assess(request, self.model('0'), carried_cooldowns=True))
+
+    def test_emitter_writes_cooldown_only_when_asked(self):
+        from campaign_dialogue import emit
+        from test_campaign_dialogue_presentation import model
+        d = model()
+        d['topics']['1']['sequences'][0]['source']['timeout'] = '120'
+        sequence = lambda blob: E.fromstring(blob).find('.//Sequence')
+        self.assertEqual(sequence(emit(d, 'cry', [], sequence_cooldowns=True)[0]).get('Cooldown'), '120s')
+        # Without the opt-in a positive timeout still fails closed.
+        with self.assertRaisesRegex(ValueError, 'Unconverted dialogue sequence cooldown'):
+            emit(d, 'cry', [])
+        d['topics']['1']['sequences'][0]['source']['timeout'] = '0'
+        self.assertIsNone(sequence(emit(d, 'cry', [], sequence_cooldowns=True)[0]).get('Cooldown'))
+        d['topics']['1']['sequences'][0]['source']['timeout'] = 'x'
+        with self.assertRaisesRegex(ValueError, 'sequence (cooldown|timeout)'):
+            emit(d, 'cry', [], sequence_cooldowns=True)
+
     def test_dynamic_alias_and_other_actor_not_guessed(self):
         row = requests(self.source('alias($selected)', '__player'), 'work')[0]
         self.assertIsNone(row['alias'])

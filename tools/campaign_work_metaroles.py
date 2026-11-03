@@ -6,6 +6,12 @@ import xml.etree.ElementTree as E
 from campaign_actor_dialogues import register_roles
 from campaign_quest_graph import identifier, xml
 
+# Source branch types a work monologue request reaches. KCD1's shop tree (sa_shop2
+# `merchant`) asks only for metarole('MERCHANT_VYVOLAVANI'), and the cry branches it
+# serves are ambient (4) or in-world monolog (6), split with no pattern (butcher woman
+# 4, butcher man 6). KCD2 plays both as Type="ingame monolog".
+DISPATCHED_BRANCH_TYPES = ('4', '6')
+
 
 def resolve(tables, soul_names, requested):
     """Select memberships by source identities, never voice/name proximity."""
@@ -70,7 +76,13 @@ def partition(models):
     ready, pending = {}, {}
     for topic, model in models.items():
         report = assess(dict(alias=model['alias'], blockers=[], repeat=True,
-                             source_path='metarole/topic/' + topic), model)
+                             source_path='metarole/topic/' + topic), model, carried_cooldowns=True)
+        # Metarole dispatch is proven for DISPATCHED_BRANCH_TYPES only; any
+        # other source branch type stays dormant instead of failing the step.
+        branch_types = sorted({b.get('branch_type_id') for b in model.get('branch', [])})
+        if branch_types and not set(branch_types) <= set(DISPATCHED_BRANCH_TYPES):
+            report['blockers'].append(dict(reason='source_branch_not_ambient', value=','.join(branch_types)))
+            report['speech_contract_supported'] = False
         if report['speech_contract_supported']:
             ready[topic] = copy.deepcopy(model)
         else:
@@ -145,7 +157,7 @@ def stage_dialogue(model, proof, source, native_voices, source_voices, resources
     from dialogue_dubbing import import_source_voices
     from campaign_work_speech import require_supported
     require_supported(dict(alias=model['alias'], blockers=[], repeat=True,
-                           source_path='metarole/topic/' + model['start_topic']), model)
+                           source_path='metarole/topic/' + model['start_topic']), model, carried_cooldowns=True)
     selected = remap_roles(model, role_mapping)
     prefixes = set()
     for topic in selected['topics'].values():
@@ -156,7 +168,7 @@ def stage_dialogue(model, proof, source, native_voices, source_voices, resources
                         raise ValueError('Select source actor recordings before staging work dialogue')
                     prefixes.add(line['voices'][0]['wave_file'].removesuffix('_' + line['response']['string_name']))
     files, native_voices = import_source_voices(resources, native_voices, source_voices, prefixes)
-    blob, conversion = emit(selected, name, [], kind='Dialog', metarole_dispatch=proof)
+    blob, conversion = emit(selected, name, [], kind='Dialog', metarole_dispatch=proof, sequence_cooldowns=True)
     audio, provenance = voices(source, selected, name)
     blob, audio, binding = bind_recordings(blob, selected, audio, native_voices,
                                          parent_namespace=parent_namespace)
