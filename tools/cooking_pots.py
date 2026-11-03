@@ -27,6 +27,65 @@ def rotate(q, p):
     return qmul(qmul(q, (0, *p)), (q[0], -q[1], -q[2], -q[3]))[1:]
 
 
+# The native fire prefab's pivot is the base of a log pile. KCD1 fire prefabs
+# are flame and light only, so their origin marks the flame base, which the
+# authored inset (black kitchen) hearths put about 0.11 m above the hearth top.
+# Rest the logs on the surface the fireplace's own pot stands on; never raise.
+FIRE_SURFACE_TOLERANCE = 0.01
+POT_CATEGORIES = frozenset(('kotlik',))
+
+
+def pot_surface(owner, pot, entities):
+    """Height the fireplace's cooking pot rests on: its pot item, else its cooking trigger."""
+    heights = []
+    for link in owner.findall('EntityLinks/Link'):
+        item = entities.get(link.get('TargetId'))
+        if (item is not None and item.get('EntityClass') == 'PickableItem' and item.find('Properties') is not None
+                and item.find('Properties').get('sWH_AI_EntityCategory', '').lower() in POT_CATEGORIES):
+            heights.append(world_transform(item, entities)[0][2])
+    if heights:
+        return min(heights)
+    return world_transform(pot, entities)[0][2]
+
+
+def fire_pivot(origin, surface):
+    """Lower a flame origin onto the pot surface when it floats above it."""
+    if origin[2] - surface > FIRE_SURFACE_TOLERANCE:
+        return (origin[0], origin[1], surface)
+    return tuple(origin)
+
+
+def source_trigger(owner, entities, role):
+    """The authored interaction trigger a KCD1 fireplace links under `role` (st_kettle, st_fire)."""
+    for link in owner.findall('EntityLinks/Link'):
+        if link.get('Name') == role:
+            target = entities.get(link.get('TargetId'))
+            if target is not None and target.get('EntityClass') == 'SequenceTrigger':
+                return target
+    return None
+
+
+def cluster_placements(owner, pot, entities):
+    """World positions the authored KCD1 hearth dictates for the generated native cluster.
+
+    kettle: the authored pot trigger, which also anchors cauldron, steam and ladle;
+    pan: the authored cooking-on-fire trigger (link st_fire), None when the hearth has
+    none (the native pan trigger then stays donor-relative);
+    fire: the KCD1 flame origin rested on the pot surface, None without a KCD1 flame.
+    """
+    kettle, _, _ = world_transform(pot, entities)
+    fire_trigger = source_trigger(owner, entities, 'st_fire')
+    pan = world_transform(fire_trigger, entities)[0] if fire_trigger is not None else None
+    effects = [entities[l.get('TargetId')] for l in owner.findall('EntityLinks/Link')
+               if l.get('Name', '').startswith('fireProcedural') and l.get('TargetId') in entities]
+    fire, lowered = None, 0.0
+    if effects:
+        origin, _, _ = world_transform(effects[0], entities)
+        fire = fire_pivot(origin, pot_surface(owner, pot, entities))
+        lowered = origin[2] - fire[2]
+    return {'kettle': kettle, 'pan': pan, 'fire': fire, 'fire_lowered_m': lowered, 'effects': effects}
+
+
 def inventory(source):
     """Inventory every pot, but activate only the same initial layers as visuals."""
     entities, active, origins = {}, set(), {}
@@ -110,19 +169,23 @@ def convert(files, source, native, guid):
             node.set('Rotate', vector(qmul(delta, q)))
             mapped[key] = node
         # Move pot, ladle and steam together to the authored source pot anchor.
+        placements = cluster_placements(owner, pot, source_entities)
         kettle = mapped[links["kettleTrigger['kettle']"]]
-        pp, _, _ = world_transform(pot, source_entities)
+        pp = placements['kettle']
         old = tuple(map(float, kettle.get('Pos').split(',')))
         for name in ("kettleTrigger['kettle']", 'scoopSlot', "proceduralObject['steam']", "proceduralObject['cauldron']"):
             node = mapped[links[name]]
             p = tuple(map(float, node.get('Pos').split(',')))
             node.set('Pos', vector(tuple(p[i] + pp[i] - old[i] for i in range(3))))
+        # The native cook-on-fire trigger stands where KCD1 players cooked, not
+        # where the Trosky donor's hearth happened to put it.
+        if placements['pan'] is not None:
+            mapped[links["kettleTrigger['pan']"]].set('Pos', vector(placements['pan']))
         source_links = owner.findall('EntityLinks/Link')
-        effects = [source_entities[l.get('TargetId')] for l in source_links
-                   if l.get('Name', '').startswith('fireProcedural') and l.get('TargetId') in source_entities]
+        effects = placements['effects']
+        fire_position, lowered = placements['fire'], placements['fire_lowered_m']
         if effects:
-            fp, _, _ = world_transform(effects[0], source_entities)
-            mapped[links["proceduralObject['fire']"]].set('Pos', vector(fp))
+            mapped[links["proceduralObject['fire']"]].set('Pos', vector(fire_position))
         props = mapped[donor_id].find('Properties')
         props.set('bOwnedByHome', '0')  # No borrowed Trosky home/owner relationship.
         fireplace = props.find('Fireplace')
@@ -158,6 +221,10 @@ def convert(files, source, native, guid):
         root.extend(mapped.values())
         records.append({'source_pot': source_id, 'source_fireplace': owner.get('EntityId'),
                         'kind': kind, 'position': list(pp), 'native_effects': bool(effects),
+                        'fire_position': None if fire_position is None else list(fire_position),
+                        'fire_lowered_m': round(lowered, 6),
+                        'pan_position': None if placements['pan'] is None else list(placements['pan']),
+                        'pan_anchor': 'donor_relative' if placements['pan'] is None else 'source_fire_trigger',
                         'entity_guids': [n.get('EntityGuid') for n in mapped.values()]})
     removed = 0
     for parent in root.iter():
@@ -170,6 +237,8 @@ def convert(files, source, native, guid):
     return result, {'converted': len(records), 'families': dict(Counter(r['kind'] for r in records)),
                     'native_effect_fireplaces': sum(r['native_effects'] for r in records),
                     'replaced_ladle_visuals': removed, 'records': records,
+                    'fires_rested_on_pot_surface': sum(1 for r in records if r['fire_lowered_m'] > 0),
+                    'pan_triggers_at_source_fire_trigger': sum(1 for r in records if r['pan_anchor'] == 'source_fire_trigger'),
                     'inactive_layer_pots': deferred,
                     'add_item_behavior': 'Consumes one item; applies ConsumableBuff if present; does not refill soup',
                     'npc_schedules': 'Trosky household and bench schedules are not imported'}
