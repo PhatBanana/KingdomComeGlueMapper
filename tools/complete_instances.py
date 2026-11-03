@@ -17,6 +17,7 @@ from static_assets import asset_pack, install_staged
 from entity_visuals import initial_layer
 from building_brushes import resource_table
 from vegetation_gi import upgrade_group
+from vegetation_tilt import HeightField, source_tilts
 
 
 def main():
@@ -108,11 +109,13 @@ def main():
         if checked.data[checked.nodes[0]['offset']:] != baseline.data[baseline.nodes[0]['offset']:]:
             raise ValueError('Existing terrain or water changed')
         hlod_xml = ET.fromstring(level_pak.read('terrain/hlods.xml'))
+        # KCD2 reads terrain alignment from baked instance bytes.
+        tilts = source_tilts(source, additions, HeightField(baseline)) if additions else {}
         sectors = defaultdict(list)
         for r in additions:
             sectors[(int(r['pos'][0])//64,int(r['pos'][1])//64)].append(r)
         for (x,y), instances in sorted(sectors.items()):
-            payload = b''.join(convert_instance(source.data,r['offset'],group_map[r['group']]) for r in instances)
+            payload = b''.join(convert_instance(source.data,r['offset'],group_map[r['group']],tilts.get(r['offset'])) for r in instances)
             offset = len(hlods)
             hlods.extend(struct.pack('<I',len(payload))+payload)
             z = sum(r['pos'][2] for r in instances)/len(instances)

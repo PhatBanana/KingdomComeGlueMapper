@@ -16,6 +16,7 @@ from upgrade_map import read, xml
 from vegetation import read_instances, verify_target_hlods, convert_instance
 from merged_vegetation import inventory, convert_cell, build_tree
 from vegetation_gi import upgrade_group
+from vegetation_tilt import HeightField, source_tilts
 
 
 def main():
@@ -184,6 +185,8 @@ def main():
             parsed = parse(bytes(terrain))
             if len(parsed.tables["vegetation"]["paths"]) != len(groups):
                 raise ValueError("Vegetation table verification failed")
+            # KCD2 reads terrain alignment from baked instance bytes.
+            tilts = source_tilts(source, selected, HeightField(parsed)) if selected else {}
             destination.mkdir(parents=True)
             with zipfile.ZipFile(destination/"terrain.pak","x",zipfile.ZIP_STORED) as output:
                 output.writestr("terrain/terrain.dat",terrain)
@@ -201,7 +204,7 @@ def main():
         for record in selected:
             sectors[(int(record["pos"][0])//64,int(record["pos"][1])//64)].append(record)
         for (x,y),instances in sorted(sectors.items()):
-            payload = b"".join(convert_instance(source.data,r["offset"],group_map[r["group"]]) for r in instances)
+            payload = b"".join(convert_instance(source.data,r["offset"],group_map[r["group"]],tilts.get(r["offset"])) for r in instances)
             offset = len(hlod_data)
             hlod_data.extend(struct.pack("<I",len(payload))+payload)
             z = sum(r["pos"][2] for r in instances)/len(instances)

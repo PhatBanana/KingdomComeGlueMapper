@@ -161,6 +161,10 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from world_actor_contracts import upgrade as upgrade_actor_contracts
         files, report = upgrade_actor_contracts(package, target)
         receipt['files'].update(files); receipt['world_actor_contracts'] = report
+        # Saved worlds keep their HLODs; only KCD1 runtime alignment is baked.
+        from vegetation_tilt import upgrade_package as bake_vegetation_tilt
+        files, report = bake_vegetation_tilt(package)
+        receipt['files'].update(files); receipt['vegetation_terrain_tilt'] = report
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -511,6 +515,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from world_actor_contracts import upgrade as upgrade_actor_contracts
     actor_files, actor_report = upgrade_actor_contracts(package, target)
     receipt['files'].update(actor_files); receipt['world_actor_contracts'] = actor_report
+    # After the last HLOD writers (static gates, stocks), as on the saved-build path,
+    # so the tilt receipt's hlods_sha256 describes the shipped hlods.dat.
+    from vegetation_tilt import upgrade_package as bake_vegetation_tilt
+    tilt_files, tilt_report = bake_vegetation_tilt(package)
+    receipt['files'].update(tilt_files)
+    receipt['vegetation_terrain_tilt'] = tilt_report
     receipt['build_recipe']['content_validation'] = validate(package)
     from setup_pak_limits import split_assets, validate as validate_pak_limits
     receipt['files'].update(split_assets(package))
