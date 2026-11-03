@@ -237,6 +237,9 @@ class UpgradeTests(unittest.TestCase):
             from loft_navigation import VERSION as LOFT_NAVIGATION_VERSION
             loft_navigation_report = {'version': LOFT_NAVIGATION_VERSION, 'runtime_verified': False}
             loft_navigation_upgrade = self.enterContext(patch('loft_navigation.upgrade', return_value=({}, loft_navigation_report)))
+            from home_door_links import VERSION as DOORS_VERSION
+            doors_report = {'version': DOORS_VERSION, 'doors': 0, 'runtime_verified': False}
+            doors_upgrade = self.enterContext(patch('home_door_links.upgrade', return_value=({}, doors_report)))
             lights_report = {'version': 1, 'runtime_verified': False}
             lights_upgrade = self.enterContext(patch('procedural_lights.upgrade', return_value=({}, lights_report)))
             barrier_report = {'version': 1, 'status': 'present', 'runtime_verified': False}
@@ -308,6 +311,8 @@ class UpgradeTests(unittest.TestCase):
                     self.assertEqual([None if a is None else Path(a) for a in loft_navigation_upgrade.call_args_list[0].args],
                                      [p, p/'native' if getattr(self, 'retail_initializers', False) else None])
                     self.assertEqual(result['loft_navigation'], loft_navigation_report)
+                    self.assertEqual([Path(a) for a in doors_upgrade.call_args_list[0].args], [p, p])
+                    self.assertEqual(result['home_door_links'], doors_report)
                     lights_upgrade.assert_called_once_with(p, p, p/'native' if getattr(self, 'retail_initializers', False) else None)
                     self.assertEqual(result['procedural_lights'], lights_report)
                     for speech_upgrade in (fallback_upgrade, barrier_upgrade):

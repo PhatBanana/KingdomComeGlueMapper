@@ -127,6 +127,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from loft_navigation import upgrade as connect_loft_navigation
         files, report = connect_loft_navigation(package, target)
         receipt['files'].update(files); receipt['loft_navigation'] = report
+        from home_door_links import upgrade as link_home_doors
+        files, report = link_home_doors(package, source)
+        receipt['files'].update(files); receipt['home_door_links'] = report
         from setup_static_gate_repair import upgrade as repair_static_gates
         files, report = repair_static_gates(package, source, target)
         receipt['files'].update(files); receipt['static_gate_repair'] = report
@@ -401,6 +404,11 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     navigation_files, navigation_report = connect_loft_navigation(package, target)
     receipt['files'].update(navigation_files)
     receipt['loft_navigation'] = navigation_report
+    from home_door_links import upgrade as link_home_doors
+    notify('Link home doors for night locking', 0, 1, 'Native crime-door links and trespass labels from source homes')
+    door_files, door_report = link_home_doors(package, source)
+    receipt['files'].update(door_files)
+    receipt['home_door_links'] = door_report
     from procedural_lights import upgrade as upgrade_procedural_lights
     notify('Register candles and fire lights', 0, 1, 'Native flames and lighting at source placements')
     light_files, light_report = upgrade_procedural_lights(package, source, target)
