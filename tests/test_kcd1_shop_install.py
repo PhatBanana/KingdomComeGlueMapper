@@ -111,7 +111,10 @@ class InstallTests(unittest.TestCase):
         operations = [(o.tag, o.get('name')) for o in rule.find('operations')]
         self.assertEqual(operations, [('addRole', 'gm_person_1_role'), ('addRole', 'VYJEDNAVANI_MUZ'),
                                       ('addRole', 'GM_KCD1_OBCHODNIK'), ('addRole', 'GM_KCD1_POZDRAV_MUZ'),
-                                      ('addRole', 'GM_KCD1_SMLOUVANI_MUZ'), ('addRole', 'GM_KCD1_ROZLOUCENI_MUZ')]
+                                      ('addRole', 'GM_KCD1_SMLOUVANI_MUZ'), ('addRole', 'GM_KCD1_ROZLOUCENI_MUZ'),
+                                      ('addRole', 'GM_KCD1_LOUCENI_PO_NAKUPU_ZADNY_MUZ'),
+                                      ('addRole', 'GM_KCD1_LOUCENI_PO_NAKUPU_BEZNY_MUZ'),
+                                      ('addRole', 'GM_KCD1_LOUCENI_PO_NAKUPU_VELKY_MUZ')]
                          + [('removeRole', r) for r in REMOVE_NATIVE])
         self.assertEqual(sorted(removed), ['OBCHODNIK_Z_DIALOGU_MUZ', 'SMLOUVANI_MUZ', 'addShopRoles_ending_man',
                                            'addShopRoles_greeting_man'])
@@ -208,7 +211,20 @@ class InstallTests(unittest.TestCase):
         rows = {r.get('role_name'): r.get('metarole_name') for r in ET.fromstring(role_rows()).iter('role')}
         self.assertEqual(rows, {'GM_KCD1_OBCHODNIK': 'NPC', 'GM_KCD1_POZDRAV_MUZ': 'NPC', 'GM_KCD1_POZDRAV_ZENA': 'NPC',
                                 'GM_KCD1_SMLOUVANI_MUZ': 'SMLOUVANI', 'GM_KCD1_SMLOUVANI_ZENA': 'SMLOUVANI',
-                                'GM_KCD1_ROZLOUCENI_MUZ': 'ROZLOUCENI', 'GM_KCD1_ROZLOUCENI_ZENA': 'ROZLOUCENI'})
+                                'GM_KCD1_ROZLOUCENI_MUZ': 'ROZLOUCENI', 'GM_KCD1_ROZLOUCENI_ZENA': 'ROZLOUCENI',
+                                **{f'GM_KCD1_LOUCENI_PO_NAKUPU_{k}_{s}': f'POZDRAV_PO_NAKUPU_{k}'
+                                   for k in ('ZADNY', 'BEZNY', 'VELKY') for s in ('MUZ', 'ZENA')}})
+
+    def test_keepers_own_talk_dialogs_allow_the_farewell(self):
+        from kcd1_shop_install import allow_farewell
+        talk = (b'<Database><Skald><FaderDialog Name="rattay_miller"><Dialogue Initiator="Player" '
+                b'NonSpeakerRoles="GM_RATTAY_MILLER" AllowGreeting="false" AllowFarewell="false" /></FaderDialog>'
+                b'</Skald></Database>')
+        opened = ET.fromstring(allow_farewell(talk, {'GM_RATTAY_MILLER'})).find('Skald/FaderDialog/Dialogue')
+        self.assertEqual((opened.get('AllowFarewell'), opened.get('AllowGreeting')), ('true', 'false'))
+        # A dialog of a role outside the keepers' own (retail negotiation) and an already open one stay.
+        self.assertIsNone(allow_farewell(talk.replace(b'GM_RATTAY_MILLER', b'VYJEDNAVANI_MUZ'), {'GM_RATTAY_MILLER'}))
+        self.assertIsNone(allow_farewell(talk.replace(b'AllowFarewell="false"', b'AllowFarewell="true"'), {'GM_RATTAY_MILLER'}))
 
     def test_farewell_is_fed_by_the_kcd2_state_node_and_declared_in_the_module(self):
         from kcd1_shop_install import farewell_nodes, module

@@ -296,8 +296,9 @@ class TradeTests(unittest.TestCase):
     def test_trade_choice_opens_the_shop_for_any_keeper_with_the_role(self):
         blob, report = emit_trade(self.trade_model())
         body = ET.fromstring(blob).find('Skald/FaderDialog/Dialogue')
+        # Greeting and farewell are allowed: the engine plays neither from a talk-screen dialog that forbids them.
         self.assertEqual((body.get('AllowGreeting'), body.get('AllowFarewell'), body.get('NonSpeakerRoles')),
-                         ('true', 'false', 'GM_KCD1_OBCHODNIK'))
+                         ('true', 'true', 'GM_KCD1_OBCHODNIK'))
         self.assertEqual([q.get('Soul') for q in body.iter('SelectedSoul')], [None, None])
         types = [q.get('Type') for q in body.iter('Sequence') if q.get('Type')]
         self.assertEqual(types, ['Shop', 'OpenShop'])

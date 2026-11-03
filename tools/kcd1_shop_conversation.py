@@ -473,22 +473,32 @@ def emit_greeting(model, sex):
 FAREWELL_SOURCE_ROLE = {'man': 'ROZLOUCENI_(MUZ)', 'woman': 'ROZLOUCENI_(ZENA)'}
 FAREWELL_ROLE = {'man': 'GM_KCD1_ROZLOUCENI_MUZ', 'woman': 'GM_KCD1_ROZLOUCENI_ZENA'}
 FAREWELL_NAME = {'man': 'gm_kcd1_rozlouceni_muz', 'woman': 'gm_kcd1_rozlouceni_zena'}
+# After the shop closes, KCD2's ShopModule asks for a goodbye by purchase size through the hard-coded
+# metaroles POZDRAV_PO_NAKUPU_ZADNY/BEZNY/VELKY (retail ending_po_ukonceni_shopu). KCD1 had one farewell
+# for the end of every conversation, so each size gets the same KCD1 farewell, on its own role.
+AFTER_SHOP = ('ZADNY', 'BEZNY', 'VELKY')
+AFTER_SHOP_METAROLE = {kind: 'POZDRAV_PO_NAKUPU_' + kind for kind in AFTER_SHOP}
+AFTER_SHOP_ROLE = {(sex, kind): f'GM_KCD1_LOUCENI_PO_NAKUPU_{kind}_{suffix}'
+                   for sex, suffix in (('man', 'MUZ'), ('woman', 'ZENA')) for kind in AFTER_SHOP}
+AFTER_SHOP_NAME = {(sex, kind): f'gm_kcd1_po_nakupu_{kind.lower()}_{suffix}'
+                   for sex, suffix in (('man', 'muz'), ('woman', 'zena')) for kind in AFTER_SHOP}
 
 
-def emit_farewell(model, sex):
+def emit_farewell(model, sex, role=None, name=None, clash='Flavor'):
     """(KCD2 farewell Dialog bytes, report) for one KCD1 farewell closure.
 
     KCD1's farewell branch picks a pool by reputation band and the keeper says one
     of its lines; Henry is a silent participant. KCD2 plays the same moment as the
     NonPlayer monolog bound to a ROZLOUCENI role (ending_npc_se_louci_s_hracem__common_*),
-    so the closure keeps that Dialogue shape and KCD1's own pools and lines.
+    so the closure keeps that Dialogue shape and KCD1's own pools and lines. role/name
+    give the post-purchase copies (AFTER_SHOP_*), which retail runs at ClashPriority OpenWorld.
     """
-    role = FAREWELL_ROLE[sex]
+    role, name = role or FAREWELL_ROLE[sex], name or FAREWELL_NAME[sex]
     database = ET.Element('Database', Name='brambora')
-    dialog = ET.SubElement(ET.SubElement(database, 'Skald'), 'Dialog', Name=FAREWELL_NAME[sex])
+    dialog = ET.SubElement(ET.SubElement(database, 'Skald'), 'Dialog', Name=name)
     ports = ET.SubElement(dialog, 'Ports')
     body = ET.Element('Dialogue', Type='ingame monolog', TechnicalStatus='Enabled', Initiator='NonPlayer',
-                      ForceMood='noScope', ClashPriority='Flavor')
+                      ForceMood='noScope', ClashPriority=clash)
     used, emitted, lines_out, scripts = set(), set(), [], []
     start = model['topics'][model['start_topic']]['sequences']
     if not start or any(l['response'] for s in start for l in s['lines']) or any(s['source']['next'] == '0' for s in start):
@@ -502,7 +512,7 @@ def emit_farewell(model, sex):
     dialog.append(body)
     from upgrade_map import xml
     unreachable = sorted({l['string'] for l in lines_out if not satisfiable(path_condition(body, 's' + l['sequence']))})
-    report = dict(sex=sex, kcd1_start=model['start_topic'], name=FAREWELL_NAME[sex], role=role,
+    report = dict(sex=sex, kcd1_start=model['start_topic'], name=name, role=role,
                   topics=len(emitted), lines=len(lines_out), ports=sorted(used), unreachable_lines=unreachable)
     return xml(database), report
 
@@ -529,7 +539,10 @@ def emit_trade(model):
     dialog = root.find('Skald/FaderDialog')
     dialog.remove(dialog.find('Ports'))
     body = dialog.find('Dialogue')
+    # The engine plays the greeting and the ROZLOUCENI farewell only when the talk-screen dialog allows
+    # them; KCD1 greeted and said farewell at the end of every conversation.
     body.set('AllowGreeting', 'true')
+    body.set('AllowFarewell', 'true')
     for soul in body.iter('SelectedSoul'):
         soul.attrib.pop('Soul', None)
     for sequence in body.iter('Sequence'):

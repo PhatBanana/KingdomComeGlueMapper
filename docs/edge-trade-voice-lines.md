@@ -312,6 +312,27 @@ dialog stays.
   the dialogue. It binds through `GM_KCD1_ROZLOUCENI_*` (metarole ROZLOUCENI),
   which replaces the removed `ROZLOUCENI_S_HRACEM_COMMON_*`; the step checks
   that exactly one ROZLOUCENI role binds to each keeper.
+  - **Who asks for it.** The engine, by hard-coded metarole name, not a world
+    module: WHGame.dll names `ROZLOUCENI` in the dialog module and
+    `POZDRAV_PO_NAKUPU_ZADNY/BEZNY/VELKY` (and `POZDRAV_PO_REPAIRU_*`) in the
+    ShopModule. A dialog with the metarole qualifies wherever it is hosted.
+  - **Leaving the talk screen.** The dialog module plays the ROZLOUCENI
+    farewell only when the talk-screen dialog allows it (`AllowFarewell`, as
+    `AllowGreeting` gates the greeting). On unified-6 every keeper's
+    talk-screen dialog said `"false"` (the port's trade dialog, copied from the
+    generated one, and the maintainer's), so no goodbye played (Sean, 2 Nov:
+    "no dialogue when I leave"). The port's `gm_kcd1_obchod` and the keepers'
+    own talk dialogs (the maintainer's `rattay_innkeeper`, `rattay_miller`,
+    `gm_neuhof_horse_sales`) now say `"true"`: KCD1 said farewell at the end of
+    every conversation. Retail's own shop dialogs say `"false"`, possibly so
+    no goodbye plays as the talk screen fades into the shop; see acceptance.
+  - **After the shop closes.** The ShopModule asks for POZDRAV_PO_NAKUPU_* by
+    purchase size; the port removed KCD2's post-purchase endings. Each sex now
+    has three more copies of the KCD1 farewell (`gm_kcd1_po_nakupu_<size>_*`,
+    ClashPriority OpenWorld like retail's endings) on
+    `GM_KCD1_LOUCENI_PO_NAKUPU_<size>_*`, one per metarole, so every purchase
+    size gets the same KCD1 goodbye. Same lines and recordings; the step checks
+    exactly one role per post-purchase metarole per keeper.
   - The KCD1 reputation bands pick a pool of five lines, Autoselect picks
     one, through the same adapter as the greeting (reputace_dobra / stredni /
     nizka from the same state node).
@@ -449,8 +470,13 @@ speaker's own stem, and treats those rows as essential.
 2. Haggle: KCD1 reactions in the keeper's voice and Henry's KCD1 lines. Buying
    and selling must complete (money and items move), since the sale runs in
    the haggle dialog's scripts.
-3. Ending the conversation: the keeper says one KCD1 farewell line in the
-   keeper's voice ("Take care.", "Farewell.", "Bye."...), Henry says nothing.
+3. Farewell, at every keeper (one KCD1 line in the keeper's voice, "Take
+   care.", "Farewell.", "Bye."..., Henry silent):
+   a. leaving the talk screen without trading: a goodbye plays;
+   b. closing the shop after trading (and after only browsing): a goodbye plays;
+   c. the misfire to watch for: a goodbye spoken as the talk screen fades into
+      the shop, before trading. If it happens, every AllowFarewell flip is
+      reverted together (the port's and the maintainer's three).
 4. No KCD2 greeting, shop greeting, common farewell or post-purchase farewell
    on these keepers.
 5. Start a fight near ska_merchant1 (or any rpro/akem keeper): no sound is

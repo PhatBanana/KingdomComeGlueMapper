@@ -109,7 +109,8 @@ GREETING_STATE = {'hrac_je_spinavy', 'hrac_je_zakrvaceny', 'hrac_ma_alespon_vyso
 def roles_for(sex, trade=True):
     """The port's roles; trade=False for a keeper whose own rule already opens the shop (see own_trade)."""
     return ((conversation.TRADE_ROLE,) if trade else ()) + (conversation.GREETING_ROLE[sex], conversation.PORTED_ROLE[sex],
-                                                            conversation.FAREWELL_ROLE[sex])
+                                                            conversation.FAREWELL_ROLE[sex]) \
+        + tuple(conversation.AFTER_SHOP_ROLE[sex, kind] for kind in conversation.AFTER_SHOP)
 
 
 def shop_dialog_roles(quest_files, skip=()):
@@ -122,6 +123,25 @@ def shop_dialog_roles(quest_files, skip=()):
             if any(s.get('Type') == 'OpenShop' for s in dialogue.iter('Sequence')) and dialogue.get('NonSpeakerRoles'):
                 roles.update(dialogue.get('NonSpeakerRoles').split(','))
     return roles
+
+
+def allow_farewell(blob, roles):
+    """The talk-screen FaderDialog bound to one of roles with AllowFarewell="true", or None when unchanged.
+
+    The engine plays the ROZLOUCENI farewell at the end of a conversation only when the dialog allows it.
+    """
+    if b'<FaderDialog' not in blob:
+        return None
+    root = ET.fromstring(blob)
+    changed = False
+    for dialog in root.iter('FaderDialog'):
+        body = dialog.find('Dialogue')
+        if body is None or body.get('Initiator') != 'Player' or body.get('NonSpeakerRoles') not in roles:
+            continue
+        if body.get('AllowFarewell') != 'true':
+            body.set('AllowFarewell', 'true')
+            changed = True
+    return xml(root) if changed else None
 
 
 def own_trade(rule, custom, shop_roles):
@@ -141,6 +161,8 @@ def role_rows():
     for sex in conversation.SEXES:
         names += [(conversation.GREETING_ROLE[sex], 'NPC'), (conversation.PORTED_ROLE[sex], 'SMLOUVANI'),
                   (conversation.FAREWELL_ROLE[sex], 'ROZLOUCENI')]
+        names += [(conversation.AFTER_SHOP_ROLE[sex, kind], conversation.AFTER_SHOP_METAROLE[kind])
+                  for kind in conversation.AFTER_SHOP]
     for name, metarole in names:
         ET.SubElement(roles, 'role', _locked='false', _role_string_name='role_' + name, metarole_name=metarole, role_name=name)
     return xml(root)
@@ -269,9 +291,9 @@ def greeting_nodes(sex, ports):
     return nodes
 
 
-def farewell_nodes(sex, ports):
+def farewell_nodes(sex, ports, dialog=None, role=None):
     """Module nodes feeding one ported farewell, after KCD2's common farewell wiring (rozlouceni_na_konci_dialogu)."""
-    dialog, role = conversation.FAREWELL_NAME[sex], conversation.FAREWELL_ROLE[sex]
+    dialog, role = dialog or conversation.FAREWELL_NAME[sex], role or conversation.FAREWELL_ROLE[sex]
     state = f'{dialog}_state'
     node = ET.Element('timeandplayerstate', Name=state, Namespace='utils.greetings_utils')
     ET.SubElement(node, 'Asset', Name='player', Alias='player')
@@ -316,7 +338,8 @@ def haggle_nodes(native_module, sex):
 def dialog_names():
     return [conversation.TRADE_NAME] + [n for sex in conversation.SEXES
                                         for n in (conversation.GREETING_NAME[sex], conversation.PORTED_NAME[sex],
-                                                  conversation.FAREWELL_NAME[sex])]
+                                                  conversation.FAREWELL_NAME[sex])
+                                        + tuple(conversation.AFTER_SHOP_NAME[sex, k] for k in conversation.AFTER_SHOP)]
 
 
 def module(native_module, greeting_ports, farewell_ports, utils=True):
@@ -332,6 +355,9 @@ def module(native_module, greeting_ports, farewell_ports, utils=True):
         nodes.extend(greeting_nodes(sex, greeting_ports[sex]))
         nodes.extend(haggle_nodes(native_module, sex))
         nodes.extend(farewell_nodes(sex, farewell_ports[sex]))
+        for kind in conversation.AFTER_SHOP:
+            nodes.extend(farewell_nodes(sex, farewell_ports[sex], conversation.AFTER_SHOP_NAME[sex, kind],
+                                        conversation.AFTER_SHOP_ROLE[sex, kind]))
     nodes.append(ET.Element(conversation.TRADE_NAME, Name=conversation.TRADE_NAME))
     if utils:
         ET.SubElement(nodes, 'utils', Name='utils')
@@ -715,6 +741,7 @@ def plan(package, source, target):
         native_definitions = read(gamedata, 'Libs/concept/definitions.xml')
         metaroles = {r.get('role_name'): r.get('metarole_name')
                      for r in ET.fromstring(read(tables, 'Libs/Tables/rpg/role.xml')).iter('role')}
+    retail_roles = set(metaroles)
     for blob in role_tables.values():
         metaroles.update({r.get('role_name'): r.get('metarole_name') for r in ET.fromstring(blob).iter('role')})
     rows = role_rows()
@@ -739,6 +766,10 @@ def plan(package, source, target):
         dialogs[conversation.PORTED_NAME[sex]], dialogs[conversation.GREETING_NAME[sex]] = haggle, greeting
         farewell, farewell_report = conversation.emit_farewell(models[('farewell', sex)], sex)
         dialogs[conversation.FAREWELL_NAME[sex]] = farewell
+        for kind in conversation.AFTER_SHOP:
+            name = conversation.AFTER_SHOP_NAME[sex, kind]
+            dialogs[name] = conversation.emit_farewell(models[('farewell', sex)], sex, conversation.AFTER_SHOP_ROLE[sex, kind],
+                                                       name, clash='OpenWorld')[0]
         ports[sex], farewell_ports[sex] = greeting_report['ports'], farewell_report['ports']
         reports[sex] = dict(haggle={k: v for k, v in haggle_report.items() if k not in ('pairs', 'removed_responses')},
                             greeting={k: v for k, v in greeting_report.items() if k != 'adapter'},
@@ -770,7 +801,7 @@ def plan(package, source, target):
     # Shop dialogs that stay: not the port's own, not the generated per-keeper ones it removes below.
     removed_generated = {p for p, b in generated_dialogs.items() if (generated(b) or (None,))[0] in SCOPE}
     shop_roles = shop_dialog_roles(quest_files, {p for p in quest_files if p.startswith(FOLDER)} | removed_generated)
-    keepers_report, role_changes = [], {}
+    keepers_report, role_changes, talk_roles = [], {}, set()
     for person in SCOPE:
         own = own_rule(role_files, person)
         if own is None:
@@ -787,7 +818,11 @@ def plan(package, source, target):
         trade = [r for r in roles if r == conversation.TRADE_ROLE or TRADE_STYLE.fullmatch(r) or r in shop_roles]
         if trade != (kept_trade or [conversation.TRADE_ROLE]):
             raise ValueError(f'{person} would offer {len(trade)} Trade options: {trade}')
-        for metarole, ported in (('SMLOUVANI', conversation.PORTED_ROLE), ('ROZLOUCENI', conversation.FAREWELL_ROLE)):
+        # One haggle, one farewell, and one goodbye per post-purchase size, each the port's own.
+        checked = [('SMLOUVANI', conversation.PORTED_ROLE), ('ROZLOUCENI', conversation.FAREWELL_ROLE)]
+        checked += [(conversation.AFTER_SHOP_METAROLE[kind], {s: conversation.AFTER_SHOP_ROLE[s, kind] for s in conversation.SEXES})
+                    for kind in conversation.AFTER_SHOP]
+        for metarole, ported in checked:
             bound = [r for r in roles if metaroles.get(r) == metarole]
             if bound != [ported[sex]]:
                 raise ValueError(f'{person} binds {len(bound)} {metarole} dialogs: {bound}')
@@ -806,8 +841,22 @@ def plan(package, source, target):
             # retail hasMerchantVoiceOrNoCharacter reads the voice's groups; the other selectors are runtime state
             merchant_voice='Merchants' in voice_groups[person], generic_removed=list(generic[sex]),
             trade=trade[0]))
+        # Only the keeper's own non-retail roles (GMTRAVEL_RATTAY_INNKEEPER, GM_NEUHOF_HORSE_TRADER, ...):
+        # retail roles such as VYJEDNAVANI_* bind KCD2's own dialogs, which keep their flags.
+        talk_roles.update(o.get('name') for o in rule.find('operations')
+                          if o.tag == 'addRole' and o.get('name') not in retail_roles)
     desired.update(role_changes)
     desired.update(voice_changes)
+    # The keepers' own talk-screen dialogs (the maintainer's rattay_innkeeper, rattay_miller and horse
+    # sales) allow the farewell like the port's trade dialog, so all ten keepers end alike.
+    farewell_dialogs = []
+    for path, blob in sorted(quest_files.items()):
+        if path.startswith(FOLDER) or path in removed_generated:
+            continue
+        changed = allow_farewell(blob, talk_roles)
+        if changed is not None:
+            desired[path] = changed
+            farewell_dialogs.append(path)
 
     entry = ET.fromstring(entry_blob)
     level_host = entry.find('Skald/Level')
@@ -880,7 +929,7 @@ def plan(package, source, target):
     changes = {TRAVEL: travel_changes, ENGLISH: english_changes, ENGLISH_XML: text_changes, FACIALS: facial_changes}
     report = dict(version=VERSION, scope=list(SCOPE), host=HOST, module=FOLDER + MODULE + '.xml', audio_scope=scope,
                   utils_closure=sorted(closure), utils_libraries=utils_libraries(closure), **audit,
-                  keepers=keepers_report, voice_switches=voice_report, dialogs=reports,
+                  keepers=keepers_report, voice_switches=voice_report, farewell_allowed=farewell_dialogs, dialogs=reports,
                   trade=trade_report, removed_dialogs=removed_dialogs, role_table=ROLE_TABLE,
                   recordings_added=sorted(media), text_rows=len(texts), facial_lines=len(tracked),
                   facial_tracks_added=len(added),
