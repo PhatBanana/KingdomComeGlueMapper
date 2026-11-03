@@ -59,6 +59,29 @@ def gpu_configuration():
     return {k:os.environ.get(k,default) for k,default in [('GLUEMAPPER_GPU_BATCH','64'),('GLUEMAPPER_GPU_PIPELINE','1'),('GLUEMAPPER_OPTIX_TRIANGLES','0'),('GLUEMAPPER_GPU_ASYNC','0'),('GLUEMAPPER_GPU_GRAPHS','0')]}
 
 
+def mesh_records(scene):
+    """Every meshes/<key>.json record by key, through one index file.
+
+    A scene has tens of thousands of mesh records and opening each costs a few
+    milliseconds: about a minute per pass, paid by tile planning in every bake
+    process and by each scene identity. Records are content-keyed, so the index
+    is rebuilt whenever the folder's record names disagree with it."""
+    scene=Path(scene);folder=scene/'meshes';index=scene/'meshes.json'
+    if not folder.is_dir():return {}
+    names={entry.name[:-5] for entry in os.scandir(folder) if entry.name.endswith('.json')}
+    try:
+        records=json.loads(index.read_text())
+        if records.keys()==names:return records
+    except (OSError,ValueError):pass
+    records={name:json.loads((folder/(name+'.json')).read_text()) for name in sorted(names)}
+    pending=index.with_name(f'meshes.{os.getpid()}.tmp');pending.write_text(json.dumps(records));pending.replace(index)
+    return records
+
+
+def mesh_triangles(scene):
+    return {key:record['triangles'] for key,record in mesh_records(scene).items() if isinstance(record.get('triangles'),int)}
+
+
 def tile_signature(version,asset_digest,plan,job,samples,experimental_base_materials,backend,gpu_config):
     return hashlib.sha256(json.dumps([version,asset_digest,plan['source_packages'],plan.get('vegetation'),job,samples,experimental_base_materials,backend,gpu_config]).encode()).hexdigest()
 
@@ -150,7 +173,7 @@ class _TriangleEstimate:
     """Mesh-header triangle counts for a scene; shared by the bake workers and the submitting process."""
     def __init__(self,scene,plan):
         self.scene=Path(scene);self.plan=plan;self.records=json.loads((self.scene/'placements.json').read_text())
-        self.vegetation=None;self.mesh_triangles={}
+        self.vegetation=None;self.mesh_triangles=mesh_triangles(self.scene)
         if plan.get('vegetation'):
             with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(None,data['groups'])
 
@@ -194,7 +217,7 @@ class _TileBaker(_TriangleEstimate):
             with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(data['transforms'],data['groups'])
         self.version=code_digest();self.asset_digest=self.assets.catalog_digest()
         self.samples=samples;self.experimental_base_materials=experimental_base_materials;self.backend=backend
-        self.workers=workers;self.gpu_budget=gpu_budget;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles={}
+        self.workers=workers;self.gpu_budget=gpu_budget;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles=mesh_triangles(self.scene)
 
     def bake(self,number,total,job):
         if self.heavy is None or self.estimated_triangles(job)<HEAVY_TRIANGLES:return self._bake(number,total,job)
