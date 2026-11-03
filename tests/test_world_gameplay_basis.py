@@ -34,8 +34,72 @@ class WorldGameplayBasisTests(unittest.TestCase):
             for path, data in self.native_files.items(): z.writestr(path, data)
 
     def run_apply(self):
-        with zipfile.ZipFile(self.script_path) as scripts, zipfile.ZipFile(self.native_path) as native, patch('world_gameplay_basis.SYSTEMS', ('combat',)):
+        with zipfile.ZipFile(self.script_path) as scripts, zipfile.ZipFile(self.native_path) as native, \
+                patch('world_gameplay_basis.SYSTEMS', ('combat',)), patch('world_gameplay_basis.DROPPED', ()):
             return apply(self.files, self.graphs, 'Quests/GlueTravel/project.xml', 'test_level', native, scripts, guid)
+
+    def test_kcd1_world_split_keeps_interactive_systems_and_drops_small_talk(self):
+        from world_gameplay_basis import WORLD_GROUPS, SYSTEMS, DROPPED, refuse_dropped_groups
+        names = [n for n, _, _ in WORLD_GROUPS]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertTrue(all(reason for _, _, reason in WORLD_GROUPS))
+        self.assertEqual(set(DROPPED), {'reakce_na_stav_hrace', 'reputace', 'spanek_npc', 'pozdravy_a_rozlouceni_mezi_npc',
+                                        'pozdravy_na_zacatku_dialogu', 'rozlouceni_na_konci_dialogu', 'reakce_pratelskych_nepratel'})
+        for kept in ('combat', 'boj_a_zraneni', 'battle_barks', 'punishment_barks', 'shop', 'repair', 'sharpening',
+                     'perky', 'statistical_perks', 'requestplayerholsterweapon', 'generic_action_prompts'):
+            self.assertIn(kept, SYSTEMS)
+        # The receipt keeps each module's decision so filler can be re-enabled later.
+        _, _, report = self.run_apply()
+        combat = next(r for r in report['systems'] if r['name'] == 'combat')
+        self.assertEqual((combat['kcd1_world'], combat['registered']), ('kept', True))
+        self.assertTrue(combat['reason'])
+        refuse_dropped_groups(b'<Database><Skald><Gameplay Name="open_world"><Nodes><combat Name="combat"/></Nodes></Gameplay></Skald></Database>')
+        with self.assertRaisesRegex(ValueError, 'spanek_npc.*rebuild the package'):
+            refuse_dropped_groups(b'<Database><Skald><Gameplay Name="open_world"><Nodes><combat Name="combat"/><spanek_npc Name="spanek_npc"/></Nodes></Gameplay></Skald></Database>')
+
+    def test_shop_flavour_cut_removes_its_condition_chain_and_keeps_trade(self):
+        from world_gameplay_basis import cut_shop_flavour, SHOP_FLAVOUR
+        cut = [n for n, _ in SHOP_FLAVOUR]
+        def shop(extra=''):
+            definitions = ''.join(f'<Definition File="shop/{n}.xml"/>' for n in (*cut, 'greeting_obchodnika_'))
+            subs = ''.join(f'<{n} Name="{n}"/>' for n in cut[1:])
+            return ET.fromstring(f'''<Database><Skald><Gameplay Name="shop"><Definitions>{definitions}</Definitions><Nodes>
+                <{cut[0]} Name="{cut[0]}"/>{subs}
+                <HasAngrinessFlag_Soul Name="angry"><Edge From="{cut[0]}.ROLE" To="soul"/></HasAngrinessFlag_Soul>
+                <Function Name="or1" MethodName="math::boolean::Or"><Edge From="angry.flag" To="a"/></Function>
+                <greeting_obchodnika_ Name="greeting_obchodnika_"/>
+                <addopenworldcooldown Name="cooldown"><Edge From="greeting_obchodnika_.ROLE" To="npc"/></addopenworldcooldown>
+                {extra}</Nodes></Gameplay></Skald></Database>''').find('Skald')[0]
+        local = {n: f'quests/final/barbora/open_world/shop/{n}.xml' for n in (*cut, 'greeting_obchodnika_')}
+        host = shop()
+        removed = cut_shop_flavour(host, local)
+        self.assertEqual(set(removed), {*cut, 'angry', 'or1'})
+        self.assertEqual([n.get('Name') for n in host.find('Nodes')], ['greeting_obchodnika_', 'cooldown'])
+        self.assertEqual([d.get('File') for d in host.find('Definitions')], ['shop/greeting_obchodnika_.xml'])
+        # A side effect or a kept sub-dialogue downstream of the cut stops it.
+        for extra in ('<AddReward Name="reward"><Edge From="or1.bool" To="x"/></AddReward>',
+                      '<greeting_obchodnika_ Name="second"><Edge From="angry.flag" To="x"/></greeting_obchodnika_>'):
+            with self.assertRaisesRegex(ValueError, 'would reach'):
+                cut_shop_flavour(shop(extra), local)
+
+    def test_crime_wrapper_accepts_only_the_kept_systems(self):
+        from world_gameplay_basis import SYSTEMS, DROPPED
+        from world_crime_graphs import prepare
+        def wrapper(names):
+            nodes = ''.join(f'<{n} Name="{n}"/>' for n in names)
+            return f'<Database><Skald><Gameplay Name="open_world"><Definitions/><Nodes>{nodes}</Nodes></Gameplay></Skald></Database>'.encode()
+        with zipfile.ZipFile(self.script_path) as scripts:
+            # A controller built before the KCD1-only world still registers small talk.
+            with self.assertRaisesRegex(ValueError, 'explicit migration required'):
+                prepare(b'<Database/>', wrapper((*SYSTEMS, *DROPPED, 'utils')), 'e.xml', 'w.xml', scripts, 'faction')
+            with self.assertRaisesRegex(ValueError, 'explicit migration required'):
+                prepare(b'<Database/>', wrapper((*SYSTEMS[:-1], 'utils')), 'e.xml', 'w.xml', scripts, 'faction')
+
+    def test_retail_baseline_must_still_list_every_dropped_group(self):
+        with zipfile.ZipFile(self.script_path) as scripts, zipfile.ZipFile(self.native_path) as native, \
+                patch('world_gameplay_basis.SYSTEMS', ('combat',)), patch('world_gameplay_basis.DROPPED', ('spanek_npc',)):
+            with self.assertRaisesRegex(ValueError, 'Native baseline system set changed'):
+                apply(self.files, self.graphs, 'Quests/GlueTravel/project.xml', 'test_level', native, scripts, guid)
 
     def test_destination_binding_and_native_dependency_preservation(self):
         files, graphs, report = self.run_apply()

@@ -6,22 +6,97 @@ must not depend on resolving parent-directory segments across mounted paks.
 import copy
 import hashlib
 import posixpath
+import re
 import xml.etree.ElementTree as ET
 
 from campaign_entity_links import append_links
 from upgrade_map import read, xml
 
 NATIVE = 'quests/final/barbora/open_world.xml'
-# These have no campaign input ports or inherited regional asset dependencies.
+# Native open-world modules with no campaign input ports or inherited regional
+# asset dependencies, and whether the imported KCD1 world instantiates them.
 # Expansion is deliberate: a dependency audit is not proof of runtime parity.
-SYSTEMS = (
-    'combat', 'boj_a_zraneni', 'reakce_na_stav_hrace', 'reputace',
-    'spanek_npc', 'pozdravy_a_rozlouceni_mezi_npc',
-    'pozdravy_na_zacatku_dialogu', 'rozlouceni_na_konci_dialogu',
-    'reakce_pratelskych_nepratel', 'statistical_perks', 'perky',
-    'requestplayerholsterweapon', 'generic_action_prompts',
-    'battle_barks', 'punishment_barks', 'shop', 'repair', 'sharpening',
+# KCD1 NPCs speak KCD1 lines only, so KCD2 small talk, which would borrow KCD2
+# voices, stays out until it is chosen as filler; interactive systems stay.
+WORLD_GROUPS = (
+    ('combat', True, 'fight barks: kept as filler until KCD1 combat barks are ported'),
+    ('boj_a_zraneni', True, 'fight and wound barks: kept as filler'),
+    ('battle_barks', True, 'battle barks: kept as filler'),
+    ('punishment_barks', True, 'crime system: fines and arrests'),
+    ('shop', True, 'trade system'),
+    ('repair', True, 'repair service'),
+    ('sharpening', True, 'sharpening service'),
+    ('statistical_perks', True, 'perk system'),
+    ('perky', True, 'perk system'),
+    ('requestplayerholsterweapon', True, 'holster prompt'),
+    ('generic_action_prompts', True, 'action prompts'),
+    ('reakce_na_stav_hrace', False, "small talk: reactions to Henry's state"),
+    ('reputace', False, 'small talk: reputation remarks'),
+    ('spanek_npc', False, 'small talk: sleep mutters'),
+    ('pozdravy_a_rozlouceni_mezi_npc', False, 'small talk: NPC-to-NPC greetings and goodbyes'),
+    ('pozdravy_na_zacatku_dialogu', False, 'small talk: greetings at dialogue start'),
+    ('rozlouceni_na_konci_dialogu', False, 'small talk: goodbyes at dialogue end'),
+    ('reakce_pratelskych_nepratel', False, 'small talk: friendly-enemy reactions'),
 )
+SYSTEMS = tuple(name for name, kept, _ in WORLD_GROUPS if kept)
+DROPPED = tuple(name for name, kept, _ in WORLD_GROUPS if not kept)
+# KCD2 small talk inside the kept shop module. The trade dialogues, haggling,
+# the talk-start greeting and the shop ending (repair lines, reward) stay.
+SHOP = 'quests/final/barbora/open_world/shop.xml'
+SHOP_FLAVOUR = (
+    ('privitani_v_obchode__muz', 'small talk: welcome on entering a shop'),
+    ('privitani_v_obchode__zena', 'small talk: welcome on entering a shop'),
+    ('gossip_u_obchodnika_se_zakaznikem', 'small talk: keeper gossips with a customer'),
+    ('gossip_obchodnik_s_ochrankou', 'small talk: keeper gossips with a guard'),
+    ('vyvolavani_obchodniku_na_trhu', 'small talk: KCD2 stall cries'),
+)
+# Node kinds a cut may remove besides the sub-dialogues: reads with no effect.
+QUERY_NODES = frozenset(('HasAngrinessFlag_Soul', 'HasReputationFlag_SoulToSoul', 'MakeArray', 'ObjectProperties',
+                         'timeandplayerstate', 'is_shoprepair_denied', 'is_seller_in_shop',
+                         'getrelativecharismaininterval'))
+QUERY_METHOD = re.compile(r'^math::|::(Check|Get|Create|Is|Has|Make)\w*$')
+
+
+def cut_shop_flavour(host, local):
+    """Remove SHOP_FLAVOUR sub-dialogues and every node fed by a removed one.
+
+    `local` maps the module's child names to their graphs. Refuses rather than
+    reaching a kept sub-dialogue or removing a node that is not a pure query.
+    Returns the removed node names.
+    """
+    cut = {name for name, _ in SHOP_FLAVOUR}
+    if not cut <= set(local): raise ValueError('Native shop flavour changed: ' + ', '.join(sorted(cut - set(local))))
+    nodes = host.find('Nodes')
+    removed = {n.get('Name') for n in nodes if n.tag in cut}
+    while True:
+        fed = [n for n in nodes if n.get('Name') not in removed and any(
+            (e.get('From') or '').split('.')[0] in removed for e in n.iter('Edge'))]
+        if not fed: break
+        for n in fed:
+            if n.tag in local or not (n.tag in QUERY_NODES or n.tag == 'Function' and QUERY_METHOD.search(n.get('MethodName', ''))):
+                raise ValueError('Shop flavour cut would reach ' + n.tag + ' ' + str(n.get('Name')))
+            removed.add(n.get('Name'))
+    for n in [n for n in nodes if n.get('Name') in removed]: nodes.remove(n)
+    definitions = host.find('Definitions')
+    for d in [d for d in definitions if local_name(local, d) in cut]: definitions.remove(d)
+    return sorted(removed)
+
+
+def local_name(local, definition):
+    return next((name for name, path in local.items() if posixpath.basename(path) == posixpath.basename(definition.get('File')).lower()), None)
+
+
+def refuse_dropped_groups(wrapper_blob):
+    """A package built before the KCD1-only world cannot be migrated in place.
+
+    Its crime and speech receipts hash the old controller; removing modules
+    there would leave relocated speech and receipts out of step. Rebuild.
+    """
+    nodes = ET.fromstring(wrapper_blob).find('Skald')[0].find('Nodes')
+    present = sorted({n.tag for n in nodes} & set(DROPPED)) if nodes is not None else []
+    if present:
+        raise ValueError('Package registers KCD2 small talk dropped from the KCD1 world ('
+                         + ', '.join(present) + '); rebuild the package')
 
 
 def validate_dependency_scopes(graphs, wrapper_path, native_definitions):
@@ -154,6 +229,9 @@ def package_dependencies(graphs, entry_path, wrapper_path, scripts):
             child = posixpath.normpath(posixpath.join(posixpath.dirname(path), definition.get('File'))).lower()
             module = ET.fromstring(read(scripts, names[child])).find('Skald')[0]
             local[module.get('Name')] = child
+        if path == SHOP:
+            # Also reached when the crime wrapper repackages from Scripts.pak.
+            cut_shop_flavour(root.find('Skald')[0], local)
         for node in root.findall('.//Nodes/*'):
             namespace = node.get('Namespace', '')
             if namespace.startswith('utils.'):
@@ -315,9 +393,13 @@ def apply(files, graphs, graph_path, level, native_level, scripts, identity):
             ET.SubElement(definitions, 'Definition', File=posixpath.relpath(path, posixpath.dirname(wrapper_path)))
             nodes.append(copy.deepcopy(instances[0]))
             selected_paths |= paths
+        decision = next(((kept, reason) for n, kept, reason in WORLD_GROUPS if n == name), None)
         inventory.append(dict(name=name, registered=selected, input_ports=ports,
-                              inherited_assets=sorted(missing), graph_count=len(paths), runtime_verified=False))
-    if {r['name'] for r in inventory if r['registered']} != set(SYSTEMS):
+                              inherited_assets=sorted(missing), graph_count=len(paths), runtime_verified=False,
+                              **({} if decision is None else dict(kcd1_world='kept' if decision[0] else 'dropped',
+                                                                   reason=decision[1]))))
+    if ({r['name'] for r in inventory if r['registered']} != set(SYSTEMS)
+            or not set(DROPPED) <= {r['name'] for r in inventory}):
         raise ValueError('Native baseline system set changed')
     # Copy only inherited type declarations actually used by selected graphs.
     used_types = {v for p in selected_paths for e in native.get(p).iter()
@@ -366,4 +448,5 @@ def apply(files, graphs, graph_path, level, native_level, scripts, identity):
     graphs = package_dependencies(graphs, entry_path, wrapper_path, scripts)
     return files, graphs, dict(systems=inventory, native_dependencies={p: native.cache[p][1] for p in sorted(selected_paths)},
         service_bindings=[dict(source=a.get('Name'), target=b.get('Name'), label=l) for a,b,l in links],
+        shop_flavour_cut=[dict(name=n, reason=r) for n, r in SHOP_FLAVOUR],
         runtime_verified=False, full_trosky_parity=False)
