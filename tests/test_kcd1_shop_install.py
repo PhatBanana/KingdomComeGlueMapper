@@ -159,6 +159,39 @@ class InstallTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Cannot resolve the voice'):
             keeper_voices(files, files.get, GAME, ['nobody'])
 
+    @unittest.skipUnless((GAME / 'Data/Tables.pak').is_file(), 'KCD2 required')
+    def test_on_a_fresh_build_the_native_head_keepers_get_world_actor_contracts_character_first(self):
+        from kcd1_shop_install import keeper_voices, pin_characters
+        from upgrade_map import xml
+        # The unified-7 job's rows: world_actor_contracts has not run yet, so no character.
+        fresh = (b'<database><souls>'
+                 b'<soul soul_name="neu_zdena" soul_archetype_id="1" social_class_id="6" voice_group_name="Merchants" '
+                 b'soul_id="4ab79da2-dd95-a2e2-2672-554b62118681" />'
+                 b'<soul soul_name="rato_innkeeper1" soul_archetype_id="0" social_class_id="22" voice_group_name="Merchants" '
+                 b'soul_id="4ec32e5c-86c6-c8d8-8202-d41774882b80" />'
+                 b'<soul soul_name="rat_pesek" soul_archetype_id="0" social_class_id="25" voice_group_name="Merchants" '
+                 b'soul_id="40a95fd2-2055-9bd7-b5b9-06ef87aba2aa" />'
+                 b'<soul soul_name="someone_else" soul_archetype_id="0" social_class_id="25" soul_id="1" />'
+                 b'</souls></database>')
+        path = 'Libs/Tables/rpg/soul__kingdomcomegluemapper.xml'
+        people = ['neu_zdena', 'rato_innkeeper1', 'rat_pesek']
+        # Unpinned, every keeper is named with the real reason, not just the first.
+        with self.assertRaisesRegex(ValueError, r'neu_zdena: soul row has no skald_character_name; '
+                                                r'rato_innkeeper1: .*; rat_pesek: '):
+            keeper_voices({path: fresh}, {path: fresh}.get, GAME, people)
+        tables = {path: ET.fromstring(fresh)}
+        changed, report = pin_characters(tables, GAME, people)
+        # The same characters the installed package carries after world_actor_contracts.
+        self.assertEqual({r['person']: r['character'] for r in report},
+                         {'neu_zdena': 'char_GENERIC_WOMAN_MERCHANT_CZECH_03',
+                          'rato_innkeeper1': 'char_GENERIC_MAN_COMMONER_19', 'rat_pesek': 'char_GENERIC_MAN_COMMONER_07'})
+        files = {path: xml(changed[path])}
+        voices, _ = keeper_voices(files, files.get, GAME, people)
+        self.assertEqual(voices, {'neu_zdena': 'aric', 'rato_innkeeper1': 'rlaz', 'rat_pesek': 'dosg'})
+        # Souls outside the port stay for world_actor_contracts; a pinned soul is not pinned again.
+        self.assertIsNone(next(s for s in tables[path].iter('soul') if s.get('soul_name') == 'someone_else').get('skald_character_name'))
+        self.assertEqual(pin_characters(tables, GAME, people), ({}, []))
+
     def test_a_keeper_switches_to_its_kcd1_voice_on_a_copy_of_its_own_character(self):
         from kcd1_shop_install import CHARACTER_TABLE, switch_voices
         souls = {'Libs/Tables/rpg/soul__x.xml': ET.fromstring(

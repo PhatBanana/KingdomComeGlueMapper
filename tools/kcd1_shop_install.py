@@ -575,13 +575,56 @@ def voice_tables(travel_names, read_travel, target):
 def keeper_voices(travel_names, read_travel, target, people):
     """({person: voice abbreviation}, {person: voice groups}) from the package soul, character and voice tables."""
     voices, characters, souls = voice_tables(travel_names, read_travel, target)
-    result, result_groups = {}, {}
+    result, result_groups, failures = {}, {}, []
     for person in people:
-        ids = {row.get('voice_id') for row in characters.get(souls.get(person), [])}
-        if len(ids) != 1 or next(iter(ids)) not in voices:
-            raise ValueError(f'Cannot resolve the voice of {person}: {sorted(ids)}')
-        result[person], result_groups[person] = voices[next(iter(ids))]
+        if person not in souls:
+            failures.append(f'{person}: no package soul row')
+            continue
+        character = souls[person]
+        if not character:
+            failures.append(f'{person}: soul row has no skald_character_name')
+            continue
+        ids = {row.get('voice_id') for row in characters.get(character, [])}
+        if not ids:
+            failures.append(f'{person}: character {character} has no retail or package row')
+        elif len(ids) != 1:
+            failures.append(f'{person}: character {character} has several voice ids {sorted(ids)}')
+        elif next(iter(ids)) not in voices:
+            failures.append(f'{person}: voice id {next(iter(ids))} of {character} is in no voice table')
+        else:
+            result[person], result_groups[person] = voices[next(iter(ids))]
+    if failures:
+        raise ValueError('Cannot resolve the voice of ' + '; '.join(failures))
     return result, result_groups
+
+
+def pin_characters(soul_tables, target, people):
+    """Give each keeper whose soul has no character yet the native one world_actor_contracts would assign.
+
+    On a fresh build world_actor_contracts runs after this port, so a native-head keeper (neu_zdena,
+    rato_innkeeper1, rat_pesek) has no skald_character_name here; installed packages already have it.
+    The choice is world_actor_contracts' own, made on just these souls and written now, so the later
+    step leaves them alone. Returns ({path: root} of changed tables, report).
+    """
+    from world_actor_contracts import missing_voices
+    probe = 'Libs/Tables/rpg/soul__gm_kcd1_shop_probe.xml'
+    changed, report = {}, []
+    for path, root in soul_tables.items():
+        for soul in root.iter('soul'):
+            if soul.get('soul_name') not in people or soul.get('skald_character_name'):
+                continue
+            wrapper = ET.Element('database')
+            ET.SubElement(ET.SubElement(wrapper, 'souls'), 'soul', dict(soul.attrib))
+            assigned, rows = missing_voices({probe: xml(wrapper)}, target)
+            if not rows:
+                raise ValueError(f'world_actor_contracts assigns no native character to {soul.get("soul_name")}')
+            pinned = next(ET.fromstring(assigned[probe]).iter('soul'))
+            soul.attrib.clear()
+            soul.attrib.update(pinned.attrib)
+            changed[path] = root
+            report.append(dict(person=soul.get('soul_name'), character=rows[0]['character'],
+                               voice=rows[0]['voice'], voice_group=rows[0]['voice_group'], policy=rows[0]['policy']))
+    return changed, report
 
 
 def source_voices(source, people):
@@ -711,9 +754,11 @@ def plan(package, source, target):
                              if posixpath.dirname(n) == posixpath.dirname(ENTRY) and n.endswith('_trade.xml')}
         role_tables = {n: read(travel, n) for n in names if n.startswith('Libs/Tables/rpg/role__') and n != ROLE_TABLE}
         quest_files = {n: read(travel, n) for n in names if n.startswith('Quests/') and n.endswith('.xml')}
-        voices, voice_groups = keeper_voices(names, lambda n: read(travel, n), target, SCOPE)
-        voice_rows, characters, _ = voice_tables(names, lambda n: read(travel, n), target)
         soul_tables = {n: ET.fromstring(read(travel, n)) for n in names if n.startswith('Libs/Tables/rpg/soul__')}
+        pinned, pin_report = pin_characters(soul_tables, target, SCOPE)
+        read_souls = lambda n: xml(soul_tables[n]) if n in pinned else read(travel, n)
+        voices, voice_groups = keeper_voices(names, read_souls, target, SCOPE)
+        voice_rows, characters, _ = voice_tables(names, read_souls, target)
         character_table = read(travel, CHARACTER_TABLE) if CHARACTER_TABLE in names else None
     # Every keeper speaks in its KCD1 voice. A keeper the package voices differently (rato_innkeeper1
     # rlaz -> rpro, rat_pesek dosg -> ccla) is switched as a whole: its other lines play in that voice too.
@@ -846,6 +891,7 @@ def plan(package, source, target):
         talk_roles.update(o.get('name') for o in rule.find('operations')
                           if o.tag == 'addRole' and o.get('name') not in retail_roles)
     desired.update(role_changes)
+    desired.update({path: xml(root) for path, root in pinned.items()})
     desired.update(voice_changes)
     # The keepers' own talk-screen dialogs (the maintainer's rattay_innkeeper, rattay_miller and horse
     # sales) allow the farewell like the port's trade dialog, so all ten keepers end alike.
@@ -929,7 +975,7 @@ def plan(package, source, target):
     changes = {TRAVEL: travel_changes, ENGLISH: english_changes, ENGLISH_XML: text_changes, FACIALS: facial_changes}
     report = dict(version=VERSION, scope=list(SCOPE), host=HOST, module=FOLDER + MODULE + '.xml', audio_scope=scope,
                   utils_closure=sorted(closure), utils_libraries=utils_libraries(closure), **audit,
-                  keepers=keepers_report, voice_switches=voice_report, farewell_allowed=farewell_dialogs, dialogs=reports,
+                  keepers=keepers_report, pinned_characters=pin_report, voice_switches=voice_report,farewell_allowed=farewell_dialogs, dialogs=reports,
                   trade=trade_report, removed_dialogs=removed_dialogs, role_table=ROLE_TABLE,
                   recordings_added=sorted(media), text_rows=len(texts), facial_lines=len(tracked),
                   facial_tracks_added=len(added),

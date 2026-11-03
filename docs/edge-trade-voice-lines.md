@@ -265,6 +265,15 @@ tracks); no recording is added for her. Her own rule is the maintainer's
 `gm_neuhof_zora_roles` (GM_NEUHOF_HORSE_TRADER, kept), and her horse-sales
 dialog stays.
 
+On a fresh build these three native-head keepers (neu_zdena, rato_innkeeper1,
+rat_pesek) have no character yet when the port runs: `world_actor_contracts`
+assigns one only later in finalization, which is why unified-7 stopped with
+"Cannot resolve the voice of neu_zdena". The port now pins, for its own keepers
+only, the character that step would choose (its `missing_voices`, same
+deterministic pick), so the later step leaves them alone and an installed
+package, where they already have one, is unchanged. Any keeper whose voice
+still cannot be resolved stops the step with every such keeper and its reason.
+
 - **Haggle.** KCD2's `open_world/shop/bribe_haggle_.../smlouvani_v_obchode_*`
   descends from KCD1 23469: its Decisions keep the KCD1 topic ids, it reads the
   same gvars, its ExitScripts run the sale, and the shop screen finds it by
