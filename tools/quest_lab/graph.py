@@ -26,7 +26,8 @@ FUNCTIONS = {
     'math::boolean::Xor': lambda v: boolean(v['A']) != boolean(v['B']),
 }
 BUILTINS = {'State', 'Function', 'IfFunction', 'If', 'TriggerSequence', 'Timer',
-            'Trace', 'HasteTrigger', 'GameStart', 'InstantSendMessage'} | collection_nodes.KINDS
+            'Trace', 'HasteTrigger', 'GameStart', 'InstantSendMessage', 'ItemDescriptorTrigger',
+            'AIConceptSignalTrigger', 'SetGameContext'} | collection_nodes.KINDS
 
 
 def qualified(scope, value):
@@ -43,6 +44,7 @@ class Graph:
         self.states, self.enum_values, self.external_values = {}, {}, {}
         self.timers, self.generations, self.external_last = [], {}, {}
         self.input_types, self.event_ports, self.output_ports = {}, set(), set()
+        self.relay_outputs = set()
         self.unsupported, self.used_files = [], set()
         self.visited, self.events, self.trace = Counter(), Counter(), []
         self.now, self.serial, self.steps = 0, 0, 0
@@ -134,6 +136,7 @@ class Graph:
                     typ = ports.get(port, ('Out', None))[1]
                     if typ == 'trigger' or port == 'source_state_changed':
                         self.routes[ref].append(('relay', out))
+                        self.relay_outputs.add(out)
                     else:
                         if out in self.aliases: raise ValueError('Multiple data drivers: ' + out)
                         self.aliases[out] = ref
@@ -279,6 +282,7 @@ class Graph:
 
     def _known_ref(self, ref):
         if ref in self.input_types or ref in self.event_ports or ref in self.aliases: return True
+        if ref in self.relay_outputs: return True
         if ref in self.dialogue_outputs: return True
         name, _, port = ref.rpartition('.')
         if name not in self.nodes: return False
@@ -292,6 +296,8 @@ class Graph:
             options = [('True' if v else 'False') if type(v) is bool else str(v) for v in self.enum_values.get(name, [])]
             return port in ('State','OnExec','OnChanged', *options, *('On'+v for v in options))
         return (kind == 'Function' and port == 'bool'
+            or kind == 'AIConceptSignalTrigger' and port == 'OnNotification'
+            or kind == 'ItemDescriptorTrigger' and port in ('OnAcquire', 'OnTargetAmountAcquire')
             or kind in ('If','IfFunction') and port in ('True','False')
             or kind == 'Timer' and port == 'OnFinished'
             or kind == 'TriggerSequence' and port in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ' and len(port) == 1
@@ -304,10 +310,26 @@ class Graph:
                 v for n in self.nodes.values() for v in n['values'].values()}:
             if not self._known_ref(ref): self.issue(ref, 'Unresolved or unsupported source port')
         allowed = {'State': {'DefaultValue','Value'}, 'If': {'Condition'},
+            'AIConceptSignalTrigger': {'IsActive'},
+            'SetGameContext': {'Context', 'IsActive'},
+            'ItemDescriptorTrigger': {'Inventory', 'ItemDescriptor', 'IsActive'},
             'IfFunction': {'ValueA','ValueB','Op','A','B','Value'}, 'Function': {'A','B','Value'},
             'Timer': {'Duration','TimeType'}, 'Trace': {'Value'},
             'TriggerSequence': set(), 'HasteTrigger': set(), 'GameStart': set()}
         for name, node in self.nodes.items():
+            if node['kind'] == 'SetGameContext':
+                if not isinstance(node['constants'].get('Context'), str) or not node['constants']['Context']:
+                    self.issue(name, 'Game context requires an explicit constant identity')
+                elif sum(n['kind'] == 'SetGameContext' and n['constants'].get('Context') == node['constants']['Context']
+                         for n in self.nodes.values()) != 1:
+                    self.issue(name, 'Multiple game-context writers require native arbitration semantics')
+                if set(node['constants']) | set(node['values']) != {'Context', 'IsActive'}:
+                    self.issue(name, 'Game context requires Context and IsActive only')
+            if node['kind'] == 'AIConceptSignalTrigger':
+                if not node['element'].get('NotificationName'):
+                    self.issue(name, 'AI signal listener requires NotificationName')
+                if set(node['constants']) | set(node['values']) != {'IsActive'}:
+                    self.issue(name, 'AI signal listener requires IsActive only')
             if name in self.contracts or node['journal']: continue
             if name in self.native_functions: continue  # Interface remains explicitly unsupported without a contract.
             if node['kind'] == 'InstantSendMessage':
@@ -322,6 +344,8 @@ class Graph:
             spec = node.get('value_spec') or node.get('object_spec')
             permitted = spec['inputs'] if spec else pure[1] if pure else allowed.get(node['kind'])
             bound = set(node['values']) | set(node['constants']) | {a.get('Name') for a in node['element'].findall('Asset')}
+            if node['kind'] == 'ItemDescriptorTrigger' and bound != allowed['ItemDescriptorTrigger']:
+                self.issue(name, 'Item tracking requires explicit Inventory, ItemDescriptor and IsActive')
             for port in bound:
                 if permitted is not None and port not in permitted:
                     self.issue(name, 'Unsupported input: ' + port)
@@ -419,6 +443,32 @@ class Graph:
     def emit(self, event):
         self.stack.append(('event', event))
 
+    def game_context(self, context):
+        """Read a single live context binding; native multi-writer arbitration is unknown."""
+        matches = [name for name, node in self.nodes.items()
+                   if node['kind'] == 'SetGameContext' and node['constants'].get('Context') == context]
+        if not isinstance(context, str) or not context or len(matches) != 1:
+            raise Unsupported('Missing or ambiguous game context: ' + str(context))
+        return boolean(self._args(matches[0])['IsActive'])
+
+    def signal(self, notification):
+        """Deliver a named controller signal to active declared listeners.
+
+        Stable XML order is emulator policy; native scheduling is not modeled.
+        Missing listeners fail explicitly rather than pretending delivery.
+        """
+        listeners = [(name, node) for name, node in self.nodes.items()
+                     if node['kind'] == 'AIConceptSignalTrigger'
+                     and node['element'].get('NotificationName') == notification]
+        if not isinstance(notification, str) or not notification or not listeners:
+            raise Unsupported('Unbound AI concept signal: ' + str(notification))
+        events = [name + '.OnNotification' for name, _ in listeners
+                  if boolean(self._args(name)['IsActive'])]
+        self.record('ai_concept_signal', notification=notification, listeners=events,
+                    boundary='modeled_signal_delivery')
+        for event in reversed(events): self.emit(event)
+        self.drain()
+
     def fire(self, event):
         if event.rpartition('.')[0] in self.native_functions:
             raise ValueError('Use native_result for call completion: ' + event)
@@ -496,15 +546,23 @@ class Graph:
                 raise Unsupported('Message needs an explicit type and a nonempty receiver identity: ' + name)
             if any(k != 'Receiver' and (not k.startswith('Content_') or len(k) <= 8) for k in values):
                 raise Unsupported('Unknown message payload input: ' + name)
-            self.message_serial += 1
-            message = dict(id=self.message_serial, node=name, message_type=typ, receiver=receiver,
-                           content={k[8:]:copy.deepcopy(v) for k,v in values.items() if k.startswith('Content_')})
-            self.messages.append(message)
-            self.record('message_queued', **copy.deepcopy(message))
+            self.queue_message(name, typ, receiver,
+                               {k[8:]:v for k,v in values.items() if k.startswith('Content_')})
             # Dispatch completion is not a receiver acknowledgement. Delivery
             # and a consumer callback are separate, observable operations.
             self.emit(name + '.OnExec')
         else: raise Unsupported('Unsupported execution: ' + kind + '.' + port)
+
+    def queue_message(self, origin, message_type, receiver, content):
+        if not isinstance(message_type, str) or not message_type or not isinstance(receiver, str) or not receiver:
+            raise Unsupported('Message needs an explicit type and a nonempty receiver identity: '+origin)
+        if not isinstance(content, dict) or any(not isinstance(k,str) or not k for k in content):
+            raise Unsupported('Message content requires named fields: '+origin)
+        self.message_serial += 1
+        message = dict(id=self.message_serial, node=origin, message_type=message_type, receiver=receiver,
+                       content=copy.deepcopy(content))
+        self.messages.append(message)
+        self.record('message_queued', **copy.deepcopy(message))
 
     def drain(self):
         while self.stack:

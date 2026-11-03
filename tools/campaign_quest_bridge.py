@@ -12,7 +12,8 @@ import hashlib
 import xml.etree.ElementTree as ET
 
 from campaign_quest_graph import constant, definition, edge, identifier, objective_identifier, xml
-from quest_import import literal
+from quest_import import literal, behavior_path
+from campaign_sources import key
 
 
 OPERATIONS = {'SetQuest', 'SetQuestObjective', 'QuestCondition',
@@ -29,6 +30,23 @@ OBJECTIVE_CONDITIONS = {'IsObjectiveStarted': 'Started', 'IsObjectiveCompleted':
 
 class UnsupportedOperation(ValueError):
     pass
+
+
+def controller_scopes(model):
+    """Only registered controller callbacks establish an object-owner scope."""
+    return {(key(behavior_path(entry['file'])), entry['tree']): model['quest']
+            for entry in (model.get('controller_registration') or {}).get('entry_points', [])
+            if entry.get('kind') == 'behavior_callback'}
+
+
+def scoped_operation(node, object_owner):
+    if object_owner is None:
+        return node
+    result = copy.deepcopy(node)
+    for field in ('quest', 'questName'):
+        if literal(result['attributes'].get(field, '')) in ('$__object.name', '__object.name'):
+            result['attributes'][field] = object_owner
+    return result
 
 
 class QuestBridge:
@@ -95,8 +113,18 @@ class QuestBridge:
             if set(attrs) - {'questName', 'objectiveName', 'objectiveState', 'NegateTo', 'RunLogic'}:
                 raise UnsupportedOperation('Unconverted quest objective gate metadata')
             kind, port = 'condition', objective_identifier(objective) + '_' + function
-        if kind == 'condition' and attrs.get('failSubtMissing', 'false') not in ('false', '0'):
-            raise UnsupportedOperation('Missing-branch failure semantics need an adapter')
+        if op in ('QuestCondition', 'QuestObjectiveCondition'):
+            missing_policy = attrs.get('failSubtMissing', 'false')
+            if missing_policy not in ('false', '0', 'true', '1'):
+                raise UnsupportedOperation('Dynamic missing-branch failure policy needs an adapter')
+            # When both authored branches exist, the missing-branch policy
+            # cannot apply. Do not reject a complete conditional just because
+            # that policy is enabled, or invent behavior for an absent branch.
+            branches = [child['op'] for child in node['children']]
+            if any(branch not in ('Then', 'Else') for branch in branches) or len(set(branches)) != len(branches):
+                raise UnsupportedOperation('Invalid quest condition branch structure')
+            if missing_policy in ('true', '1') and set(branches) != {'Then', 'Else'}:
+                raise UnsupportedOperation('Missing-branch failure semantics need an adapter')
         name = self._name(kind, quest, port)
         result = dict(kind=kind, name=name, quest=quest, port=port, source_operation=op)
         (self.actions if kind == 'action' else self.conditions)[name] = result
@@ -148,6 +176,28 @@ class QuestBridge:
         }, wiring
 
 
+def operation_trees(model):
+    """Scan the quest program plus exact registered controller entry points."""
+    documents = model['behavior_documents']
+    main = 'libs/ai/quests/' + model['quest'].lower() + '.xml'
+    entries = (model.get('controller_registration') or {}).get('entry_points', [])
+    selected, missing = {}, []
+    if main in documents:
+        selected.update(((main, name), body) for name, body in documents[main]['trees'].items())
+    elif model.get('behavior_status') != 'no_same_named_retail_program' and not entries:
+        raise ValueError('Missing source quest behavior: ' + main)
+    for entry in entries:
+        document, tree = key(behavior_path(entry['file'])), entry['tree']
+        body = documents.get(document, {}).get('trees', {}).get(tree)
+        if body is None:
+            missing.append(dict(site=dict(quest=model['quest'], document=document, tree=tree,
+                                          registration=entry),
+                                reason='Missing registered controller entry tree'))
+        else:
+            selected[(document, tree)] = body
+    return selected, missing
+
+
 def convert_state_operations(models, namespace):
     """Resolve source sites independently, reporting every unsupported site.
 
@@ -157,18 +207,16 @@ def convert_state_operations(models, namespace):
     bridge = QuestBridge(models, namespace)
     converted, unresolved = [], []
     for model in models:
-        document = 'libs/ai/quests/' + model['quest'].lower() + '.xml'
-        if document not in model['behavior_documents']:
-            if model.get('behavior_status') == 'no_same_named_retail_program':
-                continue
-            raise ValueError('Missing source quest behavior: ' + document)
-        for tree, body in model['behavior_documents'][document]['trees'].items():
+        scopes = controller_scopes(model)
+        selected, missing = operation_trees(model)
+        unresolved.extend(missing)
+        for (document, tree), body in selected.items():
             def visit(node, path, ancestors):
                 if node['op'] in OPERATIONS:
                     site = dict(quest=model['quest'], document=document, tree=tree, path=path,
                                 operation=node['op'], arguments=node['attributes'], ancestors=ancestors)
                     try:
-                        target = bridge.lower(node, model['quest'])
+                        target = bridge.lower(scoped_operation(node, scopes.get((document, tree))), model['quest'])
                     except UnsupportedOperation as error:
                         unresolved.append(dict(site=site, reason=str(error)))
                     else:

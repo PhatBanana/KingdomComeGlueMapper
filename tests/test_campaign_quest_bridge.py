@@ -18,6 +18,72 @@ def behavior(m, body):
 
 
 class QuestBridgeTests(unittest.TestCase):
+    def test_complete_condition_does_not_need_missing_branch_policy(self):
+        m = model()
+        for tag, attrs in [('QuestCondition', 'function="IsQuestStarted"'),
+                           ('QuestObjectiveCondition', 'objective="first" function="IsObjectiveCompleted"')]:
+            for flag in ('true', '1'):
+                bridge = QuestBridge([m], 'Branches')
+                node = ast(E.fromstring('<'+tag+' '+attrs+' failSubtMissing="'+flag+'">'
+                    '<Else><Fail/></Else><Then><Success/></Then></'+tag+'>'))
+                lowered = bridge.lower(node, m['quest'])
+                self.assertEqual(lowered['children'], node['children'])
+                self.assertEqual(lowered['op'], 'GameContextCheck')
+                self.assertEqual(len(bridge.conditions), 1)
+
+    def test_missing_dynamic_or_ambiguous_branches_stay_blocked(self):
+        m = model()
+        for flag, body in [('true', '<Then><Success/></Then>'), ('true', '<Else><Fail/></Else>'),
+                           ('$policy', '<Then/><Else/>'), ('false', '<Then/><Then/>'),
+                           ('true', '<Then/><Else/><Unexpected/>')]:
+            bridge = QuestBridge([m], 'Branches')
+            node = ast(E.fromstring('<QuestCondition function="IsQuestStarted" failSubtMissing="'+flag+'">'
+                +body+'</QuestCondition>'))
+            with self.assertRaises(UnsupportedOperation): bridge.lower(node, m['quest'])
+            self.assertFalse(bridge.conditions)
+
+    def test_registered_external_entry_is_scanned_without_unrelated_helpers(self):
+        m = model()
+        def tree(objective):
+            return dict(root=ast(E.fromstring('<Root><SetQuestObjective quest="&quot;$__object.name&quot;" '
+                'objective="'+objective+'" function="StartObjective"/></Root>')))
+        m['behavior_documents'] = {'libs/ai/shared/controller.xml':dict(trees={
+            'registered':tree('first'), 'unrelated':tree('second')})}
+        m['behavior_status'] = 'no_same_named_retail_program'
+        entry = dict(kind='behavior_callback',file='shared/controller.xml',tree='registered',name='callback')
+        m['controller_registration'] = dict(entry_points=[entry, dict(entry)])
+        _, report = convert_state_operations([m], 'External')
+        self.assertEqual(report['unresolved'], [])
+        self.assertEqual(len(report['converted']), 1)
+        self.assertEqual(report['wiring'][0]['quest_port'], 'start_first')
+        self.assertEqual(report['converted'][0]['site']['document'], 'libs/ai/shared/controller.xml')
+        m['controller_registration']['entry_points'] = [dict(entry,tree='absent')]
+        _, report = convert_state_operations([m], 'External')
+        self.assertEqual(report['converted'], [])
+        self.assertEqual(report['unresolved'][0]['reason'], 'Missing registered controller entry tree')
+
+    def test_object_owner_requires_registered_callback_and_preserves_source(self):
+        import copy
+        m = behavior(model(), '''<Root><SetQuestObjective quest="&quot;$__object.name&quot;"
+          objective="first" function="StartObjective"/></Root>''')
+        original = copy.deepcopy(m['behavior_documents'])
+        _, report = convert_state_operations([m], 'Scoped')
+        self.assertEqual(len(report['unresolved']), 1)
+        self.assertTrue(quest_dependencies(m)[0]['dynamic'])
+        m['controller_registration'] = dict(entry_points=[dict(kind='behavior_callback',
+            file='quests/arbitrary_quest.xml', tree='onUpdate', name='public_callback')])
+        _, report = convert_state_operations([m], 'Scoped')
+        self.assertEqual(report['unresolved'], [])
+        self.assertEqual(report['wiring'][0]['quest'], m['quest'])
+        self.assertEqual(report['wiring'][0]['quest_port'], 'start_first')
+        self.assertEqual(quest_dependencies(m), [])
+        self.assertEqual(m['behavior_documents'], original)
+        m['controller_registration']['entry_points'][0]['tree'] = 'other_tree'
+        _, report = convert_state_operations([m], 'Scoped')
+        self.assertEqual({r['reason'] for r in report['unresolved']}, {
+            'Missing registered controller entry tree', 'Unregistered or dynamic source quest: $__object.name'})
+        self.assertTrue(quest_dependencies(m)[0]['dynamic'])
+
     def test_objective_gate_retains_continuous_lifecycle_and_negation(self):
         m = model()
         for policy in ('Halt', 'KeepRunning'):

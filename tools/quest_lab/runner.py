@@ -119,17 +119,21 @@ class Runner:
             'save': {'name'}, 'load': {'name'}, 'behavior_start': {'controller','tree','task'},
             'behavior_set': {'controller','values'}, 'message': {'controller','inbox','value','sender'},
             'outcome': {'controller','task','result'},
-            'assert_behavior': {'controller','variables','availability','tasks','label'},
+            'assert_behavior': {'controller','variables','availability','tasks','task_variables','label'},
             'assert_messages': {'pending','count','label'},
             'dialogue_start': {'dialogue','request'}, 'dialogue_choose': {'dialogue','sequence'},
             'dialogue_end': {'dialogue'}, 'assert_dialogue': {'dialogue','choices','state','label'},
             'native_result': {'id','node','result','values','events'},
             'assert_native': {'pending','count','label'},
             'object_snapshot': {'identity','facets'},
+            'item_acquired': {'inventory', 'item', 'amount'},
         }
         if action not in fields or set(step) - (fields[action] | {'action'}):
             raise ValueError('Unknown scenario action/fields: ' + action)
         if action == 'fire': self.graph.fire(step['port'])
+        elif action == 'item_acquired':
+            from .inventory import acquire
+            acquire(self.graph, step['inventory'], step['item'], step['amount'])
         elif action == 'set': self.graph.set_inputs(step['values'])
         elif action == 'object_snapshot': self.graph.objects.replace(step['identity'], step['facets'])
         elif action == 'advance': self.advance(step['duration'], step.get('mode','normal'))
@@ -195,6 +199,12 @@ class Runner:
                 for key, expected in step.get(field, {}).items():
                     count += 1
                     self.check(step.get('label', step['controller']+':'+field+':'+key), mapping[field][key], expected)
+            for task, expected in step.get('task_variables',{}).items():
+                scope = b.tasks[task].get('scope',task)
+                for key, value in expected.items():
+                    count += 1
+                    self.check(step.get('label',step['controller']+':'+task+':'+key),
+                               b.tasks[scope]['locals'][key], value)
             if not count: raise ValueError('Empty behavior assertion')
         self.settle()
 

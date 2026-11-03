@@ -44,6 +44,104 @@ combat exercise or animation itself.
 
 ## Test converted package data
 
+Audit every retail source quest independently of an installed mod, prioritizing
+the opening and return quests while retaining every later source record:
+
+```powershell
+python tools/quest_lab_test.py campaign --kcd1 "D:/SteamLibrary/steamapps/common/KingdomComeDeliverance" --first q_skalitz q_returnToSkalitz --output outputs/campaign-review
+```
+
+To reproduce source-controller state conversion, including original callback
+registrations and externally registered entry trees:
+
+```powershell
+python tools/quest_lab_test.py controllers --kcd1 "D:/SteamLibrary/steamapps/common/KingdomComeDeliverance" --quest q_skalitz q_returnToSkalitz q_tutorials q_escapeToTalmberk q_master_main --output outputs/controller-review
+```
+
+This writes source IR, a joint graph with quest bridges, final graph hashes,
+per-site unresolved operations, and missing quest dependencies to `report.json`.
+Each completed import is checkpointed; interrupted runs retain their evidence
+but do not yet resume. Use a fresh output directory. Only the named quests are
+imported; the missing-dependency list identifies additional declarations to
+include. This is state-operation conversion, not execution of whole controllers,
+actor schedules, or the story. It returns a nonzero status because that gameplay
+boundary remains unverified. Generated game-derived files must stay local.
+
+Add `--follow-dependencies` to recursively include statically named quest
+references from the selected roots. Each identity is attempted once, including
+failed imports; cycles therefore terminate. Dynamic expressions remain in the
+report and are never treated as quest names to guess. Missing source records
+are reported without discarding accepted quests. Checkpoints include the
+remaining queue, and the progress total grows as dependencies are discovered.
+This is dependency discovery order, not a claim about story chronology.
+
+This runs the production quest-state emitter and local probes, prints progress
+for every quest, and atomically saves `checkpoint.json` after each record.
+`campaign.json` is written when the audit finishes. Use a new output directory
+for each run so interrupted work cannot be confused with an earlier result.
+Checkpoints retain evidence; they do not yet resume execution. `--first` controls
+review order, not story chronology. Actor behavior and cross-quest progression
+remain separate verification requirements. Partial or blocked quests return a
+nonzero exit code even when the audit itself finishes.
+
+Accepted quest models are also compiled together into `compiled/`, with the
+production cross-quest predicate binder. `linked-conversion.json` records the
+resolved dependencies and remaining unsupported policies. The campaign report
+lists excluded source records explicitly. This joint graph can be used as the
+source for subsequent simulator scenarios; compiling it does not run the story
+or establish native gameplay success. The generated files contain local game
+data and belong in ignored outputs, not source control.
+
+The joint report also runs the production item-tracking planner for every quest.
+Without mappings it records missing item IDs and unsupported tracking policies;
+location/actor tracking is not classified as an item conversion failure.
+To bind supported item objectives, pass `--inventory-bindings bindings.json`:
+
+```json
+{
+  "item_map": {"source-item-guid": "target-item-guid"},
+  "registered": ["target-item-guid"],
+  "player_asset": "player"
+}
+```
+
+Use actual UUIDs and registrations from the item importer. The binder checks
+that every mapped target appears in the declared registration list; it does not
+independently inspect the installed package. Scenario `assets` must resolve the
+same player alias to an explicitly observed soul/inventory. Converted tracking
+policies are removed from the joint report's unsupported list only after the
+production binder accepts them. Other policies remain pending, and file hashes
+describe the final bound graphs. Isolated source probe results remain unchanged;
+they are not evidence of executing the bound joint campaign.
+
+Alternatively, read registrations directly from KCD2 and an installed mod:
+
+```powershell
+python tools/quest_lab_test.py campaign --kcd1 "D:/SteamLibrary/steamapps/common/KingdomComeDeliverance" --kcd2 "D:/SteamLibrary/steamapps/common/KingdomComeDeliverance2" --mod "D:/SteamLibrary/steamapps/common/KingdomComeDeliverance2/Mods/kingdomcomegluemapper" --player-asset player --first q_skalitz q_returnToSkalitz --output outputs/campaign-registered
+```
+
+This uses the production item-definition reader and replacement registry,
+excluding development placeholders. `--mod` is optional; without it only native
+KCD2 definitions are read. It cannot be combined with `--inventory-bindings`.
+The player alias is an explicit simulator binding, not automatic discovery of
+the live player. Reading item definitions establishes registration, not native
+model rendering, item transfer, or quest gameplay correctness.
+
+Converted `SendAIConceptSignal_*` behavior leaves deliver their notification to
+active `AIConceptSignalTrigger` listeners in the loaded graph. This exercises
+the production controller-to-quest bridge without bypassing it with a direct
+quest port call. Unknown notifications fail explicitly; inactive listeners do
+not emit. Signals must be argument-free leaves and cannot be replaced by an
+external contract. Delivery uses stable graph order, which is an emulator
+policy, not a validated reconstruction of native AI scheduling.
+
+Version-2 `GameContextCheck` nodes with explicit Then/Else branches can read a
+single `SetGameContext` binding from the current graph. The chosen branch runs
+to its normal result; this is not a continuous gate. Restoring the graph also
+restores the state used by subsequent checks. Missing identities, multiple
+writers, dynamic context IDs and other branch schemas remain unsupported;
+native context arbitration and continuous gates are not approximated.
+
 Run the package-wide audit, optionally comparing and dry-running **every** source
 quest record through the production quest-state emitter:
 
@@ -72,6 +170,22 @@ Quality, ownership and item-instance descriptors are rejected rather than assume
 Numeric conversions reject nonfinite values and overflow outside the modeled
 32-bit range. Native item-acquisition events and inventory access still require
 explicit scenario contracts; matching item counts never synthesizes those events.
+
+Class/count `ItemDescriptorTrigger` nodes also accept an explicit modeled
+acquisition stimulus:
+
+```json
+{"action":"item_acquired","inventory":"player-bag","item":"item-class-guid","amount":1}
+```
+
+The inventory must have a declared `Items` query snapshot. This action adds the
+quantity and emits `OnAcquire` for active, matching inventory/class watchers;
+`OnTargetAmountAcquire` additionally fires when the count crosses the requested
+threshold from below. These are declared simulator semantics, pending native
+differential validation. Ownership, health, stolen status, transfers and physical
+loot creation are not inferred. Ordinary `object_snapshot` updates emit no
+acquisition events. The production completion gate still checks all quantities
+and the objective's active state before completing it.
 
 Inventory a source directory or a single package:
 
@@ -383,6 +497,23 @@ branches are still included in structural coverage, even though their values
 are not evaluated during selection.
 
 ## Regression checks
+
+For whole-controller conversion and static interpreter coverage, supply the
+installed target game alongside the source controller selection:
+
+```powershell
+$env:PYTHONPATH='tools'
+python -m quest_lab controllers --kcd1 'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance' --kcd2 'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance2' --quest q_skalitz q_tutorial_swordOne q_escapeToTalmberk --output 'D:/KingdomComeGlueMapper/outputs/controller-audit-new'
+```
+
+Use a fresh output directory. `--follow-dependencies` additionally follows
+statically named quest references. The optional `behavior-coverage/report.json`
+separates whole-tree importer blockers from structural simulator findings and
+includes file hashes. This pass enables script type/enum adapters only; missing
+world, actor, inventory and native-consumer adapters are explicit dependencies,
+not necessarily defects in the full package builder. No behavior is executed,
+and the command keeps its diagnostic exit code of 1. An emitted tree or an empty
+static finding list is not a successful quest playthrough.
 
 ```powershell
 python -m unittest discover -s tests -p 'test_quest_lab*.py' -v

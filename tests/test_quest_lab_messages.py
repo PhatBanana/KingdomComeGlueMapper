@@ -41,6 +41,141 @@ def scenario(steps):
 
 
 class MessageTests(unittest.TestCase):
+    def test_filtered_wait_preserves_other_messages_and_reload(self):
+        from quest_lab.behavior import Behavior
+        blob=BEHAVIOR.replace(b'condition=""',b'condition="$__content.delta == $wanted"')
+        b=Behavior('receiver',blob,Graph(source(),'Messages'),variables={'total':0,'wanted':7},
+                   callbacks={'handled':'ack'})
+        b.message('Inbox',{'delta':3},{'id':'first'})
+        task=b.start('receive')
+        self.assertEqual(b.tasks[task]['status'],'message')
+        self.assertNotIn('message',b.variables)
+        saved=b.snapshot()
+        for replay in range(2):
+            if replay: b.restore(saved)
+            b.message('Inbox',{'delta':7},{'id':'second'})
+            self.assertEqual(b.tasks[task]['status'],'success')
+            self.assertEqual(b.variables['total'],7)
+            self.assertEqual(b.variables['sender'],{'id':'second'})
+            self.assertNotIn('__content',b.variables)
+            self.assertEqual(b.inboxes['Inbox'],[{'value':{'delta':3},'sender':{'id':'first'}}])
+
+    def test_bad_filter_does_not_dequeue_or_publish_outputs(self):
+        from quest_lab.behavior import Behavior
+        for condition in ('$__content.missing', '$__content.delta', 'unknown()'):
+            blob=BEHAVIOR.replace(b'condition=""',('condition="'+condition+'"').encode())
+            b=Behavior('receiver',blob,Graph(source(),'Messages'),variables={'__content':'keep'})
+            b.message('Inbox',{'delta':3},{'id':'first'})
+            with self.assertRaises(Unsupported): b.start('receive')
+            self.assertEqual(len(b.inboxes['Inbox']),1)
+            self.assertEqual(b.variables,{'__content':'keep'})
+
+    def test_compiled_handler_allows_omitted_message_outputs_and_replays(self):
+        from test_campaign_ai_registration import setup
+        from test_campaign_behavior import source as model_source, catalog
+        from campaign_behavior import convert_behaviors
+        from quest_lab.behavior import Behavior
+        from test_quest_lab_includes import graph
+        for payload, sender in (('message',''), ('','sender'), ('','')):
+            with self.subTest(payload=payload,sender=sender), tempfile.TemporaryDirectory() as tmp:
+                _, _, importer, _ = setup(tmp)
+                model=model_source('<Root><Behavior><ProcessMessage Atomic="true" timeout="-1" '
+                    'timeType="GameTime" variable="'+payload+'" senderInfo="'+sender+'" '
+                    'inbox="StoryInbox" condition="$__content.ready" answerVar=""><Success/></ProcessMessage></Behavior></Root>')
+                files, _, report=convert_behaviors([model],'OptionalOutputs',catalog(),importer=importer)
+                self.assertEqual(report['whole_trees_emitted'],1)
+                b=Behavior('receiver',next(iter(files.values())),graph())
+                task=b.start('onUpdate')
+                self.assertEqual(b.tasks[task]['status'],'message')
+                saved=b.snapshot()
+                for replay in range(2):
+                    if replay: b.restore(saved)
+                    b.message('testcampaign_StoryInbox',{'ready':False},{'id':'other'})
+                    self.assertEqual(b.tasks[task]['status'],'message')
+                    b.message('testcampaign_StoryInbox',{'ready':True},{'id':'quest'})
+                    self.assertEqual(b.tasks[task]['status'],'success')
+                    expected={}
+                    if payload: expected[payload]={'ready':True}
+                    if sender: expected[sender]={'id':'quest'}
+                    self.assertEqual(b.variables,expected)
+                    self.assertEqual(b.inboxes['testcampaign_StoryInbox'],
+                        [{'value':{'ready':False},'sender':{'id':'other'}}])
+
+    def test_invalid_message_binding_does_not_consume_queued_message(self):
+        from quest_lab.behavior import Behavior
+        for attr in ('variable','senderInfo'):
+            blob=BEHAVIOR.replace((attr+'="$'+('message' if attr=='variable' else 'sender')+'"').encode(),
+                                  (attr+'="$bad.field"').encode())
+            b=Behavior('receiver',blob,Graph(source(),'Messages'))
+            b.message('Inbox',{'delta':3},{'id':'quest'})
+            with self.assertRaises(Unsupported): b.start('receive')
+            self.assertEqual(len(b.inboxes['Inbox']),1)
+            self.assertEqual(b.variables,{})
+
+    def test_behavior_sender_routes_payload_to_repeating_receiver(self):
+        sender = b'''<BehaviorTree name="send"><Root><Behavior><Sequence>
+          <InstantSendMessageToNPC target="$recipient" type="fixture:increment" values="delta($amount + 1)"/>
+          <Expression expressions="$amount = 99"/>
+          </Sequence></Behavior></Root></BehaviorTree>'''
+        receiver = BEHAVIOR.replace(b'<ProcessMessage ',b'<Loop count="-1"><ProcessMessage ').replace(
+            b'</ProcessMessage>',b'</ProcessMessage></Loop>')
+        s = scenario([dict(action='behavior_start',controller='actor',tree='receive',task='listen'),
+                      dict(action='behavior_start',controller='sender',tree='send'),
+                      dict(action='assert_behavior',controller='actor',variables={'total':4}),
+                      dict(action='assert_behavior',controller='sender',variables={'amount':99}),
+                      dict(action='save',name='first'),
+                      dict(action='behavior_start',controller='sender',tree='send'),
+                      dict(action='assert_behavior',controller='actor',variables={'total':104}),
+                      dict(action='load',name='first'),
+                      dict(action='behavior_start',controller='sender',tree='send'),
+                      dict(action='assert_behavior',controller='actor',variables={'total':104})])
+        s['behaviors'].append(dict(id='sender',file='sender.xml',variables={'recipient':'actor-17','amount':3}))
+        r=Runner(s,source=Source.blobs({'graph.xml':GRAPH,'behavior.xml':receiver,'sender.xml':sender})).run()
+        self.assertEqual(r['status'],'PASS',r.get('error'))
+        messages=[e for e in r['timeline'] if e['kind']=='message_queued']
+        self.assertEqual([m['content']['delta'] for m in messages],[4,100,100])
+
+    def test_behavior_message_variable_is_copied_and_unrouted_message_blocks_pass(self):
+        sender=b'''<BehaviorTree name="send"><Root><Behavior>
+          <InstantSendMessageToNPC target="$recipient" type="fixture:increment" variable="$payload"/>
+          </Behavior></Root></BehaviorTree>'''
+        s=scenario([dict(action='behavior_start',controller='sender',tree='send'),
+                    dict(action='behavior_set',controller='sender',values={'payload':{'delta':99}}),
+                    dict(action='assert_behavior',controller='sender',tasks={'send:1':'success'})])
+        s['message_routes']=[]
+        s['behaviors'].append(dict(id='sender',file='sender.xml',variables={'recipient':'actor-17','payload':{'delta':5}}))
+        runner=Runner(s,source=Source.blobs({'graph.xml':GRAPH,'behavior.xml':BEHAVIOR,'sender.xml':sender}))
+        self.assertEqual(runner.run()['status'],'UNSUPPORTED')
+        self.assertEqual(runner.graph.messages[0]['content'],{'delta':5})
+
+    def test_behavior_message_invalid_payloads_do_not_dispatch(self):
+        from quest_lab.behavior import Behavior
+        for fields in ('values="delta(1),delta(2)"', 'values="bad"',
+                       'variable="$payload" values="delta(2)"', 'variable="$scalar"'):
+            blob=('<BehaviorTree name="send"><Root><Behavior><InstantSendMessageToNPC '
+                  'target="$recipient" type="fixture:increment" '+fields+'/></Behavior></Root></BehaviorTree>').encode()
+            g=Graph(source(),'Messages')
+            b=Behavior('sender',blob,g,variables={'recipient':'actor-17','payload':{'delta':5},'scalar':3})
+            with self.assertRaises(Unsupported): b.start('send')
+            self.assertEqual(g.messages,[])
+
+    def test_repeating_handler_consumes_routed_graph_messages_after_reload(self):
+        repeated = BEHAVIOR.replace(b'<ProcessMessage ', b'<Loop count="-1"><ProcessMessage ').replace(
+            b'</ProcessMessage>', b'</ProcessMessage></Loop>')
+        steps = [dict(action='behavior_start', controller='actor', tree='receive', task='listen'),
+                 dict(action='fire', port='first'), dict(action='save', name='one'),
+                 dict(action='fire', port='second'),
+                 dict(action='assert_behavior', controller='actor', variables={'total':6}),
+                 dict(action='load', name='one'),
+                 dict(action='assert_behavior', controller='actor', variables={'total':3}),
+                 dict(action='fire', port='second'),
+                 dict(action='assert_behavior', controller='actor', variables={'total':6}, tasks={'listen':'message'})]
+        runner = Runner(scenario(steps), source=Source.blobs({'graph.xml':GRAPH, 'behavior.xml':repeated}))
+        result = runner.run()
+        self.assertEqual(result['status'], 'PASS', result.get('error'))
+        # Trace/event counters include the replay; persisted variables rewind.
+        self.assertEqual(runner.graph.events['output.handled'], 3)
+
     def test_native_exec_fanin_queues_two_messages_and_does_not_acknowledge_handling(self):
         g=Graph(source(),'Messages'); self.assertEqual(g.unsupported,[])
         g.set_inputs(dict(receiver='actor-17',delta=2)); g.fire('first')
