@@ -77,6 +77,21 @@ class DialoguePresentationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'branch type'):
             emit(source, 'wrong_mode', [], kind='Dialog')
 
+    def test_work_metarole_dispatch_takes_ambient_and_monolog_branches_only(self):
+        from unittest.mock import patch
+        source = model()
+        source['branch'] = [dict(start_topic='1', priority='0', allow_greeting='True',
+                                 branch_type_id='4', reputation_condition_id='')]
+        with patch('campaign_work_metaroles.validate_dispatch'):
+            for kind in ('4', '6'):
+                source['branch'][0]['branch_type_id'] = kind
+                blob, _ = emit(source, 'cry', [], kind='Dialog', metarole_dispatch={})
+                self.assertEqual(ET.fromstring(blob).find('./Skald/Dialog/Dialogue').get('Type'), 'ingame monolog')
+            for kind in ('0', '5'):
+                source['branch'][0]['branch_type_id'] = kind
+                with self.assertRaisesRegex(ValueError, 'Work metarole dispatch requires'):
+                    emit(source, 'cry', [], kind='Dialog', metarole_dispatch={})
+
     def test_source_branch_priority_and_greeting_are_not_reset_to_defaults(self):
         source = model()
         source['branch'] = [dict(start_topic='1', priority='2', allow_greeting='True',

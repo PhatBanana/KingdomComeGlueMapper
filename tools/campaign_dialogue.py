@@ -337,7 +337,7 @@ def camera_assets(model, level_archive):
 
 def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
          selection_compiler=None, registered_items=(), participant_assets=None, area_assets=None,
-         context_entities=None, scene_bound=False, metarole_dispatch=None):
+         context_entities=None, scene_bound=False, metarole_dispatch=None, sequence_cooldowns=False):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog', 'Dialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -352,11 +352,11 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
         branch = branches[0]
         expected_type = '6' if kind == 'Dialog' else '0'
         if metarole_dispatch is not None:
-            if kind != 'Dialog' or branch.get('branch_type_id') != '4':
-                raise ValueError('Work metarole dispatch requires its source ambient branch')
-            from campaign_work_metaroles import validate_dispatch
+            from campaign_work_metaroles import DISPATCHED_BRANCH_TYPES, validate_dispatch
+            if kind != 'Dialog' or branch.get('branch_type_id') not in DISPATCHED_BRANCH_TYPES:
+                raise ValueError('Work metarole dispatch requires its source ambient or monolog branch')
             validate_dispatch(model, metarole_dispatch)
-            expected_type = '4'
+            expected_type = branch['branch_type_id']
         if branch.get('branch_type_id', '0') != expected_type or branch.get('reputation_condition_id'):
             raise ValueError('Dialogue branch type/reputation policy requires conversion')
         priority = branch['priority']
@@ -398,6 +398,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             sequence_records[sid] = record
     conditions = QuestConditions(quest_models, model.get('functions'), registered_items,
                                  participant_assets, sequence_records, area_assets, context_entities)
+    conditions.carried_cooldowns = sequence_cooldowns
     from campaign_dialogue_outcomes import outcomes, lower as lower_outcomes
     outcome_specs = {}
 
@@ -442,6 +443,12 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
                                            native_end='EndTopic', runtime_verified=False))
             attrs.update(selection_attrs)
             if condition: attrs['EntryCondition'] = condition
+            if sequence_cooldowns:
+                # Only callers that audited the repetition contract carry it;
+                # elsewhere a source timeout is still not lowered.
+                from campaign_work_speech import carried_cooldown
+                cooldown = carried_cooldown(source)
+                if cooldown: attrs['Cooldown'] = cooldown
             if source['script']:
                 # Preserve the actual exit script. This is not evidence that its
                 # APIs survived the engine migration; require a live API audit.

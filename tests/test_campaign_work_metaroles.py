@@ -32,10 +32,25 @@ class WorkMetaroleTests(unittest.TestCase):
 
     def test_one_unknown_sequence_keeps_whole_connected_branch_pending(self):
         model=dict(alias='',topics={'1':dict(sequences=[dict(source=dict(sequence_id='1',timeout='0',flags='0')),
-            dict(source=dict(sequence_id='2',timeout='10',flags='0'))])})
+            dict(source=dict(sequence_id='2',timeout='0',flags='1'))])})
         ready,pending=partition({'91':model})
         self.assertFalse(ready)
         self.assertEqual(pending['91']['blockers'][0]['sequence'],'2')
+
+    def test_source_cooldowns_are_carried_into_the_work_branch(self):
+        model=dict(alias='',topics={'1':dict(sequences=[dict(source=dict(sequence_id='1',timeout='10',flags='0')),
+            dict(source=dict(sequence_id='2',timeout='35',flags='0'))])})
+        ready,pending=partition({'91':model})
+        self.assertEqual((list(ready),pending),(['91'],{}))
+        # KCD1's shop request reaches ambient (4) and in-world monolog (6) cry branches alike.
+        for kind in ('4','6'):
+            ready,pending=partition({'91':dict(model,branch=[dict(start_topic='91',branch_type_id=kind)])})
+            self.assertEqual((list(ready),pending),(['91'],{}))
+        # A carried cooldown does not open a branch whose dispatch is unproven.
+        other=dict(model,branch=[dict(start_topic='91',branch_type_id='0')])
+        ready,pending=partition({'91':other})
+        self.assertFalse(ready)
+        self.assertEqual(pending['91']['blockers'],[dict(reason='source_branch_not_ambient',value='0')])
 
     def model(self):
         return dict(start_topic='91',participants=[dict(topic_id='91',role_id='17')],
