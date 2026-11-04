@@ -11,7 +11,8 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_fitting import OutfitFitting, alpha_mips, fit_mask, source_layer_contracts, higher_layers
+from clothing_fitting import OutfitFitting, alpha_mips, fit_mask, hiding_mask, source_layer_contracts, higher_layers
+from clothing_coverage import GARMENT_HIDING_OUTWARD, normals
 from character_skin_upgrade import CompiledSkin, upgrade_skin
 from clothing_regions import read_chunks, write_chunks
 from npc_effects import write_float_dds, decode_dds_family, native_vertex_features
@@ -113,6 +114,45 @@ class OutfitFittingTests(unittest.TestCase):
         accepts = lambda triangle,u,v: triangle == 0
         np.testing.assert_array_equal(fit_mask(lower, [(upper, opaque, accepts)]), [1,1,1,0,0,0])
         np.testing.assert_array_equal(fit_mask(lower, []), np.zeros(6))
+
+    def test_garment_is_deleted_only_where_the_upper_garment_touches_or_pierces_it(self):
+        # A hood hem 4 cm above a collar covers it along the normal (so the
+        # collar still shrinks under it) but must not delete it: from the front
+        # the hem does not occlude the collar and skin would show instead.
+        lower = SimpleNamespace(n=3, ninternal=3, remap=np.arange(3),
+            vertices=np.array([[0,0,0], [1,0,0], [0,1,0.]]), faces=np.array([[0,1,2]]))
+        opaque = np.ones(1, bool); accepts = lambda triangle,u,v: np.ones(len(triangle), bool)
+        def cover(offset):
+            return [(SimpleNamespace(vertices=lower.vertices+[0,0,offset], faces=lower.faces), opaque, accepts)]
+        np.testing.assert_array_equal(fit_mask(lower, cover(.04)), [1,1,1])
+        np.testing.assert_array_equal(hiding_mask(lower, cover(.04)), [0,0,0])
+        np.testing.assert_array_equal(hiding_mask(lower, cover(.005)), [1,1,1])   # lying on it
+        np.testing.assert_array_equal(hiding_mask(lower, cover(-.02)), [1,1,1])   # pierced through it
+        np.testing.assert_array_equal(hiding_mask(lower, cover(.12)), [0,0,0])
+        self.assertLess(GARMENT_HIDING_OUTWARD, .02)
+
+    def test_fitting_memberships_use_the_hiding_band_while_shrink_uses_the_fitting_band(self):
+        source=sample_skin(morph=True)
+        chunks=read_chunks(source);chunk=next(c for c in chunks if c.kind==0x2002)
+        data=bytearray(chunk.data.replace(b'#V_001\0',b'#A_Shrink\0'))
+        struct.pack_into('<I',data,8,len(b'#A_Shrink\0'))
+        source=write_chunks(chunks,{chunk.id:bytes(data)})
+        fitter=object.__new__(OutfitFitting)
+        fitter.parts=[dict(kind='cloth',gender_id='1'),dict(kind='cloth',gender_id='1')]
+        fitter.contracts={0:{'a':1},1:{'a':2}};fitter.memberships={}
+        lower=CompiledSkin(upgrade_skin(source,source,discard_unused_variants=True)[0])
+        # The fixture's vertices are collinear (no normals): give it +z normals and a
+        # wide planar cover offset along them.
+        quad=np.array([[-9,-9,0],[9,-9,0],[9,9,0],[-9,9,0.]]); faces=np.array([[0,1,2],[0,2,3]])
+        for offset, shrunk, hidden in ((.04, 1, 0), (.0, 1, 1)):
+            with self.subTest(offset=offset):
+                raised=SimpleNamespace(vertices=quad+[0,0,1+offset], faces=faces)
+                fitter.cover=lambda number,lod: (raised, np.ones(2,bool), lambda t,u,v: np.ones(len(t),bool))
+                with patch('clothing_fitting.normals', side_effect=lambda skin: np.tile([0,0,1.],(skin.n,1))):
+                    weights,masks=fitter.weights(0,source,None)
+                self.assertEqual(weights,{'#A_Shrink':1.})
+                np.testing.assert_array_equal(masks['#A_Shrink'], np.full(lower.n, shrunk, float))
+                np.testing.assert_array_equal(fitter.memberships[0,0][1], np.full(lower.n, hidden, float))
 
     def test_masked_morph_preserves_exposed_surface_and_internal_geometry(self):
         source = sample_skin(morph=True)
