@@ -36,6 +36,22 @@ def load_tables(stack, data):
     return rows
 
 
+def worn_clothing_state(armor, prefers_hood_on):
+    """The one clothing record a source armor shows at a time.
+
+    ``clothing_id`` and ``clothing2_id`` are two states of the same item, not
+    two pieces: a hood's raised mesh (``Tmp_HoodOn``, covering the head) and
+    its lowered mesh (``Tmp_HoodDown``, shoulders only). The source renders
+    the state its clothing preset prefers. Converting both drew the raised
+    hood under a wide hat and, as the hat's higher source layer, culled the
+    hat crown with the hat's own hiding group.
+    """
+    states = [armor.get(field) for field in ('clothing_id', 'clothing2_id') if armor.get(field)]
+    if not states:
+        return None
+    return states[0] if prefers_hood_on else states[-1]
+
+
 def resolve_parts(soul, rows):
     parts = []
     for kind in ('body', 'head', 'hair', 'beard'):
@@ -46,14 +62,15 @@ def resolve_parts(soul, rows):
     preset = soul.get('initial_clothing_preset_id')
     armor_ids = {r['armor_id'] for r in rows('item/armor2clothing_preset')
                  if r['clothing_preset_id'] == preset}
+    prefers_hood_on = any(str(r.get('prefers_hood_on', '')).strip().lower() == 'true'
+                          for r in rows('item/clothing_preset') if r['clothing_preset_id'] == preset)
     clothing = {r['clothing_id']: r for r in rows('item/clothing')}
     for armor in rows('item/armor'):
         if armor['item_id'] in armor_ids:
-            for field in ('clothing_id', 'clothing2_id'):
-                if armor.get(field):
-                    parts.append(dict(kind='cloth', armor_id=armor['item_id'],
-                                      armor_settings=armor,
-                                      **clothing[armor[field]]))
+            state = worn_clothing_state(armor, prefers_hood_on)
+            if state:
+                parts.append(dict(kind='cloth', armor_id=armor['item_id'],
+                                  armor_settings=armor, **clothing[state]))
     return parts
 
 

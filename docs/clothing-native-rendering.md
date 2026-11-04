@@ -343,6 +343,11 @@ tools instead use `character_person.resolve_person`. The appearance path is:
 
 1. `character_instance.effective_soul` applies placed-instance overrides;
    `build_npc_probe.resolve_parts` resolves body, head, hair and worn armour.
+   An armour's `clothing_id` and `clothing2_id` are two states of one item
+   (a hood raised, `Tmp_HoodOn`, or lowered, `Tmp_HoodDown`), so only the
+   state the source preset's `prefers_hood_on` selects is worn. Converting
+   both drew the raised hood under wide hats and, as the hat's higher source
+   layer, culled the hat crown (`ska_groom`, `ska_farmer3`, November 2026).
 2. `static_assets.asset_pack` indexes the installed archives and stages source
    meshes, material permutations and complete texture families. Its mesh reader
    also resolves embedded material names, even when the character supplies an
