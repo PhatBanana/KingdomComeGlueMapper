@@ -449,7 +449,7 @@ def register_coverage(output, component, garments, tables, namespace):
         element = node.find('Elements/SkinElement')
         families[i] = family(element)
         targets.append((i, element, families[i]))
-    masks = {}; report = []; used_groups = set(); visibility_sources = []; alpha_cache = {}
+    masks = {}; raw = {}; report = []; used_groups = set(); visibility_sources = []; alpha_cache = {}
     done = 0
     total = sum(len(family) for i in order for target_index, _, family in targets
                 if target_index is None or i in higher[target_index])
@@ -491,6 +491,8 @@ def register_coverage(output, component, garments, tables, namespace):
                         if np.asarray(source_cover).shape != (skin.n,):
                             raise ValueError('Pre-fit coverage topology differs from converted garment')
                         covered |= np.asarray(source_cover, dtype=bool)
+                if target_index is None:
+                    raw.setdefault(path, {})[4 + i] = covered.copy()
                 covered = triangle_safe_membership(skin, covered)
                 if not covered.any():
                     continue
@@ -509,6 +511,40 @@ def register_coverage(output, component, garments, tables, namespace):
         for other in derived.findall('Clothing'):
             if other.get('ArmorType') is None and any(e.get('Model') == garment['stem'] + '.skin' for e in other.findall('Elements/SkinElement')):
                 other.set('HidingGroups', node.get('HidingGroups'))
+    # Garments sharing a region are composed and worn as one item, so all of
+    # their groups are active together. Eroding each cover alone leaves a
+    # one-ring gap of visible skin where an outer cutout hands cover to the
+    # garment beneath. The outermost garment's bit carries the jointly eroded
+    # union; inner garments keep their own erosion for the underwear fallback.
+    bundles = {}
+    for i, node in nodes.items():
+        bundles.setdefault(node.find('Elements/SkinElement').get('EquipmentPart'), []).append(i)
+    for members in bundles.values():
+        if len(members) < 2:
+            continue
+        outer = min(members, key=order.index)
+        for target_index, element, target_family in targets:
+            if target_index is not None:
+                continue
+            for path in target_family.values():
+                covers = [raw.get(path, {}).get(4 + i) for i in members]
+                covers = [c for c in covers if c is not None]
+                if not covers:
+                    continue
+                joint = triangle_safe_membership(CompiledSkin(path.read_bytes()), np.logical_or.reduce(covers))
+                if not joint.any():
+                    continue
+                masks.setdefault(path, {})[4 + outer] = joint
+                name = namespace + '_' + garments[outer]['stem'] + '_covers_' + element.get('EquipmentPart')
+                if name not in used_groups:
+                    ET.SubElement(definitions, 'HidingGroup', Name=name, Index=str(4 + outer), EquipmentPart=element.get('EquipmentPart'))
+                    used_groups.add(name)
+                names = set(nodes[outer].get('HidingGroups', '').split()) | {name}
+                nodes[outer].set('HidingGroups', ' '.join(sorted(names)))
+                for other in derived.findall('Clothing'):
+                    if other.get('ArmorType') is None and any(e.get('Model') == garments[outer]['stem'] + '.skin'
+                                                             for e in other.findall('Elements/SkinElement')):
+                        other.set('HidingGroups', nodes[outer].get('HidingGroups'))
     for path, membership in masks.items():
         path.write_bytes(apply_membership(path.read_bytes(), membership))
     path = output / ('Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml')
