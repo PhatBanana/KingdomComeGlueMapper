@@ -14,7 +14,8 @@ from build_npc_probe import asset_path, bind_material
 from character_clothing_variant import resolve_variant
 from character_lods import source_lods
 from character_skin_upgrade import CompiledSkin, read_morphs, upgrade_skin
-from clothing_coverage import alpha_intersections, covered_points, normals, unculled_garment_visibility
+from clothing_coverage import (GARMENT_HIDING_OUTWARD, alpha_intersections, covered_points, normals,
+                               unculled_garment_visibility)
 from clothing_regions import read_chunks
 from npc_effects import MAX_FLOAT_SIZE, decode_dds_family
 
@@ -56,7 +57,7 @@ def source_alpha(material, emitted):
     return surfaces
 
 
-def fit_mask(skin, covers):
+def fit_mask(skin, covers, outward=.12):
     """Return coverage weights, agreeing on every shared internal vertex.
 
     A seam is exposed if any render copy is exposed. This deliberately leaves
@@ -66,10 +67,22 @@ def fit_mask(skin, covers):
     direction = normals(skin)
     for upper, opaque, accepts in covers:
         covered |= covered_points(skin.vertices, direction,
-                                  upper.vertices[upper.faces[opaque]], accept_hit=accepts)
+                                  upper.vertices[upper.faces[opaque]], outward=outward, accept_hit=accepts)
     shared = np.ones(skin.ninternal, bool)
     np.logical_and.at(shared, skin.remap, covered)
     return shared[skin.remap].astype(float)
+
+
+def hiding_mask(skin, covers):
+    """Where a lower garment may be deleted beneath an upper one.
+
+    Shrinking may follow an upper garment anywhere within the fitting band,
+    but deleting the surface is only safe where the two would fight: the
+    upper garment inside it or within GARMENT_HIDING_OUTWARD above it. Further
+    beneath, the lower garment is invisible except through the upper garment's
+    openings, where the source shows it too (a collar under a hood's hem).
+    """
+    return fit_mask(skin, covers, outward=GARMENT_HIDING_OUTWARD)
 
 
 def source_layer_contracts(parts, tables):
@@ -187,7 +200,8 @@ class OutfitFitting:
             raise ValueError('Ambiguous authored garment fitting shape')
         baked, _ = upgrade_skin(blob, blob, variant=variant, discard_unused_variants=True, bone_mapping={})
         skin = CompiledSkin(baked)
-        by_cover = {i: fit_mask(skin, [self.cover(i, lod)]) for i in higher}
-        self.memberships[number, lod] = by_cover
+        covers = {i: self.cover(i, lod) for i in higher}
+        by_cover = {i: fit_mask(skin, [cover]) for i, cover in covers.items()}
+        self.memberships[number, lod] = {i: hiding_mask(skin, [cover]) for i, cover in covers.items()}
         mask = np.maximum.reduce(list(by_cover.values()))
         return ({shrink[0]: 1.}, {shrink[0]: mask}) if shrink else ({}, {})

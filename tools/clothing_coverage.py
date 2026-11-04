@@ -204,6 +204,17 @@ def unculled_garment_visibility(skin):
     return np.ones(len(skin.faces), dtype=bool)
 
 
+# A garment beneath another garment is deleted only where the two surfaces
+# would fight: the upper garment pierced through it (inside, up to the usual
+# inward allowance) or lying on it within this distance outside. A surface
+# further beneath an opaque upper garment is already invisible from outside,
+# and is exactly what shows through that garment's neck, cuff and hem
+# openings: a hood hem that sits a few centimetres above a collar covers it
+# along its normal but not from the front, so hiding it there opens skin.
+# Skin keeps the wide outward band; the body is never drawn through clothes.
+GARMENT_HIDING_OUTWARD = .01
+
+
 def covered_points(points, normals, triangles, inward=.06, outward=.12, accept_hit=None):
     """Test two-sided triangles along short surface-normal segments (metres)."""
     points, normals, triangles = (np.asarray(a, dtype=float) for a in (points, normals, triangles))
@@ -555,9 +566,13 @@ def register_coverage(output, component, garments, tables, namespace):
                 cover_level = min(level, max(covers))
                 triangles, accept_hit, count = covers[cover_level]
                 skin = CompiledSkin(path.read_bytes())
-                coverage = head_covered_points if element in heads else covered_points
                 direction = normals(skin)
-                covered = coverage(skin.vertices, direction, triangles, accept_hit=accept_hit)
+                if target_index is not None:
+                    covered = covered_points(skin.vertices, direction, triangles,
+                                             outward=GARMENT_HIDING_OUTWARD, accept_hit=accept_hit)
+                else:
+                    coverage = head_covered_points if element in heads else covered_points
+                    covered = coverage(skin.vertices, direction, triangles, accept_hit=accept_hit)
                 if element in heads:
                     covered |= body_shadow(skin.vertices, direction,
                                            shadow(level, 4 + i, lambda body_path: masks.get(body_path, {}).get(4 + i)))
