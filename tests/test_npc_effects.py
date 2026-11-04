@@ -10,7 +10,8 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from npc_effects import (legacy_bg_mask, native_skin_material, native_vertex_features,
-                         read_dds_family, bake_macro_diffuse, native_clothing_material, write_float_dds)
+                         read_dds_family, decode_dds_family, bake_macro_diffuse, native_clothing_material,
+                         write_float_dds)
 from clothing_regions import Skin
 from test_clothing_assembly import garment_skin
 
@@ -66,6 +67,27 @@ class NPCEffectsTests(unittest.TestCase):
             self.assertEqual(read_dds_family(path).tobytes(),im.tobytes())
             (Path(tmp)/'mask.dds.2').write_bytes(b'bad')
             with self.assertRaisesRegex(ValueError,'Incomplete'): read_dds_family(path)
+
+    def test_patched_smaller_base_ignores_stale_larger_mips(self):
+        def family(size, streamed):
+            """An RGBA8 Cry split family: members .streamed (largest) .. .1, the rest resident in the base."""
+            levels = [bytes([(size >> i) % 256, 0, 0, 255]) * (max(1, size >> i) ** 2) for i in range(size.bit_length())]
+            header = bytearray(128)
+            header[:4] = b'DDS '
+            struct.pack_into('<IIIII', header, 4, 124, 0x1|0x2|0x4|0x1000|0x20000, size, size, size*4)
+            struct.pack_into('<I', header, 28, len(levels))
+            struct.pack_into('<IIIIIIII', header, 76, 32, 0x41, 0, 32, 0xff, 0xff00, 0xff0000, 0xff000000)
+            struct.pack_into('<I', header, 108, 0x1000)
+            members = {streamed-i: levels[i] for i in range(streamed)}
+            return bytes(header) + b''.join(levels[streamed:]), members
+        original_base, original = family(16, 2)        # .2 = 16x16, .1 = 8x8
+        patched_base, patched = family(8, 1)            # a patch ships only an 8x8 base
+        self.assertEqual(len(original[1]), len(patched[1]))
+        expected = decode_dds_family(patched_base, patched)
+        decoded = decode_dds_family(patched_base, {1: patched[1], 2: original[2]})
+        self.assertEqual(decoded.size, (8, 8))
+        self.assertEqual(decoded.tobytes(), expected.tobytes())
+        self.assertEqual(decoded.getpixel((0, 0)), (8, 0, 0, 255))
 
     def test_macro_conversion_compensates_native_sampling(self):
         source=Image.new('RGBA',(1,1),(128,64,32,99))
