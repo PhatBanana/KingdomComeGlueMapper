@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, apply_fitted_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections, native_alpha_surfaces, triangle_safe_membership, register_coverage, register_fixed_body_coverage
+from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, apply_fitted_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections, native_alpha_surfaces, triangle_safe_membership, register_coverage, register_fixed_body_coverage, body_shadow, culled_triangles, face_safe_membership
 from clothing_regions import split_skin_regions
 from npc_effects import write_float_dds
 from character_skin_upgrade import CompiledSkin, upgrade_skin
@@ -284,6 +284,112 @@ class ClothingCoverageTests(unittest.TestCase):
             groups=ET.parse(output/'Libs/Tables/Character/ClothingHidingGroup__test.xml').getroot()
             self.assertIn('test_coat_covers_torso',{g.get('Name') for g in groups.iter('HidingGroup')})
             self.assertIn('test_coat_covers_torso',component.find("DerivedComponents/Clothing[@Name='test_coat']").get('HidingGroups'))
+
+    def test_body_shadow_hides_head_skin_only_over_culled_body_surface(self):
+        body=SimpleNamespace(vertices=np.array([[0,0,0],[1,0,0],[0,1,0],[1,1,0],[2,0,0],[2,1,0]],float),faces=np.array([[0,1,2],[1,3,2],[3,4,5]]))
+        hidden=np.array([1,1,1,0,0,0],bool)
+        culled=culled_triangles(body,hidden)
+        self.assertEqual(len(culled),2)                      # faces touching a hidden vertex; the last one is drawn
+        heads=np.array([[.3,.3,.02],[.3,.3,-.02],[.3,.3,.08],[1.8,.5,.01],[5,5,0]])
+        up=np.tile([0,0,1.],(len(heads),1))
+        np.testing.assert_array_equal(body_shadow(heads,up,culled),[True,True,False,False,False])
+        self.assertFalse(body_shadow(heads,up,culled[:0]).any())
+
+    def test_fixed_outfit_head_follows_the_culled_body_surface(self):
+        blob, _ = upgrade_skin(sample_skin(), sample_skin(), clear_hiding=True)
+        def run(body_covered):
+            with tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp); folder = output/'objects/characters/example'; folder.mkdir(parents=True)
+                tables = output/'Libs/Tables/Character'; tables.mkdir(parents=True)
+                (tables/'ClothingHidingGroup__test.xml').write_text('<database><ClothingHidingGroups/></database>')
+                component = ET.Element('Component', FilePath='example'); derived = ET.SubElement(component, 'DerivedComponents')
+                for kind, region in [('Head','face'), ('Body','torso'), ('Clothing','torso')]:
+                    (folder/(kind+'.skin')).write_bytes(blob)
+                    node = ET.SubElement(derived, kind)
+                    ET.SubElement(ET.SubElement(node,'Elements'),'SkinElement', EquipmentPart=region, Model=kind+'.skin', Material='coat.mtl')
+                def covered(points, *args, **kwargs):
+                    if kwargs.get('inward') == 0: return np.zeros(len(points), bool)      # strict exterior head test: a gap
+                    if kwargs.get('inward') == .04: return np.ones(len(points), bool)     # the head lies on the body surface
+                    return np.full(len(points), body_covered)
+                with patch('clothing_coverage.native_alpha_surfaces', return_value=([(0,[np.ones((1,1))])]*10, [])),                      patch('clothing_coverage.normals', side_effect=lambda skin: np.tile([0,0,1], (skin.n,1))),                      patch('clothing_coverage.covered_points', side_effect=covered):
+                    register_fixed_body_coverage(output, component, 'test')
+                skin = CompiledSkin((folder/'Head.skin').read_bytes())
+                alpha = np.frombuffer(skin.streams[3].data[24:], np.uint8).reshape(-1,4)[:,3]
+                used = np.zeros(skin.n, bool); used[skin.faces.ravel()] = True
+                return ((255 ^ alpha)[used] & 16) != 0
+        self.assertTrue(run(True).all())      # body culled beneath: the duplicate head skin is hidden with it
+        self.assertFalse(run(False).any())    # body drawn: the strict head test alone decides
+
+    def test_composed_outfit_head_follows_the_culled_body_surface(self):
+        blob,_=upgrade_skin(sample_skin(),sample_skin(),clear_hiding=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp);folder=output/'objects/characters/example';folder.mkdir(parents=True)
+            (output/'Libs/Tables/Character').mkdir(parents=True)
+            for stem in ('head','body','dress'):
+                (folder/(stem+'.skin')).write_bytes(blob)
+            component=ET.fromstring('<Component FilePath="example"><DerivedComponents>'
+                '<Head><Elements><SkinElement EquipmentPart="face" Model="head.skin"/></Elements></Head>'
+                '<Body><Elements><SkinElement EquipmentPart="torso" Model="body.skin"/></Elements></Body>'
+                '<Clothing Name="test_dress"><Elements><SkinElement EquipmentPart="torso" Model="dress.skin"/></Elements></Clothing>'
+                '</DerivedComponents></Component>')
+            tables={'item/body_layer':[dict(body_layer_id='1',layer_order='1')],
+                    'item/armor_archetype2body_subpart':[dict(armor_archetype_id='a',body_layer_id='1',body_subpart_id='torso')],
+                    'item/clothing_raycast':[]}
+            garments=[dict(part=dict(kind='cloth',gender_id='2',armor_archetype_id='a'),stem='dress',source_model='dress.skin',source_material='dress.mtl')]
+            def covered(points,*args,**kwargs):
+                if kwargs.get('inward')==0: return np.zeros(len(points),bool)
+                return np.ones(len(points),bool)
+            with patch('clothing_coverage.native_alpha_surfaces',return_value=([(0,[np.ones((1,1))])]*10,[])),                  patch('clothing_coverage.normals',side_effect=lambda skin: np.tile([0,0,1],(skin.n,1))),                  patch('clothing_coverage.covered_points',side_effect=covered):
+                register_coverage(output,component,garments,SimpleNamespace(get=lambda key:dict(rows=tables[key])),'test')
+            skin=CompiledSkin((folder/'head.skin').read_bytes())
+            alpha=np.frombuffer(skin.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
+            used=np.zeros(skin.n,bool);used[skin.faces.ravel()]=True
+            self.assertTrue((((255^alpha)[used]&16)!=0).all())
+            self.assertIn('test_dress_covers_face',component.find("DerivedComponents/Clothing[@Name='test_dress']").get('HidingGroups'))
+
+    def test_face_safety_releases_culled_triangles_with_an_uncovered_interior(self):
+        # Two triangles, all four corners covered. The outer garment is cut away over the middle of the first.
+        skin=SimpleNamespace(n=4,ninternal=4,remap=np.arange(4),faces=np.array([[0,1,2],[1,3,2]]),
+                             vertices=np.array([[0,0,0],[1,0,0],[0,1,0],[1,1,0]],float))
+        hidden=np.ones(4,bool); up=np.tile([0,0,1.],(4,1))
+        cutout=lambda points,rays: ~((np.abs(points[:,0]-1/3)<.05)&(np.abs(points[:,1]-1/3)<.05))
+        safe=face_safe_membership(skin,hidden,up,cutout)
+        self.assertFalse(safe[[0,1,2]].any())
+        self.assertFalse(safe[skin.faces[0]].any() or safe[skin.faces].any(axis=1)[0])
+        np.testing.assert_array_equal(face_safe_membership(skin,hidden,up,lambda p,r: np.ones(len(p),bool)),hidden)
+        self.assertFalse(face_safe_membership(skin,np.zeros(4,bool),up,cutout).any())
+
+    def test_inner_garment_keeps_the_outer_cutout(self):
+        blob,_=upgrade_skin(sample_skin(),sample_skin(),clear_hiding=True)
+        inner=CompiledSkin(blob)
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp);folder=output/'objects/characters/example';folder.mkdir(parents=True)
+            (output/'Libs/Tables/Character').mkdir(parents=True)
+            for stem in ('body','dress','coat'):
+                (folder/(stem+'.skin')).write_bytes(blob)
+            component=ET.fromstring('<Component FilePath="example"><DerivedComponents>'
+                '<Body><Elements><SkinElement EquipmentPart="torso" Model="body.skin"/></Elements></Body>'
+                '<Clothing Name="test_dress"><Elements><SkinElement EquipmentPart="torso" Model="dress.skin"/></Elements></Clothing>'
+                '<Clothing Name="test_coat"><Elements><SkinElement EquipmentPart="torso" Model="coat.skin"/></Elements></Clothing>'
+                '</DerivedComponents></Component>')
+            tables={'item/body_layer':[dict(body_layer_id='1',layer_order='1'),dict(body_layer_id='2',layer_order='2')],
+                    'item/armor_archetype2body_subpart':[dict(armor_archetype_id='a',body_layer_id='1',body_subpart_id='torso'),
+                                                         dict(armor_archetype_id='b',body_layer_id='2',body_subpart_id='torso')],
+                    'item/clothing_raycast':[]}
+            garments=[dict(part=dict(kind='cloth',gender_id='2',armor_archetype_id=a),stem=stem,
+                           source_model=stem+'.skin',source_material=stem+'.mtl') for stem,a in (('dress','a'),('coat','b'))]
+            centroid=np.array([4,1,1])/6@inner.vertices[inner.faces[0]]   # an interior sample of the first triangle, not a vertex
+            def covered(points,*args,**kwargs):
+                # Every vertex is covered; the coat is cut away over the middle of the dress's first triangle.
+                return ~(np.linalg.norm(points-centroid,axis=1)<1e-6)
+            with patch('clothing_coverage.native_alpha_surfaces',return_value=([(0,[np.ones((1,1))])]*10,[])),                  patch('clothing_coverage.normals',side_effect=lambda skin: np.tile([0,0,1],(skin.n,1))),                  patch('clothing_coverage.covered_points',side_effect=covered):
+                register_coverage(output,component,garments,SimpleNamespace(get=lambda key:dict(rows=tables[key])),'test')
+            skin=CompiledSkin((folder/'dress.skin').read_bytes())
+            alpha=np.frombuffer(skin.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
+            coat_bit=1<<(4+1)
+            culled=(((255^alpha)&coat_bit)!=0)[skin.faces].any(axis=1)
+            self.assertFalse(culled[0])            # the cutout triangle stays drawn
+            self.assertTrue(culled.any())          # the rest of the dress under the coat is still hidden
 
 if __name__ == '__main__':
     unittest.main()

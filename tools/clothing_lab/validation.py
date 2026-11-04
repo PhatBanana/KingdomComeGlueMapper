@@ -3,7 +3,7 @@ from itertools import combinations, product
 import math
 
 import numpy as np
-from clothing_coverage import normals, alpha_intersections, exterior_coverage
+from clothing_coverage import normals, alpha_intersections, exterior_coverage, body_shadow, culled_triangles
 from .geometry import Surface
 
 
@@ -218,6 +218,10 @@ def validate(catalog, selected, geometry=False, lod=0, inspect_assets=True):
                         covered |= surface.covers(points, directions, inward=0, outward=.12)
                     return covered
                 supported = exterior_coverage(mesh.vertices, normals(mesh), outward, hidden)
+                # Duplicate shoulder/chest skin follows the body's own culling.
+                culled_body = [culled_triangles(m, h) for other, _, m, h, _ in meshes if catalog.parts[other]['kind'] == 'Body']
+                if culled_body:
+                    supported |= body_shadow(mesh.vertices, normals(mesh), np.concatenate(culled_body))
                 unsupported = hidden & ~supported
                 if unsupported.any():
                     findings.append(finding('hidden_head_without_exterior_cover',
