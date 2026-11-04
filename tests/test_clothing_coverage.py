@@ -241,5 +241,49 @@ class ClothingCoverageTests(unittest.TestCase):
                 self.assertTrue(((255^alpha)&16).all())
 
 
+    def test_composed_region_covers_are_eroded_jointly(self):
+        dress_blob,_=upgrade_skin(sample_skin(),sample_skin(),clear_hiding=True)
+        body_blob=split_skin_regions(dress_blob,['keep','keep','keep','discard'])['keep']
+        body=CompiledSkin(body_blob)
+        left=body.vertices[:,0] < np.median(body.vertices[:,0])
+        with tempfile.TemporaryDirectory() as tmp:
+            output=Path(tmp);folder=output/'objects/characters/example';folder.mkdir(parents=True)
+            (output/'Libs/Tables/Character').mkdir(parents=True)
+            for stem in ('hair','head','dress','coat'):
+                (folder/(stem+'.skin')).write_bytes(dress_blob)
+            (folder/'body.skin').write_bytes(body_blob)
+            component=ET.fromstring('<Component FilePath="example"><DerivedComponents>'
+                '<Body><Elements><SkinElement EquipmentPart="torso" Model="body.skin"/></Elements></Body>'
+                '<Hair><Elements><SkinElement EquipmentPart="head" Model="hair.skin"/></Elements></Hair>'
+                '<Head><Elements><SkinElement EquipmentPart="face" Model="head.skin"/></Elements></Head>'
+                '<Clothing Name="test_dress"><Elements><SkinElement EquipmentPart="torso" Model="dress.skin"/></Elements></Clothing>'
+                '<Clothing Name="test_coat"><Elements><SkinElement EquipmentPart="torso" Model="coat.skin"/></Elements></Clothing>'
+                '</DerivedComponents></Component>')
+            tables={'item/body_layer':[dict(body_layer_id='1',layer_order='1'),dict(body_layer_id='2',layer_order='2')],
+                    'item/armor_archetype2body_subpart':[dict(armor_archetype_id='a',body_layer_id='1',body_subpart_id='torso'),
+                                                         dict(armor_archetype_id='b',body_layer_id='2',body_subpart_id='torso')],
+                    'item/clothing_raycast':[]}
+            garments=[dict(part=dict(kind='cloth',gender_id='2',armor_archetype_id=a),stem=stem,
+                           source_model=stem+'.skin',source_material=stem+'.mtl') for stem,a in (('dress','a'),('coat','b'))]
+            current={}
+            def surfaces(output,material,**kwargs):
+                current['stem']=Path(material).stem
+                return [(0,[np.ones((1,1))])]*10,[]
+            def covered(points,*args,**kwargs):
+                if len(points)!=body.n: return np.ones(len(points),bool)
+                # The coat's cutout hands cover to the dress beneath along one boundary.
+                return left.copy() if current['stem']=='coat' else ~left
+            with patch('clothing_coverage.native_alpha_surfaces',side_effect=surfaces),                  patch('clothing_coverage.normals',side_effect=lambda skin: np.tile([0,0,1],(skin.n,1))),                  patch('clothing_coverage.covered_points',side_effect=covered):
+                register_coverage(output,component,garments,SimpleNamespace(get=lambda key:dict(rows=tables[key])),'test')
+            skin=CompiledSkin((folder/'body.skin').read_bytes())
+            alpha=np.frombuffer(skin.streams[3].data[24:],np.uint8).reshape(-1,4)[:,3]
+            used=np.zeros(skin.n,bool);used[skin.faces.ravel()]=True
+            coat_bit=1<<(4+1)
+            self.assertTrue(((255^alpha)[used]&coat_bit).all())     # no one-ring gap where the covers meet
+            self.assertFalse(((255^alpha)[used]&(1<<4)).all())       # the dress alone keeps its own erosion
+            groups=ET.parse(output/'Libs/Tables/Character/ClothingHidingGroup__test.xml').getroot()
+            self.assertIn('test_coat_covers_torso',{g.get('Name') for g in groups.iter('HidingGroup')})
+            self.assertIn('test_coat_covers_torso',component.find("DerivedComponents/Clothing[@Name='test_coat']").get('HidingGroups'))
+
 if __name__ == '__main__':
     unittest.main()
