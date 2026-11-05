@@ -61,18 +61,38 @@ class NpcProbeTests(unittest.TestCase):
                         'objects/characters/humans/head/b/shared.skin': None},
                        {'kind': 'head', 'model': 'shared'}, 'model', '.skin')
 
-    def test_preset_resolves_both_clothing_slots_only_for_selected_armor(self):
-        tables = {
+    def hood_tables(self, prefers_hood_on):
+        return {
             'character_body': [{'character_body_id': 'body', 'model': 'body'}],
+            'item/clothing_preset': [dict(clothing_preset_id='p', prefers_hood_on=prefers_hood_on),
+                                     dict(clothing_preset_id='other', prefers_hood_on='True')],
             'item/armor2clothing_preset': [dict(armor_id='a', clothing_preset_id='p'),
+                                         dict(armor_id='hat', clothing_preset_id='p'),
                                          dict(armor_id='b', clothing_preset_id='other')],
-            'item/armor': [dict(item_id='a', clothing_id='c', clothing2_id='d'),
+            'item/armor': [dict(item_id='a', clothing_id='up', clothing2_id='down'),
+                           dict(item_id='hat', clothing_id='hat', clothing2_id=''),
                            dict(item_id='b', clothing_id='unselected')],
-            'item/clothing': [dict(clothing_id='c', model='shirt'),
-                              dict(clothing_id='d', model='sleeves')]}
+            'item/clothing': [dict(clothing_id='up', model='hood_up'),
+                              dict(clothing_id='down', model='hood_down'),
+                              dict(clothing_id='hat', model='hat')]}
+
+    def test_preset_wears_one_state_of_a_two_state_armor(self):
+        # A hood's clothing_id is its raised mesh and clothing2_id the lowered
+        # one; the source shows one of them. Converting both put the raised
+        # hood under the hat and culled the hat crown as a lower layer.
+        soul = dict(character_body_id='body', initial_clothing_preset_id='p')
+        parts = resolve_parts(soul, self.hood_tables('False').__getitem__)
+        self.assertEqual([p['model'] for p in parts], ['body', 'hood_down', 'hat'])
+        self.assertEqual([p.get('armor_id') for p in parts], [None, 'a', 'hat'])
+        parts = resolve_parts(soul, self.hood_tables('True').__getitem__)
+        self.assertEqual([p['model'] for p in parts], ['body', 'hood_up', 'hat'])
+
+    def test_missing_preset_preference_lowers_the_hood(self):
+        tables = self.hood_tables('')
+        tables['item/clothing_preset'] = []
         parts = resolve_parts(dict(character_body_id='body', initial_clothing_preset_id='p'),
                               tables.__getitem__)
-        self.assertEqual([p['model'] for p in parts], ['body', 'shirt', 'sleeves'])
+        self.assertEqual([p['model'] for p in parts], ['body', 'hood_down', 'hat'])
 
 
 if __name__ == '__main__':

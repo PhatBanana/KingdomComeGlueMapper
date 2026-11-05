@@ -9,6 +9,7 @@ from PIL import Image
 import numpy as np
 
 from clothing_regions import Skin, Chunk, write_chunks
+from texture_streaming import layout
 
 
 def read_dds_family(path):
@@ -17,6 +18,19 @@ def read_dds_family(path):
     members = {int(p.suffix[1:]): p.read_bytes() for p in path.parent.glob(path.name+'.*')
                if p.suffix[1:].isdigit()}
     return decode_dds_family(path.read_bytes(), members)
+
+
+def streamed_mips(base, header_size, members):
+    """Members .1..N the base header streams, or None when its layout is unknown or the sizes disagree."""
+    try:
+        sizes = layout(base)['sizes']
+    except ValueError:
+        return None
+    resident = len(base)-header_size-(8 if base.endswith(b'CExtCEnd') else 0)
+    split = next((i for i in range(len(sizes)) if sum(sizes[i:]) == resident), None)
+    if not split or any(len(members.get(split-i, b'')) != size for i, size in enumerate(sizes[:split])):
+        return None
+    return split
 
 
 def decode_dds_family(data, members):
@@ -31,6 +45,11 @@ def decode_dds_family(data, members):
         numbers = sorted(members)
         if numbers != list(range(1, max(numbers)+1)):
             raise ValueError('Incomplete split DDS mip family')
+        # KCD1 patches replace some bases with a smaller header (2048 -> 1024)
+        # but ship no mips, so the original archive's larger members remain.
+        # The engine streams only the levels the header declares; joining the
+        # stale ones decodes a 2048 level as 1024 rows of interleaved garbage.
+        numbers = numbers[:streamed_mips(bytes(data), header_size, members) or len(numbers)]
         data = data[:header_size]+b''.join(members[i] for i in reversed(numbers))+data[header_size:]
     if header_size == 148:
         # Pillow supports the identical block layout under the UNORM enum. This

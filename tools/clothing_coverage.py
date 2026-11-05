@@ -204,6 +204,17 @@ def unculled_garment_visibility(skin):
     return np.ones(len(skin.faces), dtype=bool)
 
 
+# A garment beneath another garment is deleted only where the two surfaces
+# would fight: the upper garment pierced through it (inside, up to the usual
+# inward allowance) or lying on it within this distance outside. A surface
+# further beneath an opaque upper garment is already invisible from outside,
+# and is exactly what shows through that garment's neck, cuff and hem
+# openings: a hood hem that sits a few centimetres above a collar covers it
+# along its normal but not from the front, so hiding it there opens skin.
+# Skin keeps the wide outward band; the body is never drawn through clothes.
+GARMENT_HIDING_OUTWARD = .01
+
+
 def covered_points(points, normals, triangles, inward=.06, outward=.12, accept_hit=None):
     """Test two-sided triangles along short surface-normal segments (metres)."""
     points, normals, triangles = (np.asarray(a, dtype=float) for a in (points, normals, triangles))
@@ -307,6 +318,31 @@ def head_covered_points(points, directions, triangles, accept_hit=None):
         covered_points(p, n, triangles, inward=0, outward=.12, accept_hit=accept_hit))
 
 
+def body_shadow(points, directions, culled_triangles, reach=.04):
+    """Head skin duplicating a body surface the same outfit already culls.
+
+    Source heads carry the neck, shoulders and upper chest, so they draw a
+    second copy of skin the body mesh also has. The exterior head test is
+    deliberately strict (no inward allowance, five rays), while the body under
+    the same garment is hidden by the normal-segment test, so the head's copy
+    can remain drawn exactly where the body is culled and poke out of the
+    garment. A head vertex whose short normal segment crosses a culled body
+    triangle is covered by the body's own evidence: hiding it cannot open a
+    hole the body did not already have. Neck skin above the body's rim has no
+    culled body triangle beneath it and is unaffected.
+    """
+    points = np.asarray(points, dtype=float)
+    if not len(culled_triangles):
+        return np.zeros(len(points), dtype=bool)
+    return covered_points(points, directions, culled_triangles, inward=reach, outward=reach)
+
+
+def culled_triangles(skin, hidden):
+    """Surface the preview no longer draws: faces touching a hidden vertex."""
+    hidden = np.asarray(hidden, dtype=bool)
+    return skin.vertices[skin.faces[hidden[skin.faces].any(axis=1)]]
+
+
 def apply_membership(blob, memberships):
     skin = CompiledSkin(blob)
     colors = skin.streams[3]
@@ -345,6 +381,35 @@ def triangle_safe_membership(skin, covered):
     covered = shared[skin.remap]
     unsafe = skin.faces[~covered[skin.faces].all(axis=1)]
     shared[skin.remap[unsafe].ravel()] = False
+    return shared[skin.remap]
+
+
+def face_safe_membership(skin, hidden, directions, covered):
+    """Never cull a triangle whose interior lacks coverage evidence.
+
+    Vertex evidence cannot see an alpha cutout or an opening smaller than a
+    triangle of the hidden mesh: every corner of an inner garment's triangle
+    can be covered while the outer garment is cut away over its middle, and
+    culling it then shows whatever lies beneath instead of the garment that
+    should fill the cutout. Sample the interior and edges of every triangle
+    the hiding would cull with the same bounded test and release the ones
+    with an uncovered sample. Releasing only shrinks the hidden set, so a
+    single pass leaves every remaining culled triangle fully sampled.
+    """
+    hidden = np.asarray(hidden, dtype=bool)
+    culled = np.flatnonzero(hidden[skin.faces].any(axis=1))
+    if not len(culled):
+        return hidden.copy()
+    weights = np.array([[2, 2, 2], [3, 3, 0], [0, 3, 3], [3, 0, 3], [4, 1, 1], [1, 4, 1], [1, 1, 4]], dtype=float) / 6
+    corners = skin.vertices[skin.faces[culled]]
+    normals_ = np.asarray(directions, dtype=float)[skin.faces[culled]]
+    points = np.einsum('sk,fkj->fsj', weights, corners).reshape(-1, 3)
+    rays = np.einsum('sk,fkj->fsj', weights, normals_).reshape(-1, 3)
+    rays /= np.maximum(np.linalg.norm(rays, axis=1)[:, None], 1e-12)
+    exposed = ~np.asarray(covered(points, rays), dtype=bool).reshape(len(culled), len(weights)).all(axis=1)
+    shared = np.ones(skin.ninternal, bool)
+    np.logical_and.at(shared, skin.remap, hidden)
+    shared[skin.remap[skin.faces[culled[exposed]]].ravel()] = False
     return shared[skin.remap]
 
 
@@ -391,6 +456,10 @@ def register_fixed_body_coverage(output, component, namespace):
     report = []
     targets = [(element, family(element)) for element in appearance_elements(derived)]
     heads = set(derived.findall('Head/Elements/SkinElement'))
+    bodies = set(derived.findall('Body/Elements/SkinElement'))
+    # Heads last: their duplicate shoulder/chest skin follows the body masks.
+    targets.sort(key=lambda target: target[0] in heads)
+    culled_body = {}
     done, total = 0, sum(len(levels)*len(covers) for _, levels in targets)
     work_progress('Clothing coverage checks', done, total)
     for element, target_family in targets:
@@ -406,7 +475,12 @@ def register_fixed_body_coverage(output, component, namespace):
                 covered |= coverage(skin.vertices, direction, triangles, accept_hit=accept)
                 done += 1
                 work_progress('Clothing coverage checks', done, total, f'{region}, LOD {level}')
+            if element in heads and culled_body:
+                shadow = culled_body[min(level, max(culled_body))]
+                covered |= body_shadow(skin.vertices, direction, np.concatenate(shadow) if shadow else shadow)
             covered = triangle_safe_membership(skin, covered)
+            if element in bodies:
+                culled_body.setdefault(level, []).append(culled_triangles(skin, covered))
             path.write_bytes(apply_membership(path.read_bytes(), {4: covered}))
             report.append(dict(target=path.name, lod=level, covered_vertices=int(covered.sum()), total_vertices=skin.n,
                                coverage_test='outward_head_cone' if element in heads else 'normal_segment'))
@@ -441,6 +515,10 @@ def register_coverage(output, component, garments, tables, namespace):
         return {0: folder / model, **{lod: index[name] for lod, name in source_lods(index, model).items()}}
     targets = [(None, element, family(element)) for element in appearance_elements(derived)]
     heads = set(derived.findall('Head/Elements/SkinElement'))
+    bodies = set(derived.findall('Body/Elements/SkinElement'))
+    # Heads last: their duplicate shoulder/chest skin follows the body masks.
+    targets.sort(key=lambda target: target[1] in heads)
+    body_families = [target_family for _, element, target_family in targets if element in bodies]
     nodes = {}
     families = {}
     for i, garment in enumerate(garments):
@@ -449,7 +527,16 @@ def register_coverage(output, component, garments, tables, namespace):
         element = node.find('Elements/SkinElement')
         families[i] = family(element)
         targets.append((i, element, families[i]))
-    masks = {}; report = []; used_groups = set(); visibility_sources = []; alpha_cache = {}
+    masks = {}; raw = {}; report = []; used_groups = set(); visibility_sources = []; alpha_cache = {}
+    def shadow(level, bit, hidden_by_path):
+        """Culled body triangles for one hiding bit at the body LOD nearest a head LOD."""
+        pieces = []
+        for body_family in body_families:
+            path = body_family[min(level, max(body_family))]
+            hidden = hidden_by_path(path)
+            if hidden is not None:
+                pieces.append(culled_triangles(CompiledSkin(path.read_bytes()), hidden))
+        return np.concatenate(pieces) if pieces else np.zeros((0, 3, 3))
     done = 0
     total = sum(len(family) for i in order for target_index, _, family in targets
                 if target_index is None or i in higher[target_index])
@@ -479,8 +566,16 @@ def register_coverage(output, component, garments, tables, namespace):
                 cover_level = min(level, max(covers))
                 triangles, accept_hit, count = covers[cover_level]
                 skin = CompiledSkin(path.read_bytes())
-                coverage = head_covered_points if element in heads else covered_points
-                covered = coverage(skin.vertices, normals(skin), triangles, accept_hit=accept_hit)
+                direction = normals(skin)
+                if target_index is not None:
+                    covered = covered_points(skin.vertices, direction, triangles,
+                                             outward=GARMENT_HIDING_OUTWARD, accept_hit=accept_hit)
+                else:
+                    coverage = head_covered_points if element in heads else covered_points
+                    covered = coverage(skin.vertices, direction, triangles, accept_hit=accept_hit)
+                if element in heads:
+                    covered |= body_shadow(skin.vertices, direction,
+                                           shadow(level, 4 + i, lambda body_path: masks.get(body_path, {}).get(4 + i)))
                 done += 1
                 work_progress('Clothing coverage checks', done, total, f'{element.get("EquipmentPart")}, LOD {level}')
                 if target_index is not None:
@@ -491,7 +586,13 @@ def register_coverage(output, component, garments, tables, namespace):
                         if np.asarray(source_cover).shape != (skin.n,):
                             raise ValueError('Pre-fit coverage topology differs from converted garment')
                         covered |= np.asarray(source_cover, dtype=bool)
+                if target_index is None:
+                    raw.setdefault(path, {})[4 + i] = covered.copy()
                 covered = triangle_safe_membership(skin, covered)
+                if target_index is not None:
+                    # An inner garment must still fill the outer garment's cutouts.
+                    covered = face_safe_membership(skin, covered, direction, lambda p, d:
+                        covered_points(p, d, triangles, accept_hit=accept_hit))
                 if not covered.any():
                     continue
                 bit = 4 + i
@@ -509,6 +610,47 @@ def register_coverage(output, component, garments, tables, namespace):
         for other in derived.findall('Clothing'):
             if other.get('ArmorType') is None and any(e.get('Model') == garment['stem'] + '.skin' for e in other.findall('Elements/SkinElement')):
                 other.set('HidingGroups', node.get('HidingGroups'))
+    # Garments sharing a region are composed and worn as one item, so all of
+    # their groups are active together. Eroding each cover alone leaves a
+    # one-ring gap of visible skin where an outer cutout hands cover to the
+    # garment beneath. The outermost garment's bit carries the jointly eroded
+    # union; inner garments keep their own erosion for the underwear fallback.
+    bundles = {}
+    for i, node in nodes.items():
+        bundles.setdefault(node.find('Elements/SkinElement').get('EquipmentPart'), []).append(i)
+    for members in bundles.values():
+        if len(members) < 2:
+            continue
+        outer = min(members, key=order.index)
+        joint_body = {}
+        for target_index, element, target_family in targets:
+            if target_index is not None:
+                continue
+            for level, path in target_family.items():
+                covers = [raw.get(path, {}).get(4 + i) for i in members]
+                covers = [c for c in covers if c is not None]
+                if element in heads:
+                    skin = CompiledSkin(path.read_bytes())
+                    covers.append(body_shadow(skin.vertices, normals(skin), shadow(level, 4 + outer,
+                        lambda body_path: joint_body.get(body_path, masks.get(body_path, {}).get(4 + outer)))))
+                if not covers:
+                    continue
+                joint = triangle_safe_membership(CompiledSkin(path.read_bytes()), np.logical_or.reduce(covers))
+                if not joint.any():
+                    continue
+                if element in bodies:
+                    joint_body[path] = joint
+                masks.setdefault(path, {})[4 + outer] = joint
+                name = namespace + '_' + garments[outer]['stem'] + '_covers_' + element.get('EquipmentPart')
+                if name not in used_groups:
+                    ET.SubElement(definitions, 'HidingGroup', Name=name, Index=str(4 + outer), EquipmentPart=element.get('EquipmentPart'))
+                    used_groups.add(name)
+                names = set(nodes[outer].get('HidingGroups', '').split()) | {name}
+                nodes[outer].set('HidingGroups', ' '.join(sorted(names)))
+                for other in derived.findall('Clothing'):
+                    if other.get('ArmorType') is None and any(e.get('Model') == garments[outer]['stem'] + '.skin'
+                                                             for e in other.findall('Elements/SkinElement')):
+                        other.set('HidingGroups', nodes[outer].get('HidingGroups'))
     for path, membership in masks.items():
         path.write_bytes(apply_membership(path.read_bytes(), membership))
     path = output / ('Libs/Tables/Character/ClothingHidingGroup__' + namespace + '.xml')
