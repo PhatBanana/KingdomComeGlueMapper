@@ -248,16 +248,54 @@ class InstallTests(unittest.TestCase):
                                 **{f'GM_KCD1_LOUCENI_PO_NAKUPU_{k}_{s}': f'POZDRAV_PO_NAKUPU_{k}'
                                    for k in ('ZADNY', 'BEZNY', 'VELKY') for s in ('MUZ', 'ZENA')}})
 
-    def test_keepers_own_talk_dialogs_allow_the_farewell(self):
-        from kcd1_shop_install import allow_farewell
+    def test_keepers_own_talk_dialogs_allow_the_greeting_and_the_farewell(self):
+        from kcd1_shop_install import allow_talk_endings
         talk = (b'<Database><Skald><FaderDialog Name="rattay_miller"><Dialogue Initiator="Player" '
                 b'NonSpeakerRoles="GM_RATTAY_MILLER" AllowGreeting="false" AllowFarewell="false" /></FaderDialog>'
                 b'</Skald></Database>')
-        opened = ET.fromstring(allow_farewell(talk, {'GM_RATTAY_MILLER'})).find('Skald/FaderDialog/Dialogue')
-        self.assertEqual((opened.get('AllowFarewell'), opened.get('AllowGreeting')), ('true', 'false'))
+        blob, flipped = allow_talk_endings(talk, {'GM_RATTAY_MILLER'})
+        opened = ET.fromstring(blob).find('Skald/FaderDialog/Dialogue')
+        self.assertEqual((opened.get('AllowGreeting'), opened.get('AllowFarewell')), ('true', 'true'))
+        self.assertEqual(flipped, {'AllowGreeting', 'AllowFarewell'})
+        # The installed 7b state: the farewell already open, only the greeting flips.
+        self.assertEqual(allow_talk_endings(talk.replace(b'AllowFarewell="false"', b'AllowFarewell="true"'),
+                                            {'GM_RATTAY_MILLER'})[1], {'AllowGreeting'})
         # A dialog of a role outside the keepers' own (retail negotiation) and an already open one stay.
-        self.assertIsNone(allow_farewell(talk.replace(b'GM_RATTAY_MILLER', b'VYJEDNAVANI_MUZ'), {'GM_RATTAY_MILLER'}))
-        self.assertIsNone(allow_farewell(talk.replace(b'AllowFarewell="false"', b'AllowFarewell="true"'), {'GM_RATTAY_MILLER'}))
+        self.assertEqual(allow_talk_endings(talk.replace(b'GM_RATTAY_MILLER', b'VYJEDNAVANI_MUZ'), {'GM_RATTAY_MILLER'}),
+                         (None, set()))
+        self.assertEqual(allow_talk_endings(blob, {'GM_RATTAY_MILLER'}), (None, set()))
+
+    def test_keeper_cries_lose_only_their_entry_cooldown_and_the_talk_open_check_fails_loudly(self):
+        from kcd1_shop_install import check_talk_open, drop_entry_cooldowns, keeper_work_roles
+        roles = {'Libs/Storm/roles/gm_work_a.xml': b'<storm><rules><rule><selectors><hasName name="ska_merchant1" />'
+                 b'</selectors><operations><addRole name="gm_work_a_2282" /></operations></rule></rules></storm>',
+                 'Libs/Storm/roles/gm_work_b.xml': b'<storm><rules><rule><selectors><hasName name="somebody" />'
+                 b'</selectors><operations><addRole name="gm_work_b_1" /></operations></rule></rules></storm>'}
+        cry = (b'<Database><Skald><Dialog Name="gm_work_ROLE_26219"><Dialogue Type="ingame monolog"><SelectedSouls>'
+               b'<SelectedSoul Role="ROLE" /></SelectedSouls><Decision Name="topic"><Sequences>'
+               b'<Sequence Name="entry" EndType="Decision" EntryCondition="Port(\'active\')" Cooldown="10s"><Decision>'
+               b'<Sequences><Sequence Name="cry1" Cooldown="35s" /><Sequence Name="cry2" Cooldown="35s" /></Sequences>'
+               b'</Decision></Sequence></Sequences></Decision></Dialogue></Dialog></Skald></Database>')
+        quests = {'Quests/a.xml': cry.replace(b'ROLE', b'gm_work_a_2282'), 'Quests/b.xml': cry.replace(b'ROLE', b'gm_work_b_1')}
+        work = keeper_work_roles(roles, ['ska_merchant1'])
+        self.assertEqual(work, {'gm_work_a_2282': 'ska_merchant1'})
+        with self.assertRaisesRegex(ValueError, 'Quests/a.xml: keeper cry keeps an entry cooldown'):
+            check_talk_open(quests, set(), work)
+        changed, report = drop_entry_cooldowns(quests, work)
+        self.assertEqual(list(changed), ['Quests/a.xml'])
+        self.assertEqual(report, [dict(person='ska_merchant1', dialog='Quests/a.xml', entry_cooldowns=[('entry', '10s')])])
+        sequences = {s.get('Name'): s.get('Cooldown') for s in ET.fromstring(changed['Quests/a.xml']).iter('Sequence')}
+        self.assertEqual(sequences, {'entry': None, 'cry1': '35s', 'cry2': '35s'})
+        quests.update(changed)
+        self.assertEqual(drop_entry_cooldowns(quests, work), ({}, []))
+        talk = (b'<Database><Skald><FaderDialog Name="rattay_innkeeper"><Dialogue Initiator="Player" '
+                b'NonSpeakerRoles="GMTRAVEL_RATTAY_INNKEEPER" AllowGreeting="false" AllowFarewell="true" /></FaderDialog>'
+                b'</Skald></Database>')
+        quests['Quests/inn.xml'] = talk
+        with self.assertRaisesRegex(ValueError, 'rattay_innkeeper does not allow its greeting'):
+            check_talk_open(quests, {'GMTRAVEL_RATTAY_INNKEEPER'}, work)
+        quests['Quests/inn.xml'] = talk.replace(b'AllowGreeting="false"', b'AllowGreeting="true"')
+        check_talk_open(quests, {'GMTRAVEL_RATTAY_INNKEEPER'}, work)
 
     def test_farewell_is_fed_by_the_kcd2_state_node_and_declared_in_the_module(self):
         from kcd1_shop_install import farewell_nodes, module
@@ -401,8 +439,13 @@ class InstallTests(unittest.TestCase):
                 self.assertEqual(len(report['recordings_added']), 747)
             else:
                 # A v2 port (no farewell) adds the 110 farewell recordings, every port before the innkeeper
-                # and the miller adds Pesek's 127 ccla lines.
-                self.assertIn(len(report['recordings_added']), (237, 127))
+                # and the miller adds Pesek's 127 ccla lines; a 2417ca2 port (unified-7b) adds none and
+                # only opens the three maintainer greetings and drops two entry cooldowns.
+                self.assertIn(len(report['recordings_added']), (237, 127, 0))
+                if not report['recordings_added']:
+                    self.assertEqual(len(report['greeting_allowed']), 3)
+                    self.assertEqual(sorted(c['person'] for c in report['entry_cooldowns_dropped']),
+                                     ['ska_merchant1', 'ska_merchant4'])
                 self.assertEqual(report['facial_tracks_added'], len(report['recordings_added']))
         else:
             # Already ported: the audits above still ran; plan writes and removes nothing.

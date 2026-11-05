@@ -335,6 +335,23 @@ still cannot be resolved stops the step with every such keeper and its reason.
     `gm_neuhof_horse_sales`) now say `"true"`: KCD1 said farewell at the end of
     every conversation. Retail's own shop dialogs say `"false"`, possibly so
     no goodbye plays as the talk screen fades into the shop; see acceptance.
+  - **Opening the talk screen.** The KCD1 greeting is a KCD2 `Type="greeting"`
+    dialog, retail's greeting at the start of a conversation (its
+    `open_world/pozdravy_na_zacatku_dialogu`); retail switches it off per talk
+    dialog with `AllowGreeting="false"` (1747 dialogs). On unified-7b the
+    innkeeper, Pesek and Zdena never greeted at talk open because the
+    maintainer's `rattay_innkeeper`, `rattay_miller` and `gm_neuhof_horse_sales`
+    say `"false"`. They now say `"true"`, like the port's own `gm_kcd1_obchod`:
+    a deviation in the maintainer's dialogs, as for the farewell.
+  - **merchant1 and merchant4.** Their talk dialog already allowed the greeting,
+    yet neither greeted on 7b while the other market keepers did. Their market
+    cries are the only keeper cries carrying eca28b2's Skald cooldowns (merchant1:
+    entry 10 s, cries 35 s; merchant4: entry 10 s, cries 120 s). For keepers
+    only, the port drops the entry cooldown and keeps the per-cry ones. That the
+    entry cooldown blocks the greeting is a hypothesis this tests: if they still
+    do not greet, the per-cry cooldowns are next. The step fails if any keeper
+    talk dialog disallows the greeting or farewell, or any keeper cry keeps an
+    entry cooldown.
   - **After the shop closes.** The ShopModule asks for POZDRAV_PO_NAKUPU_* by
     purchase size; the port removed KCD2's post-purchase endings. Each sex now
     has three more copies of the KCD1 farewell (`gm_kcd1_po_nakupu_<size>_*`,
@@ -487,7 +504,11 @@ speaker's own stem, and treats those rows as essential.
       the shop, before trading. If it happens, every AllowFarewell flip is
       reverted together (the port's and the maintainer's three).
 4. No KCD2 greeting, shop greeting, common farewell or post-purchase farewell
-   on these keepers.
+   on these keepers. Opening trade talk with each of the ten keepers, the first
+   time that day, plays one KCD1 greeting in the keeper's voice: in particular
+   ska_merchant1, ska_merchant4, the innkeeper, Pesek and Zdena, which were
+   silent on unified-7b. merchant1 and merchant4 still call their cries about
+   35 s and 120 s apart.
 5. Start a fight near ska_merchant1 (or any rpro/akem keeper): no sound is
    expected for his KCD2 fight barks and crime shouts. Note whether a
    subtitle appears, the line is skipped, or kcd.log says anything.
