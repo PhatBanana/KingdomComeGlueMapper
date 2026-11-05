@@ -125,23 +125,101 @@ def shop_dialog_roles(quest_files, skip=()):
     return roles
 
 
-def allow_farewell(blob, roles):
-    """The talk-screen FaderDialog bound to one of roles with AllowFarewell="true", or None when unchanged.
+TALK_FLAGS = ('AllowGreeting', 'AllowFarewell')
 
-    The engine plays the ROZLOUCENI farewell at the end of a conversation only when the dialog allows it.
+
+def allow_talk_endings(blob, roles):
+    """(the blob with every talk-screen FaderDialog bound to one of roles set to AllowGreeting and
+    AllowFarewell "true", or None when unchanged; the flags that changed).
+
+    The engine plays the Type="greeting" dialog (retail's pozdravy_na_zacatku_dialogu, a greeting at the
+    start of a conversation) and the ROZLOUCENI farewell at its end only when the talk dialog allows them;
+    retail turns either off with "false".
     """
     if b'<FaderDialog' not in blob:
-        return None
+        return None, set()
     root = ET.fromstring(blob)
-    changed = False
+    flipped = set()
     for dialog in root.iter('FaderDialog'):
         body = dialog.find('Dialogue')
         if body is None or body.get('Initiator') != 'Player' or body.get('NonSpeakerRoles') not in roles:
             continue
-        if body.get('AllowFarewell') != 'true':
-            body.set('AllowFarewell', 'true')
-            changed = True
-    return xml(root) if changed else None
+        for flag in TALK_FLAGS:
+            if body.get(flag) != 'true':
+                body.set(flag, 'true')
+                flipped.add(flag)
+    return (xml(root) if flipped else None), flipped
+
+
+def keeper_work_roles(role_files, people):
+    """{work role: person} for the gm_work_* roles the keepers' Storm rules add (their market cries)."""
+    found = {}
+    for name, blob in role_files.items():
+        if not posixpath.basename(name).startswith('gm_work_'):
+            continue
+        for rule in ET.fromstring(blob).iter('rule'):
+            who = [s.get('name') for s in rule.findall('selectors/hasName')]
+            for person in who:
+                if person in people:
+                    found.update({o.get('name'): person for o in rule.iter('addRole')})
+    return found
+
+
+def entry_sequences(blob):
+    """(root, the top-level entry Sequences) of an in-world work Dialog: the ones that open its Decision."""
+    root = ET.fromstring(blob)
+    sequences = []
+    for dialog in root.iter('Dialog'):
+        decision = dialog.find('Dialogue/Decision')
+        if decision is not None and decision.find('Sequences') is not None:
+            sequences += [s for s in decision.find('Sequences') if s.get('EndType') == 'Decision']
+    return root, sequences
+
+
+def work_dialogs(quest_files, work_roles):
+    """{path: person} for the in-world Dialogs spoken in one of the keepers' work roles."""
+    found = {}
+    for path, blob in quest_files.items():
+        if b'gm_work_' not in blob or b'<Dialog ' not in blob:
+            continue
+        for soul in ET.fromstring(blob).iter('SelectedSoul'):
+            if soul.get('Role') in work_roles:
+                found[path] = work_roles[soul.get('Role')]
+    return found
+
+
+def drop_entry_cooldowns(quest_files, work_roles):
+    """({path: blob}, report): a keeper's market cries lose the entry Cooldown before their first cry.
+
+    eca28b2 carries KCD1's work-speech timeouts as Skald Cooldowns: one on the entry sequence (10 s)
+    and one on each cry. ska_merchant1 and ska_merchant4, the two keepers carrying them, play no
+    greeting when talk opens while the others do; only the entry cooldown goes, the cries keep theirs.
+    """
+    changed, report = {}, []
+    for path, person in sorted(work_dialogs(quest_files, work_roles).items()):
+        root, sequences = entry_sequences(quest_files[path])
+        dropped = [(s.get('Name'), s.attrib.pop('Cooldown')) for s in sequences if 'Cooldown' in s.attrib]
+        if dropped:
+            changed[path] = xml(root)
+            report.append(dict(person=person, dialog=path, entry_cooldowns=dropped))
+    return changed, report
+
+
+def check_talk_open(quest_files, talk_roles, work_roles):
+    """Fail unless every keeper talk dialog allows its greeting and no keeper cry has an entry cooldown."""
+    failures = []
+    for path, blob in sorted(quest_files.items()):
+        if b'<FaderDialog' in blob:
+            for dialog in ET.fromstring(blob).iter('FaderDialog'):
+                body = dialog.find('Dialogue')
+                if body is not None and body.get('Initiator') == 'Player' and body.get('NonSpeakerRoles') in talk_roles \
+                        and any(body.get(flag) != 'true' for flag in TALK_FLAGS):
+                    failures.append(f'{path}: {dialog.get("Name")} does not allow its greeting and farewell')
+    for path in sorted(work_dialogs(quest_files, work_roles)):
+        if any('Cooldown' in s.attrib for s in entry_sequences(quest_files[path])[1]):
+            failures.append(f'{path}: keeper cry keeps an entry cooldown')
+    if failures:
+        raise ValueError('KCD1 greeting at talk open is blocked: ' + '; '.join(failures))
 
 
 def own_trade(rule, custom, shop_roles):
@@ -894,15 +972,25 @@ def plan(package, source, target):
     desired.update({path: xml(root) for path, root in pinned.items()})
     desired.update(voice_changes)
     # The keepers' own talk-screen dialogs (the maintainer's rattay_innkeeper, rattay_miller and horse
-    # sales) allow the farewell like the port's trade dialog, so all ten keepers end alike.
-    farewell_dialogs = []
+    # sales) allow the greeting and the farewell like the port's trade dialog, so all ten keepers open
+    # and end alike.
+    farewell_dialogs, greeting_dialogs = [], []
     for path, blob in sorted(quest_files.items()):
         if path.startswith(FOLDER) or path in removed_generated:
             continue
-        changed = allow_farewell(blob, talk_roles)
+        changed, flipped = allow_talk_endings(blob, talk_roles)
         if changed is not None:
             desired[path] = changed
-            farewell_dialogs.append(path)
+            if 'AllowFarewell' in flipped:
+                farewell_dialogs.append(path)
+            if 'AllowGreeting' in flipped:
+                greeting_dialogs.append(path)
+    work_roles = keeper_work_roles(role_files, SCOPE)
+    cooldown_changes, cooldown_report = drop_entry_cooldowns(quest_files, work_roles)
+    desired.update(cooldown_changes)
+    final_quests = {**{p: b for p, b in quest_files.items() if p not in removed_generated},
+                    **{p: b for p, b in desired.items() if p.startswith('Quests/')}}
+    check_talk_open(final_quests, talk_roles, work_roles)
 
     entry = ET.fromstring(entry_blob)
     level_host = entry.find('Skald/Level')
@@ -975,7 +1063,8 @@ def plan(package, source, target):
     changes = {TRAVEL: travel_changes, ENGLISH: english_changes, ENGLISH_XML: text_changes, FACIALS: facial_changes}
     report = dict(version=VERSION, scope=list(SCOPE), host=HOST, module=FOLDER + MODULE + '.xml', audio_scope=scope,
                   utils_closure=sorted(closure), utils_libraries=utils_libraries(closure), **audit,
-                  keepers=keepers_report, pinned_characters=pin_report, voice_switches=voice_report,farewell_allowed=farewell_dialogs, dialogs=reports,
+                  keepers=keepers_report, pinned_characters=pin_report, voice_switches=voice_report, farewell_allowed=farewell_dialogs,
+                  greeting_allowed=greeting_dialogs, entry_cooldowns_dropped=cooldown_report,dialogs=reports,
                   trade=trade_report, removed_dialogs=removed_dialogs, role_table=ROLE_TABLE,
                   recordings_added=sorted(media), text_rows=len(texts), facial_lines=len(tracked),
                   facial_tracks_added=len(added),
