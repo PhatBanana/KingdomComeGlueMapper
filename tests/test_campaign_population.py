@@ -12,7 +12,7 @@ class PopulationTests(unittest.TestCase):
         soul = ast(ET.fromstring('<Soul><Guid>instance</Guid><StaticData><InventoryId>inventory</InventoryId><VoiceId>voice</VoiceId><CharacterBodyDescription><BodyId>authored-body</BodyId></CharacterBodyDescription><InitialClothingDescription><PresetId>outfit</PresetId></InitialClothingDescription><InitialAIData><BrainId>brain</BrainId></InitialAIData></StaticData></Soul>'))
         entity = ast(ET.fromstring('<Entity Name="actor" Pos="1,2,3"><EntityLinks><Link Name="Home" TargetId="8"/></EntityLinks></Entity>'))
         tables = {'character_body': [{'character_body_id':'authored-body'}],
-                  'item/armor2clothing_preset': [], 'item/clothing': [], 'item/armor': []}
+                  'item/armor2clothing_preset': [], 'item/clothing_preset': [], 'item/clothing': [], 'item/armor': []}
         result = resolve_actor(dict(soul=soul, entity=entity, layer='layer'), tables.__getitem__)
         self.assertEqual(result['parts'][0]['character_body_id'], 'authored-body')
         self.assertEqual(result['inventory_id'], 'inventory')
