@@ -76,6 +76,31 @@ class CachedZipFile(_STDLIB):
             zinfo_or_directory_name = copy.copy(zinfo_or_directory_name)
         return super().mkdir(zinfo_or_directory_name, mode)
 
+    def close(self):
+        """Diagnostic only: with GLUEMAPPER_WRITE_LOG set, record each archive this process writes."""
+        log = os.environ.get('GLUEMAPPER_WRITE_LOG')
+        writing = log and self.mode in ('w', 'x', 'a') and self.fp is not None and isinstance(self.filename, str)
+        super().close()
+        if writing:
+            _record_write(log, self.filename, self.mode)
+
+
+def _record_write(log, filename, mode):
+    import json, sys
+    try: size = os.path.getsize(filename)
+    except OSError: return
+    callers, frame = [], sys._getframe(2)
+    while frame is not None and len(callers) < 3:
+        name = os.path.basename(frame.f_code.co_filename)
+        if name.endswith('.py') and name not in ('archive_directories.py', '__init__.py', 'zipfile.py') \
+                and (not callers or callers[-1] != name[:-3]):
+            callers.append(name[:-3])
+        frame = frame.f_back
+    line = json.dumps(dict(path=filename, bytes=size, mode=mode, seconds=round(time.perf_counter(), 3),
+                           pid=os.getpid(), callers=callers)) + '\n'
+    with _LOCK, open(log, 'a', encoding='utf-8') as stream:
+        stream.write(line)
+
 
 def install():
     """Serve every zipfile.ZipFile(...) in this process from the memo.

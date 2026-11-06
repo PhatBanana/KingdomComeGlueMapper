@@ -125,6 +125,21 @@ class ArchiveDirectoryTests(unittest.TestCase):
         self.assertIs(zipfile.ZipFile, archive_directories._STDLIB)
         self.assertEqual(self.opened(path)[2], 1)
 
+    def test_the_opt_in_write_log_records_each_written_archive(self):
+        import json
+        log = self.root/'writes.jsonl'
+        written = self.root/'w.pak'
+        with CachedZipFile(written, 'w') as out: out.writestr('x', b'abc')
+        self.assertFalse(log.exists())
+        with patch.dict(os.environ, {'GLUEMAPPER_WRITE_LOG': str(log)}):
+            with CachedZipFile(self.root/'v.pak', 'w') as out: out.writestr('x', b'abcdef')
+            with CachedZipFile(written) as reader: reader.read('x')          # reads are not logged
+        rows = [json.loads(line) for line in log.read_text().splitlines()]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual((Path(rows[0]['path']).name, rows[0]['bytes'], rows[0]['mode']),
+                         ('v.pak', (self.root/'v.pak').stat().st_size, 'w'))
+        self.assertEqual(rows[0]['callers'][0], 'test_archive_directories')
+
 
 if __name__ == '__main__':
     unittest.main()
