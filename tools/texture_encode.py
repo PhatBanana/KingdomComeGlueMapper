@@ -19,8 +19,12 @@ is the fallback, at about 4 s per texture. GLUEMAPPER_TEXTURE_ENCODER selects
 Nothing is downloaded. Every call works in its own temporary folder, so it is
 safe in bake-pool worker processes.
 
-GLUEMAPPER_CLOTHING_TEXTURES selects the storage: `bc7` (default) or `float`
-(the previous RGBA16F macro bakes and uncompressed RGBA8 masks, kept for A/B).
+GLUEMAPPER_CLOTHING_TEXTURES selects the storage: `float` (default: RGBA16F
+macro bakes and uncompressed RGBA8 masks) or `bc7`. BC7 is opt-in because the
+encode is close to GPU-bound: about 0.5 s per 2048px texture on an RTX 5090,
+which adds roughly 25 minutes to a cold build's containers alone and far more on
+older GPUs. It saves GPU memory (32 MB -> 4 MB per bake) for cards that need it;
+the package's lossless deflate already shrinks the float bakes on disk.
 """
 import functools
 import os
@@ -35,7 +39,7 @@ import numpy as np
 
 SETTING = 'GLUEMAPPER_CLOTHING_TEXTURES'
 MODES = ('bc7', 'float')
-DEFAULT_MODE = 'bc7'
+DEFAULT_MODE = 'float'
 COLOUR_PRESET = 'AlbedoWithOpacity'      # BC7, sRGB, alpha kept (native clothing colour)
 MASK_PRESET = 'BloodGrimeScratchMask'    # BC7, linear (native _bgs masks)
 # The colour preset's output colour space is 'auto': rc normally writes

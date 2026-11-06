@@ -126,7 +126,7 @@ class BatchedEncodeTests(unittest.TestCase):
                 patch.object(bake_pool, 'pool', return_value=executor), \
                 patch.object(texture_encode, 'encode_staged', encode), \
                 patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')), patch.object(texture_encode, '_tool_identity', return_value='fake'), \
-                patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''}):
+                patch.dict(os.environ, {texture_encode.SETTING: 'bc7', texture_encode.ENCODER_SETTING: ''}):
             with bake_pool.Bakes() as bakes:
                 bakes(Path(t) / 'a_diff.dds', image, ET.Element('Material', Diffuse='1,1,1'))
                 bakes.mask(Path(t) / 'a_bgs.dds', image)
@@ -146,7 +146,7 @@ class BatchedEncodeTests(unittest.TestCase):
                 patch.object(bake_pool, 'pool', return_value=executor), \
                 patch.object(texture_encode, 'encode_staged', encode), \
                 patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')), patch.object(texture_encode, '_tool_identity', return_value='fake'), \
-                patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''}):
+                patch.dict(os.environ, {texture_encode.SETTING: 'bc7', texture_encode.ENCODER_SETTING: ''}):
             with self.assertRaisesRegex(RuntimeError, 'Character texture encode: .*x_diff.dds'):
                 with bake_pool.Bakes() as bakes:
                     bakes(Path(t) / 'x_diff.dds', Image.new('RGBA', (64, 64)), ET.Element('Material'))
@@ -167,7 +167,7 @@ class DeferredEncodeTests(unittest.TestCase):
         self.patches = [patch.object(texture_encode, 'encode_staged', encode),
                         patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')),
                         patch.object(texture_encode, '_tool_identity', return_value='fake'),
-                        patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''})]
+                        patch.dict(os.environ, {texture_encode.SETTING: 'bc7', texture_encode.ENCODER_SETTING: ''})]
         for each in self.patches: each.start()
         self.executor = ThreadPoolExecutor(2)
         self.patches.append(patch.object(bake_pool, 'pool', return_value=self.executor)); self.patches[-1].start()
@@ -232,7 +232,7 @@ class StagedReuseTests(unittest.TestCase):
         self.patches = [patch.object(texture_encode, 'encode_staged', encode),
                         patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')),
                         patch.object(texture_encode, '_tool_identity', return_value='fake'),
-                        patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''})]
+                        patch.dict(os.environ, {texture_encode.SETTING: 'bc7', texture_encode.ENCODER_SETTING: ''})]
         for each in self.patches: each.start()
         self.executor = ThreadPoolExecutor(2)
         self.patches.append(patch.object(bake_pool, 'pool', return_value=self.executor)); self.patches[-1].start()
