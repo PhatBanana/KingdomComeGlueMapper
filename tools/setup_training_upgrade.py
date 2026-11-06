@@ -280,7 +280,10 @@ def upgrade(package,source,target,*,selection=None):
         invitation['resources'][template_path]=hashlib.sha256(files[template_path]).hexdigest()
         invitation['resources'][source_quest_path]=hashlib.sha256(files[source_quest_path]).hexdigest()
         invitation['scope']='Source invitation and departure; native lesson linked by '+RECORD
-        (package/INVITATION).write_text(json.dumps(invitation,indent=2),encoding='utf-8')
+        # The invitation record already exists and may be hard linked to a
+        # verified package or installed mod: replace it, never edit in place.
+        pending=package/(INVITATION+'.pending')
+        pending.write_text(json.dumps(invitation,indent=2),encoding='utf-8');pending.replace(package/INVITATION)
         resources={travel:{n:hashlib.sha256(b).hexdigest() for n,b in files.items()
             if n!=ENTRY and not n.startswith('Mods/')},'Localization/English.pak':{n:hashlib.sha256(b).hexdigest() for n,b in media.items()},
             facial_pak:{n:hashlib.sha256(b).hexdigest() for n,b in facials.items() if n!=INDEX}}
