@@ -103,12 +103,15 @@ def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
 
 
 def convert_character(source, target, mod, person, name, sid, source_level, namespace, output, data_dir,
-                      notify=lambda message: None):
+                      notify=lambda message: None, encodes=None):
     """Appearance, carried equipment and actor archives of one character.
 
     Reads only the game installs and the input mod, and writes only this
     character's folders and archives, so characters can convert in parallel.
     person is None when it still has to be resolved from the source level.
+
+    encodes is the bake_pool.deferred_encodes() batch when the textures may still
+    be compressing on return: the archives are then written by finish_character().
     """
     started = time.perf_counter()
     cache, key, hit = character_cache(source, target, mod, person, name, sid, source_level, namespace)
@@ -119,9 +122,25 @@ def convert_character(source, target, mod, person, name, sid, source_level, name
         copy_payload(payload/'Data', data_dir)
         result = pickle.loads((payload/'result.pickle').read_bytes())
         return dict(result, elapsed=time.perf_counter() - started)
-    result = _convert_character_files(source, target, mod, person, name, sid, source_level, namespace, output, data_dir, notify)
+    result = _convert_character_files(source, target, mod, person, name, sid, source_level, namespace, output, data_dir,
+                                      notify, pack=encodes is None)
+    result['_finish'] = (cache, key, output, namespace, data_dir, started,
+                         None if encodes is None else encodes.ticket())
+    return result if encodes is not None else finish_character(result)
+
+
+def finish_character(result):
+    """Pack a convert_character result once its textures are written, and publish its cache entry."""
+    finish = result.pop('_finish', None)
+    if finish is None or 'error' in result:
+        return result
+    cache, key, output, namespace, data_dir, started, ticket = finish
+    if ticket is not None:
+        ticket.result()
+        result['paks'], result['libs'] = write_actor_paks(output / 'people' / namespace, data_dir, namespace)
+        result['elapsed'] = time.perf_counter() - started
     paks = result.pop('paks', [])
-    if cache is not None and 'error' not in result:
+    if cache is not None:
         record = output/'people'/namespace/'cached-result.pickle'
         record.write_bytes(pickle.dumps({k: v for k, v in result.items() if k != 'elapsed'}))
         cache.publish(key, {'result.pickle': record, **{'Data/' + p.name: p for p in paks}}, {})
@@ -145,7 +164,8 @@ def character_cache(source, target, mod, person, name, sid, source_level, namesp
     return cache, key, None if forced() else cache.lookup(key)
 
 
-def _convert_character_files(source, target, mod, person, name, sid, source_level, namespace, output, data_dir, notify):
+def _convert_character_files(source, target, mod, person, name, sid, source_level, namespace, output, data_dir, notify,
+                             pack=True):
     from character_weapon_inventory import stage as stage_weapons
     started = time.perf_counter()
     notify('Resolving source character: ' + name)
@@ -171,8 +191,12 @@ def _convert_character_files(source, target, mod, person, name, sid, source_leve
     (appearance / 'appearance-result.json').write_text(json.dumps(character, indent=2))
     # Keep each actor's geometry in its own ZIP32 archive. The shared world
     # archive is already large and must not grow past the engine's limit.
-    notify(person['name'] + ': Packing and validating character assets')
-    paks, libs = write_actor_paks(appearance, data_dir, namespace)
+    if pack:
+        notify(person['name'] + ': Packing and validating character assets')
+        paks, libs = write_actor_paks(appearance, data_dir, namespace)
+    else:
+        notify(person['name'] + ': Packing once the GPU has compressed the textures')
+        paks, libs = None, None
     strings = appearance / 'Localization/English/text_ui_items.xml'
     if strings.exists(): item_tables.append(strings.read_bytes())
     return dict(person=person, character=character, libs=libs, item_tables=item_tables, paks=paks,
@@ -215,11 +239,30 @@ def convert_characters(jobs, progress, cancelled, convert=None):
     yield from _convert_in_order(jobs, workers, progress, cancelled, convert)
 
 
+def _textures_written(result):
+    ticket = (result.get('_finish') or (None,) * 7)[6]
+    return ticket is None or ticket.done()
+
+
 def _convert_in_order(jobs, workers, progress, cancelled, convert):
     from bounded_pool import worker_count
     if workers <= 1:
-        for job in jobs:
-            yield (convert or convert_character)(*job, notify=progress)
+        if convert is not None:
+            for job in jobs:
+                yield convert(*job, notify=progress)
+            return
+        # One process: keep converting while the GPU compresses earlier people's
+        # textures, and pack each person in order once theirs are written.
+        from bake_pool import deferred_encodes
+        waiting = []
+        with deferred_encodes() as encodes:
+            for job in jobs:
+                if cancelled(): raise InterruptedError('Cancelled during character conversion')
+                waiting.append(convert_character(*job, notify=progress, encodes=encodes))
+                while waiting and _textures_written(waiting[0]):
+                    yield finish_character(waiting.pop(0))
+        while waiting:  # leaving the block wrote every remaining texture
+            yield finish_character(waiting.pop(0))
         return
     bakes = max(1, worker_count(16, 768 * 1024**2, 'GLUEMAPPER_BAKE_WORKERS') // workers)
     progress(f'Converting {len(jobs)} characters in {workers} worker processes')

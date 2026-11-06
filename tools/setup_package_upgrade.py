@@ -76,6 +76,20 @@ def rewrite(package, relative, replacements, remove=lambda name: False):
     pending.replace(path)
 
 
+def upgrade_clothing_textures(package, receipt, target, notify, cancelled):
+    """Store saved float/RGBA8 clothing textures in their native compressed formats.
+
+    Runs after actor-material migration, which may rebake clothing. Fresh builds
+    that already encode BC7 find nothing to convert and only stamp the receipt.
+    """
+    from clothing_texture_upgrade import RECEIPT_KEY, upgrade
+    files, report = upgrade(package, target, notify, cancelled)
+    receipt['files'].update(files)
+    previous = receipt.get(RECEIPT_KEY)
+    if files or not previous or previous.get('mode') != report['mode']:
+        receipt[RECEIPT_KEY] = report
+
+
 def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambda *a: None, cancelled=lambda: False):
     """Called only on a private build or the transactional resume staging copy."""
     from campaign_start_policy import gate_start
@@ -163,6 +177,8 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from world_actor_contracts import upgrade as upgrade_actor_contracts
         files, report = upgrade_actor_contracts(package, target)
         receipt['files'].update(files); receipt['world_actor_contracts'] = report
+
+        upgrade_clothing_textures(package, receipt, target, notify, cancelled)
         receipt['quest_training'] = validate_training(package)
         receipt['quest_invitation'] = validate_invitation(package)
         receipt['build_recipe']['content_validation'] = validate(package)
@@ -431,6 +447,7 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     for name in actor_removed: receipt['files'].pop(name, None)
     if actor_report['actors'] or 'actor_material_upgrade' not in receipt:
         receipt['actor_material_upgrade'] = actor_report
+    upgrade_clothing_textures(package, receipt, target, notify, cancelled)
     from item_icons import upgrade as upgrade_item_icons
     icon_files, icon_report = upgrade_item_icons(package, source)
     receipt['files'].update(icon_files)

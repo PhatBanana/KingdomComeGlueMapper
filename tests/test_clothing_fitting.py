@@ -17,6 +17,7 @@ from clothing_regions import read_chunks, write_chunks
 from npc_effects import write_float_dds, decode_dds_family, native_vertex_features
 from clothing_coverage import apply_membership
 from test_character_upgrade import sample_skin
+from bc7_synthetic import constant_block, bc7_dds
 
 
 class OutfitFittingTests(unittest.TestCase):
@@ -173,6 +174,21 @@ class OutfitFittingTests(unittest.TestCase):
                 np.testing.assert_array_equal(native[:,:,3], alpha)
                 offset += size
             self.assertEqual(offset,len(data))
+
+    def test_bc7_clothing_alpha_is_read_like_the_float_bake(self):
+        from clothing_fitting import source_alpha
+        from clothing_coverage import alpha_levels
+        clear, solid = constant_block(40, 50, 60, 0, p=0), constant_block(40, 50, 60, 127, p=1)
+        data = bc7_dds(8, 8, [[clear, solid, solid, solid], [solid]])
+        material = ET.fromstring('<Material Shader="Illum" AlphaTest="0.5"><Textures>'
+                                 '<Texture Map="Diffuse" File="cloth.dds"/></Textures></Material>')
+        (threshold, levels), = source_alpha(material, {'cloth.dds': data})
+        self.assertEqual(threshold, .5)
+        top = alpha_levels(data)[0][0]
+        np.testing.assert_array_equal(levels[0][:4, :4], 0)
+        np.testing.assert_array_equal(levels[0][4:, :], 1)
+        np.testing.assert_allclose(levels[0], top, atol=1 / 255)
+        self.assertEqual(levels[-1].shape, (1, 1))
 
     def test_staged_split_texture_rejects_a_missing_mip(self):
         with tempfile.TemporaryDirectory() as tmp:

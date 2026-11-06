@@ -91,30 +91,7 @@ def native_alpha_surfaces(output, material_path, *, cache=None):
             surfaces.append((threshold, levels))
             continue
         data = path.read_bytes()
-        if (len(data) < 148 or data[:4] != b'DDS ' or data[84:88] != b'DX10'
-                or struct.unpack_from('<I', data, 4)[0] != 124
-                or struct.unpack_from('<I', data, 76)[0] != 32
-                or struct.unpack_from('<5I', data, 128) != (10, 3, 0, 1, 0)):
-            raise ValueError('Generated clothing alpha requires native RGBA16_FLOAT DDS')
-        height, width = struct.unpack_from('<2I', data, 12)
-        mip_count = struct.unpack_from('<I', data, 28)[0]
-        if not width or not height or not 1 <= mip_count <= 32:
-            raise ValueError('Invalid clothing opacity dimensions')
-        offset = 148
-        levels = []
-        for mip in range(mip_count):
-            size = width * height * 8
-            if offset + size > len(data): raise ValueError('Truncated clothing alpha mip')
-            pixels = np.frombuffer(data, dtype='<f2', count=width*height*4, offset=offset).reshape(-1,4)
-            if not np.isfinite(pixels).all() or np.any(pixels[:,3] > 1) or np.any(pixels[:,3] < 0):
-                raise ValueError('Invalid clothing alpha pixels')
-            levels.append(pixels[:,3].reshape(height, width).copy())
-            offset += size
-            if width == height == 1 and mip != mip_count-1:
-                raise ValueError('Extra clothing alpha mip')
-            if mip < mip_count-1: width, height = max(1,width//2), max(1,height//2)
-        if width != 1 or height != 1 or offset != len(data):
-            raise ValueError('Incomplete clothing opacity mip chain')
+        levels, mip_count = alpha_levels(data)
         digest = hashlib.sha256(data).hexdigest()
         if cache is not None:
             cache[path] = levels, digest, mip_count
@@ -122,6 +99,62 @@ def native_alpha_surfaces(output, material_path, *, cache=None):
         surfaces.append((threshold, levels))
     if not evidence: raise ValueError('Empty clothing material')
     return surfaces, evidence
+
+
+def alpha_levels(data):
+    """Alpha of every mip of a generated clothing colour texture (RGBA16F or BC7).
+
+    RGBA16F bakes carry their chain to 1x1. BC7 textures from the resource
+    compiler stop at the native 4x4 tail; the engine has no smaller level to
+    sample, so the chain is complete there. BC7 alpha is decoded as stored.
+    """
+    if (len(data) < 148 or data[:4] != b'DDS ' or data[84:88] != b'DX10'
+            or struct.unpack_from('<I', data, 4)[0] != 124
+            or struct.unpack_from('<I', data, 76)[0] != 32
+            or struct.unpack_from('<4I', data, 132) != (3, 0, 1, 0)
+            or struct.unpack_from('<I', data, 128)[0] not in (10, 98, 99)):
+        raise ValueError('Generated clothing alpha requires native RGBA16_FLOAT or BC7 DDS')
+    fmt = struct.unpack_from('<I', data, 128)[0]
+    height, width = struct.unpack_from('<2I', data, 12)
+    mip_count = struct.unpack_from('<I', data, 28)[0]
+    if not width or not height or not 1 <= mip_count <= 32:
+        raise ValueError('Invalid clothing opacity dimensions')
+    offset = 148
+    levels = []
+    end = len(data) - (8 if fmt != 10 and data.endswith(b'CExtCEnd') else 0)
+    for mip in range(mip_count):
+        if fmt == 10:
+            size = width * height * 8
+            if offset + size > end: raise ValueError('Truncated clothing alpha mip')
+            pixels = np.frombuffer(data, dtype='<f2', count=width*height*4, offset=offset).reshape(-1,4)
+            if not np.isfinite(pixels).all() or np.any(pixels[:,3] > 1) or np.any(pixels[:,3] < 0):
+                raise ValueError('Invalid clothing alpha pixels')
+            levels.append(pixels[:,3].reshape(height, width).copy())
+        else:
+            size = (width + 3) // 4 * ((height + 3) // 4) * 16
+            if offset + size > end: raise ValueError('Truncated clothing alpha mip')
+            levels.append(_bc7_alpha(data, offset, size, width, height))
+        offset += size
+        if width == height == 1 and mip != mip_count-1:
+            raise ValueError('Extra clothing alpha mip')
+        if mip < mip_count-1: width, height = max(1,width//2), max(1,height//2)
+    tail = (1, 1) if fmt == 10 else None
+    complete = (width, height) == tail if tail else min(width, height) <= 4
+    if not complete or offset != end:
+        raise ValueError('Incomplete clothing opacity mip chain')
+    return levels, mip_count
+
+
+def _bc7_alpha(data, offset, size, width, height):
+    import io
+    from PIL import Image
+    header = bytearray(data[:148])
+    struct.pack_into('<2I', header, 12, height, width)
+    struct.pack_into('<I', header, 28, 1)
+    struct.pack_into('<I', header, 128, 98)  # Pillow decodes the sRGB enum's identical blocks as UNORM
+    image = Image.open(io.BytesIO(bytes(header) + data[offset:offset+size]))
+    image.load()
+    return np.asarray(image.getchannel('A'), dtype=np.float32) / 255
 
 
 def opaque_native_surface(output, material_path, count):

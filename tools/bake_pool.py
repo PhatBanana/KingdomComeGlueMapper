@@ -7,6 +7,7 @@ finish a batch call release() so its workers do not idle through the rest of
 the build (atexit covers the rest).
 """
 import atexit
+from contextlib import contextmanager
 from concurrent.futures import ProcessPoolExecutor, wait as wait_for
 import copy
 from collections import OrderedDict
@@ -15,14 +16,17 @@ import json
 from pathlib import Path
 import shutil
 import tempfile
+import threading
 
 from setup_progress import work_progress
 
 from bounded_pool import worker_count
 from character_native_materials import bake_float_dds
+from texture_encode import Batches, Staged, write_mask_dds
 
 _POOL = None
 _CACHE = None
+_SHARED = None   # the deferred_encodes() Batches, while one is active
 
 
 class TextureBakeCache:
@@ -35,6 +39,8 @@ class TextureBakeCache:
     def __init__(self, limit=512 * 1024**2):
         self.folder = tempfile.TemporaryDirectory(prefix='gluemapper-texture-bakes-')
         self.entries, self.size, self.limit = OrderedDict(), 0, limit
+        # Staged BC7 results are offered from the encoder thread once written.
+        self.lock = threading.Lock()
 
     @staticmethod
     def key(image, material, specular):
@@ -62,14 +68,19 @@ class TextureBakeCache:
         return digest.hexdigest()
 
     def get(self, key, destination):
-        entry = self.entries.get(key)
-        if entry is None: return False
-        path, _ = entry
-        shutil.copyfile(path, destination)
-        self.entries.move_to_end(key)
-        return True
+        with self.lock:
+            entry = self.entries.get(key)
+            if entry is None: return False
+            path, _ = entry
+            shutil.copyfile(path, destination)
+            self.entries.move_to_end(key)
+            return True
 
     def put(self, key, source):
+        with self.lock:
+            self._put(key, source)
+
+    def _put(self, key, source):
         source = Path(source)
         if key in self.entries or not source.is_file(): return
         size = source.stat().st_size
@@ -86,7 +97,8 @@ class TextureBakeCache:
         self.entries[key] = (path, size); self.size += size
 
     def close(self):
-        self.folder.cleanup(); self.entries.clear(); self.size = 0
+        with self.lock:
+            self.folder.cleanup(); self.entries.clear(); self.size = 0
 
 
 def shared_cache():
@@ -115,23 +127,63 @@ def release():
         _CACHE.close(); _CACHE = None
 
 
+@contextmanager
+def deferred_encodes():
+    """Let conversions continue while the GPU compresses earlier ones' textures.
+
+    Inside this block every Bakes hands its staged BC7 textures to one shared
+    texture_encode.Batches and returns once its bakes are staged, without waiting
+    for texconv. A Bakes' ticket() completes when its textures are written; the
+    caller must wait on it before reading them (Bakes(encode_now=True) waits
+    itself). Leaving the block writes every remaining texture; an error discards
+    work that was not started.
+    """
+    global _SHARED
+    if _SHARED is not None:
+        yield _SHARED
+        return
+    batches = _SHARED = Batches()
+    try:
+        yield batches
+        try:
+            batches.finish()
+        except Exception as error:
+            raise RuntimeError('Character texture encode: ' + str(error)) from error
+    finally:
+        _SHARED = None
+        batches.abort()
+
+
 class Bakes:
     """One conversion's deferred bakes; wait() must run before its outputs are read.
 
     Matches the bake(path, image, material, specular=None) callback of
-    convert_character_materials. Arguments are copied because they are pickled
-    after submit() and the caller may reuse the images. Use it as a context
-    manager: leaving the block waits for every bake, and if a bake or the
-    conversion fails, queued bakes are cancelled and running ones joined before
-    the original error propagates, so nothing writes into the outputs after a
-    reported failure.
+    convert_character_materials, plus mask(path, image) for effect masks.
+    Arguments are copied because they are pickled after submit() and the caller
+    may reuse the images. Use it as a context manager: leaving the block waits
+    for every bake, and if a bake or the conversion fails, queued bakes are
+    cancelled and running ones joined before the original error propagates, so
+    nothing writes into the outputs after a reported failure.
+
+    BC7 textures are staged by the workers and block-compressed by texconv in
+    batches on a background thread. Inside deferred_encodes() that encoder is
+    shared and wait() leaves the compression running unless encode_now is set;
+    ticket() then tells when this conversion's textures are written. A texture
+    that is still compressing cannot be copied, so an identical bake in the same
+    conversion is encoded once by the batch (same input, same bytes), and the
+    reuse cache takes the files once they are written.
     """
-    def __init__(self, *, reuse=False):
+    def __init__(self, encode_now=False, *, reuse=False):
         self.pending = []
         self.cache = shared_cache() if reuse else None
         self.completed, self.total, self.reused = 0, 0, 0
         self.inflight = {}
         self.references = {}
+        self.shared = _SHARED is not None
+        self.batches = _SHARED if self.shared else Batches()
+        self.encode_now = encode_now
+        self.done = None
+        self.unpublished = []
 
     def plan(self, total):
         self.total = total
@@ -159,6 +211,11 @@ class Bakes:
         key = self.cache.key(image, material, specular) if self.cache else None
         self._submit(path, image, material, specular, key)
 
+    def mask(self, path, image):
+        """Effect masks are encoded in the workers too, not on the converting thread."""
+        executor = self._room()
+        self.pending.append((path, None, self._start(executor, write_mask_dds, path, image.copy()), path))
+
     def reference(self, path, image, material, specular=None):
         """Return one immutable output path for identical pixels in this batch.
 
@@ -174,30 +231,45 @@ class Bakes:
         self.references[key] = path
         return path
 
-    def _submit(self, path, image, material, specular, key):
-        if self.cache and self.cache.get(key, path):
-            self.completed += 1; self.reused += 1; self.report()
-            return
+    def _room(self):
         executor = pool()
         # Bound the queued texture copies.
         while len(self.pending) >= 2 * executor._max_workers:
             self._finish_next()
+        return executor
+
+    def _start(self, executor, function, path, *args):
+        staging = self.batches.staging()
+        extra = {} if staging is None else {'staging': staging}
+        return executor.submit(function, path, *args, **extra)
+
+    def _submit(self, path, image, material, specular, key):
+        if self.cache and self.cache.get(key, path):
+            self.completed += 1; self.reused += 1; self.report()
+            return
+        executor = self._room()
         if key is not None and key in self.inflight:
             origin, future = self.inflight[key]
         else:
             origin = path
-            future = executor.submit(bake_float_dds, path, image.copy(), copy.deepcopy(material),
-                                     None if specular is None else specular.copy())
+            future = self._start(executor, bake_float_dds, path, image.copy(), copy.deepcopy(material),
+                                 None if specular is None else specular.copy())
             if key is not None: self.inflight[key] = (path, future)
         self.pending.append((path, key, future, origin))
 
     def _finish_next(self):
         path, key, future, origin = self.pending.pop(0)
         try:
-            future.result()
-            if origin != path:
+            result = future.result()
+            if origin == path:
+                self.batches.add(result)
+            elif isinstance(result, Staged):
+                self.batches.add(result.retarget(path)); self.reused += 1
+            else:
                 shutil.copyfile(origin, path); self.reused += 1
-            if self.cache: self.cache.put(key, path)
+            if self.cache and key is not None:
+                if isinstance(result, Staged): self.unpublished.append((key, path))
+                else: self.cache.put(key, path)
             self.completed += 1; self.report()
         except Exception as error:
             self.drain()
@@ -209,11 +281,44 @@ class Bakes:
         for _, _, future, _ in pending:
             future.cancel()
         wait_for([future for _, _, future, _ in pending])
+        if self.shared:
+            # Textures this conversion already queued may be compressing; let them
+            # land now rather than after the failure is reported.
+            try: self.batches.ticket().result()
+            except Exception: pass
+        else:
+            self.batches.abort()
+
+    def ticket(self):
+        """A future that completes when this conversion's textures are written."""
+        return self.done
+
+    def _publish(self, future=None):
+        """Offer encoded textures to the reuse cache once their files exist (optional)."""
+        if future is not None and (future.cancelled() or future.exception() is not None):
+            return
+        unpublished, self.unpublished = self.unpublished, []
+        for key, path in unpublished:
+            self.cache.put(key, path)
 
     def wait(self):
         try:
             while self.pending:
                 self._finish_next()
+            try:
+                if not self.shared:
+                    self.batches.finish()
+                    self.done = self.batches.ticket()
+                    self._publish()
+                else:
+                    self.done = self.batches.ticket()
+                    if self.encode_now:
+                        self.done.result()
+                        self._publish()
+                    elif self.unpublished:
+                        self.done.add_done_callback(self._publish)
+            except Exception as error:
+                raise RuntimeError('Character texture encode: ' + str(error)) from error
         except BaseException:
             self.drain()
             raise

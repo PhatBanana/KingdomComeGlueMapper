@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_coverage import triangle_mask, source_opacity, covered_points, apply_membership, apply_fitted_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections, native_alpha_surfaces, triangle_safe_membership, register_coverage, register_fixed_body_coverage
+from clothing_coverage import alpha_levels, triangle_mask, source_opacity, covered_points, apply_membership, apply_fitted_membership, unculled_garment_visibility, opaque_native_surface, alpha_intersections, native_alpha_surfaces, triangle_safe_membership, register_coverage, register_fixed_body_coverage
 from clothing_regions import split_skin_regions
 from npc_effects import write_float_dds
 from character_skin_upgrade import CompiledSkin, upgrade_skin
@@ -71,6 +71,29 @@ class ClothingCoverageTests(unittest.TestCase):
             material.write_text(material.read_text().replace('Opacity="1"', 'Opacity="0.5"'))
             with self.assertRaisesRegex(ValueError, 'Unsupported'):
                 opaque_native_surface(output, material, 3)
+
+    def test_bc7_opacity_is_decoded_per_mip_and_ends_at_the_native_4x4_tail(self):
+        def block(opaque):
+            # BC7 mode 6 with equal endpoints: one constant colour. Opaque sets every
+            # endpoint bit and p-bit (255); transparent leaves them zero.
+            value = ((1 << 65) - 1) ^ ((1 << 6) - 1) if opaque else 1 << 6
+            return value.to_bytes(16, 'little')
+        header = bytearray(148)
+        header[:4] = b'DDS '
+        struct.pack_into('<7I', header, 4, 124, 0x2100F, 8, 8, 0, 0, 2)
+        struct.pack_into('<2I4s', header, 76, 32, 4, b'DX10')
+        struct.pack_into('<5I', header, 128, 99, 3, 0, 1, 0)
+        data = bytes(header) + block(False) + block(True) * 3 + block(True) + b'CExtCEnd'
+        levels, count = alpha_levels(data)
+        self.assertEqual(count, 2)
+        np.testing.assert_array_equal(levels[0][:4, :4], 0)
+        np.testing.assert_array_equal(levels[0][4:, :], 1)
+        np.testing.assert_array_equal(levels[1], np.ones((4, 4)))
+        with self.assertRaisesRegex(ValueError, 'Truncated'):
+            alpha_levels(data[:-24] + b'CExtCEnd')  # a missing tail mip
+        truncated = bytearray(data); struct.pack_into('<I', truncated, 28, 1)
+        with self.assertRaisesRegex(ValueError, 'Incomplete'):
+            alpha_levels(bytes(truncated))
 
     def test_generated_opacity_keeps_visibility_and_rejects_wrong_topology(self):
         rows = [dict(skin='a.skin', material='a.mtl', opaque_triangle_mask='',
