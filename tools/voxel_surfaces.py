@@ -369,7 +369,9 @@ def build_tile(triangles,uv,ids,materials,origin,extent=256,min_edge=8,samples=2
         render=lambda t,u,i,p,e:compiled_raster(t,u,i,packed,p,(16,16,16),e/16,samples)
     else:
         render=lambda t,u,i,p,e:rasterize(t,u,i,materials,p,(16,16,16),e/16,samples)
-    bounds_lo,bounds_hi=triangles.min(1),triangles.max(1)
+    # Exactly triangles.min(1)/max(1) (NaN included); numpy's reduction over a length-3 axis is ~4x slower.
+    bounds_lo=np.minimum(np.minimum(triangles[:,0],triangles[:,1]),triangles[:,2])
+    bounds_hi=np.maximum(np.maximum(triangles[:,0],triangles[:,1]),triangles[:,2])
     if backend!='reference':
         from voxel_raster_fast import filter_bounds
     def walk(pos,edge,candidates):
