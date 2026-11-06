@@ -238,6 +238,13 @@ def _worker(path):
                         update_private_package(package/'map',lambda staged:finalize(staged,
                             source=c['kcd1'], target=c['kcd2'], repair_roots=(c['workspace'],),
                             notify=events.progress, cancelled=cancel),cancel)
+                # Last change to the map package: every earlier step rewrites
+                # stored archives, so the textures are deflated once, at the end.
+                from package_compaction import enabled as compaction_enabled, candidates, compact_package
+                if compaction_enabled() and candidates(package/'map'):
+                    from setup_resume import update_private_package
+                    events.emit('stage',index=0,total=len(c['mods']),label='Compress package textures')
+                    update_private_package(package/'map',lambda staged:compact_package(staged,events.progress,cancel),cancel)
                 if c['action']=='build_install':
                     events.emit('stage',index=0,total=len(c['mods']),label='Install and verify KCD1 Map')
                     legacy.install_transaction(package/'map',c['kcd2'],events.progress,cancel)
