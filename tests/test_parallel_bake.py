@@ -220,6 +220,32 @@ class ParallelBakeCancellationTests(unittest.TestCase):
                 finally:
                     baker.assets.close()
 
+    def test_next_tile_is_prepared_ahead_once_and_a_mismatched_preparation_is_dropped(self):
+        with tempfile.TemporaryDirectory() as t:
+            scene = empty_scene(t, 3); (scene / 'tiles').mkdir()
+            baker = _TileBaker(scene, None, 2, False, 'compiled', 1)
+            tiles = baker.plan['tiles']; calls = []; real = baker._prepare
+            def counting(number, total, job):
+                calls.append(number); return real(number, total, job)
+            baker._prepare = counting
+            try:
+                results = [baker.bake(0, 3, tiles[0], (1, tiles[1])), baker.bake(1, 3, tiles[1], (2, tiles[2])), baker.bake(2, 3, tiles[2])]
+                self.assertEqual(calls, [0, 1, 2])   # tiles 1 and 2 came from the thread, prepared once each
+                self.assertEqual([r['status'] for r in results], ['built'] * 3)
+                calls.clear()
+                baker.bake(0, 3, tiles[0], (2, tiles[2])); baker.bake(1, 3, tiles[1])   # the hint was wrong
+                self.assertEqual(calls, [0, 2, 1])
+                baker.bake(2, 3, tiles[2], (0, tiles[0])); baker.drop_prepared()
+                self.assertIsNone(baker.ahead); self.assertIsNone(baker.preparer)
+            finally:
+                baker.assets.close()
+
+    def test_triangle_bounds_equal_numpy_reductions(self):
+        from world_surface_tiles import triangle_bounds
+        tris = np.random.default_rng(3).normal(size=(500, 3, 3)) * 100; tris[7, 2, 1] = np.nan
+        low, high = triangle_bounds(tris)
+        np.testing.assert_array_equal(low, tris.min(1)); np.testing.assert_array_equal(high, tris.max(1))
+
     def test_parallel_bake_with_fewer_dense_slots_reports_in_plan_order(self):
         from world_surface_tiles import build
         settings = {'GLUEMAPPER_BAKE_TILE_WORKERS': '2', 'GLUEMAPPER_BAKE_HEAVY_TILES': '1'}
