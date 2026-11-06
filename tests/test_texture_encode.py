@@ -34,11 +34,11 @@ def decode(blob):
 
 
 class Setting(unittest.TestCase):
-    def test_default_is_bc7_and_float_remains_selectable(self):
+    def test_default_is_float_and_bc7_is_opt_in(self):
         with patch.dict(os.environ, {texture_encode.SETTING: ''}):
-            self.assertEqual(texture_encode.mode(), 'bc7')
-        with patch.dict(os.environ, {texture_encode.SETTING: ' Float '}):
             self.assertEqual(texture_encode.mode(), 'float')
+        with patch.dict(os.environ, {texture_encode.SETTING: ' BC7 '}):
+            self.assertEqual(texture_encode.mode(), 'bc7')
         with patch.dict(os.environ, {texture_encode.SETTING: 'bc3'}):
             with self.assertRaisesRegex(ValueError, texture_encode.SETTING):
                 texture_encode.mode()
@@ -298,7 +298,7 @@ class BatchStaging(unittest.TestCase):
             for env, expected in (({}, True), ({texture_encode.SETTING: 'float'}, False),
                                   ({texture_encode.ENCODER_SETTING: 'rc'}, False)):
                 batches = texture_encode.Batches()
-                with patch.dict(os.environ, {texture_encode.TEXCONV_SETTING: str(exe), texture_encode.SETTING: '',
+                with patch.dict(os.environ, {texture_encode.TEXCONV_SETTING: str(exe), texture_encode.SETTING: 'bc7',
                                              texture_encode.ENCODER_SETTING: '', **env}):
                     staging = batches.staging()
                 self.assertEqual(staging is not None, expected, env)
@@ -316,7 +316,7 @@ class BatchStaging(unittest.TestCase):
             for job in jobs: Path(job.target).write_bytes(b'encoded')
         with tempfile.TemporaryDirectory() as t, patch.object(texture_encode, 'encode_staged', encode), \
                 patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')), patch.object(texture_encode, '_tool_identity', return_value='fake'), \
-                patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''}):
+                patch.dict(os.environ, {texture_encode.SETTING: 'bc7', texture_encode.ENCODER_SETTING: ''}):
             batches = texture_encode.Batches(batch=3)
             staging = batches.staging()
             levels = [np.zeros((64 >> i, 64 >> i, 4), np.uint8) for i in range(5)]
@@ -330,7 +330,7 @@ class BatchStaging(unittest.TestCase):
 
     def test_abort_discards_staged_work(self):
         with patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')), patch.object(texture_encode, '_tool_identity', return_value='fake'), \
-                patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''}):
+                patch.dict(os.environ, {texture_encode.SETTING: 'bc7', texture_encode.ENCODER_SETTING: ''}):
             batches = texture_encode.Batches()
             staging = batches.staging()
             batches.add(texture_encode.stage([np.zeros((64, 64, 4), np.uint8)], False, 'x.dds', staging))
