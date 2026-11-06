@@ -1,4 +1,4 @@
-"""Tile pool settings and the dense-tile estimate that gates the heavy slots."""
+"""Tile pool settings and the dense-tile estimate that routes tiles to the dense processes."""
 import io
 import json
 import os
@@ -13,8 +13,8 @@ import zipfile
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from world_surface_tiles import (_TileBaker, _bounded_setting, gpu_budget, gpu_free_memory, gpu_lanes, heavy_slots,
-                                 interleaved, select_backend, tile_workers, brick_threads, GIB, HEAVY_TRIANGLES)
+from world_surface_tiles import (_TileBaker, _bounded_setting, _placement_side, dense_split, dense_texture_cache, gpu_budget,
+                                 gpu_free_memory, gpu_lanes, heavy_slots, select_backend, tile_workers, brick_threads, GIB, HEAVY_TRIANGLES)
 
 
 class ParallelBakeSettingsTests(unittest.TestCase):
@@ -132,18 +132,52 @@ class ParallelBakeSettingsTests(unittest.TestCase):
             self.assertIsNone(gpu_free_memory())
             self.assertEqual(len(stopped), 2)
 
-    def test_dense_tiles_are_spread_through_the_submission_order(self):
-        # Plan order clusters a town's dense tiles; submission spreads them, each kind in plan order.
-        dense = [False, True, True, True, False, False, False, False, False]
-        order = interleaved(dense)
-        self.assertEqual(sorted(order), list(range(len(dense))))
-        self.assertEqual([i for i in order if dense[i]], [1, 2, 3])
-        self.assertEqual([i for i in order if not dense[i]], [0, 4, 5, 6, 7, 8])
-        positions = [order.index(i) for i in (1, 2, 3)]
-        self.assertTrue(all(b - a >= 2 for a, b in zip(positions, positions[1:])))
-        self.assertEqual(interleaved([False] * 4), [0, 1, 2, 3])  # nothing dense: plan order
-        self.assertEqual(interleaved([True] * 3), [0, 1, 2])
-        self.assertEqual(interleaved([]), [])
+    def test_dense_tiles_get_their_own_processes_within_the_memory_limited_count(self):
+        mixed = [False, True, True, False]
+        self.assertEqual(dense_split(mixed, 5, 1), (1, 4))   # the measured build: 5 processes, 1 dense slot
+        self.assertEqual(dense_split(mixed, 6, 2), (2, 4))
+        self.assertEqual(dense_split(mixed, 2, 2), (1, 1))   # light tiles always keep a process
+        self.assertEqual(dense_split([False] * 3, 4, 1), (0, 4))
+        self.assertEqual(dense_split([True] * 3, 4, 2), (2, 0))
+        self.assertEqual(dense_split([True] * 3, 1, 2), (1, 0))
+
+    def test_dense_texture_cache_scales_with_free_memory_and_stays_bounded(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('GLUEMAPPER_BAKE_DENSE_TEXTURE_MB', None)
+            self.assertEqual(dense_texture_cache(36 * GIB), 36 * GIB // 8)   # this machine at bake start
+            self.assertEqual(dense_texture_cache(200 * GIB), 6 * GIB)
+            self.assertEqual(dense_texture_cache(2 * GIB), 512 * 2**20)      # a 16 GB machine never drops below today's cache
+            with patch('world_surface_tiles.available_memory', return_value=None):
+                self.assertEqual(dense_texture_cache(), 4 * GIB)
+        with patch.dict(os.environ, {'GLUEMAPPER_BAKE_DENSE_TEXTURE_MB': '1024'}):
+            self.assertEqual(dense_texture_cache(200 * GIB), GIB)
+        for value in ('0', '65537', 'lots'):
+            with patch.dict(os.environ, {'GLUEMAPPER_BAKE_DENSE_TEXTURE_MB': value}), self.assertRaises(ValueError):
+                dense_texture_cache(GIB)
+
+    def test_placement_shortcut_matches_the_per_triangle_test(self):
+        rng = np.random.default_rng(7)
+        origin = [256, 512, 0]
+        for case in range(400):
+            tris = rng.uniform(-3, 3, (int(rng.integers(1, 40)), 3, 3))
+            angle = rng.uniform(0, 6.3); c, s = np.cos(angle), np.sin(angle); scale = rng.uniform(.2, 3)
+            # Positions around the tile, so inside, outside and straddling placements all occur.
+            matrix = np.c_[np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]]) * scale, rng.uniform(-30, 300, 3) + origin]
+            flat = tris.reshape(-1, 3)
+            side = _placement_side((flat.min(0), flat.max(0)), matrix.ravel(), origin)
+            world = tris @ matrix[:, :3].T + matrix[:, 3]
+            hit = np.all(world.max(1) >= origin, axis=1) & np.all(world.min(1) < np.asarray(origin) + 256, axis=1)
+            if side is True: self.assertTrue(hit.all(), case)
+            if side is False: self.assertFalse(hit.any(), case)
+        box = (np.zeros(3), np.ones(3)); inside = [1, 0, 0, 300, 0, 1, 0, 600, 0, 0, 1, 10]
+        self.assertTrue(_placement_side(box, inside, origin))
+        self.assertFalse(_placement_side(box, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0], origin))
+        self.assertIsNone(_placement_side(box, [1, 0, 0, 255.5, 0, 1, 0, 600, 0, 0, 1, 10], origin))  # straddles
+        # Anything the per-triangle path would reject is left to it, so its errors still surface.
+        self.assertIsNone(_placement_side(None, inside, origin))
+        self.assertIsNone(_placement_side(box, [0] * 12, origin))                     # singular
+        self.assertIsNone(_placement_side(box, [float('nan')] + inside[1:], origin))
+        self.assertIsNone(_placement_side(box, inside[:9], origin))
 
 
 def empty_scene(root, tiles):

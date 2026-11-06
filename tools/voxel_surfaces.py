@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import struct
 import sys
+import weakref
 import xml.etree.ElementTree as ET
 import zlib
 
@@ -31,6 +32,10 @@ def srgb_to_linear(rgb):
 # float32 storage exactly, once for every possible decoded byte value.
 _LINEAR_BYTES = srgb_to_linear(np.arange(256,dtype=np.float32)/255).astype(np.float32)
 _ALPHA_BYTES = np.arange(256,dtype=np.float32)/255
+# Decoded textures take every value from the tables above, so when the tables are finite and in
+# [0, 1] a Surface need not rescan them. Weak, so the registry never keeps a texture alive.
+_TABLES_VALID = all(np.isfinite(t).all() and t.min() >= 0 and t.max() <= 1 for t in (_LINEAR_BYTES, _ALPHA_BYTES))
+_DECODED = weakref.WeakValueDictionary()
 
 
 def decode_rgba_bytes(raw):
@@ -122,7 +127,9 @@ def diffuse_texture(name, assets):
     # Pillow lacks sRGB BC1/2/3 enum aliases; their compression is identical.
     if fmt in (72,75,78):struct.pack_into('<I',blob,128,fmt-1)
     with Image.open(io.BytesIO(blob[:header]+payload)) as image:
-        return decode_rgba_bytes(np.asarray(image.convert('RGBA')))
+        rgba = decode_rgba_bytes(np.asarray(image.convert('RGBA')))
+    if _TABLES_VALID:_DECODED[id(rgba)] = rgba
+    return rgba
 
 
 @dataclass
@@ -142,7 +149,8 @@ class Surface:
         values = np.r_[self.diffuse, self.opacity, self.alpha_test, self.coverage, self.tile, self.offset]
         if self.texture.ndim != 3 or self.texture.shape[2] != 4 or min(self.texture.shape[:2]) < 1:
             raise ValueError('Expected RGBA texture')
-        if not np.isfinite(self.texture).all() or np.any((self.texture < 0) | (self.texture > 1)):
+        decoded = _DECODED.get(id(self.texture)) is self.texture  # table-decoded: in range by construction
+        if not decoded and (not np.isfinite(self.texture).all() or np.any((self.texture < 0) | (self.texture > 1))):
             raise ValueError('Invalid texture values')
         if self.diffuse.shape != (3,) or not np.isfinite(values).all():
             raise ValueError('Invalid material values')

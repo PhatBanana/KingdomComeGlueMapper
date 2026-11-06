@@ -7,7 +7,7 @@ never silently replaced with white surfaces or empty voxel files.
 import argparse
 from collections import OrderedDict
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 import hashlib
 import json
 import multiprocessing
@@ -27,10 +27,11 @@ from voxel_lighting import validate_pair
 
 class TextureCache(OrderedDict):
     """Bound decoded-texture retention independently of temporary surfaces."""
-    def __init__(self,limit=512*1024**2):super().__init__();self.limit=limit
+    def __init__(self,limit=512*1024**2):super().__init__();self.limit=limit;self.bytes=0
     def __setitem__(self,key,value):
-        super().__setitem__(key,value)
-        while len(self)>1 and sum(x.nbytes for x in self.values())>self.limit:self.popitem(last=False)
+        if key in self:self.bytes-=super().__getitem__(key).nbytes
+        super().__setitem__(key,value);self.bytes+=value.nbytes
+        while len(self)>1 and self.bytes>self.limit:self.bytes-=self.popitem(last=False)[1].nbytes
     def __getitem__(self,key):
         value=super().__getitem__(key);self.move_to_end(key);return value
 
@@ -141,7 +142,20 @@ def heavy_slots(available=None):
     return _bounded_setting('GLUEMAPPER_BAKE_HEAVY_TILES',2 if free is None or free>=TWO_DENSE_TILES else 1,1,8)
 
 
-HEAVY_TRIANGLES=1_000_000  # the hybrid crossover; estimates at or above it take a heavy slot
+LIGHT_TEXTURE_CACHE=512*1024**2
+
+
+def dense_texture_cache(available=None):
+    """Decoded-texture cache of each dense-tile process, in bytes: an eighth of the memory free
+    when the bake starts, between 512 MiB and 6 GiB. One dense KCD1 tile binds 4-6 GB of decoded
+    textures and its materials hold them while it rasterizes, so a cache about that size adds
+    little to the process's peak; 512 MiB re-decoded every texture of every dense tile."""
+    free=available_memory() if available is None else available
+    default=8*LIGHT_TEXTURE_CACHE if free is None else min(6*GIB,max(LIGHT_TEXTURE_CACHE,free//8))
+    return _bounded_setting('GLUEMAPPER_BAKE_DENSE_TEXTURE_MB',default//2**20,1,64*1024)*2**20
+
+
+HEAVY_TRIANGLES=1_000_000  # the hybrid crossover; estimates at or above it go to the dense processes
 # Measured on the KCD1 scene (RTX 5090, one tile at a time): OptiX tiles took 2.0 GB more GPU memory
 # at 1.0M triangles and 12.3 GB at 18.6M, about 2 GB of textures plus 690 bytes per triangle.
 OPTIX_BASE=2*GIB;OPTIX_TRIANGLE=704;VRAM_RESERVE=GIB
@@ -214,35 +228,58 @@ class _TriangleEstimate:
         return total
 
 
-def interleaved(dense):
-    """Submission order that spreads dense tiles evenly among light ones, each kind keeping plan order.
+def dense_split(dense,processes,slots):
+    """Processes for dense tiles and for light ones. Dense tiles get their own `slots` processes
+    (bounding how many are in memory at once), so no light-tile process waits for a dense slot;
+    the light tiles keep the rest of the memory-limited process count."""
+    if not any(dense):return 0,processes
+    if all(dense):return min(slots,processes),0
+    heavy=min(slots,processes-1);return heavy,processes-heavy
 
-    Plan order clusters dense tiles (towns), so processes queue behind the heavy slots and idle.
-    Results are recorded by plan index, so tile bytes and the report do not depend on this order."""
-    key={}
-    for group in ([i for i,d in enumerate(dense) if d],[i for i,d in enumerate(dense) if not d]):
-        for rank,index in enumerate(group):key[index]=(rank+.5)/len(group)
-    return sorted(range(len(dense)),key=lambda index:(key[index],index))
+
+def _placement_side(bounds,matrix,origin):
+    """True when a placed mesh lies wholly inside the tile, False when wholly outside, None when it
+    straddles or the transform is not plainly valid (the per-triangle test and its errors decide).
+
+    The world box of an affine map of the local box bounds every transformed vertex; a 1 mm margin
+    covers rounding, so the shortcut gives exactly the per-triangle test's answer."""
+    if bounds is None:return None
+    matrix=np.asarray(matrix,dtype=np.float64)
+    if matrix.size!=12 or not np.isfinite(matrix).all():return None
+    matrix=matrix.reshape(3,4);linear=matrix[:,:3]
+    if abs(np.linalg.det(linear))<1e-12:return None
+    lo,hi=bounds;a=linear*lo;b=linear*hi
+    low=matrix[:,3]+np.minimum(a,b).sum(1);high=matrix[:,3]+np.maximum(a,b).sum(1)
+    origin=np.asarray(origin,dtype=np.float64);margin=1e-3
+    if np.any(high<origin-margin) or np.any(low>=origin+256+margin):return False
+    if np.all(low>=origin+margin) and np.all(high<origin+256-margin):return True
+    return None
 
 
 class _TileBaker(_TriangleEstimate):
     """Per-process baking state. Decoded meshes, materials and textures are caches only, so a tile's
     bytes do not depend on which process bakes it or what it baked before."""
-    def __init__(self,scene,output,samples,experimental_base_materials,backend,workers,gpu_budget=None,lanes=None,heavy=None):
+    def __init__(self,scene,output,samples,experimental_base_materials,backend,workers,gpu_budget=None,lanes=None,texture_bytes=LIGHT_TEXTURE_CACHE):
         self.scene=Path(scene);self.plan=json.loads((self.scene/'plan.json').read_text())
         self.records=json.loads((self.scene/'placements.json').read_text())
-        self.assets=Assets(self.plan['pak_root'],self.plan['overrides']);self.texture_cache=TextureCache();self.roots={};self.mesh_cache=MeshCache()
+        self.assets=Assets(self.plan['pak_root'],self.plan['overrides']);self.texture_cache=TextureCache(texture_bytes);self.roots={};self.mesh_cache=MeshCache()
+        self.mesh_bounds={}  # local vertex box per mesh key: 48 bytes each, kept for the whole bake
         self.destination=Path(output) if output is not None else self.scene/'tiles'
         self.vegetation=None
         if self.plan.get('vegetation'):  # digest verified once by build()
             with np.load(self.scene/'vegetation.npz') as data:self.vegetation=(data['transforms'],data['groups'])
         self.version=code_digest();self.asset_digest=self.assets.catalog_digest()
         self.samples=samples;self.experimental_base_materials=experimental_base_materials;self.backend=backend
-        self.workers=workers;self.gpu_budget=gpu_budget;self.lanes=lanes;self.heavy=heavy;self.mesh_triangles=mesh_triangles(self.scene)
+        self.workers=workers;self.gpu_budget=gpu_budget;self.lanes=lanes;self.mesh_triangles=mesh_triangles(self.scene)
 
     def bake(self,number,total,job):
-        if self.heavy is None or self.estimated_triangles(job)<HEAVY_TRIANGLES:return self._bake(number,total,job)
-        with self.heavy:return self._bake(number,total,job)
+        return self._bake(number,total,job)
+
+    def _bounds(self,key,tris):
+        if key not in self.mesh_bounds:
+            flat=np.asarray(tris,dtype=np.float64).reshape(-1,3)
+            self.mesh_bounds[key]=(flat.min(0),flat.max(0)) if len(flat) and np.isfinite(flat).all() else None
+        return self.mesh_bounds[key]
 
     def _bake(self,number,total,job):
         scene,plan,records,assets=self.scene,self.plan,self.records,self.assets
@@ -284,10 +321,15 @@ class _TileBaker(_TriangleEstimate):
                     with np.load(scene/'meshes'/(key+'.npz')) as data:
                         mesh_cache[key]=(meta,data['triangles'],data['uv'],data['ids'])
                 meta,tris,uv,local_ids=mesh_cache[key]
+                side=_placement_side(self._bounds(key,tris),record['transform'],origin)
+                if side is False:continue
                 world=transform_triangles(tris,record['transform'])
-                low=world.min(1); high=world.max(1)
-                hit=np.all(high>=origin,axis=1)&np.all(low<np.asarray(origin)+256,axis=1)
-                if not hit.any():continue
+                if side:
+                    hit=slice(None)  # wholly inside: every triangle passes the test below
+                else:
+                    low=world.min(1); high=world.max(1)
+                    hit=np.all(high>=origin,axis=1)&np.all(low<np.asarray(origin)+256,axis=1)
+                    if not hit.any():continue
                 remap=np.zeros(len(meta['bindings']),dtype=np.int32)
                 for local in np.unique(local_ids[hit]):
                     name,subset=meta['bindings'][local];identity=(name,subset)
@@ -345,9 +387,9 @@ class _TileBaker(_TriangleEstimate):
 _BAKER=None
 
 
-def _start_baker(arguments,lanes,heavy):
+def _start_baker(arguments,lanes,texture_bytes):
     global _BAKER
-    _BAKER=_TileBaker(*arguments,lanes=lanes,heavy=heavy)
+    _BAKER=_TileBaker(*arguments,lanes=lanes,texture_bytes=texture_bytes)
 
 
 def _bake_in_worker(task):
@@ -398,44 +440,53 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary()[1],indent=2)+'\n')
 
     if processes==1:
-        baker=_TileBaker(*arguments)
+        baker=_TileBaker(*arguments,texture_bytes=dense_texture_cache())  # the one process bakes the dense tiles too
         for number,job in enumerate(jobs):
             if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
             if progress:progress('Bake lighting tiles',number,len(jobs),'Preparing tile '+str(number+1))
             record(number,baker.bake(number,len(jobs),job))
     else:
-        # Tiles are independent: each process keeps its own caches. Dense tiles take a
-        # heavy slot for their whole lifetime (bounding memory) and a GPU lane to rasterize.
+        # Tiles are independent: each process keeps its own caches. Dense tiles (estimated at the
+        # hybrid crossover or above) go to their own processes, at most `heavy_slots()` of them, so
+        # their memory stays bounded and they keep one large texture cache warm; light tiles never
+        # wait behind them. GPU lanes are shared by both pools.
         if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
         context=multiprocessing.get_context('spawn')
-        slots=heavy_slots();lanes=context.BoundedSemaphore(gpu_lanes());heavy=context.BoundedSemaphore(slots)
-        order=range(len(jobs))
-        if slots<processes:
-            estimate=_TriangleEstimate(scene,plan)
-            dense=[]
-            for number,job in enumerate(jobs):
-                if cancelled():raise InterruptedError('Bake cancelled while planning tile order; completed tiles retained.')
-                if progress:progress('Plan lighting tile order',number,len(jobs),f'Checking tile {number+1} of {len(jobs)}')
-                dense.append(estimate.estimated_triangles(job)>=HEAVY_TRIANGLES)
-            order=interleaved(dense);del estimate
-        print(f'Baking {len(jobs)} tiles in {processes} processes ({workers} brick threads each, '
-              f'{slots} dense tile(s) in memory, {gpu_lanes()} GPU lane(s))',flush=True)
-        with ProcessPoolExecutor(max_workers=processes,mp_context=context,initializer=_start_baker,initargs=(arguments,lanes,heavy)) as pool:
+        slots=heavy_slots();lanes=context.BoundedSemaphore(gpu_lanes())
+        estimate=_TriangleEstimate(scene,plan)
+        dense=[]
+        for number,job in enumerate(jobs):
+            if cancelled():raise InterruptedError('Bake cancelled while planning tile order; completed tiles retained.')
+            if progress:progress('Plan lighting tile order',number,len(jobs),f'Checking tile {number+1} of {len(jobs)}')
+            dense.append(estimate.estimated_triangles(job)>=HEAVY_TRIANGLES)
+        del estimate
+        heavy,light=dense_split(dense,processes,slots);cache=dense_texture_cache()
+        print(f'Baking {len(jobs)} tiles in {processes} processes ({workers} brick threads each; '
+              f'{heavy} for the {sum(dense)} dense tile(s) with a {cache/GIB:.1f} GiB texture cache, '
+              f'{light} for the rest; {gpu_lanes()} GPU lane(s))',flush=True)
+        groups=[(size,[n for n in range(len(jobs)) if dense[n]==kind],texture)
+                for size,kind,texture in ((light,False,LIGHT_TEXTURE_CACHE),(heavy,True,cache)) if size]
+        with ExitStack() as stack:
             # Submit one tile per process and refill as tiles finish, checking for
             # cancellation before each start, so a cancelled bake starts no new tile
-            # and shutdown only waits for the tiles already running.
-            queued=((number,jobs[number]) for number in order);pending={}
+            # and shutdown only waits for the tiles already running. Each group is
+            # [pool, processes, queued tile numbers, running].
+            queues=[[stack.enter_context(ProcessPoolExecutor(max_workers=size,mp_context=context,initializer=_start_baker,initargs=(arguments,lanes,texture))),
+                     size,iter(numbers),0] for size,numbers,texture in groups]
+            pending={}
             def refill():
-                while len(pending)<processes:
-                    if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
-                    item=next(queued,None)
-                    if item is None:return
-                    number,job=item;pending[pool.submit(_bake_in_worker,(number,len(jobs),job))]=number
+                for queue in queues:
+                    while queue[3]<queue[1]:
+                        if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
+                        number=next(queue[2],None)
+                        if number is None:break
+                        pending[queue[0].submit(_bake_in_worker,(number,len(jobs),jobs[number]))]=(number,queue);queue[3]+=1
             try:
                 refill()
                 while pending:
                     done,_=wait(pending,timeout=1,return_when=FIRST_COMPLETED)
-                    for future in done:record(pending.pop(future),future.result())
+                    for future in done:
+                        number,queue=pending.pop(future);queue[3]-=1;record(number,future.result())
                     if pending and cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
                     if progress:progress('Bake lighting tiles',len(finished),len(jobs),f'{len(finished)} of {len(jobs)} tiles')
                     refill()
