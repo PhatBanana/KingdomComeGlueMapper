@@ -17,7 +17,7 @@ class SurfaceTests(unittest.TestCase):
         t=rng.uniform(0,16,(90,3,3));u=rng.uniform(-1,2,(90,3,2));ids=np.zeros(90,dtype=int)
         m=[Surface(rng.random((3,4,4)).astype(np.float32),[.8,.7,.6],alpha_test=.4)]
         serial=build_tile(t,u,ids,m,(0,0,0),16,8,backend='compiled')
-        for workers in (2,4):self.assertEqual(serial[:2],build_tile(t,u,ids,m,(0,0,0),16,8,backend='compiled',workers=workers)[:2])
+        for workers in (2,4,8,16):self.assertEqual(serial[:2],build_tile(t,u,ids,m,(0,0,0),16,8,backend='compiled',workers=workers)[:2])
 
     def test_compiled_matches_reference_with_alpha_and_crossing_geometry(self):
         try:

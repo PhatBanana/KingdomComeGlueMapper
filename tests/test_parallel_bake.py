@@ -14,7 +14,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from world_surface_tiles import (_TileBaker, _bounded_setting, gpu_budget, gpu_free_memory, gpu_lanes, heavy_slots,
-                                 interleaved, select_backend, tile_workers, GIB, HEAVY_TRIANGLES)
+                                 interleaved, select_backend, tile_workers, brick_threads, GIB, HEAVY_TRIANGLES)
 
 
 class ParallelBakeSettingsTests(unittest.TestCase):
@@ -48,6 +48,24 @@ class ParallelBakeSettingsTests(unittest.TestCase):
         for value in ('0', '33', 'six', '-1', ''):
             with patch.dict(os.environ, {'GLUEMAPPER_BAKE_TILE_WORKERS': value}), self.assertRaises(ValueError):
                 _bounded_setting('GLUEMAPPER_BAKE_TILE_WORKERS', 6, 1, 32)
+
+    def test_brick_threads_fill_the_cores_memory_left_idle(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('GLUEMAPPER_BAKE_BRICK_WORKERS', None)
+            with patch('os.cpu_count', return_value=24):
+                self.assertEqual(brick_threads(6), 4)    # plenty of memory: 6 processes x 4 threads
+                self.assertEqual(brick_threads(4), 6)    # memory allowed only 4 processes
+                self.assertEqual(brick_threads(1), 8)    # low-memory machine: one process, capped at the measured plateau
+            with patch('os.cpu_count', return_value=8):
+                self.assertEqual(brick_threads(1), 8)
+                self.assertEqual(brick_threads(6), 2)    # never below the previous two
+            with patch('os.cpu_count', return_value=None):
+                self.assertEqual(brick_threads(1), 2)
+        with patch.dict(os.environ, {'GLUEMAPPER_BAKE_BRICK_WORKERS': '16'}):
+            self.assertEqual(brick_threads(6), 16)       # explicit setting wins, up to the rasterizer's limit
+        for value in ('0', '17', 'many'):
+            with patch.dict(os.environ, {'GLUEMAPPER_BAKE_BRICK_WORKERS': value}), self.assertRaises(ValueError):
+                brick_threads(1)
 
     def test_triangle_estimate_reads_mesh_headers_only(self):
         with tempfile.TemporaryDirectory() as t:

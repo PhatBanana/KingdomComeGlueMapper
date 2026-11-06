@@ -170,11 +170,11 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
                 continue
             print('Building lighting: '+('regeneration requested' if forced() else
                   'no complete matching workspace cache; details are recorded in events.jsonl'),flush=True)
-        print('Hybrid bake: compiled CPU below 1,000,000 triangles (2 workers); '
-              'OptiX for dense tiles, 64-brick batches with CPU overlap. '
-              'GPU failures are logged and fall back to CPU.',flush=True)
+        print('Hybrid bake: compiled CPU below 1,000,000 triangles (brick threads from the cores '
+              'left after the memory-limited process count); OptiX for dense tiles, 64-brick batches '
+              'with CPU overlap. GPU failures are logged and fall back to CPU.',flush=True)
         with hybrid_environment():
-            results=build(root/'scene',experimental_base_materials=True,backend='auto',workers=2,
+            results=build(root/'scene',experimental_base_materials=True,backend='auto',workers='auto',
                           progress=progress,cancelled=cancelled)
         counts={name:sum(r.get('backend')==name for r in results) for name in ('compiled','optix')}
         print(f'Hybrid bake results: {counts["compiled"]} CPU tiles, {counts["optix"]} OptiX tiles, '

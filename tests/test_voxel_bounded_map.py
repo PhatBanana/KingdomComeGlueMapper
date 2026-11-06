@@ -18,7 +18,7 @@ class BoundedMapTests(unittest.TestCase):
         with patch('voxel_surfaces.sys.version_info', (3,13)), ThreadPoolExecutor(max_workers=3) as pool:
             values=_bounded_map(pool,lambda x:x*x,jobs(),3)
             self.assertEqual(next(values),0)
-            self.assertEqual(consumed,[0,1,2])
+            self.assertEqual(consumed,[0,1,2,3,4,5])  # two bricks ahead per thread
             self.assertEqual([0]+list(values),[x*x for x in range(11)])
 
     def test_pre314_empty_and_worker_exception(self):
@@ -32,4 +32,4 @@ class BoundedMapTests(unittest.TestCase):
         pool=Mock();pool.map.return_value=iter([1,2]);jobs=iter([-1,-2])
         with patch('voxel_surfaces.sys.version_info',(3,14)):
             self.assertEqual(list(_bounded_map(pool,abs,jobs,2)),[1,2])
-        pool.map.assert_called_once_with(abs,jobs,buffersize=2)
+        pool.map.assert_called_once_with(abs,jobs,buffersize=4)  # two bricks ahead per thread
