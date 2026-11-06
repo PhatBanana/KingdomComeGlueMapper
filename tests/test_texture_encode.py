@@ -261,3 +261,150 @@ class EncodersAgree(unittest.TestCase):
         self.assertEqual(len(a), len(b))
         self.assertEqual(a[:40] + a[44:148], b[:40] + b[44:148])
         self.assertAlmostEqual(struct.unpack_from('<f', a, 40)[0], struct.unpack_from('<f', b, 40)[0], places=4)
+
+
+def reference_colour_levels(pixels):
+    """The previous, Pillow-based chain (commit 5a31ffa); the fast chain must match it byte for byte."""
+    level = np.asarray(pixels, dtype=np.float16).astype(np.float32)
+    levels = [level]
+    for _ in range(texture_encode.mip_count(level.shape[1], level.shape[0]) - 1):
+        h, w = max(1, level.shape[0] // 2), max(1, level.shape[1] // 2)
+        level = np.stack([np.asarray(Image.fromarray(np.ascontiguousarray(level[..., c])).resize(
+            (w, h), Image.Resampling.BOX)) for c in range(4)], axis=-1).astype(np.float16).astype(np.float32)
+        levels.append(level)
+    return [texture_encode.colour_bytes(level) for level in levels]
+
+
+class FastChain(unittest.TestCase):
+    def test_vectorized_chain_is_byte_identical_to_the_pillow_chain(self):
+        rng = np.random.default_rng(11)
+        cases = [rng.random((256, 512, 4)), rng.random((128, 64, 4)) * 1.4 - .2,
+                 rng.random((64, 64, 4)) ** 6, np.full((64, 128, 4), .5)]
+        for pixels in cases:
+            pixels = pixels.astype(np.float16)
+            new, old = texture_encode.colour_levels(pixels), reference_colour_levels(pixels)
+            self.assertEqual(len(new), len(old))
+            for a, b in zip(new, old):
+                np.testing.assert_array_equal(a, b)
+
+
+class BatchStaging(unittest.TestCase):
+    def test_staging_only_when_texconv_will_encode(self):
+        with tempfile.TemporaryDirectory() as t:
+            exe = Path(t) / 'texconv.exe'; exe.write_bytes(b'')
+            for env, expected in (({}, True), ({texture_encode.SETTING: 'float'}, False),
+                                  ({texture_encode.ENCODER_SETTING: 'rc'}, False)):
+                batches = texture_encode.Batches()
+                with patch.dict(os.environ, {texture_encode.TEXCONV_SETTING: str(exe), texture_encode.SETTING: '',
+                                             texture_encode.ENCODER_SETTING: '', **env}):
+                    staging = batches.staging()
+                self.assertEqual(staging is not None, expected, env)
+                if staging: self.assertTrue(Path(staging.directory).is_dir())
+                batches.finish()
+                if staging: self.assertFalse(Path(staging.directory).exists())
+            batches = texture_encode.Batches()
+            with patch.object(texture_encode, 'texconv_executable', return_value=None):
+                self.assertIsNone(batches.staging())        # rc fallback: workers write directly
+
+    def test_batches_flush_by_size_and_finish_writes_everything(self):
+        calls = []
+        def encode(jobs, executable, write=True):
+            calls.append(len(jobs))
+            for job in jobs: Path(job.target).write_bytes(b'encoded')
+        with tempfile.TemporaryDirectory() as t, patch.object(texture_encode, 'encode_staged', encode), \
+                patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')), patch.object(texture_encode, '_tool_identity', return_value='fake'), \
+                patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''}):
+            batches = texture_encode.Batches(batch=3)
+            staging = batches.staging()
+            levels = [np.zeros((64 >> i, 64 >> i, 4), np.uint8) for i in range(5)]
+            for i in range(7):
+                batches.add(texture_encode.stage(levels, True, Path(t) / f'{i}.dds', staging))
+            batches.add(None)                                  # a texture the worker wrote itself
+            batches.finish()
+            self.assertEqual(sorted(calls), [1, 3, 3])
+            self.assertEqual(sorted(p.name for p in Path(t).glob('*.dds')), [f'{i}.dds' for i in range(7)])
+            self.assertFalse(Path(staging.directory).exists())
+
+    def test_abort_discards_staged_work(self):
+        with patch.object(texture_encode, 'texconv_executable', return_value=Path('texconv.exe')), patch.object(texture_encode, '_tool_identity', return_value='fake'), \
+                patch.dict(os.environ, {texture_encode.SETTING: '', texture_encode.ENCODER_SETTING: ''}):
+            batches = texture_encode.Batches()
+            staging = batches.staging()
+            batches.add(texture_encode.stage([np.zeros((64, 64, 4), np.uint8)], False, 'x.dds', staging))
+            batches.abort()
+            self.assertFalse(Path(staging.directory).exists())
+
+
+@unittest.skipUnless(available_texconv(), 'texconv.exe not found (set GLUEMAPPER_TEXCONV)')
+class TexconvBatches(unittest.TestCase):
+    def test_a_batch_equals_single_encodes_and_failures_name_the_texture(self):
+        rng = np.random.default_rng(3)
+        exe = str(available_texconv())
+        colour = [texture_encode.colour_levels(rng.random((128, 64, 4)).astype(np.float16)) for _ in range(3)]
+        mask = texture_encode.mask_levels((rng.random((64, 64, 4)) * 255).astype(np.uint8))
+        singles = [texture_encode.compile_texconv(l, True, exe) for l in colour]
+        singles.append(texture_encode.compile_texconv(mask, False, exe))
+        with tempfile.TemporaryDirectory() as t:
+            staging = Path(t) / 'staging'; staging.mkdir()
+            jobs = [texture_encode.stage(l, True, Path(t) / f'c{i}.dds', staging) for i, l in enumerate(colour)]
+            jobs.append(texture_encode.stage(mask, False, Path(t) / 'm.dds', staging))
+            runs = []
+            original = texture_encode._texconv_batch
+            def counted(batch, *args):
+                runs.append(len(batch)); return original(batch, *args)
+            with patch.object(texture_encode, '_texconv_batch', counted):
+                texture_encode.encode_staged(jobs, exe)
+            self.assertEqual(sorted(runs), [1, 3])               # one run per colour space
+            self.assertEqual([(Path(t) / n).read_bytes() for n in ('c0.dds', 'c1.dds', 'c2.dds', 'm.dds')], singles)
+            self.assertEqual(list(staging.iterdir()), [])        # inputs removed
+            # A failing batch is retried texture by texture; the broken one is named.
+            jobs = [texture_encode.stage(l, True, Path(t) / f'r{i}.dds', staging) for i, l in enumerate(colour)]
+            Path(jobs[1].source).write_bytes(b'not a texture')
+            with self.assertRaisesRegex(ValueError, 'r1.dds'):
+                texture_encode.encode_staged(jobs, exe)
+            self.assertEqual((Path(t) / 'r0.dds').read_bytes(), singles[0])
+
+
+class EncodeCache(unittest.TestCase):
+    def fake_batch(self, runs):
+        from texture_streaming import layout
+        def run(jobs, executable, srgb, output):
+            runs.append(len(jobs))
+            for job in jobs:
+                _, _, _, width, height, count = job[:6]
+                header = texture_encode.cry_header(width, height, count, 99 if srgb else 98, 0)
+                body = bytes(sum(layout(header)['sizes'])) + Path(job.source).read_bytes()[148:164]
+                Path(output, Path(job.source).name).write_bytes(header + body[:sum(layout(header)['sizes'])])
+        return run
+
+    def test_identical_inputs_are_encoded_once_and_reused_from_the_cache(self):
+        rng = np.random.default_rng(9)
+        a = texture_encode.colour_levels(rng.random((64, 64, 4)).astype(np.float16))
+        b = texture_encode.colour_levels(rng.random((64, 64, 4)).astype(np.float16))
+        runs = []
+        with tempfile.TemporaryDirectory() as t, patch.object(texture_encode, '_texconv_batch', self.fake_batch(runs)):
+            root = Path(t); (root / 'in').mkdir(); cache = root / 'cache'
+            staging = texture_encode.Staging((str(root / 'in'), str(cache), 'texconv:one'))
+            jobs = [texture_encode.stage(l, True, root / name, staging) for l, name in ((a, 'p1.dds'), (b, 'p2.dds'), (a, 'p3.dds'))]
+            self.assertEqual(jobs[0].key, jobs[2].key)
+            self.assertNotEqual(jobs[0].key, jobs[1].key)
+            texture_encode.encode_staged(jobs, 'texconv.exe')
+            self.assertEqual(runs, [2])                                    # the duplicate was not encoded
+            self.assertEqual((root / 'p1.dds').read_bytes(), (root / 'p3.dds').read_bytes())
+            self.assertEqual(list((root / 'in').iterdir()), [])
+            # Another person (or build) with the same garment: written from the cache, nothing staged.
+            self.assertIsNone(texture_encode.stage(a, True, root / 'p4.dds', staging))
+            self.assertEqual((root / 'p4.dds').read_bytes(), (root / 'p1.dds').read_bytes())
+            self.assertEqual(list((root / 'in').iterdir()), [])
+            # A different encoder build, or a damaged entry, is a miss.
+            other = texture_encode.Staging((str(root / 'in'), str(cache), 'texconv:two'))
+            self.assertIsNotNone(texture_encode.stage(a, True, root / 'p5.dds', other))
+            entry = texture_encode._cached(cache, jobs[1].key); entry.write_bytes(entry.read_bytes()[:-100])
+            self.assertIsNotNone(texture_encode.stage(b, True, root / 'p6.dds', staging))
+
+    def test_workspace_cache_unless_rebuilding(self):
+        with tempfile.TemporaryDirectory() as t:
+            with patch.dict(os.environ, {'GLUEMAPPER_BUILD_CACHE': t, 'GLUEMAPPER_REBUILD_CACHE': '0'}):
+                self.assertEqual(texture_encode.encode_cache(), Path(t) / 'bc7-textures')
+            with patch.dict(os.environ, {'GLUEMAPPER_BUILD_CACHE': t, 'GLUEMAPPER_REBUILD_CACHE': '1'}):
+                self.assertNotEqual(texture_encode.encode_cache(), Path(t) / 'bc7-textures')
