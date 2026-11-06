@@ -116,6 +116,19 @@ def tile_workers(workers,available=None):
     return _bounded_setting('GLUEMAPPER_BAKE_TILE_WORKERS',default,1,32)
 
 
+def brick_threads(processes):
+    """Brick threads per tile process: the cores the memory-limited process count leaves.
+
+    Threads share their process's memory, so on a machine with little RAM (one or two
+    tile processes) they keep every core busy without the memory another process needs.
+    The rasterizer releases the GIL; tile bytes do not depend on the count (ordered bricks).
+    Measured on the KCD1 scene (24 sampled CPU tiles, one process): voxel time 58 s at 2 threads,
+    35 s at 4, 30 s at 8 and 30 s at 12, so the default stops at 8."""
+    from voxel_surfaces import MAX_BRICK_WORKERS
+    default=max(2,min(8,(os.cpu_count() or 1)//max(1,processes)))
+    return _bounded_setting('GLUEMAPPER_BAKE_BRICK_WORKERS',default,1,MAX_BRICK_WORKERS)
+
+
 def gpu_lanes():
     """Tiles rasterized on the GPU at the same time."""
     return _bounded_setting('GLUEMAPPER_GPU_LANES',1,1,4)
@@ -363,6 +376,13 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
     if not jobs:raise ValueError('No tiles selected')
     if plan.get('asset_catalog_digest')!=assets.catalog_digest():
         raise ValueError('Asset catalog changed or was not fingerprinted; regenerate scene and landscape plan')
+    if workers=='auto':
+        # Memory sets the process count exactly as for two threads each; the spare
+        # cores then become brick threads inside those processes.
+        processes=tile_workers(2) if len(jobs)>1 else 1
+        workers=brick_threads(processes)
+    else:
+        processes=tile_workers(workers) if len(jobs)>1 else 1
     arguments=(scene,output,samples,experimental_base_materials,backend,workers,gpu_budget(gpu_lanes()) if backend=='auto' else None)
     finished={}
 
@@ -377,7 +397,6 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         finished[number]=audit
         ((destination if output is not None else scene)/'build-progress.json').write_text(json.dumps(summary()[1],indent=2)+'\n')
 
-    processes=tile_workers(workers) if len(jobs)>1 else 1
     if processes==1:
         baker=_TileBaker(*arguments)
         for number,job in enumerate(jobs):

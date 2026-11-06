@@ -67,7 +67,7 @@ class BakeSetupTests(unittest.TestCase):
             self.assertEqual(plan.call_args.args[0],level)
             self.assertEqual(build.call_count,2)
             self.assertEqual(build.call_args.kwargs['backend'],'auto')
-            self.assertEqual(build.call_args.kwargs['workers'],2)
+            self.assertEqual(build.call_args.kwargs['workers'],'auto')
             self.assertEqual(build.call_args_list[0].args[0],build.call_args_list[1].args[0])
             stage.assert_not_called()
             self.assertEqual((level/'terrain.pak').read_bytes(),b'original terrain')
