@@ -493,6 +493,16 @@ def worker(config_path):
                 destination = job / 'region-travel'
                 build_bridge(config['kcd1'], config['kcd2'], base/'Data/Levels/kcd1_rataje', destination, modid=MOD_ID)
                 if cancel(): raise Cancelled('Travel package retained; cancelled before combining')
+                if config.get('background_bake'):
+                    # Combine's inputs are final for nearly every lighting tile: light them
+                    # beside the single-core recipe (background_bake.py). Optional by design.
+                    try:
+                        from background_bake import start as start_background_bake
+                        start_background_bake(destination/MOD_ID, (destination/MOD_ID/'Data', base/'Data'), config['kcd2'],
+                                              config['background_bake'], config.get('baking', 'none'),
+                                              lambda message: events.emit('log', message=message))
+                    except Exception as error:
+                        events.emit('log', message='Background lighting bake not started: '+str(error))
                 events.emit('stage', index=len(plan)+2, total=total, label='Combine and verify one complete mod')
                 package = combine(base, destination/MOD_ID, config['kcd2'], job/'package')
                 from build_recipe import run as run_recipe

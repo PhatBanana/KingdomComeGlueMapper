@@ -78,7 +78,7 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
     from world_surface_coverage import augment as coverage
     from world_surface_tiles import build
     from stage_world_surfaces import stage
-    package=Path(package).resolve();workspace=Path(workspace).resolve()
+    package=Path(package).resolve();workspace=Path(workspace).resolve();shared=workspace
     from setup_resume import restore_swap
     restore_swap(package)
     receipt=verify_package(package)
@@ -170,6 +170,16 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
                 continue
             print('Building lighting: '+('regeneration requested' if forced() else
                   'no complete matching workspace cache; details are recorded in events.jsonl'),flush=True)
+        # Tiles the background bake lit from combine's inputs (background_bake.py), kept
+        # only where each tile's own placements, meshes, materials and textures are unchanged.
+        from background_bake import wait as background_scene
+        reference=background_scene(shared,progress,cancelled)
+        if reference is not None:
+            from tile_reuse import reuse
+            progress('Reuse background lighting',0,0,"Comparing each tile's placements, meshes, materials and textures")
+            outcome=reuse(root/'scene',reference,notify=lambda message:progress('Reuse background lighting',0,0,message),cancelled=cancelled)
+            print(f"Background lighting: reused {outcome['reused']} of {outcome['tiles']} tiles; "
+                  f"{outcome['rebuild']} to bake",flush=True)
         print('Hybrid bake: compiled CPU below 1,000,000 triangles (brick threads from the cores '
               'left after the memory-limited process count); OptiX for dense tiles, 64-brick batches '
               'with CPU overlap. GPU failures are logged and fall back to CPU.',flush=True)
@@ -224,3 +234,6 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
     if previous.resolve().parent != package.resolve().parent or previous.is_symlink():
         raise ValueError('Unsafe completed bake staging directory')
     shutil.rmtree(previous)
+    # Reused tiles are hard links in the real scene, so the background scene can go.
+    from background_bake import cleanup
+    cleanup(shared)

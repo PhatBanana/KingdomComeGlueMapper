@@ -192,6 +192,7 @@ def _worker(path):
             mapjob=job/'map-job';mapjob.mkdir(exist_ok=True);mc=dict(c)
             mc['action']='install' if c['action']=='install' else 'build_only'
             if c['action']=='install':mc['package']=str(package/'map')
+            elif c.get('baking','none')!='none':mc['background_bake']=str(root/'baking')  # bake_package's workspace
             cp=mapjob/'job.json';cp.write_text(json.dumps(mc))
             events.emit('stage',index=0,total=len(c['mods']),label='KCD1 Map')
             if saved:
@@ -272,6 +273,9 @@ def _worker(path):
     except (legacy.Cancelled,InterruptedError) as e:events.emit('cancelled',message=str(e));return 2
     except BaseException as e:events.emit('error',message=str(e),traceback=traceback.format_exc());return 1
     finally:
+        # Never leave a background lighting bake running after the job (its folder stays for diagnosis).
+        from background_bake import stop as stop_background_bake
+        stop_background_bake(root/'baking' if 'root' in locals() else job/'baking')
         setup_progress.sink=previous_sink
         setup_progress.work_sink=previous_work_sink
         events.stream.close();events.text.close()
