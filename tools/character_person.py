@@ -121,22 +121,33 @@ def world_entity(archive, entity, entities, provenance=None):
     """
     from entity_visuals import world_transform
     provenance = provenance if provenance is not None else {}
-    known = list(entities)
-    if not any(e.get('EntityId') == entity.get('EntityId') for e in known):
-        known.append(entity)
+    # One pass over the (often 66,000-entity) world: callers resolve hundreds of
+    # placements, and each used to scan it five times per parent level.
+    by_id, counts = {}, Counter()
+    def know(candidate):
+        identity = candidate.get('EntityId')
+        by_id[identity] = candidate; counts[identity] += 1
+    for candidate in entities:
+        know(candidate)
+    if entity.get('EntityId') not in counts:
+        know(entity)
     cursor, seen = entity, set()
     while cursor.get('ParentId'):
         identity = cursor.get('EntityId')
         if identity in seen:
             raise ValueError('Parent cycle in source activity placement')
         seen.add(identity)
-        request = ET.Element('Entity')
-        ET.SubElement(ET.SubElement(request, 'EntityLinks'), 'Link',
-                      TargetId=cursor.get('ParentId'))
-        known = resolve_link_targets(archive, request, known, provenance)
-        cursor = unique((e for e in known if e.get('EntityId') == cursor.get('ParentId')),
-                        'source placement parent')
-    pos, rot, scale = world_transform(entity, {e.get('EntityId'): e for e in known})
+        parent = cursor.get('ParentId')
+        if counts[parent] > 1:
+            raise ValueError('Ambiguous source person link target: ' + parent)
+        if not counts[parent]:
+            # Not in the given world: find it in the source layers, as resolve_link_targets does.
+            request = ET.Element('Entity')
+            ET.SubElement(ET.SubElement(request, 'EntityLinks'), 'Link', TargetId=parent)
+            for found in resolve_link_targets(archive, request, [], provenance):
+                know(found)
+        cursor = by_id[parent]
+    pos, rot, scale = world_transform(entity, by_id)
     result = copy.deepcopy(entity)
     if entity.get('ParentId'):
         for field, values in (('Pos', pos), ('Rotate', rot), ('Scale', scale)):
@@ -146,15 +157,37 @@ def world_entity(archive, entity, entities, provenance=None):
     return result
 
 
+_SOURCE_DOCUMENTS = {}
+
+
+def _source_document(archive, kind):
+    """The mission's SHA-256 or the parsed whdata_0 souls, once per unchanged archive (one kept of each)."""
+    def build():
+        if kind == 'mission_sha256':
+            return hashlib.sha256(read(archive, 'objects_mission0.xml')).hexdigest()
+        return ET.fromstring(read(archive, 'whdata_0')).findall('./SoulList/Souls/Soul')
+    key = archive_signature(archive)
+    if key is None:
+        return build()
+    if _SOURCE_DOCUMENTS.get(kind, (None,))[0] != key:
+        _SOURCE_DOCUMENTS[kind] = (key, build())
+    return _SOURCE_DOCUMENTS[kind][1]
+
+
 def resolve_person(source, name, level='rataje', *, include_ai=True):
+    """The source person's soul, actor and instance; actor and instance are the caller's own copies.
+
+    Each person used to parse the 52 MB source mission and 16 MB whdata_0 again.
+    Both are now shared, read-only, through source_entities and _source_document.
+    """
     with RetailSourceReader(source) as reader:
         tables = SourceTables(source, reader)
         soul = tables.row('rpg/soul', 'soul_name', name)
         evidence = {k: v['provenance'] for k, v in tables.cache.items()}
     with zipfile.ZipFile(Path(source) / 'Data/Levels' / level / 'level.pak') as archive:
-        mission = read(archive, 'objects_mission0.xml')
-        actor_sources = {'objects_mission0.xml': hashlib.sha256(mission).hexdigest()}
-        entities = list(ET.fromstring(mission).iter('Entity'))
+        mission_sha256 = _source_document(archive, 'mission_sha256')
+        actor_sources = {'objects_mission0.xml': mission_sha256}
+        entities = source_entities(archive)
         if not any(e.get('Name') == name for e in entities):
             for entry in archive.namelist():
                 if entry.lower().startswith('layers/') and entry.lower().endswith('.xml'):
@@ -168,7 +201,7 @@ def resolve_person(source, name, level='rataje', *, include_ai=True):
                         e.get('EntityClass') in ('NPC', 'NPC_Female')), 'source person')
         if include_ai:
             entities = resolve_link_targets(archive, actor, entities, actor_sources)
-        instance = unique((s for s in ET.fromstring(read(archive, 'whdata_0')).findall('./SoulList/Souls/Soul')
+        instance = unique((s for s in _source_document(archive, 'souls')
                            if s.findtext('Name') == name), 'source person instance')
     if instance.findtext('SharedSoulGuid') != soul['soul_id']:
         raise ValueError('Source person instance/table identity differs')
@@ -178,9 +211,9 @@ def resolve_person(source, name, level='rataje', *, include_ai=True):
             tables = SourceTables(source, reader)
             ai = capture_person_ai(tables, soul, actor, instance, entities)
             evidence.update({k: v['provenance'] for k, v in tables.cache.items()})
-    return dict(name=name, soul=soul, actor=actor, instance=instance, source_level=level,
+    return dict(name=name, soul=soul, actor=copy.deepcopy(actor), instance=copy.deepcopy(instance), source_level=level,
                 ai=ai,
-                provenance=dict(tables=evidence, mission_sha256=hashlib.sha256(mission).hexdigest(),
+                provenance=dict(tables=evidence, mission_sha256=mission_sha256,
                                 actor_sources=actor_sources))
 
 

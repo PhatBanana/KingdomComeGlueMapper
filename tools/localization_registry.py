@@ -35,12 +35,16 @@ def reconcile(tables):
             key = row.findtext('Cell')
             if not key:
                 raise ValueError('Localization row has no key: ' + name)
-            value = signature(row)
             if key not in owners:
-                owners[key] = (name, value)
+                # Most keys are unique: compare signatures only when a key repeats.
+                # Owner rows stay in their (unedited) trees until then.
+                owners[key] = [name, row]
                 continue
-            owner, previous = owners[key]
-            if previous != value:
+            entry = owners[key]
+            owner = entry[0]
+            if isinstance(entry[1], E.Element):
+                entry[1] = signature(entry[1])
+            if entry[1] != signature(row):
                 raise ValueError(f'Conflicting localization key {key}: {owner} and {name}')
             root.remove(row)
             removed.append(dict(key=key, owner=owner, removed_from=name))

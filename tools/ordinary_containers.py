@@ -79,6 +79,13 @@ def register(files, records, models, guid, contracts=None):
     nodes = list(root.iter('Entity'))
     next_id = max((int(n.get('EntityId', '0')) for n in nodes), default=0) + 1
     identities = {n.get('EntityGuid') for n in nodes}
+    # Indexed once: ~2,800 containers each searched all 36,000 entities by name and
+    # walked the whole tree for the visual's parent. Source ids are unique, so the
+    # visuals are distinct, and removing one moves no other element.
+    by_name, parents = {}, {}
+    for n in nodes: by_name.setdefault(n.get('Name'), []).append(n)
+    for parent in root.iter():
+        for child in parent: parents.setdefault(child, parent)
     converted = []
     for record in records:
         reason = eligibility(record) if contracts is None else None
@@ -86,7 +93,7 @@ def register(files, records, models, guid, contracts=None):
         sid = record['source_id']
         identity = guid('ordinary_container/'+sid)
         if identity in identities: raise ValueError('Container already converted: '+sid)
-        visuals = [n for n in nodes if n.get('Name') == 'glue_item_'+sid]
+        visuals = by_name.get('glue_item_'+sid, [])
         if len(visuals) != 1 and not (contracts is not None and len(visuals)==0 and (record.get('hidden') or not record['model'])):
             raise ValueError('Expected one static container: '+sid)
         if next_id == 0x7777: next_id += 1
@@ -97,9 +104,8 @@ def register(files, records, models, guid, contracts=None):
             node.set(attribute, ','.join(format(v, '.9g') for v in values))
         node.append(properties(record, models[record['model']], contracts[sid] if contracts is not None else None))
         if record.get('hidden'): node.set('HiddenInGame','1')
-        if visuals:
-            for parent in root.iter():
-                if visuals[0] in list(parent): parent.remove(visuals[0]); break
+        if visuals and visuals[0] in parents:
+            parents[visuals[0]].remove(visuals[0])
         root.append(node)
         converted.append(dict(source_id=sid, entity_guid=identity, position=node.get('Pos'),
             ownership='temporarily_unowned', inventory=contracts[sid]['preset'] if contracts is not None else 'empty; no authored preset',
