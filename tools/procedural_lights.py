@@ -63,10 +63,17 @@ def expand(prefab, archetypes, schema, effects):
     return result
 
 
-def append_group(root, key, parent, components):
-    names={e.get('Name'):e for e in root}
-    next_id=max(int(e.get('EntityId','0')) for e in root)+1
-    added=0
+def light_registry(root):
+    """Names and the next free id of root, for append_group calls that only it makes in between."""
+    return dict(names={e.get('Name'):e for e in root},
+                next_id=max(int(e.get('EntityId','0')) for e in root)+1)
+
+
+def append_group(root, key, parent, components, registry=None):
+    # The registry spares rescanning the 36,000-entity mission for each of ~1,500 fires.
+    registry=light_registry(root) if registry is None else registry
+    names,next_id=registry['names'],registry['next_id']
+    added=0;appended=[]
     for identity,template in components:
         name=PREFIX+key+'_'+identity.strip('{}').lower()
         p,q,s=transform(parent,template)
@@ -82,7 +89,10 @@ def append_group(root, key, parent, components):
         if next_id==0x7777:next_id+=1
         if next_id>=65534:raise ValueError('Light registration exceeds static entity IDs')
         node.set('EntityId',str(next_id));next_id+=1
-        root.append(node);added+=1
+        root.append(node);added+=1;appended.append(node)
+    # As a fresh registry would see root now: appended names win, the max id moved on.
+    names.update((node.get('Name'),node) for node in appended)
+    registry['next_id']=next_id
     return added
 
 
@@ -140,7 +150,7 @@ def build(mission, source, target):
         schema=defaults(read(z,'Scripts/Entities/Lights/Light.lua'))
     report=dict(version=1,records=[],added=0,runtime_verified=False,
                 inactive_procedurals=len(deferred),controlled_fireplaces=0)
-    compiled={}
+    compiled={};registry=None
     for e in selected:
         props=e.find('Properties')
         if props is None or props.get('filePrefabLibrary','').lower()!='prefabs/fires.xml':continue
@@ -153,7 +163,8 @@ def build(mission, source, target):
             except (KeyError,ValueError) as error:compiled[variation]=str(error)
         parts=compiled[variation]
         if isinstance(parts,str):record.update(status='unsupported',reason=parts);continue
-        report['added']+=append_group(root,key,world_transform(e,entities),parts)
+        if registry is None:registry=light_registry(root)
+        report['added']+=append_group(root,key,world_transform(e,entities),parts,registry)
         record.update(status='registered',entities=len(parts))
     with zipfile.ZipFile(target/'Data/IPL_GameData.pak') as z:
         report['table_candle_added']=table_candle(root,z)

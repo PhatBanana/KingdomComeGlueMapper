@@ -174,10 +174,14 @@ def upgrade(package, source, target, *, manifest=None):
         connect(mission,additions,actor,host,'departure',p['priority'],p['speed'],stem,scheduler,activity)
         # Quest availability invalidates either activity immediately at the
         # authored handoff; retaining the sitting request would block departure.
+        hosts=None  # found once, when first needed: the mission has ~36,000 entities
         for link in scheduler.findall('.//S_ActivityLink'):
             params=link.find('Parameters')
-            if params is not None and link.get('TargetGuid') in {str(guid_value(host.get('EntityGuid'))),
-                    str(guid_value(unique((e for e in mission if e.get('Name')==intro_stem+'_host'),'intro host').get('EntityGuid')))}:
+            if params is None:continue
+            if hosts is None:
+                hosts={str(guid_value(host.get('EntityGuid'))),
+                       str(guid_value(unique((e for e in mission if e.get('Name')==intro_stem+'_host'),'intro host').get('EntityGuid')))}
+            if link.get('TargetGuid') in hosts:
                 params.set('HaltOnInvalid','true')
         table=E.Element('database',name='barbora')
         t=E.SubElement(E.SubElement(table,'SmartEntitys',version='1'),'SmartEntityTemplate',DatabaseId=template,Name=stem,UpdatePriority='false')

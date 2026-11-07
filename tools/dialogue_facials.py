@@ -168,6 +168,36 @@ def select_database(blob, mapping, aliases=None):
     return result
 
 
+_DECODED = {}  # archive identity -> decoded records; a build reads the same two indexes for each speech step
+
+
+def _decoded(pak, name, decode):
+    """{'records': decode(read(pak, name))}, remembered per unchanged archive; at most four kept."""
+    from upgrade_map import archive_signature
+    signature = archive_signature(pak)
+    if signature is None: return dict(records=decode(read(pak, name)))
+    key = (signature, name, decode.__name__)
+    if key not in _DECODED:
+        while len(_DECODED) >= 4: _DECODED.pop(next(iter(_DECODED)))
+        _DECODED[key] = dict(records=decode(read(pak, name)))
+    return _DECODED[key]
+
+
+def _facial_headers(blob):
+    # The source IMG also contains unrelated animation records.
+    result = []
+    for record in chunks(blob):
+        if record[:2] != (0x3007,0x971): continue
+        original = header_path(record)
+        if original.startswith('animations/humans/facials/'):
+            result.append((Path(original).stem, original, record))
+    return tuple(result)
+
+
+def _index_records(blob):
+    return tuple(chunks(blob))
+
+
 class FacialImporter:
     def __init__(self, source, target, existing=None):
         from facial_rig_adapter import load_speech_adapter
@@ -183,28 +213,49 @@ class FacialImporter:
                     if crc in self.dbas: raise ValueError('Ambiguous source facial DBA')
                     self.dbas[crc] = (pak, name)
                 if key == 'animations/animations.img':
-                    for record in chunks(read(pak,name)):
-                        # The source IMG also contains unrelated animation records.
-                        if record[:2] != (0x3007,0x971): continue
-                        original = header_path(record)
-                        if original.startswith('animations/humans/facials/'):
-                            self.source_headers[Path(original).stem].append((original,record))
+                    for stem, original, record in _decoded(pak, name, _facial_headers)['records']:
+                        self.source_headers[stem].append((original,record))
         baselines=[]
         for path in sorted((Path(target)/'Data/Facials').glob('*english*.pak')):
             with zipfile.ZipFile(path) as pak:
-                if INDEX in pak.namelist(): baselines.append(chunks(read(pak,INDEX)))
+                if INDEX in pak.namelist(): baselines.append(_decoded(pak, INDEX, _index_records))
         if len(baselines)!=1: raise ValueError('Expected one native English facial index')
-        baseline=baselines[0]
+        decoded=baselines[0]; baseline=list(decoded['records'])
         self.records = chunks(existing) if existing else baseline
         if self.records[:len(baseline)] != baseline:
             raise ValueError('Existing facial index does not preserve native baseline')
         self.native_count=len(baseline)
-        self.indexed={header_path(r):r for r in self.records}
+        # The records match the baseline up to its length, so their paths do too.
+        if 'paths' not in decoded: decoded['paths']=tuple(header_path(r) for r in baseline)
+        paths=[*decoded['paths'], *(header_path(r) for r in self.records[len(baseline):])]
+        self.indexed=dict(zip(paths, self.records))
         self.next_id=max(r[2] for r in self.records)+1
         self.outputs={}; self.receipts=[]
 
     def close(self):
         for pak in self.archives: pak.close()
+
+    def _by_database(self):
+        """Index paths by the database hash at byte 264 of their record, with their order in indexed."""
+        if getattr(self, '_databases', None) is None:
+            self._databases, self._order = defaultdict(dict), {}
+            for dest, record in self.indexed.items(): self._file(dest, record)
+        return self._databases
+
+    def _file(self, dest, record):
+        self._order.setdefault(dest, len(self._order))
+        self._databases[struct.unpack_from('<I',record[3],264)[0]][dest] = None
+
+    def _in_database(self, crc):
+        """The paths whose record names database crc, in indexed order."""
+        return sorted(self._by_database().get(crc, ()), key=self._order.__getitem__)
+
+    def _index(self, dest, record):
+        old = self.indexed.get(dest)
+        if getattr(self, '_databases', None) is not None and old is not None:
+            self._databases[struct.unpack_from('<I',old[3],264)[0]].pop(dest, None)
+        self.indexed[dest] = record
+        if getattr(self, '_databases', None) is not None: self._file(dest, record)
 
     def add(self, recordings):
         groups=defaultdict(dict); headers={}
@@ -227,8 +278,8 @@ class FacialImporter:
             identity=hashlib.sha256((name.lower()+'\n'+namespace).encode()).hexdigest()[:24]
             dest_dba='animations/humans/facials/dialog/glueimport/'+identity+'.dba'
             # Rebuilding a namespace must retain tracks imported in prior passes.
-            for dest, old in self.indexed.items():
-                if struct.unpack_from('<I',old[3],264)[0] != zlib.crc32(dest_dba.encode()): continue
+            # Looked up by database hash, in index order, instead of scanning ~500,000 records.
+            for dest in self._in_database(zlib.crc32(dest_dba.encode())):
                 candidates=self.source_headers.get(Path(dest).stem,[])
                 if len(candidates)!=1: raise ValueError('Cannot reconstruct existing imported facial track')
                 original,record=candidates[0]
@@ -249,11 +300,11 @@ class FacialImporter:
                     old_data=bytearray(old[3]);old_data[312:316]=record[3][312:316]
                     if bytes(old_data)!=record[3]: raise ValueError('Conflicting imported facial track: '+dest)
                     record=(record[0],record[1],old[2],record[3])
-                    self.records[self.records.index(old)]=record;self.indexed[dest]=record
+                    self.records[self.records.index(old)]=record;self._index(dest,record)
                 else:
                     identity=self.next_id;self.next_id+=1
                     record=(record[0],record[1],identity,record[3])
-                    self.records.append(record);self.indexed[dest]=record
+                    self.records.append(record);self._index(dest,record)
                 self.receipts.append(dict(source=original,target=dest,database=dest_dba,source_archive=pak.filename,
                                           controllers=controller_counts[dest]))
 
