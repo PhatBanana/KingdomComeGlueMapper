@@ -67,7 +67,8 @@ class BackgroundBakeTests(unittest.TestCase):
         self.assertEqual(wait(workspace), scene)   # a partial bake still has useful tiles
         stop(workspace)                            # nothing running: no-op
         background_bake.cleanup(workspace)
-        self.assertFalse(background_bake.folder(workspace).exists())
+        self.assertFalse(scene.exists())
+        self.assertTrue((scene.parent / 'status.json').exists())  # kept for the build report
 
 
 if __name__ == '__main__':

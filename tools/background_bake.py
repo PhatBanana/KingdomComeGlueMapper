@@ -177,6 +177,8 @@ def stop(workspace, timeout=120):
 
 
 def cleanup(workspace):
-    """Remove the background scene once the real bake has linked what it needed."""
+    """Remove the background scene (several GB) once the real bake has linked what it needed.
+
+    Its status and log stay for the build report."""
     stop(workspace)
-    shutil.rmtree(folder(workspace), ignore_errors=True)
+    for name in ('base', 'scene'): shutil.rmtree(folder(workspace)/name, ignore_errors=True)
