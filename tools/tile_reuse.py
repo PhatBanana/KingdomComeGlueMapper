@@ -100,7 +100,8 @@ def tile_identities(scene, cancelled=lambda: False):
                     members.setdefault(texture, {})[name] = [info.CRC, info.file_size]
     finally:
         assets.close()
-    common = dict(settings(), category_policy=plan.get('category_policy'))
+    # Scene-wide counts (category_policy) are not read by a tile; its own inputs are below.
+    common = settings()
     identities = {}
     for job in plan['tiles']:
         placed = [records[i] for i in job['placements']]
@@ -138,6 +139,16 @@ def reuse(scene, reference, notify=lambda message: None, cancelled=lambda: False
     scene, reference = Path(scene), Path(reference)
     plan = json.loads((scene/'plan.json').read_text())
     old = json.loads((reference/'plan.json').read_text())
+    # The reference's tiles were baked from the archives as its plan recorded them. Its
+    # identities are read from the archives now, so refuse a reference whose inputs moved.
+    notify('Checking the background scene inputs are unchanged')
+    from geometry_opacity import Assets
+    for name, sha in old['source_packages'].items():
+        if file_hash(name) != sha: raise ValueError('Background scene package changed: '+name)
+    assets = Assets(old['pak_root'], old['overrides'])
+    try:
+        if assets.catalog_digest() != old['asset_catalog_digest']: raise ValueError('Background scene assets changed')
+    finally: assets.close()
     notify('Fingerprinting each tile of the final scene')
     current = tile_identities(scene, cancelled)
     try:

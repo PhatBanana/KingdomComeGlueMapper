@@ -44,8 +44,8 @@ def _cached(preset, level):
 
     That bake is reused whole when the scene is unchanged, so a background bake
     would only compete with the recipe for the disk."""
-    from setup_build_cache import root
-    if root() is None: return False
+    from setup_build_cache import root, forced
+    if root() is None or forced(): return False  # a forced rebuild never reuses that bake
     for manifest in (root()/'lighting').glob('*/manifest.json'):
         try: meta = json.loads(manifest.read_text())['metadata']
         except (OSError, ValueError, KeyError): continue
@@ -54,9 +54,12 @@ def _cached(preset, level):
 
 
 def processes(free):
-    """Tile processes that fit beside the recipe and the bake's own planner."""
+    """Tile processes that fit beside the recipe and the bake's own planner.
+
+    At most four: the bake sizes its pools from the memory free when it starts,
+    before the recipe peaks, and the background bake has the recipe's whole run to finish."""
     from world_surface_tiles import TILE_PROCESS, WORKER_RESERVE
-    return max(1, min(6, int((free-RECIPE_RESERVE-WORKER_RESERVE)//TILE_PROCESS)))
+    return max(1, min(4, int((free-RECIPE_RESERVE-WORKER_RESERVE)//TILE_PROCESS)))
 
 
 def start(package, data_folders, game, workspace, preset, notify=lambda message: None):
@@ -108,6 +111,8 @@ def _run(level, game, overrides, root, preset, count):
     _lower_priority()
     if count and 'GLUEMAPPER_BAKE_TILE_WORKERS' not in os.environ:
         os.environ['GLUEMAPPER_BAKE_TILE_WORKERS'] = str(count)
+    # One dense tile (up to ~17 GB) at a time beside the recipe, whatever is free at the start.
+    os.environ.setdefault('GLUEMAPPER_BAKE_HEAVY_TILES', '1')
     with (root/'background.log').open('a', encoding='utf-8', buffering=1) as log, \
             contextlib.redirect_stdout(log), contextlib.redirect_stderr(log):
         _status(root, status='running', level=level)

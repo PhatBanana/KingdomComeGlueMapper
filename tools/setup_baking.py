@@ -82,7 +82,9 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
     from setup_resume import restore_swap
     restore_swap(package)
     receipt=verify_package(package)
-    if receipt.get('baking',{}).get('preset')==preset:return
+    if receipt.get('baking',{}).get('preset')==preset:
+        from background_bake import cleanup
+        cleanup(shared);return  # already baked: a background scene from an earlier attempt is not needed
     # Separate incompatible plans, while retaining interrupted work for inspection.
     workspace=checkpoint_workspace(game,workspace,preset,receipt)
     workspace.mkdir(parents=True,exist_ok=True)
@@ -172,14 +174,21 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
                   'no complete matching workspace cache; details are recorded in events.jsonl'),flush=True)
         # Tiles the background bake lit from combine's inputs (background_bake.py), kept
         # only where each tile's own placements, meshes, materials and textures are unchanged.
+        # Optional by design: any failure here only means more tiles to bake.
         from background_bake import wait as background_scene
         reference=background_scene(shared,progress,cancelled)
         if reference is not None:
             from tile_reuse import reuse
             progress('Reuse background lighting',0,0,"Comparing each tile's placements, meshes, materials and textures")
-            outcome=reuse(root/'scene',reference,notify=lambda message:progress('Reuse background lighting',0,0,message),cancelled=cancelled)
-            print(f"Background lighting: reused {outcome['reused']} of {outcome['tiles']} tiles; "
-                  f"{outcome['rebuild']} to bake",flush=True)
+            try:
+                # Same pinned GPU settings as the tile builder, so signatures agree.
+                with hybrid_environment():
+                    outcome=reuse(root/'scene',reference,notify=lambda message:progress('Reuse background lighting',0,0,message),cancelled=cancelled)
+                print(f"Background lighting: reused {outcome['reused']} of {outcome['tiles']} tiles; "
+                      f"{outcome['rebuild']} to bake",flush=True)
+            except InterruptedError:raise
+            except Exception as error:
+                print(f'Background lighting not reused ({type(error).__name__}: {error}); baking every tile',flush=True)
         print('Hybrid bake: compiled CPU below 1,000,000 triangles (brick threads from the cores '
               'left after the memory-limited process count); OptiX for dense tiles, 64-brick batches '
               'with CPU overlap. GPU failures are logged and fall back to CPU.',flush=True)

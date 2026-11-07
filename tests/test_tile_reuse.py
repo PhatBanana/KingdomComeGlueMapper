@@ -10,6 +10,7 @@ import zipfile
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+from geometry_opacity import Assets
 from tile_reuse import reuse, record_identities
 from validate_world_surfaces import stem
 from voxel_surfaces import build_tile
@@ -37,8 +38,11 @@ class TileReuseTests(unittest.TestCase):
 
     def tearDown(self): self.temp.cleanup()
 
-    def scene(self, name, *, overrides=(), roof=EYE, catalog='catalog', built=False, code=None):
+    def scene(self, name, *, overrides=(), roof=EYE, catalog=None, built=False, code=None):
         scene = self.root / name; (scene / 'meshes').mkdir(parents=True)
+        if catalog is None:
+            assets = Assets(self.data, [str(p) for p in overrides])
+            catalog = assets.catalog_digest(); assets.close()
         for key, material in (('wall-mesh', 'mat/wall'), ('roof-mesh', 'mat/roof')):
             (scene / 'meshes' / (key + '.json')).write_text(json.dumps(
                 {'key': key, 'bindings': [[material, 0]], 'triangles': 1, 'bounds': [[0, 0, 0], [1, 1, 1]]}))
@@ -119,6 +123,16 @@ class TileReuseTests(unittest.TestCase):
         result = reuse(scene, reference)
         self.assertEqual(result['reused'], 0)
         self.assertEqual(json.loads((scene / 'tiles' / (second + '.json')).read_text()), {'status': 'failed'})
+
+    def test_reference_whose_archives_changed_after_its_plan_is_refused(self):
+        reference, _ = self.scene('reference', built=True)
+        # Tiles were baked from the old bytes; identities read now would describe the new ones.
+        pak(self.data / 'base.pak', {'mat/wall.mtl': MATERIAL.format('tex/wall.dds'),
+                                     'mat/roof.mtl': MATERIAL.format('tex/roof.dds'),
+                                     'tex/wall.dds': b'new wall', 'tex/roof.dds': b'roof'})
+        scene, _ = self.scene('scene')
+        with self.assertRaisesRegex(ValueError, 'assets changed'):
+            reuse(scene, reference)
 
     def test_recorded_identities_match_recomputed_ones(self):
         reference, _ = self.scene('reference', built=True)

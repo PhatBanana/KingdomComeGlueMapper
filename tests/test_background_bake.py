@@ -49,7 +49,7 @@ class BackgroundBakeTests(unittest.TestCase):
 
     def test_tile_processes_leave_room_for_the_recipe(self):
         self.assertEqual(processes(45 * GIB), 3)   # 64 GB machine during combine
-        self.assertEqual(processes(100 * GIB), 6)
+        self.assertEqual(processes(100 * GIB), 4)   # capped: pools size from memory free at the start
         self.assertEqual(processes(30 * GIB), 1)
 
     def test_needs_exactly_one_terrain_level(self):
