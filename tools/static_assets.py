@@ -16,6 +16,7 @@ from build_water_probe import shader_features, translate_features
 from puddle_materials import convert_puddle_proxies
 from water_animation import convert_waterfall_speeds
 from vegetation_materials import native_vine_deformation
+from retired_shaders import native_beam_material, replace_retired_beam
 
 
 def preserve_legacy_decal_shadows(element, retained):
@@ -246,6 +247,10 @@ def asset_pack(stack, library, prefix, cache_dir=None):
             for path, payload in baked.items():emitted[path] = payload
         for element in doc.iter("Material"):
             shader = element.get("Shader", "").lower()
+            if shader == "geometrybeam" and shader not in shader_maps[1]:
+                # Already a complete native KCD2 shader contract.
+                replace_retired_beam(element, ET.fromstring(native_beam_material(library)))
+                continue
             if shader in shader_maps[0] and shader in shader_maps[1]:
                 convert_material_features(element, shader_maps[0][shader], shader_maps[1][shader])
             else:
