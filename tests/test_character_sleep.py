@@ -223,5 +223,26 @@ class SleepBindingTests(unittest.TestCase):
         before=(E.tostring(m),E.tostring(s));self.assertEqual(bind(m,s,'worker',clock,c,'bed',a),(None,[],False))
         self.assertEqual(before,(E.tostring(m),E.tostring(s)))
 
+    def test_shared_index_binds_like_fresh_scans(self):
+        from character_sleep_work import WorldIndex
+        def world():
+            m,s,a,c,clock=fixture()
+            e=E.SubElement(m,'Entity',Name='another',EntityClass='NPC_Female',EntityId='4',EntityGuid=native_guid(4),Pos='1,1,0')
+            E.SubElement(e,'Properties',guidSmartObjectType='other')
+            r=E.SubElement(s.find('Schedulers'),'C_SmartHub',EntityGuid='4',IgnoreDeadEnds='false',StupidHub='false')
+            work=E.SubElement(E.SubElement(r,'Links'),'S_ActivityLink',TargetGuid='2',PositioningDelegate='0')
+            E.SubElement(work,'Parameters',BehaviorName='work',Priority='0',TimeOfDayStart='0',TimeOfDayEnd='1440')
+            return m,s,a,c,clock
+        m,s,a,c,clock=world()
+        fresh=[bind(m,s,name,clock,c,'bed',a) for name in ('worker','another','worker')]
+        m2,s2,a,c,clock=world();index=WorldIndex(m2,s2)
+        shared=[bind(m2,s2,name,clock,c,'bed',a,index=index) for name in ('worker','another','worker')]
+        self.assertEqual(shared,fresh)
+        self.assertEqual((E.tostring(m2),E.tostring(s2)),(E.tostring(m),E.tostring(s)))
+        # The index followed the pools and hubs bind added, so the next id and lookups are current.
+        self.assertEqual([e.get('Name') for e in index.by_guid[identity(m2[0])]],['gm_sleep_worker'])
+        self.assertEqual(len(index.rows_by_guid[str(guid_value(identity(m2[3])))]),1)
+        self.assertEqual(index.next_entity_id(),str(max(int(e.get('EntityId')) for e in m2)+1))
+
 
 if __name__=='__main__':unittest.main()

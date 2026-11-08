@@ -23,7 +23,7 @@ def partition_accessories(parts, tables):
 
 
 def register_accessories(source, target, output, namespace, accessories):
-    from character_person import native_xml
+    from character_person import native_table
     component_path = output / ('Libs/Tables/Character/CharacterComponent__'+namespace+'.xml')
     item_path = output / ('Libs/Tables/item/item__'+namespace+'.xml')
     preset_path = output / ('Libs/Tables/item/clothing_preset__'+namespace+'.xml')
@@ -31,8 +31,9 @@ def register_accessories(source, target, output, namespace, accessories):
     components, items, preset = (ET.parse(p).getroot() for p in (component_path, item_path, preset_path))
     texts = ET.parse(text_path).getroot() if text_path.exists() else ET.Element('Table')
     with zipfile.ZipFile(target / 'Data/Tables.pak') as archive:
-        native_components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
-        native_items = native_xml(read(archive, 'Libs/Tables/item/item.xml'))
+        # Shared, read-only parses: native_role reads them and source_item copies its template.
+        native_components = native_table(archive, 'Libs/Tables/Character/CharacterComponent.xml')
+        native_items = native_table(archive, 'Libs/Tables/item/item.xml')
     with zipfile.ZipFile(source / 'Localization/English_xml.pak') as archive:
         source_strings = ET.fromstring(read(archive, 'text_ui_items.xml'))
     report = []

@@ -159,5 +159,17 @@ class PersonAITests(unittest.TestCase):
         self.assertEqual(report[1]['baseline'],'existing authored activity preserved')
         self.assertNotIn(b'schedulerWait',files['tables/ai/scheduler.xml'])
 
+    def test_person_link_index_is_shared_for_the_same_elements_only(self):
+        from character_person_ai import index_person_links
+        world = lambda: [E.Element('Entity', EntityId='1', EntityGuid='AA'), E.Element('Entity', EntityId='2')]
+        entities = world()
+        first = index_person_links(entities)
+        self.assertIs(index_person_links(list(entities)), first)  # another list of the same parse
+        self.assertEqual((sorted(first[0]), sorted(first[1])), (['1', '2'], ['aa']))
+        again = index_person_links(world())  # a fresh parse: equal keys, its own elements
+        self.assertIsNot(again, first)
+        self.assertEqual(sorted(again[0]), sorted(first[0]))
+        self.assertIsNot(index_person_links(entities[:1]), again)
+
 
 if __name__ == '__main__': unittest.main()

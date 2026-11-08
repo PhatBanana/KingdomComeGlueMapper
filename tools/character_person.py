@@ -24,6 +24,27 @@ def native_xml(blob):
     return ET.fromstring(re.sub(rb'<!--.*?-->', b'', blob, flags=re.S))
 
 
+_NATIVE_TABLES = {}
+
+
+def native_table(archive, name):
+    """native_xml of one member of an unchanged archive, parsed once per build.
+
+    The KCD2 component and item tables (4.7 and 2 MB) are parsed for every
+    converted person and only ever read: native_role and source_item copy what
+    they keep. Sharing the trees also lets native_role's memo hit. In-memory
+    archives are parsed each time.
+    """
+    key = archive_signature(archive)
+    if key is None:
+        return native_xml(read(archive, name))
+    if any(k[0] != key for k in _NATIVE_TABLES):
+        _NATIVE_TABLES.clear()  # one game installation per build
+    if (key, name) not in _NATIVE_TABLES:
+        _NATIVE_TABLES[(key, name)] = native_xml(read(archive, name))
+    return _NATIVE_TABLES[(key, name)]
+
+
 def unique(values, label):
     values = list(values)
     if len(values) != 1:

@@ -126,5 +126,23 @@ class PersonImportTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Unregistered compiled scheduler targets: 300'):
             validate_scheduler_targets(broken)
 
+    def test_native_tables_parse_once_per_unchanged_archive(self):
+        import io, tempfile, time, zipfile
+        from character_person import native_table
+        name = 'Libs/Tables/item/item.xml'
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'Tables.pak'
+            with zipfile.ZipFile(path, 'w') as archive: archive.writestr(name, b'<!-- c --><Items><Armor Id="a"/></Items>')
+            with zipfile.ZipFile(path) as archive:
+                first = native_table(archive, name)
+                self.assertEqual(first.find('Armor').get('Id'), 'a')
+                self.assertIs(native_table(archive, name), first)
+            with zipfile.ZipFile(io.BytesIO(path.read_bytes())) as archive:
+                self.assertIsNot(native_table(archive, name), first)  # in memory: parsed each time
+            time.sleep(0.01)
+            with zipfile.ZipFile(path, 'w') as archive: archive.writestr(name, b'<Items><Armor Id="b"/><Armor Id="c"/></Items>')
+            with zipfile.ZipFile(path) as archive:
+                self.assertEqual(native_table(archive, name).find('Armor').get('Id'), 'b')  # a changed archive
+
 
 if __name__ == '__main__': unittest.main()

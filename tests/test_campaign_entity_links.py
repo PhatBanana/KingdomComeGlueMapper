@@ -54,5 +54,32 @@ class EntityLinksTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'Conflicting'):
             add_concept_preprocess(data, 'Quests/Example.xml', 'example_world', player)
 
+    def test_cached_network_extends_to_the_same_bytes_as_a_fresh_parse(self):
+        import random
+        from unittest.mock import patch
+        import campaign_entity_links as module
+        rng = random.Random(1); guids = [native_guid(i) for i in range(1, 30)]
+        batches = [[(rng.choice(guids), rng.choice(guids), rng.choice(['home', "asset['door']", '_,use', 'work']))
+                    for _ in range(rng.randint(0, 6))] for _ in range(24)]
+        batches[5].append((guids[0], guids[1], ''))  # the untagged reservation edge
+        def chain(cached):
+            data, states, parses = b'', [], []
+            real = module.ET.fromstring
+            with patch.object(module.ET, 'fromstring', side_effect=lambda *a, **k: parses.append(1) or real(*a, **k)):
+                for step, links in enumerate(batches):
+                    if not cached: module._LAST = None
+                    if step == 12: data = states[4]  # a caller hands back an older network
+                    data = append_links(data, links, allow_untagged=step == 5); states.append(data)
+            return states, len(parses)
+        fresh, fresh_parses = chain(False)
+        module._LAST = None
+        cached, cached_parses = chain(True)
+        self.assertEqual(cached, fresh)
+        self.assertEqual(fresh_parses, 23)  # the empty start is built, every later step parses
+        self.assertEqual(cached_parses, 1)  # only the handed-back older network
+        root = E.fromstring(cached[-1])
+        self.assertEqual(root.find('WaitingLinks')[-1].tail, '\n  ')
+        self.assertTrue(all(n.text == '\n      ' and n[-1].tail == '\n    ' for n in root.find('WaitingLinks')))
+
 
 if __name__ == '__main__': unittest.main()
