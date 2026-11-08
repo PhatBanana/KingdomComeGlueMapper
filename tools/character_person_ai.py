@@ -49,15 +49,31 @@ def capture_person_ai(tables, soul, actor, instance, entities, link_index=None):
                 links=links, schedule=schedule)
 
 
+_LINK_INDEX = None  # (the entities indexed last, their index): one source world per build
+
+
 def index_person_links(entities):
-    """Build once per source world; retain every candidate for ambiguity checks."""
+    """Build once per source world; retain every candidate for ambiguity checks.
+
+    Several importers index the same parsed source world (the shared elements of
+    character_person.source_entities), each from a list of its own. The last index
+    is kept with the elements it describes and returned again while the list holds
+    the same elements in the same order; a fresh parse gets a fresh index.
+    """
+    global _LINK_INDEX
+    entities = list(entities)
+    if _LINK_INDEX is not None and len(_LINK_INDEX[0]) == len(entities) and all(
+            a is b for a, b in zip(_LINK_INDEX[0], entities)):
+        return _LINK_INDEX[1]
     by_id, by_guid = {}, {}
     for entity in entities:
         if entity.get('EntityId'):
             by_id.setdefault(entity.get('EntityId'), []).append(entity)
         if entity.get('EntityGuid'):
             by_guid.setdefault(entity.get('EntityGuid').lower(), []).append(entity)
-    return by_id, by_guid
+    index = (by_id, by_guid)
+    _LINK_INDEX = (entities, index)
+    return index
 
 
 def capture_person_links(actor, entities, link_index=None):

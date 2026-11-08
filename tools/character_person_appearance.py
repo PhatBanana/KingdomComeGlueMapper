@@ -415,8 +415,10 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
     with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
         from clothing_equipment import NativeEquipment
         equipment = NativeEquipment.from_archive(archive)
-        components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
-        native_items = native_xml(read(archive, 'Libs/Tables/item/item.xml'))
+        # Shared, read-only parses: native_role reads them and source_item copies its template.
+        from character_person import native_table
+        components = native_table(archive, 'Libs/Tables/Character/CharacterComponent.xml')
+        native_items = native_table(archive, 'Libs/Tables/item/item.xml')
         archetypes = native_xml(read(archive, 'Libs/Tables/rpg/soul_archetype.xml'))
         layer_order = {n.get('body_layer_id'): int(n.get('layer_order')) for n in
                        native_xml(read(archive, 'Libs/Tables/item/body_layer.xml')).iter('body_layer')}

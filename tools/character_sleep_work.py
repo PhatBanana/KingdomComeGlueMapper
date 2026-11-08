@@ -19,6 +19,36 @@ from upgrade_map import xml
 PREFIX = 'gm_sleep_'
 
 
+class WorldIndex:
+    """Mission entities by name and GUID, scheduler rows by GUID, kept current as pools are added.
+
+    One sleep upgrade binds hundreds of actors and each binding read the whole
+    50,000-entity mission several times. The lists keep mission order; by_number
+    keeps the last entity per numeric GUID, as the dict comprehension it replaces did.
+    """
+    def __init__(self, mission, scheduler):
+        self.mission, self.rows = mission, scheduler.find('Schedulers')
+        self.by_name, self.by_guid, self.by_number, self.rows_by_guid = {}, {}, {}, {}
+        self._max_id = None
+        for entity in mission: self.add_entity(entity)
+        for row in self.rows: self.add_row(row)
+
+    def add_entity(self, entity):
+        self.by_name.setdefault(entity.get('Name'), []).append(entity)
+        guid = entity.get('EntityGuid')
+        if guid:
+            self.by_guid.setdefault(guid, []).append(entity)
+            self.by_number[str(guid_value(guid))] = entity
+        if self._max_id is not None: self._max_id = max(self._max_id, int(entity.get('EntityId', '0')))
+
+    def add_row(self, row):
+        self.rows_by_guid.setdefault(row.get('EntityGuid'), []).append(row)
+
+    def next_entity_id(self):
+        if self._max_id is None: self._max_id = max(int(e.get('EntityId', '0')) for e in self.mission)
+        return str(self._max_id + 1)
+
+
 def waking_work_clock(mission, scheduler, actor, source_clock):
     """Apply only a validated generated sleep pool to an authored work clock."""
     rows = scheduler.find('Schedulers')
@@ -40,21 +70,21 @@ def restrict_work_to_waking_hours(mission, scheduler, *, actors=None):
     all night. Restrict only ordinary generated work links, never quest links.
     Splitting intervals is idempotent and also supports rotating guard shifts.
     """
-    targets={str(guid_value(e.get('EntityGuid'))):e for e in mission if e.get('EntityGuid')}
-    rows=scheduler.find('Schedulers');changed=[]
+    index=WorldIndex(mission,scheduler);targets=index.by_number
+    rows=index.rows;changed=[]
     for actor in mission:
         if actor.get('EntityClass') not in ('NPC','NPC_Female'):continue
         if actors is not None and actor.get('Name') not in actors:continue
-        row=next((r for r in rows if r.get('EntityGuid')==str(guid_value(actor.get('EntityGuid')))),None)
+        row=next(iter(index.rows_by_guid.get(str(guid_value(actor.get('EntityGuid'))),())),None)
         if row is None:continue
-        sleep=owned_links(mission,rows,actor,row)
+        sleep=owned_links(mission,rows,actor,row,index=index)
         if not sleep:continue
         night=[(int(l.find('Parameters').get('TimeOfDayStart')),int(l.find('Parameters').get('TimeOfDayEnd'))) for l in sleep]
         links=row.find('Links');replacement=[];modified=False
         # The same invalidation rule applies at wake-up. Native all-day bed
         # links have no expiry, so their copied default is not suitable for a
         # generated clock. Limit this repair to our validated pool and leaves.
-        pool=next(r for r in rows if r.get('EntityGuid')==str(guid_value(identity(actor))))
+        pool=index.rows_by_guid[str(guid_value(identity(actor)))][0]
         for edge in [*sleep, *pool.findall('Links/S_ActivityLink')]:
             p=edge.find('Parameters')
             if p is not None and p.get('HaltOnInvalid')!='true':
@@ -88,14 +118,19 @@ def identity(actor):
     return native_guid(int.from_bytes(hashlib.sha256(('sleep-pool/'+actor.get('EntityGuid')).encode()).digest()[:8], 'little'))
 
 
-def owned_links(mission, rows, actor, row):
-    """Recognize the additive extension when a later upgrader replaces idle work."""
+def owned_links(mission, rows, actor, row, index=None):
+    """Recognize the additive extension when a later upgrader replaces idle work.
+
+    `index`, a WorldIndex of the same mission and scheduler, saves the two scans."""
     guid = identity(actor); number = str(guid_value(guid))
     links = [l for l in row.findall('Links/S_ActivityLink') if l.get('TargetGuid') == number]
     if not links:
         return []
-    pools = [e for e in mission if e.get('EntityGuid') == guid]
-    hubs = [r for r in rows if r.get('EntityGuid') == number]
+    if index is None:
+        pools = [e for e in mission if e.get('EntityGuid') == guid]
+        hubs = [r for r in rows if r.get('EntityGuid') == number]
+    else:
+        pools = index.by_guid.get(guid, []); hubs = index.rows_by_guid.get(number, [])
     graph = [l for l in actor.findall('EntityLinks/Link') if l.get('TargetGuid') == guid]
     if (len(pools) != 1 or pools[0].get('Name') != PREFIX+actor.get('Name')
             or pools[0].get('EntityClass') != 'SchedulerHub' or len(hubs) != 1
@@ -110,32 +145,34 @@ def owned_links(mission, rows, actor, row):
     return links
 
 
-def bind(mission, scheduler, name, clock, selected, template, native_activity):
-    actor = unique((e for e in mission if e.get('Name') == name), 'sleep actor')
+def bind(mission, scheduler, name, clock, selected, template, native_activity, index=None):
+    """Bind one actor's sleep; `index` is the caller's WorldIndex when it binds many."""
+    if index is None: index = WorldIndex(mission, scheduler)
+    actor = unique(index.by_name.get(name, []), 'sleep actor')
     if actor.get('EntityClass') not in ('NPC', 'NPC_Female'):
         raise ValueError('Sleep target is not a human NPC')
-    rows = scheduler.find('Schedulers')
-    owner = unique((r for r in rows if r.get('EntityGuid') == str(guid_value(actor.get('EntityGuid')))), 'sleep actor scheduler')
+    rows = index.rows
+    owner = unique(index.rows_by_guid.get(str(guid_value(actor.get('EntityGuid'))), []), 'sleep actor scheduler')
     old_links = owner.find('Links')
     if old_links is None or not len(old_links):
         raise ValueError('Sleep requires an existing daytime schedule')
     pool_guid = identity(actor); pool_id = str(guid_value(pool_guid))
     current = [l for l in old_links if l.get('TargetGuid') == pool_id]
     # Do not overwrite a pre-existing authored sleep routine.
-    by_guid = {str(guid_value(e.get('EntityGuid'))): e for e in mission if e.get('EntityGuid')}
+    by_guid = index.by_number
     for l in old_links:
         target = by_guid.get(l.get('TargetGuid')); p = l.find('Parameters')
         if target is not None and target.find('Properties') is not None and target.find('Properties').get('guidSmartObjectType') == template and p is not None and p.get('BehaviorName') == 'use':
             return None, [], False
     beds = []
     for choice in selected:
-        matches = [e for e in mission if e.get('Name') == choice.get('entity_name', 'gm_world_bed_'+choice['source_id']+'_bed')]
+        matches = index.by_name.get(choice.get('entity_name', 'gm_world_bed_'+choice['source_id']+'_bed'), [])
         if not matches:
             continue  # An old/rental contract needs an explicit identity adapter.
         bed = unique(matches, 'converted sleep bed'); props = bed.find('Properties')
         if bed.get('EntityClass') != 'StanceSmartObject' or props is None or props.get('guidSmartObjectType') != template:
             raise ValueError('Incompatible converted sleep bed')
-        hub = unique((r for r in rows if r.get('EntityGuid') == str(guid_value(bed.get('EntityGuid')))), 'sleep bed scheduler')
+        hub = unique(index.rows_by_guid.get(str(guid_value(bed.get('EntityGuid'))), []), 'sleep bed scheduler')
         if hub.findall('.//S_ActivityLink') or hub.find(".//EffectHeal[@Role='sleeper']") is None:
             raise ValueError('Converted sleep bed has foreign dependencies or no healing role')
         beds.append((bed, choice))
@@ -160,8 +197,8 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
             p.set('Priority', str(choice['rank']))
             p.set('HaltOnInvalid', 'true')
             outgoing.append(link)
-    existing = [e for e in mission if e.get('EntityGuid') == pool_guid or e.get('Name') == PREFIX+name]
-    hub_matches = [r for r in rows if r.get('EntityGuid') == pool_id]
+    existing = list(dict.fromkeys([*index.by_guid.get(pool_guid, []), *index.by_name.get(PREFIX+name, [])]))
+    hub_matches = index.rows_by_guid.get(pool_id, [])
     if existing or hub_matches or current:
         pool = unique(existing, 'owned sleep pool'); hub = unique(hub_matches, 'owned sleep scheduler')
         expected_edges = sorted(('_,use', b.get('EntityGuid'), b.get('EntityId')) for b, _ in beds)
@@ -181,10 +218,11 @@ def bind(mission, scheduler, name, clock, selected, template, native_activity):
                 edge.find('Parameters').set('HaltOnInvalid','true');moved=True
         return [dict(c, bed_guid=b.get('EntityGuid')) for b, c in beds], [], moved
     pool = E.SubElement(mission, 'Entity', Name=PREFIX+name, EntityClass='SchedulerHub',
-                        EntityId=str(max(int(e.get('EntityId', '0')) for e in mission)+1),
-                        EntityGuid=pool_guid, Pos=anchor)
+                        EntityId=index.next_entity_id(), EntityGuid=pool_guid, Pos=anchor)
+    index.add_entity(pool)
     E.SubElement(pool, 'Properties', bSaved_by_game='0')
     hub = E.SubElement(rows, 'C_SmartHub', EntityGuid=pool_id, IgnoreDeadEnds='false', StupidHub='false', Position=pool.get('Pos'))
+    index.add_row(hub)
     hub.append(outgoing)
     edges = E.SubElement(pool, 'EntityLinks')
     for bed, choice in beds:
@@ -219,16 +257,17 @@ def upgrade(files, people, archive, target, tables, reader, source, *, notify=la
     notify('Loading native sleeping activities')
     template, activity = contract(target)
     mission = E.fromstring(files['objects_mission0.xml']); scheduler = E.fromstring(files['tables/ai/scheduler.xml'])
+    index = WorldIndex(mission, scheduler)  # kept current by bind as it adds pools
     graph = []; reports = []; changed = False
     for name, clock in sorted(clocks.items()):
         notify('Binding sleeping schedule: ' + name)
-        actor = next((e for e in mission if e.get('Name') == name), None)
+        actor = next(iter(index.by_name.get(name, ())), None)
         if actor is None:
             continue
         selected = candidates(people[name], records, position=tuple(float(v) for v in actor.get('Pos').split(',')))
         from home_bed_assignment import choices as assigned_beds
         selected.extend(assigned_beds(mission, actor))
-        beds, links, modified = bind(mission, scheduler, name, clock, selected, template, activity)
+        beds, links, modified = bind(mission, scheduler, name, clock, selected, template, activity, index=index)
         graph.extend(links); changed |= modified
         reports.append(dict(person=name, job='native_sleep', extension_only=True, clock=clock,
             beds=beds or [], runtime_verified=False,

@@ -9,6 +9,8 @@ from functools import lru_cache
 import re
 import xml.etree.ElementTree as ET
 
+from upgrade_map import xml
+
 
 def native_guid(value):
     if not isinstance(value, int) or not 0 < value <= 0xffffffffffffffff:
@@ -48,13 +50,24 @@ def append_links(data, links, *, allow_untagged=False):
     allow_untagged permits the native reservation-point -> ItemSlot edge, whose
     empty LinkDefinition is meaningful. Other callers reject empty definitions.
     """
-    root = ET.fromstring(data) if data else ET.Element('StaticLinksInfo', version='1')
-    if root.tag != 'StaticLinksInfo' or root.get('version') != '1':
-        raise ValueError('Unsupported native link-network format')
-    waiting = root.find('WaitingLinks')
-    if waiting is None: waiting = ET.SubElement(root, 'WaitingLinks')
-    index = {(guid_value(n.get('SourceId')), guid_value(n.get('TargetId'))): n
-             for n in waiting.findall('WaitingLink')}
+    global _LAST
+    # Finalize's steps each hand the network back as the previous step wrote it,
+    # over a hundred times a build. The tree and index behind the bytes this
+    # process wrote last are extended in place instead of parsed and re-indented.
+    # The entry is dropped first: those bytes no longer describe the tree.
+    cached = _LAST is not None and data == _LAST[0]
+    if cached:
+        _, root, waiting, index = _LAST; _LAST = None
+    else:
+        root = ET.fromstring(data) if data else ET.Element('StaticLinksInfo', version='1')
+        if root.tag != 'StaticLinksInfo' or root.get('version') != '1':
+            raise ValueError('Unsupported native link-network format')
+        waiting = root.find('WaitingLinks')
+        if waiting is None: waiting = ET.SubElement(root, 'WaitingLinks')
+        index = {(guid_value(n.get('SourceId')), guid_value(n.get('TargetId'))): n
+                 for n in waiting.findall('WaitingLink')}
+    last = waiting[-1] if cached and len(waiting) else None
+    added, touched = [], []
     for source, target, definition in links:
         key = (guid_value(source), guid_value(target))
         if not isinstance(definition, str) or (not definition.strip() and not (allow_untagged and definition == '')):
@@ -62,8 +75,24 @@ def append_links(data, links, *, allow_untagged=False):
         if key not in index:
             index[key] = ET.SubElement(waiting, 'WaitingLink', SourceId=native_guid(key[0]),
                                       TargetId=native_guid(key[1]))
+            added.append(index[key])
         node = index[key]
         if definition not in [n.text or '' for n in node.findall('LinkDefinition')]:
             ET.SubElement(node, 'LinkDefinition').text = definition
-    ET.indent(root)
-    return ET.tostring(root, encoding='utf-8', xml_declaration=True)
+            if node not in touched: touched.append(node)
+    if last is not None:
+        # The whitespace ET.indent(root) would give: nodes whose children changed are
+        # indented at their depth, new links and the former last one get a sibling's
+        # tail, the last link the closing one; every other node keeps its indentation.
+        for node in touched: ET.indent(node, level=2)
+        for node in added: node.tail = '\n    '
+        last.tail = '\n    '
+        waiting[-1].tail = '\n  '
+    else:
+        ET.indent(root)
+    result = xml(root)
+    _LAST = (result, root, waiting, index)
+    return result
+
+
+_LAST = None  # (bytes, root, WaitingLinks, index) of the network append_links wrote last

@@ -104,20 +104,22 @@ def baseline_schedule_names(files, names):
     A previous pending report is not authorization to replace a live authored
     schedule. Recheck the current actor, anchor and every compiled link.
     """
+    from character_sleep_work import owned_links, WorldIndex
     mission = ET.fromstring(files['objects_mission0.xml'])
-    rows = ET.fromstring(files['tables/ai/scheduler.xml']).find('Schedulers')
+    # Hundreds of names against a 50,000-entity mission: index both documents once.
+    index = WorldIndex(mission, ET.fromstring(files['tables/ai/scheduler.xml']))
+    rows = index.rows
     selected = set()
     for name in names:
-        actors = [e for e in mission if e.get('Name') == name]
-        anchors = [e for e in mission if e.get('Name') == 'gm_person_idle_' + name]
+        actors = index.by_name.get(name, [])
+        anchors = index.by_name.get('gm_person_idle_' + name, [])
         if len(actors) != 1 or len(anchors) != 1:
             continue
         identity = str(guid_value(actors[0].get('EntityGuid')))
-        schedules = [r for r in rows if r.get('EntityGuid') == identity]
+        schedules = index.rows_by_guid.get(identity, [])
         if len(schedules) != 1:
             continue
-        from character_sleep_work import owned_links
-        sleeping = owned_links(mission, rows, actors[0], schedules[0])
+        sleeping = owned_links(mission, rows, actors[0], schedules[0], index=index)
         links = [l for l in schedules[0].findall('Links/S_ActivityLink') if l not in sleeping]
         delegate = str(guid_value(anchors[0].get('EntityGuid')))
         if links and all(l.get('PositioningDelegate') == delegate and l.find('Parameters') is not None

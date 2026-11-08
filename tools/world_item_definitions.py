@@ -80,6 +80,16 @@ class WorldItemAdapter(ItemAdapter):
         self.native_item_rows = dict(native)
         self.native_components=native_components
 
+    def _native_item_root(self):
+        """One Items tree over the native rows, rebuilt only when the rows change.
+
+        A tree per clothing item made native_role walk the native tables again
+        for each of them; the same tree lets its memo answer."""
+        rows=tuple(self.native.values());cached=getattr(self,'_item_root',None)
+        if cached is None or len(cached[0])!=len(rows) or any(a is not b for a,b in zip(cached[0],rows)):
+            root=ET.Element('Items');root.extend(rows);cached=self._item_root=(rows,root)
+        return cached[1]
+
     def plan(self,identity):
         plan=super().plan(identity)
         rows=plan.source['rows'];category=plan.source['category']
@@ -102,8 +112,7 @@ class WorldItemAdapter(ItemAdapter):
             part=self.tables.row('item/clothing','clothing_id',rows['armor']['clothing_id'])
             role=clothing_role(self.tables, rows['armor'], part)
             if self.native_components is not None:
-                item_root=ET.Element('Items');item_root.extend(self.native.values())
-                _,template=native_role(self.native_components,item_root,role)
+                _,template=native_role(self.native_components,self._native_item_root(),role)
             else:
                 template=next((r for r in self.native.values() if r.tag=='Armor' and r.get('Clothing','').startswith(role)),None)
                 if template is None: raise ValueError('Missing native item template for clothing role: '+role)
