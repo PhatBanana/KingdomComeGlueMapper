@@ -145,9 +145,19 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
         # One indexed pass over the mesh records, with progress; the identity
         # check, the tile planner and every bake worker then read the index.
         mesh_records(root/'scene',progress=progress,cancelled=cancelled)
-        scene_key = None
+        scene_key = None;identities = None
         if cache is not None:
             from setup_bake_cache import scene_identity, matching_workspace_cache
+            from tile_reuse import tile_identities, reuse_cached
+            # Every input each tile reads (tile_reuse.py): recorded with this bake so a later
+            # one can take its unchanged tiles, and compared with earlier bakes below.
+            # Optional by design: without it the whole bake is cached and reused as before.
+            progress('Fingerprint lighting tiles',0,0,"Each tile's placements, meshes, materials and textures")
+            try:
+                with hybrid_environment(): identities = tile_identities(root/'scene',cancelled)
+            except InterruptedError:raise
+            except Exception as error:
+                print(f'Lighting tiles not fingerprinted ({type(error).__name__}: {error}); only the whole bake is recorded',flush=True)
             progress('Check existing workspace lighting',0,0,'Matching static geometry and materials; no previous job required')
             with hybrid_environment():
                 hit = None if forced() else matching_workspace_cache(cache,root/'scene',preset,
@@ -162,7 +172,8 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
                 # The exact key missed on inputs the scene check then proved
                 # equal. Record this package's key so the next job skips the check.
                 progress('Record shared lighting cache',0,0,"Recording this package's inputs for future jobs")
-                publish(cache,cache_key,output,report,cancelled,scene_identity=report.get('scene_identity'),preset=preset,level=level.name)
+                publish(cache,cache_key,output,report,cancelled,scene_identity=report.get('scene_identity'),preset=preset,level=level.name,
+                        tile_identities=identities)
                 staged.append((level.name,output/'packages'))
                 reports.append(dict(level=level.name,tiles=report['tiles'],limitations=report['limitations'],
                     vegetation_gi_upgrade=report.get('vegetation_gi_upgrade'),cache_key=report['cache_key'],
@@ -170,6 +181,19 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
                 continue
             print('Building lighting: '+('regeneration requested' if forced() else
                   'no complete matching workspace cache; details are recorded in events.jsonl'),flush=True)
+            if identities is not None and not forced():
+                # Tiles of earlier bakes of this level whose own inputs are unchanged are taken
+                # from the cache; the rest are baked. Any failure here only means more to bake.
+                progress('Reuse cached lighting tiles',0,0,'Comparing each tile with earlier bakes of this level')
+                try:
+                    with hybrid_environment():
+                        outcome=reuse_cached(root/'scene',cache,preset,level.name,identities,
+                            notify=lambda message:progress('Reuse cached lighting tiles',0,0,message),cancelled=cancelled)
+                    sources=', '.join(f'{count} from {key[:12]}' for key,count in outcome['sources'].items()) or 'no earlier bake recorded tile inputs'
+                    print(f"Lighting tiles: {outcome['reused']} of {outcome['tiles']} reused ({sources}); {outcome['rebuild']} to bake",flush=True)
+                except InterruptedError:raise
+                except Exception as error:
+                    print(f'Cached lighting tiles not reused ({type(error).__name__}: {error}); baking every tile',flush=True)
         print('Hybrid bake: compiled CPU below 1,000,000 triangles (brick threads from the cores '
               'left after the memory-limited process count); OptiX for dense tiles, 64-brick batches '
               'with CPU overlap. GPU failures are logged and fall back to CPU.',flush=True)
@@ -178,7 +202,8 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
                           progress=progress,cancelled=cancelled)
         counts={name:sum(r.get('backend')==name for r in results) for name in ('compiled','optix')}
         print(f'Hybrid bake results: {counts["compiled"]} CPU tiles, {counts["optix"]} OptiX tiles, '
-              f'{sum(bool(r.get("gpu_fallback_reason")) for r in results)} GPU fallbacks.',flush=True)
+              f'{sum(bool(r.get("gpu_fallback_reason")) for r in results)} GPU fallbacks, '
+              f'{sum("reuse" in r for r in results)} tiles reused from earlier bakes.',flush=True)
         if any(r['status']!='built' for r in results):raise ValueError('Lighting tile failed; see bake reports. Nothing installed.')
         if cancelled():raise InterruptedError('Cancelled before staging bake')
         output=root/('staged-'+uuid.uuid4().hex[:12])
@@ -187,7 +212,7 @@ def _bake_package(package,game,workspace,preset,progress,cancelled,cache=None):
             progress('Record shared lighting cache',0,0,'Recording static scene inputs for future jobs')
             with hybrid_environment(): scene_key = scene_identity(root/'scene',preset)
             publish(cache,cache_key,output,report,cancelled,
-                scene_identity=scene_key,preset=preset,level=level.name)
+                scene_identity=scene_key,preset=preset,level=level.name,tile_identities=identities)
         staged.append((level.name,output/'packages'))
         reports.append(dict(level=level.name,tiles=report['tiles'],limitations=report['limitations'],
                             vegetation_gi_upgrade=report.get('vegetation_gi_upgrade')))

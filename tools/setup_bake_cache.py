@@ -71,12 +71,17 @@ def restore(hit, level, output):
     return report
 
 
-def publish(cache, identity, output, report, cancelled, *, scene_identity=None, preset=None, level=None):
+def publish(cache, identity, output, report, cancelled, *, scene_identity=None, preset=None, level=None,
+            tile_identities=None):
     files = {p.name:p for p in (Path(output)/'packages').glob('svo-part*.pak')}
     if not files: raise ValueError('No completed voxel shards to cache')
     metadata = {k:report.get(k) for k in ('tiles','limitations','vegetation_gi_upgrade')}
     if scene_identity is not None:
         metadata.update(scene_identity=scene_identity,preset=preset,level=level)
+    if tile_identities:
+        # Per-tile inputs (tile_reuse.py): a later bake of this level takes the tiles
+        # whose inputs are unchanged from these shards instead of baking them again.
+        metadata.update(tile_identities=tile_identities,preset=preset,level=level)
     cache.publish(identity, files, metadata, cancelled)
 
 
