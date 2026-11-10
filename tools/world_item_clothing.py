@@ -66,6 +66,19 @@ def converted_files(folder):
             yield path.relative_to(folder).as_posix(), path
 
 
+ACCESSORIES = ('Ring', 'Necklace', 'Spurs')
+
+
+def accessory_without_native_mesh(role_node, parents, role):
+    """True when a native accessory role declares neither a mesh nor features.
+
+    Such a role gives a converted source mesh no attachment contract. This is
+    read from the native role, never from the source item or its name.
+    """
+    return (role in ACCESSORIES and not region_layers(role_node, parents)
+            and not role_node.findall('Features/Feature'))
+
+
 class ClothingAdapter:
     # Source SQL armor_type is distinct from KCD2's enum. Resolve an explicit
     # semantic role, then inherit the native role's layer and archetype.
@@ -142,7 +155,15 @@ class ClothingAdapter:
         files = {}
         missing_variant = None
         internal_offset = None
-        if part.get('model'):
+        # KCD2 draws spurs through material features of the worn boots; the
+        # role has no attachment of its own. Its occupancy (feet, outermost
+        # layer) would make a standalone source mesh the regional owner, and
+        # the engine draws one owner per region: the boots would disappear.
+        # Keep the item, its stats and text; record the undrawn source mesh.
+        omitted_mesh = None
+        if part.get('model') and accessory_without_native_mesh(original, self.parents, role):
+            omitted_mesh = part['model']
+        if part.get('model') and omitted_mesh is None:
             if sex != 'female':
                 native_layers = source_mesh_regions(original, self.parents, self.equipment, armor_archetype)
             a = self.assets; before = set(a.emitted)
@@ -247,6 +268,7 @@ class ClothingAdapter:
                         if relative.startswith(prefix): files[relative] = a.emitted[relative]
         elif role not in ('HorseShoe','Ring','Necklace','Spurs'): raise ValueError('Source wearable is missing a model')
         files['Libs/Tables/Character/CharacterComponent__'+name+'.xml'] = xml(root)
-        return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=True,
+        return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=omitted_mesh is None,
+            omitted_source_mesh=omitted_mesh,
             missing_source_variant=missing_variant, internal_translation=internal_offset,
             equipment=equipment_contract, fitting_runtime_verified=False)
