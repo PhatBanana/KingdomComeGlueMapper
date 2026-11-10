@@ -14,7 +14,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from world_surface_tiles import (_TileBaker, _bounded_setting, _placement_side, dense_split, dense_texture_cache, gpu_budget,
-                                 gpu_free_memory, gpu_lanes, heavy_slots, select_backend, tile_workers, brick_threads, GIB, HEAVY_TRIANGLES)
+                                 gpu_free_memory, gpu_lanes, gpu_need, GpuGate, heavy_slots, select_backend, tile_workers, brick_threads, GIB, HEAVY_TRIANGLES)
 
 
 class ParallelBakeSettingsTests(unittest.TestCase):
@@ -196,6 +196,8 @@ class ParallelBakeCancellationTests(unittest.TestCase):
         class Lane:
             active = False
             entries = 0
+            def hold(self, need):
+                self.need = need; return self
             def __enter__(self):
                 self.active = True; self.entries += 1
             def __exit__(self, *args):
@@ -292,6 +294,38 @@ class ParallelBakeCancellationTests(unittest.TestCase):
             self.assertGreaterEqual(len(finished), 1); self.assertLessEqual(len(finished), 2)
             for vox in finished:
                 self.assertEqual(json.loads(vox.with_suffix('.json').read_text())['status'], 'built')
+
+
+class GpuGateTests(unittest.TestCase):
+    def test_tiles_share_the_gpu_only_while_their_memory_fits(self):
+        import multiprocessing, threading
+        context = multiprocessing.get_context('spawn')
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('GLUEMAPPER_GPU_LANES', None)
+            self.assertEqual((gpu_lanes(), gpu_lanes(8 * GIB)), (1, 2))  # unknown free memory keeps one lane
+        small, large = gpu_need(2_000_000), gpu_need(18_600_000)
+        gate = GpuGate(context, 2, 20 * GIB)
+        self.assertTrue(gate.fits(64 * GIB))  # an idle GPU takes any tile, as a single lane did
+        order = []
+        def second(need, name):
+            with gate.hold(need): order.append(name)
+        with gate.hold(large):
+            self.assertTrue(gate.fits(small)); self.assertFalse(gate.fits(large))
+            fitting = threading.Thread(target=second, args=(small, 'small')); fitting.start(); fitting.join(10)
+            waiting = threading.Thread(target=second, args=(large, 'large')); waiting.start(); waiting.join(0.2)
+            self.assertEqual(order, ['small']); self.assertTrue(waiting.is_alive())
+        waiting.join(10)
+        self.assertEqual(order, ['small', 'large'])
+        self.assertEqual((gate.running.value, gate.used.value), (0, 0))
+        with gate.hold(small), gate.hold(small):
+            self.assertFalse(gate.fits(small))  # never more than `lanes` tiles
+        with self.assertRaises(RuntimeError):
+            with gate.hold(small): raise RuntimeError('a failed tile releases its memory')
+        self.assertEqual((gate.running.value, gate.used.value), (0, 0))
+        counted = GpuGate(context, 2, None)  # free memory unknown: only the count applies
+        with counted.hold(large):
+            self.assertTrue(counted.fits(large))
+            with counted.hold(large): self.assertFalse(counted.fits(small))
 
 
 if __name__ == '__main__':

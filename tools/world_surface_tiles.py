@@ -7,7 +7,7 @@ never silently replaced with white surfaces or empty voxel files.
 import argparse
 from collections import OrderedDict
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-from contextlib import ExitStack, nullcontext
+from contextlib import ExitStack, contextmanager, nullcontext
 import hashlib
 import json
 import multiprocessing
@@ -130,9 +130,10 @@ def brick_threads(processes):
     return _bounded_setting('GLUEMAPPER_BAKE_BRICK_WORKERS',default,1,MAX_BRICK_WORKERS)
 
 
-def gpu_lanes():
-    """Tiles rasterized on the GPU at the same time."""
-    return _bounded_setting('GLUEMAPPER_GPU_LANES',1,1,4)
+def gpu_lanes(budget=None):
+    """Most tiles rasterized on the GPU at the same time. Two by default when the GPU's free
+    memory is known, since `GpuGate` then admits a second tile only while both fit; one otherwise."""
+    return _bounded_setting('GLUEMAPPER_GPU_LANES',1 if budget is None else 2,1,4)
 
 
 def heavy_slots(available=None):
@@ -193,12 +194,45 @@ def gpu_budget(lanes,free=None):
     return None if free is None else max(0,free-VRAM_RESERVE)//lanes
 
 
+def gpu_need(triangles):
+    """Estimated GPU memory of one OptiX tile, in bytes."""
+    return OPTIX_BASE+OPTIX_TRIANGLE*triangles
+
+
+class GpuGate:
+    """GPU memory shared by the tile processes. A tile rasterizes once its estimated memory fits
+    beside the tiles already on the GPU, at most `lanes` at once; with the GPU idle any tile
+    starts, so one larger than the budget runs alone as it did with a single lane. With the
+    free memory unknown only the count applies.
+
+    Measured on the KCD1 scene (RTX 5090, 54 dense tiles in two processes): 229 s with one tile on
+    the GPU at a time, 168 s with two; 13.7 GB of GPU memory at the peak and the same tile bytes."""
+    def __init__(self,context,lanes,budget):
+        self.lanes=lanes;self.budget=budget
+        self.running=context.Value('q',0,lock=False);self.used=context.Value('q',0,lock=False)
+        self.changed=context.Condition()
+
+    def fits(self,need):
+        if not self.running.value:return True
+        return self.running.value<self.lanes and (self.budget is None or self.used.value+need<=self.budget)
+
+    @contextmanager
+    def hold(self,need):
+        with self.changed:
+            self.changed.wait_for(lambda:self.fits(need))
+            self.running.value+=1;self.used.value+=need
+        try:yield
+        finally:
+            with self.changed:
+                self.running.value-=1;self.used.value-=need;self.changed.notify_all()
+
+
 def select_backend(backend,triangles,budget):
     """Backend for one tile and why OptiX was skipped. Dense tiles go to OptiX only when their
     estimated GPU memory fits the lane's budget, so small cards do not fail late and redo the tile."""
     if backend!='auto':return backend,None
     if triangles<1_000_000:return 'compiled',None
-    need=OPTIX_BASE+OPTIX_TRIANGLE*triangles
+    need=gpu_need(triangles)
     if budget is not None and need>budget:
         return 'compiled',f'needs about {need/GIB:.1f} GiB of GPU memory; {budget/GIB:.1f} GiB free per GPU lane'
     return 'optix',None
@@ -402,7 +436,7 @@ class _TileBaker(_TriangleEstimate):
             if skipped:audit['gpu_skipped_reason']=skipped
             fallback=None
             try:
-                with self.lanes if self.lanes is not None and selected in ('cuda','optix') else nullcontext():
+                with self.lanes.hold(gpu_need(len(triangles))) if self.lanes is not None and selected in ('cuda','optix') else nullcontext():
                     idx,vox,validation=build_tile(triangles,uvs,ids,materials,origin,samples=samples,backend=selected,allow_empty=True,workers=workers if selected=='compiled' else 1)
             except (RuntimeError,MemoryError,OSError) as error:
                 if backend!='auto' or selected!='optix':raise
@@ -474,7 +508,10 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         workers=brick_threads(processes)
     else:
         processes=tile_workers(workers) if len(jobs)>1 else 1
-    arguments=(scene,output,samples,experimental_base_materials,backend,workers,gpu_budget(gpu_lanes()) if backend=='auto' else None)
+    # One budget for the whole GPU: each tile is chosen for OptiX against all of it, and the
+    # gate below keeps the tiles rasterizing together inside it.
+    budget=gpu_budget(1)
+    arguments=(scene,output,samples,experimental_base_materials,backend,workers,budget if backend=='auto' else None)
     finished={}
 
     def summary():
@@ -504,7 +541,7 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         # wait behind them. GPU lanes are shared by both pools.
         if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
         context=multiprocessing.get_context('spawn')
-        slots=heavy_slots();lanes=context.BoundedSemaphore(gpu_lanes())
+        slots=heavy_slots();lanes=GpuGate(context,gpu_lanes(budget),budget)
         estimate=_TriangleEstimate(scene,plan)
         dense=[]
         for number,job in enumerate(jobs):
@@ -515,7 +552,8 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
         heavy,light=dense_split(dense,processes,slots);cache=dense_texture_cache()
         print(f'Baking {len(jobs)} tiles in {processes} processes ({workers} brick threads each; '
               f'{heavy} for the {sum(dense)} dense tile(s) with a {cache/GIB:.1f} GiB texture cache, '
-              f'{light} for the rest; {gpu_lanes()} GPU lane(s))',flush=True)
+              f'{light} for the rest; '+(f'up to {lanes.lanes} tile(s) on the GPU within {budget/GIB:.1f} GiB)' if budget is not None
+                                         else f'{lanes.lanes} tile(s) on the GPU at a time)'),flush=True)
         # A single dense process prepares its next dense tile while the current one rasterizes
         # (measured on KCD1: 23% faster, +0.5 GB peak). With two, they overlap each other instead.
         groups=[(size,[n for n in range(len(jobs)) if dense[n]==kind],texture,kind and size==1)
