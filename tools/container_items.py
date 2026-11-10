@@ -8,10 +8,11 @@ import xml.etree.ElementTree as ET
 import zipfile
 
 from campaign_dependencies import DependencyImporter
-from campaign_dependency_adapters import SourceTables, StaticAssetAdapter, ItemTextAdapter
+from campaign_dependency_adapters import SourceTables, StaticAssetAdapter, ItemTextAdapter, LazyAdapter
 from campaign_sources import RetailSourceReader
 from character_person import native_xml
 from world_item_definitions import native_items, native_item_registry, WorldItemAdapter
+from item_buffs import native_buffs
 from world_item_clothing import ClothingAdapter
 from world_item_documents import DocumentImageAdapter
 from upgrade_map import read
@@ -56,10 +57,15 @@ def build(source, target, mod, output, identifiers, *, asset_namespace='containe
         cache = output/'asset-cache'; cache.mkdir(exist_ok=reuse_output)
         assets = StaticAssetAdapter(stack, source.parent, asset_namespace, cache)
         from campaign_item_types import native_tool_types
+        from document_reading import native_reading_contract
         clothing = ClothingAdapter(tables, assets, target, stack, defer_bakes=True)
         importer = DependencyImporter({
             'items': WorldItemAdapter(tables, 'containeritems', native, weapons, components,
-                                      native_tool_types=native_tool_types(target)),
+                                      native_tool_types=native_tool_types(target),
+                                      native_reading=native_reading_contract(target),
+                                      native_buffs=native_buffs(target)),
+            'buff_strings': LazyAdapter(lambda: ItemTextAdapter(source, 'containeritems', 'English',
+                                                                'text_ui_soul.xml')),
             'clothing': clothing,
             'document_images': DocumentImageAdapter(source, reader, 'containeritems'),
             'assets': assets, 'strings': ItemTextAdapter(source, 'containeritems', 'English')},

@@ -58,6 +58,18 @@ class TravelTableTests(unittest.TestCase):
         self.assertEqual(rows[0][0].get('Amount'), '5')
         self.assertEqual(rows[1][0].get('Name'), 'outfit')
 
+    def test_world_item_buff_rows_merge_by_buff_id(self):
+        def buff(identity):
+            return f'<database name="barbora"><buffs version="1"><buff buff_id="{identity}" buff_name="b"/></buffs></database>'.encode()
+        result = managed_patches({
+            'Libs/Tables/rpg/buff__worlditems_item_a.xml': buff('a'),
+            'Libs/Tables/rpg/buff__worlditems_item_b.xml': buff('b'),
+        }, 'travel')
+        rows = ET.fromstring(result['Libs/Tables/rpg/buff__travel.xml'])[0]
+        self.assertEqual([r.get('buff_id') for r in rows], ['a', 'b'])
+        with self.assertRaisesRegex(ValueError, 'duplicate primary key'):
+            managed_patches({'Libs/Tables/rpg/buff__x.xml': buff('a'), 'Libs/Tables/rpg/buff__y.xml': buff('a')}, 'travel')
+
     def test_reject_v17_stock_guid_without_required_name(self):
         row = ET.fromstring('<PresetItem ItemClassId="c352d8ae-4021-4f9b-b49c-b1f087f2cd2c" Amount="20"/>')
         with self.assertRaisesRegex(ValueError, 'missing required attributes: Name'):

@@ -18,7 +18,9 @@ baseline/package SHA-256 hashes. Never replace PAKs while a game/editor has them
 open. Retain a verified baseline on D: before installing staged replacements.
 For the initial installation, the unchanged retail mod has identical baseline
 hashes; `installation.json` records it as the restore source without duplicating it.
-The added appearance PAK belongs inside the existing mod's Data directory.
+The added appearance PAK and the stock asset PAK
+(`gluemapper_neuhof_stock_assets.pak`) belong inside the existing mod's Data
+directory.
 
 ## Data and behavior
 
@@ -35,6 +37,24 @@ The added appearance PAK belongs inside the existing mod's Data directory.
 - Pricing/trade-in uses KCD2's derived stats, not guaranteed KCD1 prices.
 - A separate shop/stash, native staffed-shop scheduler, native companion
   aliases, and compiled sale-area polygon are registered in the destination.
+- The shop sells the source stable's own stock. Zora keeps KCD1 shop 130
+  (`neu_stables`): every `shop_type2item` row of its shop type with its source
+  quantity, through `region_travel_services.import_shop_resources`, the same
+  builder as the other source shops. That is spurs, saddles, bridles,
+  caparisons, horseshoes and her cash. Missing items are converted with their
+  meshes, pickup models and text. The shop stays `gm_neuhof_horse_shop` /
+  `20130`; its preset is `gm_neuhof_horse_shop_stock`. No stock, restock
+  period or buy list is copied from a KCD2 horse trader.
+- KCD1 lets this shop trade any player item (`item_category_id` 25,
+  `player_item`) at buy 1 / sell 0.8, restocking every day. The shop row has
+  that single `player_item.*.*` filter and a one-day restock period.
+- The shop chest uses `inventory_empty`, as the other source shops do; its
+  source chest has no contents of its own.
+- Source spurs are sold and can be worn, but their KCD1 mesh is not drawn.
+  KCD2 spurs have no attachment: they are material features of the boots. A
+  separate spur mesh on the feet would replace the worn boots, as the engine
+  draws one garment per body region. The report lists these items under
+  `stock.undrawn_source_meshes`.
 - Original stable work/sleep schedules, haggling and washing cinematics are
   not included. Horses and Zora have native interruptible idle scheduling.
 - This is a registered world population, not a Lua spawn-on-whistle workaround.

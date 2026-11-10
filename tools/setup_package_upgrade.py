@@ -479,10 +479,6 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     for name in actor_removed: receipt['files'].pop(name, None)
     if actor_report['actors'] or 'actor_material_upgrade' not in receipt:
         receipt['actor_material_upgrade'] = actor_report
-    from item_icons import upgrade as upgrade_item_icons
-    icon_files, icon_report = upgrade_item_icons(package, source)
-    receipt['files'].update(icon_files)
-    if icon_report: receipt['source_item_icons'] = icon_report
     from localization_registry import repair_package as repair_localization
     localization_files, localization_report = repair_localization(package)
     receipt['files'].update(localization_files)
@@ -513,6 +509,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from training_entry_repair import upgrade as repair_training_entry
     files, report = repair_training_entry(package, source, target)
     receipt['files'].update(files); receipt['training_entry_repair'] = report
+    # Training imports its loan items into the shared travel archive; resolve
+    # their artwork after that table exists and before its hashes are validated.
+    from item_icons import upgrade as upgrade_item_icons
+    icon_files, icon_report = upgrade_item_icons(package, source)
+    receipt['files'].update(icon_files)
+    if icon_report: receipt['source_item_icons'] = icon_report
     from setup_training_upgrade import validate as validate_training
     receipt['quest_training'] = validate_training(package)
     from setup_static_gate_repair import upgrade as repair_static_gates

@@ -51,9 +51,14 @@ and preserving empty bow attachment sockets. Native database deserialization
 checks the generated registrations. Neither proves runtime pickup persistence,
 clothing fit, bow animation or reading behavior.
 
-The four source-only potion entries retain their basic food values, but their
-special consumable/weapon buffs need a separate conversion; those source records
-are recorded in `secondary_gameplay_pending`. Document text/images are imported;
+Source-only potions retain their basic food values. Their drink buff becomes
+`BuffDefinitionId`: the shipped row when the game kept the source buff ID,
+otherwise a `buff__<namespace>_item_<id>.xml` row built from the closest shipped
+buff (reviewed in `tools/item_buffs.py`) with the source strength and duration.
+A source potion of food subtype `poison` becomes a `Poison` item so its weapon
+buff can coat; the game has no coating for other potions. Buffs without a
+reviewed equivalent stay in `secondary_gameplay_pending` with the reason in
+`item_buffs`. None of this has been drunk or applied in game. Document text/images are imported;
 skill-book rewards and source quest progression are not claimed as converted.
 These entries are registered and placed rather than omitted.
 
