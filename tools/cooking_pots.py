@@ -11,6 +11,7 @@ import xml.etree.ElementTree as ET
 from campaign_entity_links import append_links
 from entity_visuals import initial_layer, world_transform, quaternion_product as qmul
 from upgrade_map import read
+from shared_xml import parse as parse_shared
 
 PREFIX = 'gm_cooking_'
 DONORS = {'camp': '16229', 'home': '24041'}
@@ -34,7 +35,7 @@ def inventory(source):
         main = path.lower() == 'objects_mission0.xml'
         if not main and not (path.lower().startswith('layers/') and path.lower().endswith('.xml')):
             continue
-        for entity in ET.fromstring(read(source, path)).iter('Entity'):
+        for entity in parse_shared(read(source, path)).iter('Entity'):
             key = entity.get('EntityId')
             entities.setdefault(key, entity)
             origins.setdefault(key, path)

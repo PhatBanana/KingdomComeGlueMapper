@@ -16,6 +16,7 @@ from campaign_bindings import parse_link_labels
 from campaign_entity_links import guid_value, native_guid
 from character_person import world_entity
 from upgrade_map import read, xml
+from shared_xml import parse as parse_shared, without_tail
 
 
 VERSION = 1
@@ -87,14 +88,13 @@ def load(source, level, selections):
             if normalized != 'objects_mission0.xml' and not (
                     normalized.startswith('layers/') and normalized.endswith('.xml')):
                 continue
-            for entity in ET.fromstring(read(archive, name)).iter('Entity'):
-                entity.tail = None
+            for entity in parse_shared(read(archive, name)).iter('Entity'):
                 identity = entity.get('EntityId')
                 if not identity:
                     # Property records can also be named Entity; only world
                     # entities carry the source link identity.
                     continue
-                if identity in entities and ET.tostring(entities[identity]) != ET.tostring(entity):
+                if identity in entities and without_tail(entities[identity]) != without_tail(entity):
                     raise ValueError('Conflicting source entity copies: ' + str(identity))
                 entities[identity] = entity
         records = [resolve(archive, list(entities.values()), *selection) for selection in selections]

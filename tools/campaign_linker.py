@@ -15,6 +15,7 @@ import zipfile
 from campaign_sources import retail_sources
 from quest_import import ast, parse_behavior
 from upgrade_map import read
+from shared_xml import parse as parse_shared
 
 
 def discover_entry(data):
@@ -38,7 +39,7 @@ def discover_entry(data):
 def entity_index(documents):
     records = {}; indexes = {k: defaultdict(list) for k in ('EntityId', 'EntityGuid', 'Name')}
     for entry, data in sorted(documents.items()):
-        for index, entity in enumerate(ET.fromstring(data).iter('Entity')):
+        for index, entity in enumerate(parse_shared(data).iter('Entity')):
             record_id = f'{entry}#{index}'
             records[record_id] = {'source': entry, 'entity': ast(entity), 'attributes': dict(entity.attrib)}
             for field in indexes:

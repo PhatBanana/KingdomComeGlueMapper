@@ -252,11 +252,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
             changes[PROJECT], changes[QUEST_PATH], marker_report = bind_markers(
                 changes[PROJECT], read(z, QUEST_PATH), model, registered)
             from campaign_place_markers import bind as bind_places
+            from shared_xml import parse as parse_shared
             if model['tables'].get('quest_place', {}).get('rows'):
                 with zipfile.ZipFile(Path(source)/'Data/Levels/rataje/level.pak') as original:
                     source_entities = [e for n in original.namelist() if n.lower() == 'objects_mission0.xml'
                         or n.lower().startswith('layers/') and n.lower().endswith('.xml')
-                        for e in ET.fromstring(read(original,n)).iter('Entity')]
+                        for e in parse_shared(read(original,n)).iter('Entity')]
                 with zipfile.ZipFile(package/'Data/Levels/kcd1_travel/level.pak') as level_archive:
                     (changes[PROJECT], changes[QUEST_PATH], format_level_changes['objects_mission0.xml'],
                      format_level_changes['waitinglinks.xml'], marker_report['places']) = bind_places(
