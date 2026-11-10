@@ -260,6 +260,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         registrations['items'] = dict(native_item_registry(native_item_definitions), **existing_items)
         def item_adapter():
             from campaign_item_types import native_tool_types
+            from document_reading import native_reading_contract
             # Use the same wearable/weapon/document conversion as world loot.
             # The former basic adapter rejected clothing requested by quests
             # and initial outfits even though its upgrader already existed.
@@ -268,7 +269,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
             return WorldItemAdapter(tables, project, native_item_definitions,
                                     {r.get('id'):r.get('name') for r in weapons[0]}, components,
-                                    native_tool_types=native_tool_types(target))
+                                    native_tool_types=native_tool_types(target),
+                                    native_reading=native_reading_contract(target))
         catalog = native_catalog(target)
         importer = DependencyImporter(dict(
             entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids,

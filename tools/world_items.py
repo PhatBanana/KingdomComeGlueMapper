@@ -31,8 +31,9 @@ def build(files, resources, source, target, output):
         reader=stack.enter_context(RetailSourceReader(source));tables=SourceTables(source,reader)
         assets=StaticAssetAdapter(stack,source.parent,'worlditems',output/'asset-cache')
         from campaign_item_types import native_tool_types
+        from document_reading import native_reading_contract
         importer=DependencyImporter({'items':WorldItemAdapter(tables,'worlditems',native,weapon_classes,
-            native_tool_types=native_tool_types(target)),
+            native_tool_types=native_tool_types(target),native_reading=native_reading_contract(target)),
             'clothing':ClothingAdapter(tables,assets,target,stack),
             'document_images':DocumentImageAdapter(source,reader,'worlditems'),
             'assets':assets,'strings':ItemTextAdapter(source,'worlditems','English')},

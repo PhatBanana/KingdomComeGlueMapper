@@ -56,10 +56,12 @@ def build(source, target, mod, output, identifiers, *, asset_namespace='containe
         cache = output/'asset-cache'; cache.mkdir(exist_ok=reuse_output)
         assets = StaticAssetAdapter(stack, source.parent, asset_namespace, cache)
         from campaign_item_types import native_tool_types
+        from document_reading import native_reading_contract
         clothing = ClothingAdapter(tables, assets, target, stack, defer_bakes=True)
         importer = DependencyImporter({
             'items': WorldItemAdapter(tables, 'containeritems', native, weapons, components,
-                                      native_tool_types=native_tool_types(target)),
+                                      native_tool_types=native_tool_types(target),
+                                      native_reading=native_reading_contract(target)),
             'clothing': clothing,
             'document_images': DocumentImageAdapter(source, reader, 'containeritems'),
             'assets': assets, 'strings': ItemTextAdapter(source, 'containeritems', 'English')},
