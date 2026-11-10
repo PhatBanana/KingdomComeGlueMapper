@@ -76,3 +76,36 @@ class IconTests(unittest.TestCase):
     def test_non_source_items_are_unchanged(self):
         files={'items.xml':b'<Items><ItemClasses><Food Id="native" IconId="native_icon"/></ItemClasses></Items>'}
         self.assertEqual(convert(files,{}, {}, {},lambda _:None),({},{},[]))
+
+
+    def test_authored_empty_icon_keeps_native_icon_and_is_reported(self):
+        files={'items.xml':b'<Items><ItemClasses><MiscItem Id="flute" Name="worlditems_item_x" IconId="native_flute"/></ItemClasses></Items>'}
+        empty=[]
+        changes,assets,report=convert(files,{'flute':dict(icon_id='1')},{},{'1':(None,None)},lambda _:None,empty)
+        self.assertEqual((changes,assets,report),({},{},[]))
+        self.assertEqual(empty,[dict(item='flute',source_icon='1',icon='native_flute')])
+
+    def test_empty_icon_does_not_block_other_rows(self):
+        files={'items.xml':b'<Items><ItemClasses><MiscItem Id="a" IconId="n"/><MiscItem Id="b" IconId="n"/></ItemClasses></Items>'}
+        players={'a':dict(icon_id='1'),'b':dict(icon_id='2')}
+        index={'1':(None,None),'2':('atlas',(0,0,8,8))}
+        changes,assets,report=convert(files,players,{},index,lambda _:Image.new('RGBA',(8,8),(1,2,3,255)))
+        rows={r.get('Id'):r.get('IconId') for r in E.fromstring(changes['items.xml']).findall('ItemClasses/*')}
+        self.assertEqual(rows,dict(a='n',b='gm_kcd1_item_2'))
+        self.assertEqual(list(assets),['Libs/UI/Textures/Icons/Items/gm_kcd1_item_2_icon.dds'])
+
+    def test_imported_row_with_matching_name_and_id_resolves_icon(self):
+        guid='e5fc1a89-9bb1-44a9-a524-c6834a5e2e76'
+        row=E.Element('MeleeWeapon',Id=guid,Name='containeritems_item_'+guid.replace('-','_'),IconId='longswordDuel')
+        players={guid:dict(icon_id='147',ui_name='ui_nm_sword_long_wooden'),
+                 'other':dict(icon_id='147',ui_name='ui_nm_sword_short_wooden')}
+        self.assertEqual(resolve(row,players,{}),'147')
+        row.set('Id','generated')
+        self.assertEqual(resolve(row,players,{}),'147')
+
+    def test_item_icons_run_after_training_imports_its_items(self):
+        source=(Path(__file__).resolve().parents[1]/'tools/setup_package_upgrade.py').read_text(encoding='utf-8')
+        finalize=source[source.index('def finalize('):]
+        icons=finalize.index('upgrade_item_icons(package, source)')
+        self.assertGreater(icons,finalize.index('upgrade_training(package, source, target)'))
+        self.assertIn('validate_training(package)',finalize[icons:])

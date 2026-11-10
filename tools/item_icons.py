@@ -32,19 +32,25 @@ def resolve(row, players, names):
     return next(iter(matches), None)
 
 
-def convert(files, players, names, index, image_loader):
+def convert(files, players, names, index, image_loader, empty=None):
     changes, textures, report = {}, {}, []
+    empty = [] if empty is None else empty
     for path, blob in files.items():
         root = E.fromstring(blob); changed=False
         for row in root.findall('ItemClasses/*'):
             icon = resolve(row,players,names)
             if not icon or icon=='0': continue
             if icon not in index: raise ValueError('Missing source inventory icon '+icon+' for '+row.get('Name',''))
+            if not index[icon][0]:
+                # The source authored no artwork for this index; a blank texture
+                # would hide the row's existing native icon.
+                empty.append(dict(item=row.get('Id'),source_icon=icon,icon=row.get('IconId')))
+                continue
             target = 'gm_kcd1_item_'+icon
             texture_path = 'Libs/UI/Textures/Icons/Items/'+target+'_icon.dds'
             if texture_path not in textures:
                 atlas, rect = index[icon]
-                textures[texture_path] = texture(image_loader(atlas),rect) if atlas else texture(Image.new('RGBA',(64,64)),(0,0,64,64))
+                textures[texture_path] = texture(image_loader(atlas),rect)
             if row.get('IconId') != target:
                 report.append(dict(item=row.get('Id'),source_icon=icon,previous=row.get('IconId'),icon=target))
                 row.set('IconId',target); changed=True
@@ -68,7 +74,7 @@ def upgrade(package, source):
         tables=SourceTables(source,reader)
         players={r['item_id']:r for r in tables.get('item/player_item')['rows']}
         names={r['item_id']:r['item_name'] for r in tables.get('item/item')['rows']}
-    plans=[];textures={};report=[];images={}
+    plans=[];textures={};report=[];empty=[];images={}
     with zipfile.ZipFile(source/'Data/GameData.pak') as original:
         index=atlas_index(read(original,'Libs/UI/ico_items.gfx'))
         def image(path):
@@ -76,7 +82,7 @@ def upgrade(package, source):
                 images[path]=Image.open(io.BytesIO(read(original,path))).convert('RGBA')
             return images[path]
         for pak,files in archives.items():
-            changes,assets,rows=convert(files,players,names,index,image)
+            changes,assets,rows=convert(files,players,names,index,image,empty)
             textures.update(assets);report.extend(rows)
             if changes: plans.append((pak.relative_to(package).as_posix(),changes))
     # Resolve every referenced icon before changing any table archive.
@@ -114,4 +120,4 @@ def upgrade(package, source):
             owned.update(updates)
             pending=record.with_suffix('.json.pending');pending.write_text(json.dumps(training,indent=2),encoding='utf-8');pending.replace(record)
             changed['quest-training.json']=digest(record)
-    return changed,dict(version=1,icons=len(textures),changed_items=report,runtime_verified=False)
+    return changed,dict(version=1,icons=len(textures),changed_items=report,unchanged_empty_icons=empty,runtime_verified=False)

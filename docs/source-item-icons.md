@@ -1,7 +1,8 @@
 # Source item icons
 
 Recipe 28 applies source inventory artwork during clean setup finalization and
-saved-build upgrades, after character/material conversion. It replaces generic
+saved-build upgrades, after character/material conversion and after the training
+stage has imported its loan items. It replaces generic
 presentation-template icons on identifiable imported items. Native game archives
 are not edited.
 
@@ -13,8 +14,9 @@ single source identity retain their existing presentation.
 
 `item_icon_atlas.py` follows the source `Libs/UI/ico_items.gfx` timeline through
 its sprite, bitmap-shape and external subimage references. Inventory frames are
-one-based. An authored empty frame is preserved as transparent artwork; an
-unresolved reference is an error. Images are extracted from the user's own KCD1
+one-based. An authored empty frame (KCD1's "no icon" index 1) is not converted:
+the item keeps its existing native `IconId` and is listed under
+`unchanged_empty_icons` in the receipt; an unresolved reference is an error. Images are extracted from the user's own KCD1
 atlas textures, centered with transparency in 64-pixel DDS textures, and reduced
 proportionally only when necessary to fit that canvas.
 
