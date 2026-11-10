@@ -18,6 +18,7 @@ KEYS = {
     # Reading rewards of imported documents; one row per item in both games.
     'document_required_skills': 'item_id', 'document_rewards': 'item_id',
     'document_requirements': 'item_id',
+    'buffs': 'buff_id',
 }
 
 # RequiredAttribute fields from KCD2Mod's GeneratedDatabase reader. The XML
