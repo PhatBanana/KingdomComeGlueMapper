@@ -1,4 +1,4 @@
-"""Source stable roster and native horse companion records for development tests."""
+"""Source stable roster, source tack stock and native horse companion records."""
 import copy
 import re
 import xml.etree.ElementTree as ET
@@ -9,6 +9,34 @@ from campaign_sources import RetailSourceReader
 from character_person import unique, native_xml
 from character_person_ai import stat_operations
 from upgrade_map import read, xml
+
+
+# The source stable is shop 130 (neu_stables). The generic source-shop builder
+# derives the same public identity that earlier builds wrote by hand, so the
+# placed Shop entity, saves and dialogue keep referring to one shop.
+STOCK_NAMESPACE = 'gm_neuhof_horse'
+SHOP_NAME = STOCK_NAMESPACE + '_shop'
+SHOP_ID = '20130'
+
+
+def stock_resources(person, source, target, package, output):
+    """The stable's own source stock, through the shared source-shop builder.
+
+    `person` is resolve_merchant's record: its shop row and resolved stock are
+    source data. Nothing is selected, renamed or substituted here; a stock item
+    that cannot be converted fails the stage. Returns table patches, packed
+    assets, English item strings and the builder's report.
+    """
+    from region_travel_services import import_shop_resources
+    files, strings, report = import_shop_resources(person, source, target, STOCK_NAMESPACE, package, output)
+    if (report['shop_name'], str(report['shop_id'])) != (SHOP_NAME, SHOP_ID):
+        raise ValueError('Source stable shop identity changed: %s/%s' % (report['shop_name'], report['shop_id']))
+    tables = {n: b for n, b in files.items() if n.lower().startswith('libs/tables/')}
+    assets = {n: b for n, b in files.items() if n not in tables}
+    report['undrawn_source_meshes'] = sorted(
+        job['identity'] for job in report['item_dependencies'].get('jobs', ())
+        if job.get('group') == 'clothing' and (job.get('evidence') or {}).get('omitted_source_mesh'))
+    return tables, assets, strings, report
 
 
 def roster(source, stable='neu', merchant='neu_zdena'):
@@ -64,8 +92,6 @@ def horse_resources(resources, target, horses, faction):
     with zipfile.ZipFile(target/'Data/Tables.pak') as archive:
         template = unique((s for s in native_xml(read(archive, 'Libs/Tables/rpg/soul__tsem.xml')).iter('soul')
                            if s.get('soul_name') == 'tsem_horseForSale_1'), 'native sale horse')
-        shop = copy.deepcopy(unique((s for s in native_xml(read(archive, 'Libs/Tables/shop/shop.xml')).iter('ShopData')
-                                     if s.get('shop_name') == 'shop_tsem_horseTrader'), 'native horse shop'))
     root = ET.Element('database', name='barbora'); souls = ET.SubElement(root, 'souls', version='2')
     storm = ET.fromstring(result['Libs/Storm/storm.xml'])
     groups = {task: ET.Element('storm') for task in ('appearance', 'abilities', 'names')}
@@ -92,7 +118,4 @@ def horse_resources(resources, target, horses, faction):
         result['Libs/Storm/'+path] = xml(document)
     result['Libs/Storm/storm.xml'] = xml(storm)
     result['Libs/Tables/rpg/soul__gm_neuhof_horses.xml'] = xml(root)
-    shop.attrib.update(shop_id='20130', shop_name='gm_neuhof_horse_shop')
-    root = ET.Element('database', name='barbora'); ET.SubElement(root, 'Shops', version='5').append(shop)
-    result['Libs/Tables/shop/shop__gm_neuhof_horses.xml'] = xml(root)
     return result

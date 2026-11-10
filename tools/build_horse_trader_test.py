@@ -15,7 +15,7 @@ from character_person_appearance import build_appearance
 from region_travel_services import resolve_merchant
 from region_travel_dialogue import merge_localization
 from region_travel_tables import managed_patches
-from horse_trader import roster, horse_resources
+from horse_trader import roster, horse_resources, stock_resources, STOCK_NAMESPACE
 from horse_trader_dialogue import attach, ROLE
 from horse_trader_world import register, STASH_PREFIX
 from merchant_stash import source_stash, stash_assets
@@ -23,6 +23,7 @@ from upgrade_map import read, xml, digest
 
 ENTRY = 'Quests/GlueTravel/entry/kcd1_travel.xml'
 PROJECT = 'Quests/GlueTravel/GlueTravel_kcd1.xml'
+STOCK_ASSET_PAK = 'Data/gluemapper_neuhof_stock_assets.pak'
 LEVEL_FILES = ('objects_mission0.xml', 'whdata_0', 'waitinglinks.xml', 'triggerareas.fubar', 'tables/ai/scheduler.xml')
 
 
@@ -40,6 +41,33 @@ def rewrite(source, target, replacements):
             dest.writestr(info, replacements.get(info.filename, read(original, info.filename)))
         for name, blob in replacements.items():
             if name not in existing: dest.writestr(name, blob)
+
+
+def merge_item_strings(texts, strings):
+    """Add stock item labels once; another item table may already hold them."""
+    from build_english_audio_test import merge_audio_strings
+    known = {}
+    for name, blob in texts.items():
+        if name != 'text_ui_items.xml' and b'containeritems_' in blob:
+            known.update({row[0].text: [c.text for c in row] for row in ET.fromstring(blob).findall('Row') if len(row)})
+    merged = texts['text_ui_items.xml']
+    for blob in strings:
+        table = ET.fromstring(blob)
+        for row in list(table):
+            if len(row) and known.get(row[0].text) == [c.text for c in row]: table.remove(row)
+        if len(table): merged = merge_audio_strings(merged, xml(table))
+    return merged
+
+
+def stage_stock(resources, person, stock_tables, stock):
+    """Add the stock tables and receipt beside the stable's other resources."""
+    result = dict(resources)
+    for name, blob in stock_tables.items():
+        if name in result: raise ValueError('Stable stock resource collision: '+name)
+        result[name] = blob
+    result['Libs/GlueMapper/'+STOCK_NAMESPACE+'.json'] = json.dumps(
+        dict(version=1, person=person['name'], stock=stock, runtime_verified=False), indent=2).encode()
+    return result
 
 
 def build(source, target, mod, output):
@@ -73,6 +101,9 @@ def build(source, target, mod, output):
         native_role_name='PODKONI_TROSECKO', resources=resources)
     zora_soul = ET.fromstring(resources['Libs/Tables/rpg/soul__gm_neuhof_zora.xml']).find('souls/soul')
     resources = horse_resources(resources, target, horses, zora_soul.get('factionName'))
+    print('Importing the source stable stock and its missing items', flush=True)
+    stock_tables, stock_assets, stock_strings, stock = stock_resources(person, source, target, mod, output/'stable-stock-items')
+    resources = stage_stock(resources, person, stock_tables, stock)
     print('Registering stable, purchase dialogue and companion transfer', flush=True)
     files, resources, schedules = register(files, resources, person, horses, source, target, ENTRY)
     with zipfile.ZipFile(target/'Data/Scripts.pak') as scripts:
@@ -102,6 +133,7 @@ def build(source, target, mod, output):
     texts['text_ui_soul.xml'] = merge_localization(texts['text_ui_soul.xml'], xml(selected))
     item_names = character_dir/'Localization/English/text_ui_items.xml'
     if item_names.exists(): texts['text_ui_items.xml'] = merge_localization(texts['text_ui_items.xml'], item_names.read_bytes())
+    texts['text_ui_items.xml'] = merge_item_strings(texts, stock_strings)
     package = output/'package'
     # Existing managed entries are replaced, not shadowed by a second mod.
     print('Writing staged package while preserving existing scenery and quests', flush=True)
@@ -115,6 +147,14 @@ def build(source, target, mod, output):
         raise ValueError('Stable appearance exceeds one asset shard; split before installing')
     with zipfile.ZipFile(asset_pak, 'x', zipfile.ZIP_STORED, allowZip64=False) as archive:
         for name, blob in character_assets.items(): archive.writestr(name, blob)
+    # Tack meshes and textures get their own shard, for the same size boundary.
+    if sum(map(len, stock_assets.values())) > 1024**3-1024**2:
+        raise ValueError('Stable stock exceeds one asset shard; split before installing')
+    if any(name in character_assets for name in stock_assets):
+        raise ValueError('Stable stock asset collides with the stable appearance')
+    if stock_assets:
+        with zipfile.ZipFile(package/STOCK_ASSET_PAK, 'x', zipfile.ZIP_STORED, allowZip64=False) as archive:
+            for name, blob in sorted(stock_assets.items()): archive.writestr(name, blob)
     for name, blob in resources.items():
         if name.startswith('Libs/Tables/'):
             dest = output/'validation'/name
@@ -124,8 +164,11 @@ def build(source, target, mod, output):
         horses=[dict(name=h['name'], display_name=h['display_name'], soul=h['soul']['soul_id'],
                      position=h['actor'].get('Pos'), stats={k:h['soul'][k] for k in ('agi','str','vit','courage')}) for h in horses],
         character=character, schedules=schedules, runtime_verified=False,
+        stock={k: stock[k] for k in ('shop_id', 'shop_name', 'source_shop', 'stock', 'stock_types', 'restock',
+                                     'undrawn_source_meshes')},
         limitations=['Native KCD2 sale-horse appearance used for all horses; source horse coat conversion pending',
                      'Cash/native trade-in only; haggling and cinematic washing not offered',
+                     'Source spurs are sold and worn without their source mesh; KCD2 spurs have no attachment of their own',
                      'Native interruptible idle at original positions; original stable daily routines pending',
                      'Buying, X recall, save/reload and travel persistence require in-game validation'],
         files={str(p.relative_to(package)):digest(p) for p in package.rglob('*') if p.is_file()})

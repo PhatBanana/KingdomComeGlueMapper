@@ -9,8 +9,28 @@ from character_person_shop import register_shop_service, register_shop_activity,
 from region_travel import guid
 from upgrade_map import xml
 from merchant_stash import source_stash, apply_stash_placement
+from horse_trader import SHOP_ID, SHOP_NAME
 
 STASH_PREFIX = 'objects/gluemapper/neuhof_stash/'
+
+
+def stash_properties(authored):
+    """The stable chest stores the shop's stock and generates none of its own.
+
+    Stock is the shop table's source preset, as for every other source shop. A
+    native merchant's generated inventory here would be sold next to the
+    source stock.
+    """
+    props = ET.Element('Properties')
+    database = ET.SubElement(props, 'Database', sGeneratedInventory='inventory_empty')
+    original = authored.find('Properties/Database')
+    if original is not None:
+        if original.get('guidInventoryDBId', '') not in ('', '0', '00000000-0000-0000-0000-000000000000'):
+            raise ValueError('Stable stash has an independent inventory requiring conversion')
+        if original.get('iMinimalShopItemPrice') is not None:
+            database.set('iMinimalShopItemPrice', original.get('iMinimalShopItemPrice'))
+    ET.SubElement(props, 'Lock', bLocked='1', bLockDifficultyOverride='1', fLockDifficulty='1')
+    return props
 
 
 def register(files, resources, person, horses, source, target, entry_path):
@@ -50,14 +70,13 @@ def register(files, resources, person, horses, source, target, entry_path):
         horse_people.append(dict(name=h['name'], ai=dict(links=[], schedule=[])))
     # Separate shop identity; never steal a Trosky merchant's existing shop.
     pos = person['shop_entity'].get('Pos')
-    shop = add('gm_neuhof_horse_shop', 'Shop', pos)
+    shop = add(SHOP_NAME, 'Shop', pos)
     work = add('gm_neuhof_stable_work', 'SchedulerHub', seller.get('Pos'))
-    ET.SubElement(shop, 'Properties', sShopName='gm_neuhof_horse_shop', iShopId='20130', bOwnerIsSpawned='1')
+    ET.SubElement(shop, 'Properties', sShopName=SHOP_NAME, iShopId=SHOP_ID, bOwnerIsSpawned='1')
     stash = add('gm_neuhof_horse_stash', 'Stash', pos)
-    props = ET.SubElement(stash, 'Properties')
-    ET.SubElement(props, 'Database', sGeneratedInventory='inventory_shop_horseTraderSemin')
-    ET.SubElement(props, 'Lock', bLocked='1', bLockDifficultyOverride='1', fLockDifficulty='1')
-    apply_stash_placement(stash, source_stash(source, person['shop_entity']), STASH_PREFIX)
+    authored = source_stash(source, person['shop_entity'])
+    stash.append(stash_properties(authored))
+    apply_stash_placement(stash, authored, STASH_PREFIX)
     link(seller, shop, 'owner'); link(seller, shop, 'shopKeeper'); link(shop, stash, 'shopStash')
     points = [tuple(map(float, h['actor'].get('Pos').split(','))) for h in horses]
     low = [min(p[i] for p in points) for i in range(3)]
