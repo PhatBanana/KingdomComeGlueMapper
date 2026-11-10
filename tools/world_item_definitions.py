@@ -9,6 +9,7 @@ from character_person import native_xml
 from upgrade_map import read, xml
 from garment_contracts import clothing_role
 from character_source_clothing import native_role
+from item_buffs import ItemBuffs, NOT_A_POISON
 
 
 def native_items(target, resources=()):
@@ -52,6 +53,7 @@ class WorldItemAdapter(ItemAdapter):
 
     Clothing and document assets are dependencies, not generic loot substitutes.
     Preserve unported secondary gameplay data in the conversion evidence.
+    Drink and weapon buffs are ported when the shipped buff contract is supplied.
     """
     CATEGORIES = {**ItemAdapter.CATEGORIES, 'food':'Food','melee_weapon':'MeleeWeapon',
                   'missile_weapon':'MissileWeapon','ammo':'Ammo','document':'Document','potion':'Food',
@@ -72,8 +74,10 @@ class WorldItemAdapter(ItemAdapter):
                     short_term_nutrition_benefit_ratio='ShortTermNutritionBenefitRatio',alcohol_content='AlcoholContent',
                     decay_time_hours='DecayTime',food_type_id='Type',food_subtype_id='SubType')}
 
-    def __init__(self,tables,namespace,native,weapon_classes,native_components=None,native_tool_types=None):
+    def __init__(self,tables,namespace,native,weapon_classes,native_components=None,native_tool_types=None,
+                 native_buffs=None):
         super().__init__(tables,namespace,native_tool_types);self.native=native;self.weapon_classes=weapon_classes
+        self.item_buffs=ItemBuffs(tables,native_buffs,namespace) if native_buffs is not None else None
         # A placeholder model disqualifies reuse of the asset, not the shipped
         # item's enum metadata. Retained GUID/type pairs disambiguate source
         # enum names such as the two distinct meal_tray types.
@@ -140,7 +144,36 @@ class WorldItemAdapter(ItemAdapter):
             candidates.sort(key=lambda r:(r.get('UIName','').lower()!=source_name,
                 r.get('UIInfo','').lower()!=source_info,r.get('Id')))
             plan.source['presentation_template']=dict(candidates[0].attrib)
+        if self.item_buffs is not None and self.CATEGORIES.get(category)=='Food':
+            buffs=plan.source['item_buffs']=self.buffs(rows)
+            plan.dependencies.extend(('buff_strings',text) for buff in buffs.values()
+                                     for text in buff.get('strings',{}).values())
         return plan
+
+    def buffs(self,rows):
+        """The drink buff of any consumable and the weapon buff of a source poison."""
+        result={}
+        if rows['consumable_item'].get('buff_id'):
+            result['consumable']=self.item_buffs.resolve(rows['consumable_item']['buff_id'])
+        if rows['potion'].get('weapon_buff_id'):
+            identity=rows['potion']['weapon_buff_id'];subtype=rows['food'].get('food_subtype_id')
+            poison=bool(subtype) and self.tables.row('item/food_subtype','food_subtype_id',subtype
+                )['food_subtype_name']=='poison'
+            weapon=self.item_buffs.resolve(identity) if poison else dict(
+                source=identity.lower(),mode='unported',reason=NOT_A_POISON)
+            if weapon['mode']!='unported':
+                # Charges are not source data. Use those of the shipped poison
+                # whose coating is this buff or the template it was built from.
+                shipped=weapon.get('template',weapon['target']).lower()
+                charges={(r.get('WeaponChargeCount'),r.get('AmmoApplyCount')) for r in self.native.values()
+                         if r.tag=='Poison' and r.get('WeaponBuffDefinitionId','').lower()==shipped}
+                if len(charges)==1 and all(next(iter(charges))):
+                    weapon['charges']=dict(zip(('WeaponChargeCount','AmmoApplyCount'),next(iter(charges))))
+                else:
+                    weapon=dict(source=identity.lower(),mode='unported',
+                                reason='No single shipped poison supplies the coating charges')
+            result['weapon']=weapon
+        return result
 
     def convert(self,identity,plan,registered):
         _,files,evidence=super().convert(identity,plan,registered)
@@ -187,9 +220,25 @@ class WorldItemAdapter(ItemAdapter):
         target = row.get('Id')
         evidence.update(target_id=target,source_identity_preserved=not replaced,
                         replaced_native_placeholder=replaced)
+        buffs=plan.source.get('item_buffs',{});ported=set();outputs={}
+        for role,table,field in (('consumable','consumable_item','BuffDefinitionId'),
+                                 ('weapon','potion','WeaponBuffDefinitionId')):
+            buff=buffs.get(role)
+            if not buff or buff['mode']=='unported':continue
+            row.set(field,buff['target']);ported.add(table)
+            if buff['mode']=='converted':
+                name,data=self.item_buffs.file(buff,registered['buff_strings']);outputs[name]=data
+            if role=='weapon':
+                # Only the Poison class can coat. It has no nutrition fields.
+                row.tag='Poison';evidence['category']='Poison'
+                for name in self.FIELDS['food'].values():row.attrib.pop(name,None)
+                row.attrib.update(buff['charges'])
+        if buffs:
+            evidence['item_buffs']={role:{k:v for k,v in buff.items() if k!='row'} for role,buff in buffs.items()}
+            evidence['item_buffs_runtime_validated']=False
         evidence['secondary_gameplay_pending']={
             table:dict(rows[table]) for table in ('consumable_item','potion')
-            if any(v and k!='item_id' for k,v in rows[table].items())}
+            if table not in ported and any(v and k!='item_id' for k,v in rows[table].items())}
         if category=='document':
             evidence['reading_rewards_verified']=False
-        return target,{name:xml(root) for name in files},evidence
+        return target,{**{name:xml(root) for name in files},**outputs},evidence

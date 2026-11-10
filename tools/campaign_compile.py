@@ -45,6 +45,7 @@ from setup_progress import progress
 from game_paths import GameLibrary
 from upgrade_map import read
 from world_item_definitions import native_items, native_item_registry, WorldItemAdapter
+from item_buffs import native_buffs as native_item_buffs
 from world_item_clothing import ClothingAdapter
 from world_item_documents import DocumentImageAdapter
 from character_person import native_xml
@@ -268,7 +269,8 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
             return WorldItemAdapter(tables, project, native_item_definitions,
                                     {r.get('id'):r.get('name') for r in weapons[0]}, components,
-                                    native_tool_types=native_tool_types(target))
+                                    native_tool_types=native_tool_types(target),
+                                    native_buffs=native_item_buffs(target))
         catalog = native_catalog(target)
         importer = DependencyImporter(dict(
             entities=EntityAdapter(dict(entities=all_entities), souls, area_data, export_version, door_entities, controller_ids,
@@ -291,6 +293,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             mailboxes=MailboxAdapter(tables, native_ai),
             animated_props=animated_doors,
             strings=LazyAdapter(lambda: ItemTextAdapter(source, project, 'English')),
+            buff_strings=LazyAdapter(lambda: ItemTextAdapter(source, project, 'English', 'text_ui_soul.xml')),
             person_names=LazyAdapter(lambda: ItemTextAdapter(source, project, 'English', 'text_ui_soul.xml')),
             assets=assets), registrations)
         importer.adapters['world_layers'] = WorldLayerAdapter(documents, project, importer.files)
