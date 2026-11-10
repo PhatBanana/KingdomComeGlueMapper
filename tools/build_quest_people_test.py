@@ -43,6 +43,20 @@ def conversion_person(a, name, sid):
     return copy.deepcopy(person)
 
 
+def is_localization_path(path):
+    return path.replace('\\', '/').lower().startswith('localization/')
+
+
+def route_equipment_files(files, appearance, item_tables):
+    """String tables join the shared item table merge; everything else is written beside the actor."""
+    for path, payload in files.items():
+        if is_localization_path(path):
+            item_tables.append(payload)
+        else:
+            dest = appearance / path; dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(payload)
+
+
 def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
     """Pack and validate streamed assets, including families crossing ZIP32 shards."""
     from texture_streaming import checked_entries, generated_entries
@@ -205,12 +219,7 @@ def _build(a):
         weapon_result = stage_weapons(a.source, a.target, a.mod, person, character, namespace,
                                       a.output / 'equipment' / namespace)
         character['source_weapons'] = weapon_result['items']
-        for path, payload in weapon_result['files'].items():
-            if path.startswith('Localization/'):
-                item_tables.append(payload)
-            else:
-                dest = appearance / path; dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(payload)
+        route_equipment_files(weapon_result['files'], appearance, item_tables)
         (appearance / 'appearance-result.json').write_text(json.dumps(character, indent=2))
         resources = actor_resources(a.target, person, character, namespace,
             role_name=namespace + '_role', native_soul_table='Libs/Tables/rpg/soul__ttac.xml',

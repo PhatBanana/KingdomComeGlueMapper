@@ -34,6 +34,20 @@ class QuestPeopleTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'does not match'):
                 conversion_person(args,'actor','wrong')
 
+    def test_equipment_string_tables_route_to_item_tables_regardless_of_case(self):
+        import tempfile
+        from build_quest_people_test import route_equipment_files
+        with tempfile.TemporaryDirectory() as tmp:
+            appearance = Path(tmp)
+            item_tables = []
+            route_equipment_files({
+                'localization/English/text_lower.xml': b'<lower/>',
+                'Localization/English/text_upper.xml': b'<upper/>',
+                'Libs/Tables/item/preset.xml': b'<preset/>'}, appearance, item_tables)
+            self.assertEqual(item_tables, [b'<lower/>', b'<upper/>'])
+            self.assertEqual(sorted(p.relative_to(appearance).as_posix() for p in appearance.rglob('*') if p.is_file()),
+                             ['Libs/Tables/item/preset.xml'])
+
     def test_progress_total_counts_only_unique_new_explicit_souls(self):
         from build_quest_people_test import conversion_souls
         requested = {str(i):row for i,row in enumerate([
