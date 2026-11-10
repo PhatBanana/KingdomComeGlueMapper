@@ -12,6 +12,7 @@ import zipfile
 from campaign_bindings import parse_link_labels
 from character_station_work import unquote
 from upgrade_map import read
+from shared_xml import parse as parse_shared
 
 
 def path_key(path):
@@ -27,7 +28,7 @@ class Ownership:
                 self.profiles.setdefault('layers/' + layer.text.lower() + '.xml', set()).add(name)
         self.by_guid, self.by_id = {}, {}
         for path, blob in documents.items():
-            root = blob if isinstance(blob, E.Element) else E.fromstring(blob)
+            root = blob if isinstance(blob, E.Element) else parse_shared(blob)
             for entity in root.iter('Entity'):
                 guid = entity.get('EntityGuid')
                 if not guid: continue

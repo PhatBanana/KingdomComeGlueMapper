@@ -5,6 +5,7 @@ from pathlib import Path
 import xml.etree.ElementTree as E
 import zipfile
 from upgrade_map import read, xml
+from shared_xml import parse as parse_shared, without_tail
 
 RECORD='training-entry-repair.json'
 
@@ -52,10 +53,9 @@ def upgrade(package, source, target):
         for n in z.namelist():
             key=n.replace('\\','/').lower()
             if key=='objects_mission0.xml' or key.startswith('layers/') and key.endswith('.xml'):
-                for e in E.fromstring(read(z,n)).iter('Entity'):
+                for e in parse_shared(read(z,n)).iter('Entity'):
                     if e.get('EntityId'):
-                        e.tail=None
-                        if e.get('EntityId') in entities and E.tostring(entities[e.get('EntityId')])!=E.tostring(e):
+                        if e.get('EntityId') in entities and without_tail(entities[e.get('EntityId')])!=without_tail(e):
                             raise ValueError('Conflicting source entry entity copies')
                         entities[e.get('EntityId')]=e
         plan=resolve(records['quest']['data'],records['arena']['data'],selection['request'],quest,list(entities.values()),z)

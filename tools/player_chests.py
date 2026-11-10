@@ -10,6 +10,7 @@ from campaign_entity_links import append_links
 from entity_visuals import initial_layer, world_transform
 from static_assets import asset_pack
 from upgrade_map import read
+from shared_xml import parse as parse_shared
 
 PREFIX = 'gm_player_chest_'
 ASSETS = 'gluebuild/player_chests/'
@@ -22,7 +23,7 @@ def source_chests(archive):
         main = name.lower() == 'objects_mission0.xml'
         if not main and not (name.lower().startswith('layers/') and name.lower().endswith('.xml')):
             continue
-        for e in ET.fromstring(read(archive, name)).iter('Entity'):
+        for e in parse_shared(read(archive, name)).iter('Entity'):
             key = e.get('EntityId')
             entities.setdefault(key, e)
             if (main and not e.get('Layer')) or initial_layer(e.get('Layer', '')):

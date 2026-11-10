@@ -10,6 +10,7 @@ from campaign_entity_links import append_links
 from cooking_pots import rotate, vector
 from entity_visuals import initial_entity, world_transform, quaternion_product as qmul
 from upgrade_map import archive_signature, read
+from shared_xml import parse as parse_shared
 
 PREFIX = 'gm_chair_'
 # Ordinary chair with native sit/stand interactions and coincident in/out anchors.
@@ -35,7 +36,7 @@ def scan(source, *, notify=lambda message: None):
     for number, path in enumerate(paths):
         notify(f'Scanning source objects ({number + 1}/{len(paths)}): {path}')
         main = path.lower() == 'objects_mission0.xml'
-        for node in ET.fromstring(read(source, path)).iter('Entity'):
+        for node in parse_shared(read(source, path)).iter('Entity'):
             identity = node.get('EntityId')
             entities.setdefault(identity, node)
             if (main and not node.get('Layer')) or initial_entity(node):

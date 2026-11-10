@@ -18,6 +18,7 @@ from character_schedule import plan
 from character_crime_districts import discover, convert
 from build_horse_trader_test import rewrite
 from upgrade_map import read, xml
+from shared_xml import parse as parse_shared
 
 
 def file_hash(path):
@@ -42,7 +43,7 @@ def source_world(archive):
     documents = {n: read(archive,n) for n in archive.namelist()
                  if n.replace('\\','/').lower()=='objects_mission0.xml' or
                  n.replace('\\','/').lower().startswith('layers/') and n.lower().endswith('.xml')}
-    entities = [e for blob in documents.values() for e in ET.fromstring(blob).iter('Entity')]
+    entities = [e for blob in documents.values() for e in parse_shared(blob).iter('Entity')]
     return documents, entities
 
 
