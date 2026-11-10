@@ -556,23 +556,34 @@ def build(scene, *, only_origin=None, samples=2, experimental_base_materials=Fal
                                          else f'{lanes.lanes} tile(s) on the GPU at a time)'),flush=True)
         # A single dense process prepares its next dense tile while the current one rasterizes
         # (measured on KCD1: 23% faster, +0.5 GB peak). With two, they overlap each other instead.
-        groups=[(size,[n for n in range(len(jobs)) if dense[n]==kind],texture,kind and size==1)
+        groups=[(size,[n for n in range(len(jobs)) if dense[n]==kind],texture,kind and size==1,kind)
                 for size,kind,texture in ((light,False,LIGHT_TEXTURE_CACHE),(heavy,True,cache)) if size]
         with ExitStack() as stack:
             # Submit one tile per process and refill as tiles finish, checking for
             # cancellation before each start, so a cancelled bake starts no new tile
             # and shutdown only waits for the tiles already running. Each group is
-            # [pool, processes, tile numbers, next position, running, prepare ahead].
+            # [pool, processes, tile numbers, next position, running, prepare ahead, dense].
             queues=[[stack.enter_context(ProcessPoolExecutor(max_workers=size,mp_context=context,initializer=_start_baker,initargs=(arguments,lanes,texture))),
-                     size,numbers,0,0,ahead] for size,numbers,texture,ahead in groups]
+                     size,numbers,0,0,ahead,kind] for size,numbers,texture,ahead,kind in groups]
             pending={}
+            def source(queue):
+                """The queue this group's next tile comes from: its own, then, for the dense processes
+                once every dense tile has started, the light tiles still waiting. A light tile adds
+                nothing to a dense process's memory and bakes as fast there. The reverse is never
+                done: a light process took 1.8x as long over dense tiles (small texture cache) and
+                its memory peak was higher, outside the limit `heavy_slots` sets."""
+                if queue[3]<len(queue[2]):return queue
+                if queue[6]:return next((other for other in queues if not other[6] and other[3]<len(other[2])),None)
+                return None
             def refill():
                 for queue in queues:
-                    pool,size,numbers=queue[:3]
-                    while queue[4]<size and queue[3]<len(numbers):
+                    pool,size=queue[:2]
+                    while queue[4]<size:
+                        origin=source(queue)
+                        if origin is None:break
                         if cancelled():raise InterruptedError('Bake cancelled between tiles; completed tiles retained.')
-                        number=numbers[queue[3]];queue[3]+=1
-                        following=(numbers[queue[3]],jobs[numbers[queue[3]]]) if queue[5] and queue[3]<len(numbers) else None
+                        numbers=origin[2];number=numbers[origin[3]];origin[3]+=1
+                        following=(numbers[origin[3]],jobs[numbers[origin[3]]]) if origin is queue and queue[5] and origin[3]<len(numbers) else None
                         pending[pool.submit(_bake_in_worker,(number,len(jobs),jobs[number],following))]=(number,queue);queue[4]+=1
             try:
                 refill()

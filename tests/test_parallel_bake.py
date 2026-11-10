@@ -259,6 +259,34 @@ class ParallelBakeCancellationTests(unittest.TestCase):
             self.assertEqual([r['origin'] for r in results], [tile['origin'] for tile in json.loads((scene / 'plan.json').read_text())['tiles']])
             self.assertTrue(all(r['status'] == 'built' for r in results))
 
+    def test_idle_dense_processes_take_waiting_light_tiles_and_never_the_reverse(self):
+        import world_surface_tiles as module
+        from concurrent.futures import Future
+        taken = {}
+        class Pool:
+            """Runs each tile in this process and records which group's pool it was given to."""
+            def __init__(self, max_workers, mp_context, initializer, initargs):
+                self.start = lambda: initializer(*initargs); self.texture = initargs[2]
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+            def submit(self, function, task):
+                taken.setdefault(self.texture, []).append(task[0])
+                self.start(); future = Future(); future.set_result(function(task)); return future
+        settings = {'GLUEMAPPER_BAKE_TILE_WORKERS': '2', 'GLUEMAPPER_BAKE_HEAVY_TILES': '1'}
+        for dense in ([0, 1], [0, 1, 2, 3, 4, 5, 6]):
+            with self.subTest(dense=dense), tempfile.TemporaryDirectory() as t, patch.dict(os.environ, settings):
+                scene = empty_scene(t, 8); taken.clear()
+                estimates = [1_000_000 if n in dense else 0 for n in range(8)]
+                with patch.object(module, 'ProcessPoolExecutor', Pool),                         patch('world_surface_tiles._TriangleEstimate.estimated_triangles', side_effect=estimates):
+                    results = module.build(scene)
+                light_pool, dense_pool = taken[module.LIGHT_TEXTURE_CACHE], next(v for k, v in taken.items() if k != module.LIGHT_TEXTURE_CACHE)
+                self.assertEqual(sorted(light_pool + dense_pool), list(range(8)))  # every tile once
+                self.assertFalse(set(light_pool) & set(dense))                    # no dense tile in a light process
+                self.assertEqual(dense_pool[:len(dense)], dense)                  # dense tiles first, in order
+                self.assertEqual(len(dense_pool) > len(dense), len(dense) == 2)   # then light ones, if any still wait
+                self.assertEqual([r['origin'] for r in results], [tile['origin'] for tile in json.loads((scene / 'plan.json').read_text())['tiles']])
+                self.assertTrue(all(r['status'] == 'built' for r in results))
+
     def test_cancellation_during_order_planning_starts_no_workers(self):
         from world_surface_tiles import build
         settings = {'GLUEMAPPER_BAKE_TILE_WORKERS': '2', 'GLUEMAPPER_BAKE_HEAVY_TILES': '1'}
