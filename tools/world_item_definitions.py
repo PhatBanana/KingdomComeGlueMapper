@@ -72,8 +72,11 @@ class WorldItemAdapter(ItemAdapter):
                     short_term_nutrition_benefit_ratio='ShortTermNutritionBenefitRatio',alcohol_content='AlcoholContent',
                     decay_time_hours='DecayTime',food_type_id='Type',food_subtype_id='SubType')}
 
-    def __init__(self,tables,namespace,native,weapon_classes,native_components=None,native_tool_types=None):
+    def __init__(self,tables,namespace,native,weapon_classes,native_components=None,native_tool_types=None,
+                 native_reading=None):
         super().__init__(tables,namespace,native_tool_types);self.native=native;self.weapon_classes=weapon_classes
+        # Native skills, stats and recipes that source reading rewards name.
+        self.native_reading=native_reading
         # A placeholder model disqualifies reuse of the asset, not the shipped
         # item's enum metadata. Retained GUID/type pairs disambiguate source
         # enum names such as the two distinct meal_tray types.
@@ -127,6 +130,8 @@ class WorldItemAdapter(ItemAdapter):
             plan.source['document_images']=[r for r in self.tables.get('item/document_content_images')['rows'] if r['text_id']==text]
             plan.dependencies.extend(('strings',r['text']) for r in plan.source['document_parts'])
             plan.dependencies.extend(('document_images',r['image']) for r in plan.source['document_images'])
+            from document_reading import source_reading
+            plan.source['reading']=source_reading(self.tables,identity,rows['document'])
             # Book is the shipped KCD2 entity script, not a KCD1 script port.
             rows['pickable_item']['entity_script']=''
         candidates=[r for r in self.native.values() if r.tag==self.CATEGORIES.get(category) and r.get('IconId')]
@@ -191,5 +196,15 @@ class WorldItemAdapter(ItemAdapter):
             table:dict(rows[table]) for table in ('consumable_item','potion')
             if any(v and k!='item_id' for k,v in rows[table].items())}
         if category=='document':
-            evidence['reading_rewards_verified']=False
-        return target,{name:xml(root) for name in files},evidence
+            # The reward lives in tables keyed by the registered item, so it is
+            # written only once the final target identity is known.
+            from document_reading import convert_reading
+            reading_files,document_type,reading=convert_reading(identity,target,plan.source.get('reading'),
+                self.native_reading,self.namespace)
+            if document_type:row.set('Type',document_type)
+            evidence['reading_reward']=reading
+            # Offline table evidence only; reading_reward.runtime_verified stays false.
+            evidence['reading_rewards_verified']=reading['offline_supported']
+        files={name:xml(root) for name in files}
+        if category=='document':files.update(reading_files)
+        return target,files,evidence
