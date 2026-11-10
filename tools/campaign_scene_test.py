@@ -23,14 +23,15 @@ from campaign_package import campaign_spawn_objects
 from dialogue_dubbing import bind_soul_voice, dubbing_index, DEPOT
 from build_english_audio_test import merge_audio_strings
 from build_horse_trader_test import rewrite, digest
+from shared_xml import parse as parse_shared
 
 
 def source_scene_positions(source, level, quest, alias):
     with zipfile.ZipFile(source / 'Data/Levels' / level / 'level.pak') as archive:
-        entities = list(ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity'))
+        entities = list(parse_shared(read(archive, 'objects_mission0.xml')).iter('Entity'))
         for n in archive.namelist():
             if n.lower().startswith('layers/') and n.lower().endswith('.xml'):
-                entities.extend(ET.fromstring(read(archive, n)).iter('Entity'))
+                entities.extend(parse_shared(read(archive, n)).iter('Entity'))
     controller = [e for e in entities if e.get('Name') == quest]
     # Mission and source layer can expose the same controller.
     controllers = {ET.tostring(e) for e in controller}

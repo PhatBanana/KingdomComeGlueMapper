@@ -18,6 +18,7 @@ from campaign_entity_links import native_guid
 from upgrade_map import read, xml
 from character_person_ai import (capture_person_ai, native_brain_and_class,
                                stat_operations, apply_person_properties, receipt, register_factions)
+from shared_xml import parse as parse_shared
 
 
 def native_xml(blob):
@@ -46,7 +47,7 @@ def layer_entity_index(archive):
             normalized = entry.replace('\\', '/').lower()
             if not normalized.startswith('layers/') or not normalized.endswith('.xml'):
                 continue
-            for entity in ET.fromstring(read(archive, entry)).iter('Entity'):
+            for entity in parse_shared(read(archive, entry)).iter('Entity'):
                 index.setdefault(entity.get('EntityId'), set()).add(entry)
         return index
     if not isinstance(archive.filename, str):
@@ -79,6 +80,7 @@ def resolve_link_targets(archive, actor, entities, provenance):
         if entry not in entries:
             continue
         blob = read(archive, entry)
+        # Fresh elements: callers may edit the targets this returns.
         for entity in ET.fromstring(blob).iter('Entity'):
             identity = entity.get('EntityId')
             if identity not in missing:
@@ -141,7 +143,7 @@ def resolve_person(source, name, level='rataje', *, include_ai=True):
                 if entry.lower().startswith('layers/') and entry.lower().endswith('.xml'):
                     blob = read(archive, entry)
                     if name.encode('utf-8') in blob:
-                        layer_entities = list(ET.fromstring(blob).iter('Entity'))
+                        layer_entities = list(parse_shared(blob).iter('Entity'))
                         entities.extend(layer_entities)
                         if any(e.get('Name') == name for e in layer_entities):
                             actor_sources[entry] = hashlib.sha256(blob).hexdigest()
