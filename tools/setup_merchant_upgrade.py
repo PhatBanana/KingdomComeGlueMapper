@@ -34,7 +34,16 @@ MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),
              ('aus_woman16', 'gm_source_shop_142'),
              ('mrh_woman5', 'gm_source_shop_120'),
              ('prib_bakers_wife', 'gm_source_shop_162'),
-             ('rat_konrad_hagen', 'gm_source_shop_53'))
+             ('rat_konrad_hagen', 'gm_source_shop_53'),
+             # Third batch: Rattay market keepers with a home morning before work.
+             # The butcher's and shoemaker's wives import 1 and 5 items.
+             ('rat_merchant_grocery', 'gm_source_shop_52'),
+             ('rat_woman11', 'gm_source_shop_96'),
+             ('rat_merchant_shop1', 'gm_source_shop_97'),
+             ('rat_merchant_shop3', 'gm_source_shop_98'),
+             ('rat_merchant_shop2', 'gm_source_shop_99'),
+             ('rat_butchers_wife', 'gm_source_shop_50'),
+             ('rat_shoemakers_wife', 'gm_source_shop_56'))
 SOURCE_SHOP = 'gm_source_shop_'
 
 

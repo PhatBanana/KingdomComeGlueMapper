@@ -156,6 +156,8 @@ def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_
     report=dict(version=1,person=person,stock=stock,service=service,storage=storage,storage_items=storage_items,jobs=jobs,voice_binding=voice_binding,
         runtime_verified=False,quest_policy='Existing source inventory objective; no scripted grants or completion')
     if sleep is not None:report['sleep']=sleep
+    # The source's unlinked morning is a wait at home; nothing is bound for it.
+    if schedule.get('home_morning'):report['home_morning']=dict(intervals=schedule['home_morning'],binding=None,runtime_verified=False)
     # A shop without imported assets keeps the receipt it always had.
     archives=write_asset_archives(stage/'Data',asset_archive,shop_assets) if asset_archive else []
     if archives:report['asset_archives']=archives

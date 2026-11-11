@@ -4,12 +4,14 @@ A resident source keeper has a selling activity and a night at home. The home
 night carries no activity link: the source brain resolves it from the keeper's
 Home link, and the sleep extension owns that conversion. This module lets the
 service builder accept exactly that shape and hands the night to the existing
-sleep extension. Any other unlinked activity stays pending and fails the build.
+sleep extension. An unlinked morning between that night and selling is the
+source's wait at home. Any other unlinked activity stays pending and fails the build.
 """
 import zipfile
 from pathlib import Path
 
 SLEEP = 'sleep'
+MORNING = 'morning'
 UNLINKED = 'No source activity link'
 
 
@@ -19,17 +21,36 @@ def source_restock_policy(shop):
 
 
 def selling_schedule(schedule):
-    """Move the unlinked home night out of `pending`; leave every other gap pending.
+    """Move the unlinked home night (and its morning) out of `pending`.
 
-    Returns the schedule unchanged unless all its pending intervals are the
-    authored sleep. The caller still rejects a schedule with anything pending.
+    Returns the schedule unchanged unless every pending interval is the
+    authored sleep or a home morning. The caller still rejects a schedule with
+    anything pending.
+
+    Source `morning` is sa_city's goToSmartArea. Without an activity link it
+    has no area, so it neither moves the keeper nor calls a behaviour: it waits
+    where the night left them, at home, until the next activity. A morning that
+    starts as the home night ends and ends as selling starts is therefore
+    kept as that wait. It needs no binding, because the converted night and the
+    timed selling link leave the keeper at home in between.
     """
     pending = schedule['pending']
     if not pending or not schedule['resolved']:
         return schedule
-    if any(entry['activity'].casefold() != SLEEP or entry.get('reason') != UNLINKED for entry in pending):
+    if any(entry.get('reason') != UNLINKED for entry in pending):
         return schedule
-    return dict(schedule, pending=[], home_sleep=[dict(entry) for entry in pending])
+    night = [e for e in pending if e['activity'].casefold() == SLEEP]
+    morning = [e for e in pending if e['activity'].casefold() == MORNING]
+    if not night or len(night) + len(morning) != len(pending):
+        return schedule
+    ends = {e['end_minute'] % 1440 for e in night}
+    starts = {e['start_minute'] for e in schedule['resolved']}
+    if any(e['start_minute'] not in ends or e['end_minute'] not in starts for e in morning):
+        return schedule
+    result = dict(schedule, pending=[], home_sleep=[dict(entry) for entry in night])
+    if morning:
+        result['home_morning'] = [dict(entry) for entry in morning]
+    return result
 
 
 def bind_sleep(files, merchant, source, target, *, source_level='rataje'):
