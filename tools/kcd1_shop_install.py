@@ -82,7 +82,10 @@ STUB_MODULE = 'quests/final/barbora/open_world/' + MODULE + '.xml'
 ROLE_TABLE = 'Libs/Tables/rpg/role__gm_kcd1_shop.xml'
 ROLE_FILES = 'libs/storm/roles/'
 SCOPE = ('ska_merchant1', 'ska_merchant2', 'ska_merchant3', 'ska_merchant4', 'ska_woman20', 'ska_collierVarlet',
-         'ska_blanka', 'neu_zdena', 'rato_innkeeper1', 'rat_pesek')
+         'ska_blanka', 'neu_zdena', 'rato_innkeeper1', 'rat_pesek',
+         # Resident source merchants (feat/kcd1-shops, 11-11).
+         'sas_woman23', 'sas_merchant_grocery', 'sas_bakers_wife', 'sas_woman1', 'sas_woman12', 'rat_armorer',
+         'sas_tailors_wife')
 CHARACTER_TABLE = 'Libs/Tables/skald/skald_character__gm_kcd1_shop.xml'
 DROP_ROLES = frozenset(('SMLOUVANI_MUZ', 'SMLOUVANI_ZENA', 'OBCHODNIK_Z_DIALOGU_MUZ', 'OBCHODNICE_Z_DIALOGU_ZENA'))
 DROP_OPERATIONS = frozenset(('addShopRoles_greeting_man', 'addShopRoles_greeting_woman',
