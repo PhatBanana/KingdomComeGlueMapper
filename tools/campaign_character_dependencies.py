@@ -11,7 +11,7 @@ from audit_character_bodies import Assets
 from build_npc_probe import asset_path, bind_material
 from campaign_dependencies import ImportPlan
 from campaign_quest_graph import identifier, xml
-from character_skin_upgrade import upgrade_skin, limit_skin_influences
+from character_skin_upgrade import upgrade_skin, limit_skin_influences, strip_foreign_joints
 from clothing_regions import assign_body_regions, split_skin_regions
 from character_lods import source_lods, filename, validate_chain
 
@@ -90,6 +90,10 @@ class CharacterPartAdapter:
             if chain and sorted(chain) != list(range(1, max(chain) + 1)):
                 raise ValueError('Character region disappears and returns in its LOD chain: ' + region)
             validate_chain(blob, chain)
+            levels = sorted(chain)
+            (blob, *lowered), _ = strip_foreign_joints([blob, *(chain[level] for level in levels)], skeleton)
+            chain = dict(zip(levels, lowered))
+            files[prefix + base_name] = blob
             for level, lower in chain.items():
                 files[prefix + filename(base_name, level)] = lower
             ET.SubElement(elements, 'SkinElement', EquipmentPart=region, BodyLayerId='0', Model=base_name,

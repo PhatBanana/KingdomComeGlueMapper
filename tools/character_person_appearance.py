@@ -29,7 +29,7 @@ from character_person import native_xml
 from character_clothing_variant import resolve_variant
 from character_source_clothing import female_role, native_role, source_item
 from character_native_materials import convert_character_materials
-from character_lods import source_lods, filename as lod_filename, emit_regions, validate_chain
+from character_lods import source_lods, filename as lod_filename, emit_regions, validate_chain, strip_families
 from bake_pool import Bakes
 from setup_progress import work_progress
 
@@ -127,7 +127,7 @@ def align_internal_translation(blob, *, max_translation=.01):
 
 # Advance whenever the source geometry, attachments, masks or material policy
 # requires existing saved appearances to be rebuilt by normal Setup.
-APPEARANCE_POLICY_VERSION = 2
+APPEARANCE_POLICY_VERSION = 3  # 3: skins list no unbound joints outside the native rig
 
 
 def build_appearance(source, target, person, namespace, output, *, notify=lambda message: None):
@@ -382,6 +382,8 @@ def _build_appearance(source, target, person, namespace, output, *, notify=lambd
             clothing_preset_name=namespace + '_outfit', gender=sex.title(), prefers_hood_on='false')
         ET.SubElement(ET.SubElement(clothing_preset, 'Items'), 'Guid').text = item_id
         notify('Writing meshes and source textures')
+        # Every unbound source-rig joint would join the wearer's extended skeleton.
+        joints = strip_families(emitted, skeleton, prefix)
         write_staged(output, {**emitted, 'Libs/Tables/Character/CharacterComponent__' + namespace + '.xml': xml(document),
             'Libs/Tables/item/item__' + namespace + '.xml': xml(item_root),
             'Libs/Tables/item/clothing_preset__' + namespace + '.xml': xml(clothing_root),
@@ -405,6 +407,7 @@ def _build_appearance(source, target, person, namespace, output, *, notify=lambd
                 texture_bakes=bakes.stats,
                 coverage=coverage,
                 fitting=outfit_fitting.evidence(), clothing_attachments=attachment_report,
+                skin_joints=joints,
                 outfit_mode='Fixed source outfit, using the existing skin upgrader', runtime_verified=False)
 
 
@@ -477,6 +480,7 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
         'Localization/English/text_ui_items.xml': xml(localization),
     }
     notify('Writing meshes and source textures')
+    joints = strip_families(emitted, native.get('objects/characters/humans/female/skeleton/female.chr')[0], prefix)
     write_staged(output, {**emitted, **additions})
     notify('Baking native materials and textures')
     with Bakes(reuse=True) as bakes:
@@ -493,7 +497,7 @@ def finish_female(source, target, tables, namespace, output, prefix, emitted,
     (output / ('Libs/Tables/item/clothing_preset__' + namespace + '.xml')).write_bytes(xml(clothing_root))
     return dict(appearance=appearance, inventory=namespace + '_clothes', gender='female',
         archetype=native_soul_archetype(archetypes, 'Female'), parts=evidence, rig=rig,
-        items=item_report, composition=composition,
+        items=item_report, composition=composition, skin_joints=joints,
         texture_bakes=bakes.stats,
         outfit_mode='Source female outfits composed per native draw region', runtime_verified=False,
         localization='Localization/English/text_ui_items.xml', materials=material_report, coverage=coverage)

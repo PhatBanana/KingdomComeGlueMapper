@@ -6,6 +6,7 @@ not set draw distances, force a mesh level, or change animation/AI budgets.
 import re
 from pathlib import PurePosixPath
 
+from character_skin_upgrade import strip_foreign_joints
 from clothing_regions import Skin
 
 
@@ -88,3 +89,30 @@ def emit_regions(emitted, prefix, base_regions, lod_regions):
         emitted[base_name] = base
         for level, blob in chain.items():
             emitted[filename(base_name, level)] = blob
+
+
+def strip_families(files, skeleton, prefix=''):
+    """Remove unbound non-native joints from every skin under ``prefix``.
+
+    Run on the finished skins, after region splits and palette merges. A base
+    skin and its ``_lodN`` files are decided together, so a joint bound at any
+    level stays in all of them. ``files`` maps names to bytes or staged paths.
+    """
+    families = {}
+    for name in files:
+        key = name.replace('\\', '/').lower()
+        if not key.endswith('.skin') or not key.startswith(prefix.lower()):
+            continue
+        match = LOD_NAME.fullmatch(key)
+        families.setdefault(match[1] if match else key[:-5], []).append((int(match[2]) if match else 0, name))
+    report = {}
+    for members in families.values():
+        names = [name for _, name in sorted(members)]
+        blobs = [files[name] if isinstance(files[name], bytes) else files[name].read_bytes() for name in names]
+        outputs, evidence = strip_foreign_joints(blobs, skeleton)
+        for name, blob, output, detail in zip(names, blobs, outputs, evidence):
+            if output is not blob:
+                files[name] = output
+            report[name] = dict(joints=detail['joints'], retained=detail['retained'],
+                                foreign_retained=detail['foreign_retained'])
+    return report

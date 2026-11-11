@@ -13,7 +13,7 @@ from build_npc_probe import asset_path, bind_material
 from campaign_dependencies import ImportPlan
 from character_person import native_xml
 from character_person_appearance import align_internal_translation
-from character_skin_upgrade import upgrade_skin, limit_skin_influences, CompiledSkin, matrix, read_morphs
+from character_skin_upgrade import upgrade_skin, limit_skin_influences, strip_foreign_joints, CompiledSkin, matrix, read_morphs
 from clothing_appearance import apply_armor_colorization
 from clothing_regions import assign_upper_garment_regions, split_skin_regions, read_chunks
 from garment_contracts import clothing_role, source_variant
@@ -155,6 +155,7 @@ class ClothingAdapter:
         files = {}
         missing_variant = None
         internal_offset = None
+        skin_joints = {}
         # KCD2 draws spurs through material features of the worn boots; the
         # role has no attachment of its own. Its occupancy (feet, outermost
         # layer) would make a standalone source mesh the regional owner, and
@@ -216,6 +217,11 @@ class ClothingAdapter:
                 if region not in native_layers:
                     raise ValueError('Source garment region is absent from native role: '+role+'/'+region)
                 layer = native_layers[region]
+                # The wearer's extended skeleton takes every listed joint its rig lacks,
+                # so a piece lists only native joints and the ones it binds.
+                (skin,),(joints,) = strip_foreign_joints([skin], skeleton)
+                skin_joints[region] = dict(joints=joints['joints'], retained=joints['retained'],
+                                           foreign_retained=joints['foreign_retained'])
                 files[prefix+region+'.skin'] = skin
                 element = ET.SubElement(elements,'SkinElement',EquipmentPart=region,Model=region+'.skin',
                     # Female bodies contain arms, hands and legs in their torso
@@ -269,6 +275,6 @@ class ClothingAdapter:
         elif role not in ('HorseShoe','Ring','Necklace','Spurs'): raise ValueError('Source wearable is missing a model')
         files['Libs/Tables/Character/CharacterComponent__'+name+'.xml'] = xml(root)
         return name, files, dict(role=role,source_clothing=part['clothing_id'],source_geometry_preserved=omitted_mesh is None,
-            omitted_source_mesh=omitted_mesh,
+            omitted_source_mesh=omitted_mesh, skin_joints=skin_joints,
             missing_source_variant=missing_variant, internal_translation=internal_offset,
             equipment=equipment_contract, fitting_runtime_verified=False)

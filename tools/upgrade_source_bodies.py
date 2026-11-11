@@ -21,7 +21,7 @@ from character_clothing_variant import resolve_variant
 from character_female_body import complete_source_body
 from character_instance import effective_soul
 from character_landmark_warp import anatomical_warp
-from character_lods import source_lods
+from character_lods import source_lods, strip_families
 from character_person import resolve_person
 from character_person_appearance import align_internal_translation, source_default_body
 from character_skin_upgrade import CompiledSkin, upgrade_skin, limit_skin_influences, read_morphs, spine_mapping
@@ -159,6 +159,7 @@ def rebuild(source, target, installed, output, people=None, notify=print):
                         changed_vertices=int((distances>0.001).sum()), maximum_shape_restoration_mm=float(distances.max()),
                         baked_morphs=detail['baked_morphs'], coverage=membership, source=provenance,
                         topology_preserved=True, unequipped_shape_preserved=True))
+            strip_families(files, skeleton)
             pending = output/'Data'/(namespace+'.pending')
             with zipfile.ZipFile(pending, 'x', zipfile.ZIP_DEFLATED) as archive:
                 for name, blob in files.items():

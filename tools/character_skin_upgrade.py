@@ -6,7 +6,7 @@ the separate native packing step normalizes them to the target's four slots.
 Render/internal positions, tangent frames, morph deltas and bounds move together
 when explicit bind-space reposing is requested.
 """
-from collections import defaultdict
+from collections import Counter, defaultdict
 import math
 import re
 import struct
@@ -493,3 +493,132 @@ def limit_skin_influences(blob, maximum=4):
         changed_vertices=int(np.count_nonzero(total<255)),
         maximum_discarded_weight=float((255-total).max()/255),
         weights_sum_to_255=True)
+
+
+def strip_physical_bones(chunk, table, keep):
+    """Remove the physical-bone entries of removed joints.
+
+    Entries are in the exporter's depth-first order, not palette order: BoneID
+    and ParentID index this array, and ControllerID names the palette joint.
+    An array whose BoneIDs are no longer its own positions has been rewritten
+    by an earlier step; its entries are then only filtered, never renumbered.
+    """
+    if chunk.version!=0x800 or (len(chunk.data)-32)%152:raise ValueError('Unsupported physical bones')
+    controllers={}
+    for i,o in enumerate(range(32,len(table),584)):
+        if controllers.setdefault(table[o:o+4],i)!=i:raise ValueError('Different joints have the same controller CRC')
+    offsets=range(32,len(chunk.data),152)
+    entries=[struct.unpack_from('<3i',chunk.data,o) for o in offsets]
+    joints=[controllers.get(chunk.data[o+12:o+16]) for o in offsets]
+    retained=[joint is None or bool(keep[joint]) for joint in joints]
+    ordered=all(entry[0]==i for i,entry in enumerate(entries)) and all(-1<=entry[1]<len(entries) for entry in entries)
+    position=np.cumsum(retained)-1;lost=Counter(entry[1] for entry,kept in zip(entries,retained) if not kept)
+    output=bytearray(chunk.data[:32])
+    for i,(o,entry,kept) in enumerate(zip(offsets,entries,retained)):
+        if not kept:continue
+        record=bytearray(chunk.data[o:o+152])
+        if ordered:
+            parent=entry[1]
+            # Follows the palette hierarchy, where ancestors of a retained joint are retained.
+            while parent>=0 and not retained[parent]:parent=entries[parent][1]
+            struct.pack_into('<3i',record,0,int(position[i]),int(position[parent]) if parent>=0 else -1,
+                             max(entry[2]-lost[i],0))
+        output.extend(record)
+    return bytes(output)
+
+
+def joint_usage(skin):
+    """Per-joint flag: a render or internal vertex binds it with a nonzero weight."""
+    used=np.zeros(len(skin.info['bones']),dtype=bool)
+    stream=np.frombuffer(skin.streams[9].data,dtype=RENDER_INFLUENCES,offset=24)
+    internal=np.frombuffer(skin.internal.data,dtype=INTERNAL_INFLUENCES,offset=32)
+    for records in (stream,internal):
+        ids=records['ids'][records['weights']>0]
+        if np.any(ids>=len(used)):raise ValueError('Bone index outside table')
+        used[ids]=True
+    return used
+
+
+RENDER_INFLUENCES=np.dtype([('ids','<u2',4),('weights','u1',4)])
+INTERNAL_INFLUENCES=np.dtype(dict(names=['ids','weights'],formats=[('<u2',4),('<f4',4)],offsets=[36,44],itemsize=64))
+
+
+def strip_foreign_joints(blobs, target_skeleton):
+    """Drop joints that bind no vertex and that the target rig does not have.
+
+    KCD2 extends a character's skeleton with the joints of its attached skins
+    that the base skeleton lacks, and a skeleton holds at most 768 joints. A
+    KCD1 skin lists its whole source rig, so a scarf bound to nine joints
+    brought 89 facial helpers with it; with a retail cloth-simulated coat the
+    player passed the limit (inferred from joint totals, not yet seen fixed
+    in game). Listing an unbound joint has no other use in a skin.
+
+    ``blobs`` is one LOD family. A joint is retained in every member when it
+    is native (case-insensitive name), or is weighted in any member, or is an
+    ancestor of a retained joint. Members with equal palettes therefore keep
+    equal palettes. Joint order, bind poses, controller ids, geometry and
+    weights are untouched; only palette indices and child links are rewritten.
+    A blob with nothing to drop is returned as the same object.
+    """
+    native={b['name'].casefold() for b in bone_table(read_chunks(target_skeleton))}
+    if not native:raise ValueError('Missing native skeleton')
+    skins=[CompiledSkin(b) for b in blobs];weighted=set()
+    for skin in skins:
+        bones=skin.info['bones']
+        for index in np.flatnonzero(joint_usage(skin)):weighted.add(bones[int(index)]['name'].casefold())
+    outputs=[];evidence=[]
+    for blob,skin in zip(blobs,skins):
+        bones=skin.info['bones'];count=len(bones);keep=np.zeros(count,dtype=bool)
+        for b in reversed(bones):
+            # Parents precede children, so one reverse pass closes the ancestry.
+            parent=b['parent_index']
+            if parent is not None and parent>=b['index']:raise ValueError('Expected parent before child')
+            name=b['name'].casefold()
+            if parent is None or name in native or name in weighted:keep[b['index']]=True
+            if keep[b['index']] and parent is not None:keep[parent]=True
+        foreign=[b['name'] for b in bones if keep[b['index']] and b['name'].casefold() not in native]
+        detail=dict(joints=count,retained=int(keep.sum()),
+                    removed=[b['name'] for b in bones if not keep[b['index']]],foreign_retained=foreign)
+        evidence.append(detail)
+        if keep.all():outputs.append(blob);continue
+        mapping=np.cumsum(keep)-1
+        children=defaultdict(list)
+        for b in bones:
+            if keep[b['index']] and b['parent_index'] is not None:children[b['parent_index']].append(int(mapping[b['index']]))
+        table=bytearray(skin.bones.data[:32])
+        for b in bones:
+            i=b['index']
+            if not keep[i]:continue
+            record=bytearray(skin.bones.data[32+584*i:32+584*(i+1)]);new=int(mapping[i]);kids=children[i]
+            struct.pack_into('<iIi',record,572,int(mapping[b['parent_index']])-new if b['parent_index'] is not None else 0,
+                             len(kids),min(kids)-new if kids else 0)
+            table.extend(record)
+        replacements={skin.bones.id:bytes(table)};chunks=[]
+        # A zero-weight slot may still name a removed joint; it binds nothing, so it takes the root.
+        def lookup(ids):
+            table_=np.zeros(max(count,int(ids.max())+1 if ids.size else 0),dtype='<u2')
+            table_[:count][keep]=mapping[keep];return table_[ids]
+        # Views over private copies: only the id fields are written, every other byte is retained.
+        for chunk,layout,offset in ((skin.streams[9],RENDER_INFLUENCES,24),(skin.internal,INTERNAL_INFLUENCES,32)):
+            payload=bytearray(chunk.data);records=np.frombuffer(payload,dtype=layout,offset=offset)
+            records['ids']=lookup(records['ids']);replacements[chunk.id]=bytes(payload)
+        for c in skin.chunks:
+            if c.kind==0x3004:
+                joint=struct.unpack_from('<I',c.data)[0]
+                if joint>=count:raise ValueError('Bone bound outside palette')
+                # A removed joint binds no vertex, so its bound has no members to keep.
+                if not keep[joint]:continue
+                p=bytearray(c.data);struct.pack_into('<I',p,0,int(mapping[joint]));replacements[c.id]=bytes(p)
+            elif c.kind==0x2001:
+                replacements[c.id]=strip_physical_bones(c,skin.bones.data,keep)
+            chunks.append(c)
+        output=write_chunks(chunks,replacements);checked=CompiledSkin(output)
+        before=np.array([b['name'] for b in bones]);after=np.array([b['name'] for b in checked.info['bones']])
+        active=skin.weights>0
+        if (not np.array_equal(checked.weights,skin.weights) or not np.array_equal(checked.vertices,skin.vertices)
+                or not np.array_equal(checked.faces,skin.faces)
+                or not np.array_equal(after[checked.ids][active],before[skin.ids][active])
+                or list(after)!=[b['name'] for b in bones if keep[b['index']]]):
+            raise AssertionError('Joint removal changed skin geometry or influences')
+        outputs.append(output)
+    return outputs,evidence
