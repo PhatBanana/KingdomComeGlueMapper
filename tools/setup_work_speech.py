@@ -8,6 +8,14 @@ from campaign_quest_graph import xml
 
 RECORD='work-speech.json'
 
+
+def soul_voice(reports):
+ """The one voice a soul's cry branches speak with; branches that disagree stop the stage."""
+ voices=[next(iter(r['binding']['roles'].values())) for r in reports]
+ if not voices or any(v['voice_technical_name']!=voices[0]['voice_technical_name'] for v in voices):
+  raise ValueError('Work speech branches disagree on the speaker voice')
+ return voices[0]
+
 def upgrade(package,source,target):
  from campaign_dependency_adapters import SourceTables
  from campaign_sources import RetailSourceReader
@@ -98,13 +106,15 @@ def upgrade(package,source,target):
     for text in (key,value,value):E.SubElement(row,'Cell').text=text
    report.update(name=name,definition=path,active_port=report['conversion']['active_port'],requests_enabled=True,pending=[],hearing=hearing_report,presentation_adaptation='Native market activity keeps pose; source ADLG gestures omitted',worker=worker)
    emitted.append(report)
-   voice=next(iter(report['binding']['roles'].values()))
-   soulrows=[r for n,b in resources.items() if n.startswith('Libs/Tables/rpg/soul__') for r in E.fromstring(b).iter('soul') if r.get('soul_id')==soul]
-   character=soulrows[0].get('skald_character_name')
-   current=[r for n,b in resources.items() if n.startswith('Libs/Tables/skald/skald_character__') for r in E.fromstring(b).iter('skald_character') if r.get('skald_character_name')==character]
-   master=current[0].get('master_role_name') if current else next(iter(mapping.values()))
-   resources,voice_receipt=bind_soul_voice(resources,target,'kingdomcomegluemapper',soul_names[soul],voice['voice_technical_name'],master,actor_ui_name(resources,soul_names[soul]))
-   actor_reports.append(dict(soul=soul,worker=worker,voice=voice_receipt,jobs=[j.get('Name') for j in jobs[soul]]))
+  # One Skald identity per soul: binding again for a second cry branch would
+  # meet the row the first binding wrote and stop as ambiguous.
+  voice=soul_voice(emitted[-len(selected):])
+  soulrows=[r for n,b in resources.items() if n.startswith('Libs/Tables/rpg/soul__') for r in E.fromstring(b).iter('soul') if r.get('soul_id')==soul]
+  character=soulrows[0].get('skald_character_name')
+  current=[r for n,b in resources.items() if n.startswith('Libs/Tables/skald/skald_character__') for r in E.fromstring(b).iter('skald_character') if r.get('skald_character_name')==character]
+  master=current[0].get('master_role_name') if current else next(iter(mapping.values()))
+  resources,voice_receipt=bind_soul_voice(resources,target,'kingdomcomegluemapper',soul_names[soul],voice['voice_technical_name'],master,actor_ui_name(resources,soul_names[soul]))
+  actor_reports.append(dict(soul=soul,worker=worker,voice=voice_receipt,jobs=[j.get('Name') for j in jobs[soul]]))
  resources[ENTRY]=xml(entry)
  if not emitted:return {},dict(status='no_supported_source_workers',pending=pending,runtime_verified=False)
  with zipfile.ZipFile(package/'Localization/English.pak') as z:depot=read(z,DEPOT)
