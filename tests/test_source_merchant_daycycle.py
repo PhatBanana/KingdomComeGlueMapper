@@ -35,12 +35,43 @@ class SellingScheduleTests(unittest.TestCase):
         self.assertIs(selling_schedule(schedule), schedule)
 
     def test_any_other_unconverted_activity_stays_pending(self):
-        # Rattay keepers also have a morning or an evening out; those need their own adapters.
-        for activity in ('morning', 'fun', 'eat'):
+        # An evening out or a meal needs its own adapter.
+        for activity in ('fun', 'eat', 'work'):
             schedule = dict(person='keeper', resolved=[SELLING],
                             pending=NIGHT+[interval(activity, 400, 449, reason='No source activity link')])
             self.assertIs(selling_schedule(schedule), schedule)
             self.assertNotIn('home_sleep', selling_schedule(schedule))
+
+    def test_unlinked_morning_between_night_and_selling_is_the_wait_at_home(self):
+        # rat_merchant_grocery: sleep to 365, morning 365-455, selling 455-1205.
+        selling = interval('work', 455, 1205, behavior=SELLING['behavior'])
+        night = [interval('sleep', 0, 365, reason='No source activity link'),
+                 interval('sleep', 1205, 1440, reason='No source activity link')]
+        morning = interval('Morning', 365, 455, reason='No source activity link')
+        schedule = dict(person='keeper', resolved=[selling], pending=night+[morning])
+        result = selling_schedule(schedule)
+        self.assertEqual(result['pending'], [])
+        self.assertEqual(result['home_sleep'], night)
+        self.assertEqual(result['home_morning'], [morning])
+        self.assertEqual(len(schedule['pending']), 3)
+
+    def test_a_night_without_a_morning_reports_none(self):
+        self.assertNotIn('home_morning', selling_schedule(dict(person='keeper', resolved=[SELLING], pending=list(NIGHT))))
+
+    def test_a_morning_detached_from_the_night_or_the_selling_stays_pending(self):
+        cases = (([interval('sleep', 0, 300, reason='No source activity link')], 400, 449),  # gap after the night
+                 ([], 0, 449),                                                            # no night at all
+                 (list(NIGHT), 449, 500))                                                 # runs into selling
+        for night, start, end in cases:
+            schedule = dict(person='keeper', resolved=[SELLING],
+                            pending=night+[interval('morning', start, end, reason='No source activity link')])
+            self.assertIs(selling_schedule(schedule), schedule)
+
+    def test_a_linked_but_undispatched_morning_stays_pending(self):
+        morning = interval('morning', 400, 449, reason='Activity link selection requires contextual dispatch')
+        night = [interval('sleep', 0, 400, reason='No source activity link'), NIGHT[1]]
+        schedule = dict(person='keeper', resolved=[SELLING], pending=night+[morning])
+        self.assertIs(selling_schedule(schedule), schedule)
 
     def test_a_linked_but_undispatched_sleep_is_not_a_home_night(self):
         pending = [interval('sleep', 0, 449, reason='Activity link selection requires contextual dispatch')]

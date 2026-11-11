@@ -152,6 +152,7 @@ class HaggleMappingTests(unittest.TestCase):
         self.assertEqual(row['voices'], {'rpro': {'recorded': 4, 'facial': 1}, 'bcas': {'recorded': 4, 'facial': 0},
                                          'ccla': {'recorded': 0, 'facial': 0}, 'bdou': {'recorded': 0, 'facial': 0},
                                          'dsir': {'recorded': 0, 'facial': 0}, 'tzie': {'recorded': 0, 'facial': 0},
+                                         'bbra': {'recorded': 0, 'facial': 0}, 'jcom': {'recorded': 0, 'facial': 0},
                                          'tmck': {'recorded': 2, 'facial': 1}})
 
 
