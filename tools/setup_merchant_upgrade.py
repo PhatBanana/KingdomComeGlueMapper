@@ -25,7 +25,16 @@ MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),
              ('sas_woman12', 'gm_source_shop_104'),
              # The Rattay armourer and the Sasau tailor bring their own stock items.
              ('rat_armorer', 'gm_source_shop_54'),
-             ('sas_tailors_wife', 'gm_source_shop_70'))
+             ('sas_tailors_wife', 'gm_source_shop_70'),
+             # Second batch: market keepers whose stock is already in the package,
+             # except the Rattay general store, which imports 2 items.
+             ('led_merchant_grocery', 'gm_source_shop_76'),
+             ('aus_man3', 'gm_source_shop_117'),
+             ('aus_baker', 'gm_source_shop_116'),
+             ('aus_woman16', 'gm_source_shop_142'),
+             ('mrh_woman5', 'gm_source_shop_120'),
+             ('prib_bakers_wife', 'gm_source_shop_162'),
+             ('rat_konrad_hagen', 'gm_source_shop_53'))
 SOURCE_SHOP = 'gm_source_shop_'
 
 
