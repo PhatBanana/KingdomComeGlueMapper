@@ -27,6 +27,16 @@ class MarketLayers(unittest.TestCase):
         layers[0].set('Name','town_state0{abc}')
         self.assertEqual(owned_layers(mission,areas,layers,'seller'),{})
 
+    def test_seller_on_the_default_layer_owns_no_layer(self):
+        mission,areas,layers=self.fixture()
+        del areas['a'].attrib['Layer']
+        self.assertEqual(owned_layers(mission,areas,layers,'seller'),{})
+
+    def test_missing_named_layer_still_fails(self):
+        mission,areas,layers=self.fixture()
+        areas['a'].set('Layer','gone{xyz}')
+        with self.assertRaisesRegex(ValueError,'Missing authored shop layer: gone'):owned_layers(mission,areas,layers,'seller')
+
     def test_transform_retains_authored_rotation_and_scale(self):
         p,q,s=pose((0,-3,0,100,2,0,0,200,0,0,4,30))
         self.assertEqual(p,(100,200,30))
