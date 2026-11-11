@@ -53,3 +53,34 @@ second seller. Temporary staging lives beside the build and is consumed/removed.
 
 This bounded service build does not claim conversion of the two forest workers'
 later quests. Those broader actor/dialogue changes remain separate work.
+
+## Resident keepers outside the static profile
+
+`setup_merchant_upgrade.MERCHANTS` also selects keepers who live in the world
+outside the static Skalitz profile. Each entry names the keeper and the
+namespace the profile builder would derive for the same source shop
+(`gm_source_shop_<source shop id>`, shop id `20000 + source id`), and the stage
+refuses a keeper whose source shop is a different one. All pending keepers share
+one actor stage and one overlay.
+
+These keepers have a real daycycle, so the service builder accepts one more
+shape than an all-day seller: a selling activity plus a night at home. The home
+night has no activity link in the source (the brain resolves it from the `Home`
+link), so the schedule planner reports it as pending.
+`source_merchant_daycycle.selling_schedule` moves exactly that case aside and
+`bind_sleep` hands the keeper to the shared sleep extension after the staffed
+hours are registered. A keeper without a converted bed fails the build. Any
+other unlinked activity (`morning`, `fun`, `eat`) still fails as an unresolved
+schedule, and so does a workplace that is not a selling point (smithy, bakery,
+tailory, pub): those need their own work adapters.
+
+A weekday restock mask uses the installed KCD2 `common_merchant` period, as it
+does for profile shops (`restock_policy='source'`). Stock that has to be
+imported keeps its item tables in `gluemappertravel.pak`, but its meshes and
+textures go to `Data/<namespace>_assets[_NN].pak`, stored ZIP32 shards below
+1 GiB (`source_merchant_assets`). The Rattay armourer alone imports 41 items and
+5.3 GB of textures, which must not enter an archive every later stage rewrites.
+
+A shop stash that the world container stage already converted is reused as
+`gm_container_<source id>`; the builder only adds the `shopStash` and `owner`
+links.

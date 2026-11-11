@@ -10,7 +10,32 @@ from types import SimpleNamespace
 import zipfile
 from upgrade_map import read
 
-MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),)
+# Keeper and public shop namespace. Resident keepers outside the static world
+# profile are selected here one by one; their namespace is the one the profile
+# builder derives from the source shop (gm_source_shop_<source shop id>), so a
+# keeper who later arrives with a profile keeps the same shop, saves and links.
+# Every keeper below sells at an authored market point and otherwise only
+# sleeps at home; other daycycles need their own work adapters first.
+MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),
+             # Sasau: general stall, grocer, baker, tanner and vegetable stall.
+             ('sas_woman23', 'gm_source_shop_62'),
+             ('sas_merchant_grocery', 'gm_source_shop_71'),
+             ('sas_bakers_wife', 'gm_source_shop_72'),
+             ('sas_woman1', 'gm_source_shop_103'),
+             ('sas_woman12', 'gm_source_shop_104'),
+             # The Rattay armourer and the Sasau tailor bring their own stock items.
+             ('rat_armorer', 'gm_source_shop_54'),
+             ('sas_tailors_wife', 'gm_source_shop_70'))
+SOURCE_SHOP = 'gm_source_shop_'
+
+
+def check_identity(person, namespace, report):
+    """A derived namespace must name the shop this keeper really keeps."""
+    stock = report['stock']
+    if stock['shop_name'] != namespace + '_shop':
+        raise ValueError('Source merchant shop name changed: ' + person)
+    if namespace.startswith(SOURCE_SHOP) and str(stock['shop_id']) != str(20000 + int(namespace[len(SOURCE_SHOP):])):
+        raise ValueError('Source merchant keeps a different shop: ' + person)
 
 
 def upgrade(package, source, target):
@@ -38,20 +63,26 @@ def upgrade(package, source, target):
             reports[namespace] = report
     if pending and (source is None or target is None):
         raise ValueError('Source games required for merchant upgrade')
-    for person, namespace in pending:
+    if pending:
         # Temporary conversion lives beside the user's build, never on C:.
         # apply_overlay consumes its archives; remaining regenerable assets
         # are removed when the bounded stage closes. No retained build copies.
+        # All pending keepers share one actor stage and one overlay, so the
+        # level and travel archives are staged once, not once per keeper.
+        people = [person for person, _ in pending]
         with tempfile.TemporaryDirectory(prefix='merchant-upgrade-',dir=package.parent) as temporary:
             stage = Path(temporary)/'actor'
             build_actors(SimpleNamespace(source=Path(source),target=Path(target),mod=package,
-                output=stage,model=None,person=[person],source_level='rataje',level=LEVEL,
+                output=stage,model=None,person=people,source_level='rataje',level=LEVEL,
                 source_profile=[],dialogue_profile=[],dialogue_model=[],quest_path=None,
                 project_path=PROJECT))
             actor_report = json.loads((stage/'report.json').read_text())
-            if actor_report['pending'] or len(actor_report['converted']) != 1:
-                raise ValueError('Merchant actor conversion is incomplete: '+person)
-            report = build_service(source,target,package,stage/'package',person,namespace,ENTRY,LEVEL)
+            if actor_report['pending'] or sorted(r['person'] for r in actor_report['converted']) != sorted(people):
+                raise ValueError('Merchant actor conversion is incomplete: '+', '.join(people))
+            for person, namespace in pending:
+                report = build_service(source,target,package,stage/'package',person,namespace,ENTRY,LEVEL,
+                    restock_policy='source',asset_archive=namespace+'_assets')
+                check_identity(person, namespace, report)
+                reports[namespace] = report
             changed.update(apply_overlay(package,stage/'package',consume=True))
-            reports[namespace] = report
     return changed, reports
