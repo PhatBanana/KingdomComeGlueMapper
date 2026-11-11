@@ -12,6 +12,10 @@ from upgrade_map import read, xml
 
 ARCHIVE = 'Data/gluemapper_item_icons.pak'
 ITEM_TABLE = re.compile(r'libs/tables/item/item(?:__[^/]+)?\.xml', re.I)
+# KCD1 items whose atlas entry has no artwork, mapped by KCD1 item name to the
+# base-game icon of the same object. Without this the row keeps whatever icon
+# its world-item template carried (flute showed a flower icon).
+NATIVE_ICONS = {'flute': 'loot_flute'}
 
 
 def resolve(row, players, names):
@@ -44,6 +48,10 @@ def convert(files, players, names, index, image_loader, empty=None):
             if not index[icon][0]:
                 # The source authored no artwork for this index; a blank texture
                 # would hide the row's existing native icon.
+                native = NATIVE_ICONS.get((names.get(row.get('Id','').lower()) or '').lower())
+                if native and row.get('IconId') != native:
+                    report.append(dict(item=row.get('Id'),source_icon=icon,previous=row.get('IconId'),icon=native))
+                    row.set('IconId',native); changed=True
                 empty.append(dict(item=row.get('Id'),source_icon=icon,icon=row.get('IconId')))
                 continue
             target = 'gm_kcd1_item_'+icon

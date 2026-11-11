@@ -85,6 +85,16 @@ class IconTests(unittest.TestCase):
         self.assertEqual((changes,assets,report),({},{},[]))
         self.assertEqual(empty,[dict(item='flute',source_icon='1',icon='native_flute')])
 
+    def test_authored_empty_flute_uses_native_flute_icon(self):
+        files={'items.xml':b'<Items><ItemClasses><MiscItem Id="22eb" Name="worlditems_item_x" IconId="sesivaniTonici_freshFlowersHidden"/></ItemClasses></Items>'}
+        players={'22eb':dict(icon_id='1')}
+        changes,assets,report=convert(files,players,{'22eb':'flute'},{'1':(None,None)},lambda _:None)
+        row=E.fromstring(changes['items.xml']).find('ItemClasses/MiscItem')
+        self.assertEqual(row.get('IconId'),'loot_flute')
+        self.assertEqual(assets,{})
+        self.assertEqual(report[0]['icon'],'loot_flute')
+        self.assertEqual(convert({'items.xml':changes['items.xml']},players,{'22eb':'flute'},{'1':(None,None)},lambda _:None)[0],{})
+
     def test_empty_icon_does_not_block_other_rows(self):
         files={'items.xml':b'<Items><ItemClasses><MiscItem Id="a" IconId="n"/><MiscItem Id="b" IconId="n"/></ItemClasses></Items>'}
         players={'a':dict(icon_id='1'),'b':dict(icon_id='2')}
