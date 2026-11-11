@@ -6,7 +6,7 @@ the separate native packing step normalizes them to the target's four slots.
 Render/internal positions, tangent frames, morph deltas and bounds move together
 when explicit bind-space reposing is requested.
 """
-from collections import Counter, defaultdict
+from collections import defaultdict
 import math
 import re
 import struct
@@ -362,6 +362,47 @@ def upgrade_skin(blob, target_skeleton, *, variant=None, clear_hiding=True, bone
         legacy_hiding_disabled=clear_hiding,geometry_and_weights_checked=True)
 
 
+def physical_bones(table, sources):
+    """Physical-bone chunk (0x2001) for a bone table.
+
+    In every retail skin and skeleton of both games (1,321 KCD1 and 7,439 KCD2
+    files) the chunk holds one 152-byte entry per palette joint, depth-first
+    over the bone table with siblings in palette order. BoneID is the entry's
+    own position, ParentID the position of its parent's entry, the third field
+    its number of child entries, and ControllerID at +12 names the palette
+    joint. None of the three is a palette index, so they cannot be passed
+    through a palette mapping. Whenever a palette changes the array is rebuilt
+    from the new table; only the per-joint body (properties and physics, bytes
+    16..152) is carried over, by controller, from the first source chunk that
+    has the joint. A joint no source describes takes empty properties and the
+    physics block of its own bone record. The 32-byte header is zero.
+    """
+    count,extra=divmod(len(table)-32,584)
+    if extra:raise ValueError('Unsupported compiled bones')
+    bodies={}
+    for chunk in sources:
+        if chunk.version!=0x800 or (len(chunk.data)-32)%152:raise ValueError('Unsupported physical bones')
+        for o in range(32,len(chunk.data),152):bodies.setdefault(bytes(chunk.data[o+12:o+16]),bytes(chunk.data[o+16:o+152]))
+    controllers=[bytes(table[32+584*i:36+584*i]) for i in range(count)]
+    if len(set(controllers))!=count:raise ValueError('Different joints have the same controller CRC')
+    parents=[];children=defaultdict(list);roots=[]
+    for i in range(count):
+        offset=struct.unpack_from('<i',table,32+584*i+572)[0]
+        if offset and not 0<=i+offset<count:raise ValueError('Invalid bone parent')
+        parents.append(i+offset if offset else None)
+        (children[i+offset] if offset else roots).append(i)
+    order=[];pending=roots[::-1]
+    while pending:
+        joint=pending.pop();order.append(joint);pending.extend(reversed(children[joint]))
+    if len(order)!=count:raise ValueError('Bone table is not a tree')
+    position={joint:i for i,joint in enumerate(order)};output=bytearray(32)
+    for joint in order:
+        o=32+584*joint;parent=parents[joint]
+        output+=struct.pack('<3i',position[joint],-1 if parent is None else position[parent],len(children[joint]))
+        output+=controllers[joint]+bodies.get(controllers[joint],bytes(32)+bytes(table[o+4:o+108]))
+    return bytes(output)
+
+
 def canonicalize_skin_skeletons(blobs):
     """Unify bone palettes by name before combining different source garments."""
     skins=[CompiledSkin(b) for b in blobs];records={};parents={};rank={};required=set()
@@ -404,6 +445,9 @@ def canonicalize_skin_skeletons(blobs):
         struct.pack_into('<iIi',p,572,indices[parents[name]]-i if parents[name] else 0,
                          len(kids),min(indices[k] for k in kids)-i if kids else 0)
         table.extend(p)
+    # Every garment receives the whole palette, so each also describes all of its joints.
+    sources=[c for skin in skins for c in skin.chunks if c.kind==0x2001]
+    physical=physical_bones(table,sources) if sources else None
     outputs=[]
     for skin in skins:
         mapping=np.array([indices[b['name']] for b in skin.info['bones']],dtype='<u2');replacements={skin.bones.id:bytes(table)}
@@ -421,16 +465,7 @@ def canonicalize_skin_skeletons(blobs):
         for c in skin.chunks:
             if c.kind==0x3004:
                 p=bytearray(c.data);joint=struct.unpack_from('<I',p)[0];struct.pack_into('<I',p,0,int(mapping[joint]));replacements[c.id]=bytes(p)
-            elif c.kind==0x2001:
-                if c.version!=0x800 or (len(c.data)-32)%152:raise ValueError('Unsupported physical bones')
-                p=bytearray(c.data)
-                for o in range(32,len(p),152):
-                    for field in (0,4):
-                        value=struct.unpack_from('<i',p,o+field)[0]
-                        if value>=0:
-                            if value>=len(mapping):raise ValueError('Physical bone outside palette')
-                            struct.pack_into('<i',p,o+field,int(mapping[value]))
-                replacements[c.id]=bytes(p)
+            elif c.kind==0x2001:replacements[c.id]=physical
         blob=write_chunks(skin.chunks,replacements);CompiledSkin(blob);outputs.append(blob)
     return outputs
 
@@ -495,38 +530,6 @@ def limit_skin_influences(blob, maximum=4):
         weights_sum_to_255=True)
 
 
-def strip_physical_bones(chunk, table, keep):
-    """Remove the physical-bone entries of removed joints.
-
-    Entries are in the exporter's depth-first order, not palette order: BoneID
-    and ParentID index this array, and ControllerID names the palette joint.
-    An array whose BoneIDs are no longer its own positions has been rewritten
-    by an earlier step; its entries are then only filtered, never renumbered.
-    """
-    if chunk.version!=0x800 or (len(chunk.data)-32)%152:raise ValueError('Unsupported physical bones')
-    controllers={}
-    for i,o in enumerate(range(32,len(table),584)):
-        if controllers.setdefault(table[o:o+4],i)!=i:raise ValueError('Different joints have the same controller CRC')
-    offsets=range(32,len(chunk.data),152)
-    entries=[struct.unpack_from('<3i',chunk.data,o) for o in offsets]
-    joints=[controllers.get(chunk.data[o+12:o+16]) for o in offsets]
-    retained=[joint is None or bool(keep[joint]) for joint in joints]
-    ordered=all(entry[0]==i for i,entry in enumerate(entries)) and all(-1<=entry[1]<len(entries) for entry in entries)
-    position=np.cumsum(retained)-1;lost=Counter(entry[1] for entry,kept in zip(entries,retained) if not kept)
-    output=bytearray(chunk.data[:32])
-    for i,(o,entry,kept) in enumerate(zip(offsets,entries,retained)):
-        if not kept:continue
-        record=bytearray(chunk.data[o:o+152])
-        if ordered:
-            parent=entry[1]
-            # Follows the palette hierarchy, where ancestors of a retained joint are retained.
-            while parent>=0 and not retained[parent]:parent=entries[parent][1]
-            struct.pack_into('<3i',record,0,int(position[i]),int(position[parent]) if parent>=0 else -1,
-                             max(entry[2]-lost[i],0))
-        output.extend(record)
-    return bytes(output)
-
-
 def joint_usage(skin):
     """Per-joint flag: a render or internal vertex binds it with a nonzero weight."""
     used=np.zeros(len(skin.info['bones']),dtype=bool)
@@ -557,7 +560,8 @@ def strip_foreign_joints(blobs, target_skeleton):
     is native (case-insensitive name), or is weighted in any member, or is an
     ancestor of a retained joint. Members with equal palettes therefore keep
     equal palettes. Joint order, bind poses, controller ids, geometry and
-    weights are untouched; only palette indices and child links are rewritten.
+    weights are untouched; only palette indices and child links are rewritten,
+    and the physical-bone array is rebuilt for the shorter palette.
     A blob with nothing to drop is returned as the same object.
     """
     native={b['name'].casefold() for b in bone_table(read_chunks(target_skeleton))}
@@ -610,7 +614,7 @@ def strip_foreign_joints(blobs, target_skeleton):
                 if not keep[joint]:continue
                 p=bytearray(c.data);struct.pack_into('<I',p,0,int(mapping[joint]));replacements[c.id]=bytes(p)
             elif c.kind==0x2001:
-                replacements[c.id]=strip_physical_bones(c,skin.bones.data,keep)
+                replacements[c.id]=physical_bones(table,[c])
             chunks.append(c)
         output=write_chunks(chunks,replacements);checked=CompiledSkin(output)
         before=np.array([b['name'] for b in bones]);after=np.array([b['name'] for b in checked.info['bones']])

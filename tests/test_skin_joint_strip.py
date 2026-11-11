@@ -21,7 +21,15 @@ from test_clothing_assembly import garment_skin
 # name, parent. Breadth-first like a compiled palette: the children of a joint are adjacent.
 SOURCE = (('Root', None), ('Hips', 0), ('FaceHelper', 0), ('Spine', 1), ('Skirt', 1), ('v_0', 2), ('SkirtEnd', 4))
 NATIVE = (('Root', None), ('hips', 0), ('Spine', 1), ('NativeOnly', 0))
-PHYSICAL_ORDER = (0, 1, 3, 4, 6, 2, 5)  # depth-first, as the exporter writes the physical entries
+
+
+def depth_first(bones):
+    """The order of the physical entries: depth-first, siblings in palette order."""
+    order = []; pending = [i for i, (_, parent) in enumerate(bones) if parent is None][::-1]
+    while pending:
+        order.append(pending.pop())
+        pending.extend(i for i in reversed(range(len(bones))) if bones[i][1] == order[-1])
+    return order
 
 
 def palette(bones):
@@ -29,7 +37,7 @@ def palette(bones):
     for i, (name, parent) in enumerate(bones):
         record = bytearray(584)
         struct.pack_into('<I', record, 0, 0x1000+sum(name.encode())*7+len(name))
-        bind = np.eye(4); bind[0, 3] = i
+        bind = np.eye(4); bind[0, 3] = sum(name.encode())%97  # by name: the same joint has one bind pose in every palette
         struct.pack_into('<24f', record, 216, *np.linalg.inv(bind)[:3].ravel(), *bind[:3].ravel())
         record[312:312+len(name)] = name.encode()
         kids = [k for k, (_, p) in enumerate(bones) if p == i]
@@ -56,10 +64,11 @@ def rigged(bones=SOURCE, influences=((3, 6, 5, 0), (200, 55, 0, 0)), physical=Tr
     ident = max(c.id for c in chunks)
     if physical:
         table = palette(bones); entries = bytearray(32)
-        for position, joint in enumerate(PHYSICAL_ORDER[:len(bones)]):
+        order = depth_first(bones)
+        for position, joint in enumerate(order):
             parent = bones[joint][1]
             record = bytearray(152)
-            struct.pack_into('<3i', record, 0, position, PHYSICAL_ORDER.index(parent) if parent is not None else -1,
+            struct.pack_into('<3i', record, 0, position, order.index(parent) if parent is not None else -1,
                              sum(1 for _, p in bones if p == joint))
             record[12:16] = table[32+584*joint:36+584*joint]
             record[16:20] = struct.pack('<I', 0xabc00000+joint)  # payload that must travel with its entry
@@ -82,6 +91,30 @@ def names(blob):
 def bound_names(blob):
     skin = CompiledSkin(blob); table = np.array(names(blob))
     return [sorted(zip(table[i[w > 0]].tolist(), w[w > 0].tolist())) for i, w in zip(skin.ids, skin.weights)]
+
+
+def physical(blob):
+    """Check the retail form of the physical-bone array; return (joint name, body marker) per entry."""
+    skin = CompiledSkin(blob); bones = skin.info['bones']; data = skin.one(0x2001).data
+    joint = {skin.bones.data[32+584*i:36+584*i]: i for i in range(len(bones))}
+    assert len(joint) == len(bones) and not any(data[:32]) and len(data) == 32+152*len(bones), 'one entry per palette joint'
+    entries = [(*struct.unpack_from('<3i', data, o), joint[data[o+12:o+16]], struct.unpack_from('<I', data, o+16)[0])
+               for o in range(32, len(data), 152)]
+    children = {i: [b['index'] for b in bones if b['parent_index'] == i] for i in range(len(bones))}
+    order = []; pending = [b['index'] for b in bones if b['parent_index'] is None][::-1]
+    while pending:
+        order.append(pending.pop()); pending.extend(reversed(children[order[-1]]))
+    assert [e[3] for e in entries] == order, 'depth-first over the palette, siblings in palette order'
+    for position, (bone, parent, kids, index, _) in enumerate(entries):
+        assert bone == position, 'BoneID is the entry position'
+        assert -1 <= parent < position, 'ParentID is an earlier entry'
+        assert (entries[parent][3] if parent >= 0 else None) == bones[index]['parent_index'], 'parent entry names the palette parent'
+        assert kids == len(children[index]), 'child count'
+    return [(bones[e[3]]['name'], e[4]) for e in entries]
+
+
+# A second garment whose extra joint shifts palette indices when the two are unified.
+OTHER = (('Root', None), ('Extra', 0), ('Hips', 0), ('Spine', 2))
 
 
 class StripForeignJointsTests(unittest.TestCase):
@@ -182,23 +215,61 @@ class StripForeignJointsTests(unittest.TestCase):
         self.assertEqual(CompiledSkin(outputs[0]).bones.data, CompiledSkin(outputs[1]).bones.data)
         self.assertEqual(bound_names(outputs[1]), bound_names(lower))
 
-    def test_entries_rewritten_by_palette_unification_are_filtered_not_renumbered(self):
-        # canonicalize_skin_skeletons passes these array positions through its palette mapping,
-        # after which a BoneID is no longer the entry's own position.
+    def test_physical_entry_of_a_removed_unbound_joint_leaves_and_the_array_keeps_the_retail_form(self):
+        source = rigged(); marks = dict(physical(source))
+        self.assertEqual(marks['v_0']-0xabc00000, 5)
+        (output,), _ = strip_foreign_joints([source], native_rig())
+        self.assertEqual(physical(output), [(name, marks[name]) for name in ('Root', 'Hips', 'Spine', 'Skirt', 'SkirtEnd')])
+
+    def test_a_stripped_garment_can_be_unified_again(self):
+        # The female path unifies a garment with its attachments, strips it, then unifies the garments
+        # of one draw region. unified-12 stopped there with "Physical bone outside palette".
+        other = rigged(OTHER, influences=((3, 0, 0, 0), (255, 0, 0, 0)), bounds=())
+        marks = dict(physical(rigged()))
+        garment, attachment = canonicalize_skin_skeletons([rigged(), other])
+        self.assertEqual(names(garment), ['Root', 'Hips', 'FaceHelper', 'Extra', 'Spine', 'Skirt', 'v_0', 'SkirtEnd'])
+        (stripped,), (report,) = strip_foreign_joints([garment], native_rig())
+        self.assertEqual(report['removed'], ['FaceHelper', 'Extra', 'v_0'])
+        layer, under = canonicalize_skin_skeletons([stripped, rigged(influences=((3, 0, 0, 0), (255, 0, 0, 0)), bounds=())])
+        self.assertEqual(bound_names(layer), bound_names(rigged()))
+        for blob in (garment, attachment, stripped, layer, under):
+            for name, mark in physical(blob):
+                if name != 'Extra':
+                    self.assertEqual(mark, marks[name])
+        self.assertEqual([name for name, _ in physical(layer)], ['Root', 'Hips', 'Spine', 'Skirt', 'SkirtEnd', 'FaceHelper', 'v_0'])
+
+    def test_unified_garments_describe_every_joint_of_the_shared_palette(self):
+        other = rigged(OTHER, influences=((3, 0, 0, 0), (255, 0, 0, 0)), bounds=())
+        skin = CompiledSkin(other); chunk = skin.one(0x2001); entries = bytearray(chunk.data)
+        extra = skin.bones.data[32+584:36+584]
+        for o in range(32, len(entries), 152):
+            if entries[o+12:o+16] == extra:
+                struct.pack_into('<I', entries, o+16, 0xe0e0e0e0)
+        other = write_chunks(skin.chunks, {chunk.id: bytes(entries)})
+        first, second = canonicalize_skin_skeletons([rigged(), other])
+        self.assertEqual(CompiledSkin(first).one(0x2001).data, CompiledSkin(second).one(0x2001).data)
+        self.assertEqual(dict(physical(first))['Extra'], 0xe0e0e0e0)
+        self.assertEqual(dict(physical(first))['SkirtEnd']-0xabc00000, 6)
+        # A garment without the chunk gains none; one whose chunk misses a joint takes the bone record's physics.
+        bare = CompiledSkin(rigged(OTHER, influences=((3, 0, 0, 0), (255, 0, 0, 0)), physical=False, bounds=()))
+        table = bytearray(bare.bones.data); table[32+584+4:32+584+108] = bytes(range(104))
+        first, second = canonicalize_skin_skeletons([write_chunks(bare.chunks, {bare.bones.id: bytes(table)}), rigged()])
+        self.assertFalse([c for c in read_chunks(first) if c.kind == 0x2001])
+        skin = CompiledSkin(second); data = skin.one(0x2001).data
+        self.assertEqual([name for name, _ in physical(second)][:2], ['Root', 'Extra'])
+        self.assertEqual(data[32+152+16:32+152+48], bytes(32))
+        self.assertEqual(data[32+152+48:32+2*152], bytes(range(104)))
+
+    def test_entries_scrambled_by_an_older_palette_unification_are_rebuilt(self):
+        # Before the array was rebuilt, unification passed its positions through the palette mapping.
         source = CompiledSkin(rigged()); chunk = source.one(0x2001); entries = bytearray(chunk.data)
         for position, o in enumerate(range(32, len(entries), 152)):
-            struct.pack_into('<i', entries, o, 6-position)
+            struct.pack_into('<3i', entries, o, 250-position, 243, 9)
         rewritten = write_chunks(source.chunks, {chunk.id: bytes(entries)})
         (output,), _ = strip_foreign_joints([rewritten], native_rig())
         self.assertEqual(bound_names(output), bound_names(rewritten))
-        skin = CompiledSkin(output); after = skin.one(0x2001).data
-        retained = {skin.bones.data[32+584*i:36+584*i] for i in range(5)}
-        kept = [bytes(entries[o:o+152]) for o in range(32, len(entries), 152) if bytes(entries[o+12:o+16]) in retained]
-        self.assertEqual(len(kept), 5)
-        self.assertEqual(after[32:], b''.join(kept))
-        unified, = canonicalize_skin_skeletons([rigged()])
-        (output,), _ = strip_foreign_joints([unified], native_rig())
-        self.assertEqual(bound_names(output), bound_names(unified))
+        (expected,), _ = strip_foreign_joints([rigged()], native_rig())
+        self.assertEqual(output, expected)
 
     def test_missing_native_rig_and_unordered_parents_fail(self):
         with self.assertRaisesRegex(ValueError, 'Missing native skeleton'):
