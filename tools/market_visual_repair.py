@@ -24,6 +24,12 @@ def owned_layers(mission, entities, layers, template_id):
         if len(areas) != 1:
             raise ValueError('Registered seller has ambiguous source shop: '+point)
         layer = areas[0].get('Layer')
+        if layer is None:
+            # Default layer: the seller owns no toggled shop layer, and its stall
+            # brushes are on layer 0, which the static-world importer already places
+            # (checked 11-11 for the 5 Sasau shops and the Rattay armourer: every
+            # brush within 10 m of their areas is on layer 0).
+            continue
         matches = [e for e in layers if e.get('Name') == layer]
         if len(matches) != 1:
             raise ValueError('Missing authored shop layer: '+str(layer))
