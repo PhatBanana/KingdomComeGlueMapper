@@ -10,6 +10,8 @@ from pathlib import Path
 import xml.etree.ElementTree as E
 import zipfile
 from upgrade_map import read, xml
+from source_merchant_daycycle import selling_schedule, bind_sleep, source_restock_policy
+from source_merchant_assets import take_assets, merge_assets, write_asset_archives
 
 
 def bind_storage(files, merchant, source, namespace, model, *, authored=None, registered_keys=(), suffix='stash', inventory_contract=None):
@@ -61,7 +63,7 @@ def bind_storage(files, merchant, source, namespace, model, *, authored=None, re
     return result,dict(source_entity=authored.get('Name'),source_id=authored.get('EntityId'),model=model)
 
 
-def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_policy='source_daily',source_level='rataje'):
+def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_policy='source_daily',source_level='rataje',asset_archive=None):
     from region_travel_services import resolve_merchant,import_shop_resources
     from campaign_sources import RetailSourceReader
     from campaign_dependency_adapters import SourceTables
@@ -77,6 +79,7 @@ def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_
     from setup_package_upgrade import rewrite
     source,target,baseline,stage=map(Path,(source,target,baseline,stage))
     merchant=resolve_merchant(source,person,source_level);merchant['target']=target
+    if restock_policy=='source':restock_policy=source_restock_policy(merchant['shop'])
     travel='Data/gluemappertravel.pak'; lp='Data/Levels/'+level+'/level.pak'
     with zipfile.ZipFile(stage/travel) as z:resources={n:read(z,n) for n in z.namelist() if n.startswith(('Libs/','Quests/'))}
     with zipfile.ZipFile(stage/lp) as z:files={n:read(z,n) for n in ('objects_mission0.xml','tables/ai/scheduler.xml','waitinglinks.xml')}
@@ -88,17 +91,20 @@ def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_
                 patches.extend(read(z,n) for n in z.namelist() if n.lower().startswith('libs/tables/item/item__') and n.endswith('.xml'))
     stock_files,stock_strings,stock=import_shop_resources(merchant,source,target,namespace,
         baseline,stage.parent/(namespace+'-stock-items'),extra_item_patches=patches,restock_policy=restock_policy)
+    # With asset_archive, item meshes and textures get their own shards instead of the travel archive.
+    shop_assets=take_assets(stock_files) if asset_archive else {}
     resources.update(stock_files)
     patches.extend(b for n,b in stock_files.items() if n.lower().startswith('libs/tables/item/item__'))
     authored_stashes = source_stashes(source,merchant['shop_entity'],source_level)
     storage_files,storage_strings,contracts,storage_items=inventory_resources(
         source,target,stage,stage.parent/(namespace+'-storage-items'),authored_stashes,extra_item_patches=patches)
+    if asset_archive:merge_assets(shop_assets,take_assets(storage_files))
     resources.update(storage_files)
     stock_strings.extend(storage_strings)
     patches.extend(b for n,b in storage_files.items() if n.lower().startswith('libs/tables/item/item__'))
     with RetailSourceReader(source) as reader,zipfile.ZipFile(source/'Data/Levels'/source_level/'level.pak') as z:
         tables=SourceTables(source,reader)
-        schedule=plan(merchant,tables)
+        schedule=selling_schedule(plan(merchant,tables))
         if schedule['pending']:raise ValueError('Unresolved merchant schedule')
         schedules={person:resolve_arrivals(schedule,z,merchant,source,reader)}
         if any(not (e.get('station_work') or e.get('market_work')) for e in schedules[person]):
@@ -133,12 +139,19 @@ def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_
     if len(storage)==1: storage=storage[0]
     resources=add_trade_dialogue(resources,entry,person,role,namespace)
     resources.update(stock_files)
+    # The keeper's authored night at home, after the staffed hours are registered.
+    sleep=None
+    if schedule.get('home_sleep'):files,sleep=bind_sleep(files,merchant,source,target,source_level=source_level)
     # Setup passes a partial overlay, whose manifest belongs to its baseline.
     modid=E.parse(baseline/'mod.manifest').findtext('info/modid')
     if not modid:raise ValueError('Merchant package requires a destination mod ID')
     resources['Mods/'+modid+'/Data/Levels/'+level+'/tables/ai/scheduler.xml']=files['tables/ai/scheduler.xml']
     report=dict(version=1,person=person,stock=stock,service=service,storage=storage,storage_items=storage_items,jobs=jobs,voice_binding=voice_binding,
         runtime_verified=False,quest_policy='Existing source inventory objective; no scripted grants or completion')
+    if sleep is not None:report['sleep']=sleep
+    # A shop without imported assets keeps the receipt it always had.
+    archives=write_asset_archives(stage/'Data',asset_archive,shop_assets) if asset_archive else []
+    if archives:report['asset_archives']=archives
     resources['Libs/GlueMapper/'+namespace+'.json']=json.dumps(report,indent=2).encode()
     rewrite(stage,travel,resources);rewrite(stage,lp,files)
     if stock_strings:
