@@ -11,7 +11,8 @@ import numpy as np
 from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
-from clothing_fitting import OutfitFitting, alpha_mips, fit_mask, hiding_mask, source_layer_contracts, higher_layers
+from clothing_fitting import (OutfitFitting, alpha_mips, fit_mask, hiding_mask, source_layer_contracts, higher_layers,
+                              shares_authored_subpart)
 from clothing_coverage import GARMENT_HIDING_OUTWARD, normals
 from character_skin_upgrade import CompiledSkin, upgrade_skin
 from clothing_regions import read_chunks, write_chunks
@@ -98,6 +99,42 @@ class OutfitFittingTests(unittest.TestCase):
         self.assertEqual(higher_layers(2,parts,contracts),[])
         parts[1]['gender_id']='2'
         self.assertEqual(higher_layers(0,parts,contracts),[])
+
+    def test_footwear_is_layered_over_legwear_that_reaches_the_lower_leg(self):
+        # KCD1: trousers hold only leg subparts, boots only foot subparts, so
+        # the pair shared nothing and the trouser foot was neither shrunk nor
+        # hidden inside the boot (ska_fatherOfHenry, ska_collierVarlet).
+        names={'49':('5','leg_left_upper_front'),'51':('5','leg_left_lower_front'),'53':('5','foot_left_boots'),
+               '57':('6','leg_right_lower_front'),'59':('6','foot_right_boots'),'61':('6','foot_spur'),
+               '1':('2','body_front_up')}
+        rows={
+            'item/body_layer':[dict(body_layer_id=str(i),layer_order=str(i)) for i in (1,3,4,6,9)],
+            'item/body_subpart':[dict(body_subpart_id=k,body_part_id=part,body_subpart_name=name) for k,(part,name) in names.items()],
+            'item/armor_archetype2body_subpart':[
+                *[dict(armor_archetype_id='trousers',body_subpart_id=s,body_layer_id='1') for s in ('49','51','57')],
+                *[dict(armor_archetype_id='boots',body_subpart_id=s,body_layer_id='3') for s in ('53','59')],
+                dict(armor_archetype_id='shorts',body_subpart_id='49',body_layer_id='1'),
+                *[dict(armor_archetype_id='greaves',body_subpart_id=s,body_layer_id='6') for s in ('51','57')],
+                dict(armor_archetype_id='spurs',body_subpart_id='61',body_layer_id='9'),
+                *[dict(armor_archetype_id='coat',body_subpart_id=s,body_layer_id='4') for s in ('1','49')]]}
+        tables=SimpleNamespace(get=lambda name:dict(rows=rows[name]))
+        order=['trousers','boots','shorts','greaves','spurs','coat']
+        parts=[dict(kind='cloth',armor_archetype_id=a,gender_id='1') for a in order]
+        contracts=source_layer_contracts(parts,tables)
+        above=lambda name:[order[i] for i in higher_layers(order.index(name),parts,contracts)]
+        self.assertEqual(above('trousers'),['boots','greaves','coat'])
+        # Implied occupancy never makes a garment an upper layer, and reaches
+        # neither garments that stop above the lower leg nor unsided spurs.
+        self.assertEqual(above('boots'),[])
+        self.assertEqual(above('shorts'),['coat'])
+        self.assertEqual(above('greaves'),[])
+        self.assertEqual(above('spurs'),[])
+        self.assertEqual(contracts[0].implied,{'53','59'})
+        self.assertEqual(contracts[1].implied,frozenset())
+        # Only pairs the tables place on one subpart may delete the lower garment.
+        self.assertFalse(shares_authored_subpart(contracts[0],contracts[1]))
+        self.assertTrue(shares_authored_subpart(contracts[0],contracts[3]))
+        self.assertTrue(shares_authored_subpart(contracts[0],contracts[5]))
 
     def test_conflicting_subpart_order_is_not_given_an_arbitrary_winner(self):
         parts=[dict(kind='cloth',gender_id='2')]*2

@@ -85,11 +85,47 @@ def hiding_mask(skin, covers):
     return fit_mask(skin, covers, outward=GARMENT_HIDING_OUTWARD)
 
 
+class LayerContract(dict):
+    """Body subpart -> layer rank; ``implied`` subparts never make the garment an upper layer."""
+    implied = frozenset()
+
+
+def implied_foot_subparts(tables):
+    """Lower-leg subpart -> the foot subparts of the same leg.
+
+    KCD1 gives long legwear only leg subparts and footwear only foot subparts,
+    yet every trouser mesh ends in a foot that the boot is modelled around,
+    with an authored A_Shrink for it. Without a shared subpart the pair was
+    never layered, so the unshrunk trouser foot came through the boot.
+    The relation is read from the source body_subpart table by body part and
+    side; spurs and other unsided foot decorations are not part of it.
+    """
+    try:
+        rows = tables.get('item/body_subpart')['rows']
+    except KeyError:
+        return {}
+    def sided(row, limb):
+        name = (row.get('body_subpart_name') or '').casefold().split('_')
+        return name[1] if len(name) > 2 and name[0] == limb and name[1] in ('left', 'right') else None
+    feet = {}
+    for row in rows:
+        side = sided(row, 'foot')
+        if side: feet.setdefault((row.get('body_part_id'), side), []).append(row['body_subpart_id'])
+    result = {}
+    for row in rows:
+        side = sided(row, 'leg')
+        if side and (row.get('body_subpart_name') or '').casefold().split('_')[2] == 'lower':
+            targets = feet.get((row.get('body_part_id'), side))
+            if targets: result[row['body_subpart_id']] = targets
+    return result
+
+
 def source_layer_contracts(parts, tables):
     """Resolve source coverage and order through KCD1's actual RPG tables.
 
     A long upper garment can cover trouser subparts too. Filename part/layer
     numbers cannot express that, and numeric layer IDs are not sorting ranks.
+    Legwear reaching the lower leg also lies in the foot beneath footwear.
     """
     order = {r['body_layer_id']: int(r['layer_order']) for r in tables.get('item/body_layer')['rows']}
     assignments = {}
@@ -100,14 +136,29 @@ def source_layer_contracts(parts, tables):
         previous = assignments.setdefault(key, {}).setdefault(subpart, rank)
         if previous != rank:
             raise ValueError('Ambiguous source archetype layer on body subpart')
+    feet = implied_foot_subparts(tables)
     result = {}
     for i, part in enumerate(parts):
         if part['kind'] != 'cloth': continue
         identity = part['armor_archetype_id']
         if identity not in assignments:
             raise ValueError('Missing source archetype body-layer contract: '+identity)
-        result[i] = assignments[identity]
+        contract = LayerContract(assignments[identity])
+        implied = {}
+        for subpart, rank in assignments[identity].items():
+            for foot in feet.get(subpart, ()):
+                if foot not in assignments[identity]:
+                    implied[foot] = min(rank, implied.get(foot, rank))
+        contract.update(implied)
+        contract.implied = frozenset(implied)
+        result[i] = contract
     return result
+
+
+def shares_authored_subpart(lower, upper):
+    """Whether the source tables themselves place both garments on one body subpart."""
+    implied = getattr(lower, 'implied', frozenset()) | getattr(upper, 'implied', frozenset())
+    return bool((set(lower) & set(upper)) - implied)
 
 
 def higher_layers(number, parts, contracts):
@@ -115,7 +166,9 @@ def higher_layers(number, parts, contracts):
     result = []
     for i, upper in contracts.items():
         if i == number or parts[i]['gender_id'] != parts[number]['gender_id']: continue
-        common = set(lower) & set(upper)
+        # Implied occupancy places a garment beneath others; it is not
+        # evidence that the garment covers anything there itself.
+        common = (set(lower) & set(upper)) - getattr(upper, 'implied', frozenset())
         differences = [upper[p] - lower[p] for p in common]
         # Mixed ordering requires per-subpart fitting; do not guess a global
         # winner for such a pair. The geometry audit retains those conflicts.
@@ -201,7 +254,15 @@ class OutfitFitting:
         baked, _ = upgrade_skin(blob, blob, variant=variant, discard_unused_variants=True, bone_mapping={})
         skin = CompiledSkin(baked)
         covers = {i: self.cover(i, lod) for i in higher}
-        by_cover = {i: fit_mask(skin, [cover]) for i, cover in covers.items()}
-        self.memberships[number, lod] = {i: hiding_mask(skin, [cover]) for i, cover in covers.items()}
+        # Footwear layered only through the implied foot occupancy fits the
+        # legwear just where the two surfaces fight (the boot inside it or
+        # lying on it) and never deletes it. A boot is open and flared at the
+        # cuff and trimmed by texture alpha: shrinking the whole band beneath
+        # it pulled the trouser ankle inside the unshrunk body, and deleting
+        # it left nothing over that skin (both seen on ska_e3_dicePlayer).
+        authored = {i: shares_authored_subpart(self.contracts[number], self.contracts[i]) for i in covers}
+        by_cover = {i: fit_mask(skin, [cover]) if authored[i] else hiding_mask(skin, [cover])
+                    for i, cover in covers.items()}
+        self.memberships[number, lod] = {i: hiding_mask(skin, [cover]) for i, cover in covers.items() if authored[i]}
         mask = np.maximum.reduce(list(by_cover.values()))
         return ({shrink[0]: 1.}, {shrink[0]: mask}) if shrink else ({}, {})
