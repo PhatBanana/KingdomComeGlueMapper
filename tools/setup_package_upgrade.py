@@ -171,6 +171,9 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         from kcd1_shop_install import upgrade as port_kcd1_shop
         files, report = port_kcd1_shop(package, source, target, notify=notify)
         receipt['files'].update(files); receipt['kcd1_shop_conversation'] = report
+        from setup_kcd1_quests import upgrade as port_kcd1_quests
+        files, report = port_kcd1_quests(package, source, target, notify=notify)
+        receipt['files'].update(files); receipt['kcd1_quests'] = report
         from level_barrier_speech import upgrade as register_barrier_bark
         files, report = register_barrier_bark(package, target, notify=notify)
         receipt['files'].update(files); receipt['level_barrier_speech'] = report
@@ -558,6 +561,11 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     from kcd1_shop_install import upgrade as port_kcd1_shop
     shop_files, shop_report = port_kcd1_shop(package, source, target, notify=notify)
     receipt['files'].update(shop_files); receipt['kcd1_shop_conversation'] = shop_report
+    # KCD1 quests: the giver, the lowered quest graph and its dialogues, after the last person and
+    # shop stage and before the stages that read the final actor and recording set.
+    from setup_kcd1_quests import upgrade as port_kcd1_quests
+    quest_files, quest_report = port_kcd1_quests(package, source, target, notify=notify)
+    receipt['files'].update(quest_files); receipt['kcd1_quests'] = quest_report
     from level_barrier_speech import upgrade as register_barrier_bark
     barrier_files, barrier_report = register_barrier_bark(package, target, notify=notify)
     receipt['files'].update(barrier_files); receipt['level_barrier_speech'] = barrier_report
