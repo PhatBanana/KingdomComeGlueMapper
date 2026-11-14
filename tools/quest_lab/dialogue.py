@@ -9,9 +9,12 @@ import re
 
 from . import Unsupported
 from .expressions import boolean, syntax
+from .world import DELIVERY_RESULTS
 
 
 KINDS = {'ForcedDialog', 'FaderDialog', 'Dialog'}
+# Enumerations a condition may compare a typed input port with: Port('x') == Enum('<type>','<member>').
+ENUMS = {'DeliveryResult': DELIVERY_RESULTS}
 INPUTS = {'EnqueueDialogue': 'trigger', 'PlayDialogue': 'trigger', 'DialogParams': 'native'}
 OUTPUTS = {'BeforePlay', 'AfterPlay'}
 
@@ -34,18 +37,45 @@ def condition(text, ports, sequences):
             name = n.args[0].value
             if n.func.id == 'Port' and ports.get(name) == ('In', 'bool'): return
             if n.func.id == 'SequenceUsed' and name in sequences: return
+        if comparison(n, ports): return
         raise Unsupported('Unmodeled dialogue condition: ' + text)
     check(tree)
     return tree
 
 
-def evaluate(tree, read_port, used):
+def comparison(n, ports):
+    """(port, member, negated) for Port('p') ==|!= Enum('T','M') on an input port of enumeration T."""
+    if not (isinstance(n, ast.Compare) and len(n.ops) == 1 and isinstance(n.ops[0], (ast.Eq, ast.NotEq))):
+        return None
+    port, enum = n.left, n.comparators[0]
+    for call, name, count in ((port, 'Port', 1), (enum, 'Enum', 2)):
+        if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id == name
+                and not call.keywords and len(call.args) == count
+                and all(isinstance(a, ast.Constant) and type(a.value) is str for a in call.args)):
+            return None
+    typ, member = enum.args[0].value, enum.args[1].value
+    if ports is not None and (ports.get(port.args[0].value) != ('In', typ) or member not in ENUMS.get(typ, ())):
+        return None
+    return port.args[0].value, member, isinstance(n.ops[0], ast.NotEq)
+
+
+def evaluate(tree, read_port, used, unset=None):
     if isinstance(tree, ast.Constant): return tree.value
+    if isinstance(tree, ast.Compare):
+        name, member, negated = comparison(tree, None)
+        value = read_port(name)
+        if value is None:
+            # No result yet. Only "is it Success" has a declared answer.
+            if member != 'Success' or unset is None or unset() != 'not_success':
+                raise Unsupported('Comparison with an unset enumeration value: ' + name)
+            return negated
+        if not isinstance(value, str): raise Unsupported('Expected an enumeration value: ' + name)
+        return (value == member) != negated
     if isinstance(tree, ast.Call):
         name = tree.args[0].value
         return boolean(read_port(name)) if tree.func.id == 'Port' else name in used
-    if isinstance(tree, ast.UnaryOp): return not evaluate(tree.operand, read_port, used)
-    values = (evaluate(v, read_port, used) for v in tree.values)
+    if isinstance(tree, ast.UnaryOp): return not evaluate(tree.operand, read_port, used, unset)
+    values = (evaluate(v, read_port, used, unset) for v in tree.values)
     return all(values) if isinstance(tree.op, ast.And) else any(values)
 
 
@@ -99,7 +129,8 @@ class Dialogue:
                     raise ValueError('Missing/ambiguous child dialogue decision')
                 # Returning from a nested topic needs the native conversation
                 # stack; do not silently pick a parent or the root.
-                if end == 'EndTopic' and self.owners[identity] != self.root:
+                if (end == 'EndTopic' and self.owners[identity] != self.root
+                        and graph.world.assumptions.get('dialogue.nested_end_topic') != 'root'):
                     raise Unsupported('Nested EndTopic requires conversation-stack support')
             except Unsupported as exc:
                 self.errors[identity] = str(exc)
@@ -126,13 +157,27 @@ class Dialogue:
         self.graph.record('dialogue_started', dialogue=self.name, boundary='explicit_engine_outcome', request=request)
         self.graph.emit(self.output('BeforePlay')); self.graph.drain()
 
+    def prompted(self, sequence):
+        return self.sequences[sequence].find('UiPrompt') is not None
+
+    def offered(self):
+        """(sequence the decision plays by itself or None, the player's choices) under the declared policy."""
+        eligible = self.choices()
+        unprompted = [s for s in eligible if not self.prompted(s)]
+        if unprompted and self.graph.world.assume('dialogue.unprompted_sequence') == 'first_eligible':
+            return unprompted[0], []
+        return None, eligible
+
     def choices(self):
         if not self.state['active'] or self.state['closing']: return []
+        self.graph.world.gate_dialogue()
+        unset = lambda: self.graph.world.assume('delivery.unset_result')
         result = []
         for seq in self.decisions[self.state['decision']].findall('Sequences/Sequence'):
             name = seq.get('Name')
             if name not in self.conditions: raise Unsupported(self.errors[name])
-            if evaluate(self.conditions[name], lambda p: self.graph.value(self.ref(p)), self.state['used']): result.append(name)
+            if evaluate(self.conditions[name], lambda p: self.graph.value(self.ref(p)), self.state['used'], unset):
+                result.append(name)
         return result
 
     def choose(self, sequence):
@@ -148,9 +193,12 @@ class Dialogue:
         if end == 'EndDialogue': self.state['closing'] = True
         elif end == 'GoTo': self.state['decision'] = seq.get('GoToDecision')
         elif end == 'Decision': self.state['decision'] = seq.find('Decision').get('Name')
+        elif self.owners[sequence] != self.root:
+            if self.graph.world.assume('dialogue.nested_end_topic') == 'root': self.state['decision'] = self.root
 
     def end(self):
         if not self.state['active']: raise ValueError('Dialogue is not active: ' + self.name)
+        self.graph.world.gate_dialogue()
         self.state.update(active=False, decision=None, closing=False)
         self.graph.record('dialogue_ended', dialogue=self.name, boundary='explicit_engine_outcome')
         self.graph.emit(self.output('AfterPlay')); self.graph.drain()

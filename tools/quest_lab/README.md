@@ -164,9 +164,12 @@ counts are not quest completion or branch-coverage percentages. Existing `run`
 scenarios provide assertion-based verification for specific behavior contracts.
 
 Value support includes explicit `ConstantPort` defaults, boolean `IfFunction`
-gates, bounded numeric addition/conversions, and class/count item descriptors.
-Scenario inventories must be explicit maps of item classes to nonnegative counts.
-Quality, ownership and item-instance descriptors are rejected rather than assumed.
+gates, bounded numeric addition/conversions, and item-class descriptors with an
+optional `Amount` and `MinimumHealth`. Scenario inventories are explicit maps of
+item classes to nonnegative counts, or to stacks `[{"amount": 70, "health": 0.9}]`.
+A `MinimumHealth` descriptor counts only stacks at or above it and is UNSUPPORTED
+against a plain count. Ownership, stolen status, maximum health and item instances
+are rejected rather than assumed.
 Numeric conversions reject nonfinite values and overflow outside the modeled
 32-bit range. Native item-acquisition events and inventory access still require
 explicit scenario contracts; matching item counts never synthesizes those events.
@@ -182,8 +185,9 @@ The inventory must have a declared `Items` query snapshot. This action adds the
 quantity and emits `OnAcquire` for active, matching inventory/class watchers;
 `OnTargetAmountAcquire` additionally fires when the count crosses the requested
 threshold from below. These are declared simulator semantics, pending native
-differential validation. Ownership, health, stolen status, transfers and physical
-loot creation are not inferred. Ordinary `object_snapshot` updates emit no
+differential validation. With health stacks the step also needs `"health"`; an
+item below a watcher's `MinimumHealth` is not an acquisition for it. Ownership,
+stolen status and physical loot creation are not inferred. Ordinary `object_snapshot` updates emit no
 acquisition events. The production completion gate still checks all quantities
 and the objective's active state before completing it.
 
@@ -495,6 +499,83 @@ or declared-enum selectors. Primitive and declared-enum outputs are validated.
 Native enum types absent from the loaded XML remain unsupported. Unselected
 branches are still included in structural coverage, even though their values
 are not evaluated during selection.
+
+## Rewards, deaths, areas and item deliveries
+
+These native nodes are modeled, so a quest that uses them no longer loads as
+unsupported:
+
+| Node | Model | Scenario side |
+| --- | --- | --- |
+| `AddReward` | Appends its `Rewards` rows to a ledger and emits `OnAdded`. No amount is computed | `assert_ledger` (`count`, exact `payouts`) |
+| `SoulDeathTrigger` | `OnDeath` / `OnAllDeath` for an active trigger that watches the soul | `{"action":"soul_death","soul":"<identity>"}` |
+| `AreaTrigger` | `OnEnter` / `OnLeave` / `OnAllEnter` / `OnAllLeave` for an active trigger | `{"action":"area","soul":"...","area":"...","event":"enter"}` |
+| `CreateItemDelivery` | A value: descriptors, receiving inventory, filters, labels, mode (`Exactly` only) | none |
+| `ItemDeliveryHandler` | `BeginDelivery` opens a window; `AcceptDelivery` moves the items and emits `OnAccept`; `RejectDelivery` emits `OnReject`; `DeliveryResult` is read by dialogue | `delivery_resolve` (`"outcome":"hand_over"` or `"close"` with a `result`), `assert_delivery` |
+
+Dialogue conditions may compare a typed input port with an enumeration member:
+`Port('result') == Enum('DeliveryResult','Success')`. `Dialogue.offered()` splits
+a decision into the sequence it plays by itself and the player's choices.
+
+What the engine does here is partly a guess. Each guess is a named assumption in
+`world.ASSUMPTIONS`; a scenario declares the value it runs under:
+
+```json
+"assumptions": {
+  "delivery.player_inventory": "player-bag",
+  "delivery.window_blocks_dialogue": true,
+  "delivery.result_after_close": "persists",
+  "delivery.unset_result": "not_success",
+  "delivery.exactly_from_larger_stack": true,
+  "delivery.amount_with_minimum_health": true,
+  "delivery.transfer": "on_accept",
+  "rewards.load_does_not_replay": true,
+  "soul_death.inactive_trigger": "missed",
+  "area.inactive_trigger": "missed",
+  "dialogue.nested_end_topic": "root",
+  "dialogue.unprompted_sequence": "first_eligible"
+}
+```
+
+Reaching a guessed behaviour without its declaration is UNSUPPORTED and names the
+assumption. Nothing defaults: a nested EndTopic, for example, is still unsupported
+unless `dialogue.nested_end_topic` is declared. The report lists every declared
+assumption and whether the run used it. An open delivery window at the end of a
+scenario prevents PASS. A hand-over the player cannot fill is a scenario error,
+not a failed delivery. None of this is native-runtime evidence.
+
+The package `audit` loads each quest with no object snapshots: a native object
+query is a modeled node, and a probe that actually reads one stops as UNSUPPORTED.
+
+## Exhaustive walk of a ported KCD1 quest
+
+```powershell
+python tools/quest_lab_test.py walk --kcd1 "D:/.../KingdomComeDeliverance" --kcd2 "D:/.../KingdomComeDeliverance2" --package "D:/.../package/map" --output outputs/quest-walk
+```
+
+For every quest in `setup_kcd1_quests.QUESTS` this builds the lowered container in
+memory (`plan_quest`), cuts it to the quest's closure (`walk.slice_container`;
+another quest the closure reads becomes a declared external state) and takes every
+player path through it in lockstep with `kcd1.Reference`, a model of the KCD1 quest
+read from the source tables only: objective transitions, sequence conditions,
+effect programs, exit scripts, tracked assets, rewards and the controller's quest
+rules. After each move it compares objective states, quest state, rewards paid,
+the player's items, the conversation position and what the next decision offers.
+
+Moves: a talk through each conversation with each stock of the tracked items
+(none, fresh, stale, one short, double, each started objective alone), every
+prompted choice, hand over or close a delivery window, leave at the root, and
+the death of the giver. `--no-death` leaves the last one out; `--result-resets`
+flips `delivery.result_after_close`; `--depth` bounds a path (default 120 moves,
+longer ones are counted as truncated and prevent PASS).
+
+`walk.md` has one row per quest (paths, joint states, moves checked, end states,
+mismatches) and, per end state, the KCD1 objective sequence of one path that
+reaches it. `walk.json` has every mismatch with its path. PASS needs zero
+mismatches, zero blocked moves, zero truncated paths and passing `--lab`
+scenarios on the lowered quest; exit code 0 only then. The KCD1 readings the
+reference relies on are `kcd1.RULES`, the player-side rules are `walk.RULES`;
+both are in the report. A reference construct outside those rules is UNSUPPORTED.
 
 ## Regression checks
 

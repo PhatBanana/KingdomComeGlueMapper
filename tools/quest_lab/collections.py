@@ -9,6 +9,9 @@ from .pure import number, exact_integer
 ARRAY_TYPES = {'wh::rpgmodule::Souls', 'wh::xgenaimodule::LinkableObjects',
                'wh::xgenaimodule::Areas', 'wh::xgenaimodule::SmartObjects',
                'wh::entitymodule::EquipmentSlotIds'}
+# Arrays whose elements are item descriptors or string keys, not identities.
+DESCRIPTOR_ARRAYS = {'wh::entitymodule::HomogenousItemDescriptors', 'wh::entitymodule::ItemDescriptors'}
+STRING_ARRAYS = {'wh::framework::LocalizedStrings'}
 SCALARS = {'bool', 'int', 'uint', 'float', 'string'}
 KINDS = {'MakeArray', 'ContainsElement', 'Switch'}
 
@@ -35,7 +38,8 @@ def describe(element, enums):
     kind, typ = element.tag, element.get('TypeT')
     if kind not in KINDS: return None
     if kind in ('MakeArray', 'ContainsElement'):
-        if typ not in ARRAY_TYPES: raise Unsupported('Collection type is not modeled: ' + str(typ))
+        if typ not in ARRAY_TYPES | (DESCRIPTOR_ARRAYS | STRING_ARRAYS if kind == 'MakeArray' else set()):
+            raise Unsupported('Collection type is not modeled: ' + str(typ))
         ports = {c.get('Name') for c in element.findall('Constant')} | {
             c.get('Name') for c in element.findall('Asset')} | {e.get('To') for e in element.findall('Edge')}
         if kind == 'ContainsElement':
@@ -43,7 +47,8 @@ def describe(element, enums):
         ordered = sorted(ports)
         if ordered != list('ABCDEFGHIJKLMNOPQRSTUVWXYZ'[:len(ordered)]):
             raise Unsupported('MakeArray requires contiguous explicit A..Z inputs')
-        return dict(kind=kind, inputs=ports, outputs={'Array'}, order=ordered, enums={})
+        return dict(kind=kind, inputs=ports, outputs={'Array'}, order=ordered, enums={},
+                    element='descriptor' if typ in DESCRIPTOR_ARRAYS else 'string' if typ in STRING_ARRAYS else 'identity')
     if typ not in {'bool', 'int', 'uint', 'string'} | set(enums):
         raise Unsupported('Switch selector type is not modeled: ' + str(typ))
     labels = element.get('SwitchValues', '').split()
@@ -62,7 +67,10 @@ def evaluate(spec, port, get):
     if port not in spec['outputs']: raise Unsupported('Unknown collection output: ' + port)
     if spec['kind'] == 'MakeArray':
         values = [get(p) for p in spec['order']]
-        array(values)
+        if spec.get('element') == 'descriptor':
+            from .pure import checked_descriptor
+            for value in values: checked_descriptor(value, counted=False)
+        else: array(values)
         return copy.deepcopy(values)
     if spec['kind'] == 'ContainsElement':
         values, value = get('Array'), get('Value')

@@ -20,7 +20,7 @@ class Runner:
     def __init__(self, scenario, base=Path('.'), source=None):
         if scenario.get('schema') != VERSION: raise ValueError('Unsupported scenario schema')
         allowed = {'schema','name','description','source','entry','entry_file','inputs','contracts','behaviors','steps','budget',
-                   'assets','message_routes','objects'}
+                   'assets','message_routes','objects','assumptions'}
         if set(scenario) - allowed: raise ValueError('Unknown scenario keys: ' + ', '.join(sorted(set(scenario)-allowed)))
         if not scenario.get('steps'): raise ValueError('Scenario must contain steps and assertions')
         budget = scenario.get('budget', 100000)
@@ -29,7 +29,7 @@ class Runner:
         self.base = Path(base)
         self.source = source or Source(self.base / scenario['source'])
         self.graph = Graph(self.source, scenario['entry'], scenario.get('contracts'), budget, scenario.get('entry_file'),
-                           scenario.get('assets'), scenario.get('objects'))
+                           scenario.get('assets'), scenario.get('objects'), scenario.get('assumptions'))
         self.behaviors, self.saved, self.assertions = {}, {}, []
         self.error = None
         for item in scenario.get('behaviors', []):
@@ -126,14 +126,36 @@ class Runner:
             'native_result': {'id','node','result','values','events'},
             'assert_native': {'pending','count','label'},
             'object_snapshot': {'identity','facets'},
-            'item_acquired': {'inventory', 'item', 'amount'},
+            'item_acquired': {'inventory', 'item', 'amount', 'health'},
+            'soul_death': {'soul'}, 'area': {'soul', 'area', 'event'}, 'delivery_resolve': {'handler', 'outcome', 'result'},
+            'assert_ledger': {'count', 'payouts', 'label'},
+            'assert_delivery': {'handler', 'phase', 'result', 'open', 'label'},
         }
         if action not in fields or set(step) - (fields[action] | {'action'}):
             raise ValueError('Unknown scenario action/fields: ' + action)
         if action == 'fire': self.graph.fire(step['port'])
         elif action == 'item_acquired':
             from .inventory import acquire
-            acquire(self.graph, step['inventory'], step['item'], step['amount'])
+            acquire(self.graph, step['inventory'], step['item'], step['amount'], step.get('health'))
+        elif action == 'soul_death': self.graph.world.kill(step['soul'])
+        elif action == 'area': self.graph.world.area(step['soul'], step['area'], step['event'])
+        elif action == 'delivery_resolve':
+            self.graph.world.resolve(step['handler'], step['outcome'], step.get('result'))
+        elif action == 'assert_ledger':
+            ledger = self.graph.world.state['ledger']
+            if 'count' not in step and 'payouts' not in step: raise ValueError('Empty ledger assertion')
+            if 'count' in step: self.check(step.get('label', 'reward payouts'), len(ledger), step['count'])
+            if 'payouts' in step:
+                self.check(step.get('label', 'reward ledger'),
+                           [dict(node=e['node'], rewards=copy.deepcopy(e['rewards'])) for e in ledger], step['payouts'])
+        elif action == 'assert_delivery':
+            world = self.graph.world
+            if not {'phase', 'result', 'open'} & set(step): raise ValueError('Empty delivery assertion')
+            if 'open' in step: self.check(step.get('label', 'open delivery window'), world.state['window'], step['open'])
+            for key in ('phase', 'result'):
+                if key in step:
+                    if step.get('handler') not in self.graph.nodes: raise ValueError('Unknown delivery handler')
+                    self.check(step.get('label', step['handler'] + ':' + key), world.handler(step['handler'])[key], step[key])
         elif action == 'set': self.graph.set_inputs(step['values'])
         elif action == 'object_snapshot': self.graph.objects.replace(step['identity'], step['facets'])
         elif action == 'advance': self.advance(step['duration'], step.get('mode','normal'))
@@ -224,6 +246,9 @@ class Runner:
             if self.graph.messages:
                 status = 'UNSUPPORTED'
                 self.error = 'Messages have no configured receiver route; delivery/handling is not verified'
+            if self.graph.world.state['window'] is not None:
+                status = 'UNSUPPORTED'
+                self.error = 'A delivery window is awaiting an explicit player outcome'
             if self.graph.native.pending:
                 status = 'UNSUPPORTED'
                 self.error = 'Native calls are awaiting explicit results; engine effects are not verified'
