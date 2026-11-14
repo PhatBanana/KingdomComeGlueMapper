@@ -62,8 +62,10 @@ def refresh_receipt(package, report):
 
 
 def upgrade_work(source, target, package, source_level, level, people, new_people, merchants, tables, reader,
-                 notify=lambda message: None):
-    from character_schedule import plan
+                 notify=lambda message: None, home_time=False):
+    """home_time: unlinked sleep/eat/morning/fun of people with a source home do not block their work
+    (named town residents; see character_schedule.blocking_pending)."""
+    from character_schedule import plan, blocking_pending
     from character_schedule_world import resolve_arrivals, bind_arrival_trees, arrival_resources, baseline_schedule_names
     from character_schedule_jobs import bind_job_trees, source_mission_entities, population_work_supports, job_resources
     from world_item_definitions import native_items, native_item_registry
@@ -108,7 +110,7 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
         for name in sorted(eligible):
             notify('Converting source schedule: ' + name)
             person=people[name];schedule=plan(person,tables)
-            if schedule['pending'] or not schedule['resolved']:
+            if blocking_pending(schedule,person,home_time) or not schedule['resolved']:
                 pending.append(dict(person=name, reason='Source schedule is unresolved', schedule=schedule));continue
             kinds={(e['behavior']['tree_file'].lower(),e['behavior']['tree_name']) for e in schedule['resolved']}
             if not all(population_work_supports(e) for e in schedule['resolved']):
@@ -143,7 +145,7 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             person = people[name]
             schedule = plan(person, tables)
             city = [e for e in schedule['resolved'] if city_supports(e)]
-            if schedule['pending'] or not city:
+            if blocking_pending(schedule, person, home_time) or not city:
                 continue
             entries = resolve_arrivals(dict(schedule, resolved=city), archive, person, source, reader, target)
             files, extended = extend_existing(files, {name: entries}, target)
@@ -167,7 +169,7 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             notify('Resolving household schedule: ' + name)
             person = people[name]; schedule = plan(person, tables)
             work = [e for e in schedule['resolved'] if fence_supports(e)]
-            if not schedule['pending'] and work:
+            if not blocking_pending(schedule, person, home_time) and work:
                 housework_schedules[name] = resolve_arrivals(dict(schedule, resolved=work), archive, person, source, reader, target)
         if housework_schedules:
             notify('Binding fence work')
@@ -221,7 +223,13 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
 
 def build(source,target,baseline,output,profiles, *, source_level='rataje',level='kcd1_travel',
           entry='Quests/GlueTravel/entry/kcd1_travel.xml',actor_stage=None,
-          update_receipt=True, notify=print, cancelled=lambda: False, progress=None):
+          update_receipt=True, notify=print, cancelled=lambda: False, progress=None,
+          names=(), marker='profile_population'):
+    """Convert static-profile actors, or with names the selected placed town residents.
+
+    Residents keep their own marker (Libs/GlueMapper/<marker>.json), never keep
+    shops (keepers go through setup_merchant_upgrade) and use the home-time policy.
+    """
     from build_quest_people_test import build as build_actors
     from source_merchant_upgrade import build as build_service
     from setup_package_upgrade import rewrite
@@ -232,25 +240,47 @@ def build(source,target,baseline,output,profiles, *, source_level='rataje',level
         raise ValueError('Population build must be outside game installations and its baseline')
     output.mkdir(parents=True)
     if cancelled(): raise InterruptedError('Cancelled before population conversion')
+    names=list(names)
+    if names and profiles:
+        raise ValueError('Select either source profiles or named residents')
     previous={}
+    marker_path='Libs/GlueMapper/'+marker+'.json'
     with zipfile.ZipFile(baseline/'Data/gluemappertravel.pak') as archive:
-        marker='Libs/GlueMapper/profile_population.json'
-        if marker in archive.namelist():
-            previous=json.loads(read(archive,marker))
+        if marker_path in archive.namelist():
+            previous=json.loads(read(archive,marker_path))
             if previous.get('version')!=1 or previous.get('source_level')!=source_level or previous.get('level')!=level:
                 raise ValueError('Incompatible previous population conversion')
     with RetailSourceReader(source) as reader:
         tables=SourceTables(source,reader)
-        roster,people,shops=discover(source,source_level,profiles,tables)
+        roster,people,shops=discover(source,source_level,profiles,tables,names=names)
+        if names and shops:
+            raise ValueError('Named residents keep source shops; port them through setup_merchant_upgrade: '
+                             + ', '.join(s['person'] for s in shops))
         if actor_stage is None:
             actor_stage=output/'actors'
             build_actors(SimpleNamespace(source=source,target=target,mod=baseline,output=actor_stage,model=None,
-                person=[],source_level=source_level,level=level,source_profile=profiles,
+                person=names,source_level=source_level,level=level,source_profile=profiles,
                 dialogue_profile=[],dialogue_model=[],project_path=None,quest_path=None,
                 notify=notify,cancelled=cancelled,progress=progress,resolved_people=people))
         actor_stage=Path(actor_stage)
         actors=json.loads((actor_stage/'report.json').read_text())
-        if actors['pending'] or actors['source_profile_actors'] != roster:
+        residue=[]
+        if names:
+            # Bulk residents: a person whose looks fail to convert stays out of
+            # the world and is reported as residue; the rest are placed. Any
+            # other pending actor still stops the stage.
+            residue=[dict(person=r['person'],reason=r.get('reason','appearance conversion failed'))
+                     for r in actors['pending'] if r.get('person') in people]
+            failed={r['person'] for r in residue}
+            names=[n for n in names if n not in failed]
+            roster=[r for r in roster if r['name'] not in failed]
+            people={n:p for n,p in people.items() if n not in failed}
+            staged={r['soul_id'] for key in ('converted','existing') for r in actors[key]}
+            selected=(len(residue)!=len(actors['pending']) or not names
+                      or staged!={r['soul_id'] for r in roster})
+        else:
+            selected=actors['pending'] or actors['source_profile_actors'] != roster
+        if selected:
             raise ValueError('Profile actor stage is incomplete or uses a different source selection')
         for path,expected in actors['baseline'].items():
             if digest(baseline/path)!=expected:raise ValueError('Population actor baseline changed: '+path)
@@ -279,7 +309,8 @@ def build(source,target,baseline,output,profiles, *, source_level='rataje',level
                 notify(message)
         work_progress('Resolving source work and schedule bindings')
         work=upgrade_work(source,target,package,source_level,level,people,
-            [r['person'] for r in actors['converted']],[r['person'] for r in shops],tables,reader,notify=work_progress)
+            [r['person'] for r in actors['converted']],[r['person'] for r in shops],tables,reader,notify=work_progress,
+            home_time=bool(names))
         work=retain_work(previous.get('work',{}),work,people)
         (output/'work-report.json').write_text(json.dumps(work,indent=2),encoding='utf-8')
     lp='Data/Levels/'+level+'/level.pak'
@@ -297,8 +328,14 @@ def build(source,target,baseline,output,profiles, *, source_level='rataje',level
         static_profile_policy='Only explicitly selected initial-world profiles; later campaign activation unchanged',
         source_weekday_policy='Daily stock is preserved; weekday masks use the installed KCD2 common_merchant replenishment period',
         baseline=actors['baseline'])
+    if names:
+        from character_schedule import has_home
+        report['residents']=[dict(person=n,source_home=has_home(people[n])) for n in names]
+        report['residue']=residue
+        report['schedule_policy']=('Unlinked sleep/eat/morning/fun of residents with a source home run as home time: '
+                                   'sleep through the sleep adapter, the rest on the native wait baseline')
     payload=json.dumps(report,indent=2).encode()
-    rewrite(package,'Data/gluemappertravel.pak',{'Libs/GlueMapper/profile_population.json':payload})
+    rewrite(package,'Data/gluemappertravel.pak',{marker_path:payload})
     (output/'report.json').write_bytes(payload)
     if update_receipt:
         notify('Verifying population package receipt')
@@ -309,7 +346,9 @@ def build(source,target,baseline,output,profiles, *, source_level='rataje',level
 if __name__=='__main__':
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('source','target','baseline','output'):p.add_argument('--'+key,type=Path,required=True)
-    p.add_argument('--profile',dest='profiles',action='append',required=True)
+    p.add_argument('--profile',dest='profiles',action='append',default=[])
+    p.add_argument('--name',dest='names',action='append',default=[],help='A placed source resident (instead of --profile)')
+    p.add_argument('--marker',default='profile_population')
     p.add_argument('--actor-stage',type=Path)
     p.add_argument('--source-level',default='rataje');p.add_argument('--level',default='kcd1_travel')
     p.add_argument('--entry',default='Quests/GlueTravel/entry/kcd1_travel.xml')

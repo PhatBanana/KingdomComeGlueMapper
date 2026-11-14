@@ -2,7 +2,7 @@
 import xml.etree.ElementTree as E
 import zipfile
 
-from campaign_profile_actors import collect
+from campaign_profile_actors import collect, select
 from build_profile_systems import source_world
 from character_person_ai import capture_person_ai, index_person_links
 from upgrade_map import read
@@ -31,11 +31,17 @@ def shops_for_people(roster, keepers, shops):
     return sorted(result, key=lambda r: int(r['shop']['shop_id']))
 
 
-def discover(source, source_level, profiles, tables):
+def discover(source, source_level, profiles, tables, names=()):
+    """Profile actors, or with names the selected placed residents (base world or layer), never both."""
+    if profiles and names:
+        raise ValueError('Select either source profiles or named residents')
     with zipfile.ZipFile(source/'Data/Levels'/source_level/'level.pak') as archive:
         documents, entities = source_world(archive)
         souls = E.fromstring(read(archive, 'whdata_0'))
-        roster = collect(E.fromstring(read(archive, 'whdata_1')), souls, documents, profiles)
+        if names:
+            roster = select(E.fromstring(read(archive, 'whdata_1')), souls, documents, names)
+        else:
+            roster = collect(E.fromstring(read(archive, 'whdata_1')), souls, documents, profiles)
     by_guid = {e.get('EntityGuid'): e for e in entities if e.get('EntityGuid')}
     instances = {s.findtext('Guid'): s for s in souls.findall('SoulList/Souls/Soul')}
     links = index_person_links(entities)

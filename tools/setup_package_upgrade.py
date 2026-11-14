@@ -379,6 +379,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
         package, source, target, STATIC_WORLD_PROFILES, notify, cancelled)
     receipt['files'].update(population_files)
     receipt['profile_population'] = population_report
+    # Base-world town residents after the profile people and the shop keepers,
+    # before work speech, voice fallbacks and appearances read the final actors.
+    from setup_resident_population import upgrade as upgrade_residents
+    resident_files, resident_report = upgrade_residents(package, source, target, notify, cancelled)
+    receipt['files'].update(resident_files)
+    receipt['resident_population'] = resident_report
     from setup_pub_cleaning import upgrade as upgrade_pub_work
     pub_files, pub_report = upgrade_pub_work(package, source, target)
     receipt['files'].update(pub_files); receipt['source_pub_work'] = pub_report
