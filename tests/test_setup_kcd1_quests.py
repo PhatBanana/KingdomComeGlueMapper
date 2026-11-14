@@ -1160,22 +1160,35 @@ class PackagePlanTests(unittest.TestCase):
             blob = self.resources[quests.DIALOGUE_FOLDER + BUTCHER_ROW['namespace'] + '_' + topic + '.xml']
             self.assertEqual(quests.exit_script_calls(blob), [])
 
-    def test_the_feast_is_completed_before_the_source_effects_read_it(self):
+    def test_the_feast_is_handed_in_member_by_member_and_completed_before_the_source_effects_read_it(self):
         dialogue = BUTCHER_ROW['namespace'] + '_27396'
-        stem = 'lowered_delivery_' + dialogue + '_hareFeast_deerFeast_boarFeast_'
+        base = 'lowered_delivery_' + dialogue + '_'
         nodes = {n.get('Name'): n for n in quests.host_of_blob(self.resources[quests.ENTRY]).iterfind('Nodes/*')}
         sources = lambda node, port: [e.get('From') for e in node.findall('Edge') if e.get('To') == port]
         quest = nodes[BUTCHER]
+        feast = self.report['delivery'][1]['groups'][1]
+        parts = [p['name'] for p in feast['parts']]
+        self.assertEqual(parts, ['hareFeast_deerFeast_boarFeast', 'hareFeast_deerFeast', 'hareFeast_boarFeast',
+                                 'deerFeast_boarFeast', 'hareFeast', 'deerFeast', 'boarFeast'])
+        handlers = sorted(n for n, node in nodes.items() if n.startswith(base) and node.tag == 'ItemDeliveryHandler')
+        self.assertEqual(handlers, sorted(base + n + '_handler' for n in (*parts, 'boar', 'kidney', 'liver', 'offal')))
         for member in ('hareFeast', 'deerFeast', 'boarFeast'):
-            self.assertEqual(sources(quest, 'complete_' + member), [stem + 'accepted.A'])
-        self.assertEqual(sources(nodes[stem + 'aggregate'], 'Exec'), [stem + 'accepted.B'])
-        self.assertEqual(sources(nodes[stem + 'aggregate'], 'Condition'), [BUTCHER + '.feast_Started'])
-        self.assertEqual(sources(quest, 'complete_feast'), [stem + 'aggregate.True'])
+            self.assertEqual(sources(quest, 'complete_' + member),
+                             [base + p + '_accepted.A' for p in parts if member in p.split('_')])
+        for part in parts:
+            stem = base + part + '_'
+            self.assertEqual(sources(nodes[stem + 'aggregate'], 'Exec'), [stem + 'accepted.B'])
+            self.assertEqual(sources(nodes[stem + 'aggregate'], 'Condition'), [BUTCHER + '.feast_Started'])
+            self.assertEqual(sources(nodes[stem + 'finished'], 'Condition'), [BUTCHER + '.feast_Completed'])
+            self.assertEqual(sources(nodes[stem + 'handler'], 'RejectDelivery'), [stem + 'settle.False'])
+        self.assertEqual(sources(quest, 'complete_feast'), [base + p + '_aggregate.True' for p in parts])
         program = sources(nodes[dialogue + '_effects_56813_0'], 'Exec')
-        self.assertEqual(program, ['lowered_delivery_' + dialogue + '_' + g + '_accepted.' + port for g, port in (
-            ('boar', 'B'), ('hareFeast_deerFeast_boarFeast', 'C'), ('kidney', 'B'), ('liver', 'B'), ('offal', 'B'))])
+        self.assertEqual(program, [base + 'boar_accepted.B', *(base + p + '_finished.True' for p in parts),
+                                   *(base + g + '_accepted.B' for g in ('kidney', 'liver', 'offal'))])
+        stem = base + parts[0] + '_'
         items = [quests.node_constants(nodes[stem + 'item_%d' % i]) for i in range(3)]
         self.assertEqual([(c['Amount'], c['MinimumHealth']) for c in items], [('100', '0.5'), ('70', '0.5'), ('40', '0.5')])
+        self.assertEqual(quests.node_constants(nodes[base + 'deerFeast_item_0'])['Amount'], '70')
 
     def test_shared_registrations_and_the_first_quest_are_untouched(self):
         level = quests.host_of_blob(self.resources[quests.ENTRY])

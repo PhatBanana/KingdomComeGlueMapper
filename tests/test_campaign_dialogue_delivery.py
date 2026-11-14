@@ -29,6 +29,14 @@ JOINED = "Port('c_first_done') OR Port('c_second_done')"
 RETAIL = E.fromstring('''<Definitions>
 <Definition TypeName="Function" Name="And" MethodName="math::boolean::And" DeclaringType="math::boolean">
   <Port Name="" Direction="In" Type="bool" IsVariadic="true"/><Port Name="bool" Direction="Out" Type="bool"/></Definition>
+<Definition TypeName="Function" Name="Or" MethodName="math::boolean::Or" DeclaringType="math::boolean">
+  <Port Name="" Direction="In" Type="bool" IsVariadic="true"/><Port Name="bool" Direction="Out" Type="bool"/></Definition>
+<Definition TypeName="Function" Name="Not" MethodName="math::boolean::Not" DeclaringType="math::boolean">
+  <Port Name="Value" Direction="In" Type="bool"/><Port Name="bool" Direction="Out" Type="bool"/></Definition>
+<Definition TypeName="IfFunction" Name="If(Compare)" MethodName="Control::Compare" DeclaringType="Control">
+  <Port Name="Exec" Direction="In" Type="trigger"/><Port Name="True" Direction="Out" Type="trigger"/>
+  <Port Name="False" Direction="Out" Type="trigger"/><Port Name="ValueA" Direction="In" Type=""/>
+  <Port Name="Op" Direction="In" Type="wh::conceptmodule::Operator"/><Port Name="ValueB" Direction="In" Type=""/></Definition>
 <Definition TypeName="Function" Name="CreateItemClassDescriptor" MethodName="wh::entitymodule::CreateItemClassDescriptor" DeclaringType="wh::entitymodule">
   <Port Name="ItemClass" Direction="In" Type="wh::entitymodule::ItemClassId"/><Port Name="NegateClass" Direction="In" Type="bool"/>
   <Port Name="Amount" Direction="In" Type="int"/><Port Name="EquippedFilter" Direction="In" Type="wh::entitymodule::ItemFilterType"/>
@@ -379,21 +387,22 @@ class BindTests(unittest.TestCase):
         self.assertFalse([e for n in nodes.values() for e in n.findall('Edge') if e.get('From') == 'handin.effects_2'])
 
     def test_every_emitted_node_and_port_exists_in_retail(self):
-        for change in ({}, dict(join=('returnHome', 'disabled'), accept=JOINED, reject='!(' + JOINED + ')')):
+        for change in ({}, dict(join=('returnHome', 'disabled'), accept=JOINED, reject='!(' + JOINED + ')'),
+                       dict(join=('returnHome', 'disabled'))):
             with self.subTest(change=change):
                 self.retail_ports(lowered(**change)[1])
 
     def retail_ports(self, entry):
         container = entry.find('./Skald/Project/Nodes')
         emitted = {n.get('Name'): n for n in container if n.get('Name').startswith('lowered_delivery_')}
-        self.assertEqual({n.tag for n in emitted.values()},
+        self.assertEqual({n.tag for n in emitted.values()} - {'IfFunction'},
                          {'Function', 'ObjectProperties', 'MakeArray', 'ItemDeliveryHandler', 'If', 'TriggerSequence'})
 
         def definition(node):
             for d in RETAIL.findall('Definition'):
                 if d.get('TypeName') != node.tag: continue
-                if node.tag == 'Function' and d.get('MethodName') != node.get('MethodName'): continue
-                if node.tag == 'Function' and d.get('DeclaringType') != node.get('DeclaringType'): continue
+                if node.tag in ('Function', 'IfFunction') and d.get('MethodName') != node.get('MethodName'): continue
+                if node.tag in ('Function', 'IfFunction') and d.get('DeclaringType') != node.get('DeclaringType'): continue
                 if node.tag == 'ObjectProperties' and d.get('DeclaringType') != node.get('DeclaringType'): continue
                 return d
             self.fail('No retail definition for ' + node.get('Name'))
@@ -456,7 +465,8 @@ class BindTests(unittest.TestCase):
                 self.assertEqual(found['pending'], [])
                 self.assertEqual([g.get('aggregate') for g in found['groups']], ['second', None])
                 self.assertEqual((found['accept_sequence'], found['reject_sequence']), ('seq_2', 'seq_3'))
-                self.assertIn('same trigger chain', found['assumptions'][-1])
+                self.assertTrue(any('same trigger chain' in a for a in found['assumptions']))
+                self.assertTrue(any('tracking predicate' in a for a in found['assumptions']))
         reason = ['outcome conditions are not "a delivered group is completed" and its negation']
         # Not an aggregate of the delivered group: nothing joins, or it also waits for another objective.
         for join in (None, ('first', 'returnHome', 'disabled'), ('returnHome',)):
@@ -466,21 +476,129 @@ class BindTests(unittest.TestCase):
         self.assertNotIn('aggregate', plan(*staged(), NPC)['groups'][0])
         self.assertEqual(len(plan(*staged(), NPC)['assumptions']), 5)
 
-    def test_accept_completes_the_aggregate_before_the_effect_program(self):
-        _, entry, found, _ = lowered(join=('returnHome', 'disabled'), accept=JOINED, reject='!(' + JOINED + ')')
+    def joined(self):
+        return lowered(join=('returnHome', 'disabled'), accept=JOINED, reject='!(' + JOINED + ')')
+
+    def test_members_of_an_aggregate_group_are_delivered_in_every_combination(self):
+        _, _, found, _ = self.joined()
+        group = found['groups'][0]
+        self.assertEqual([(u['name'], u['objectives'], u['others']) for u in group['parts']], [
+            ('returnHome_disabled', ['returnHome', 'disabled'], []),
+            ('returnHome', ['returnHome'], ['disabled']), ('disabled', ['disabled'], ['returnHome'])])
+        self.assertEqual([[d['objective'] for d in u['descriptors']] for u in group['parts']],
+                         [['returnHome', 'disabled'], ['returnHome'], ['disabled']])
+        self.assertNotIn('parts', found['groups'][1])
+        self.assertEqual(found['completed_ports'], dict(returnHome_Completed='c_home_done', disabled_Completed='c_disabled_done'))
+        # Without an aggregate the group stays one delivery, as before.
+        plain = plan(*staged(), NPC)
+        self.assertNotIn('parts', plain['groups'][0])
+        self.assertNotIn('completed_ports', plain)
+
+    def test_the_accepting_sequence_needs_the_part_that_completes_the_group(self):
+        dialogue_root, _, _, _ = self.joined()
+        sequences = {s.get('Name'): s for s in dialogue_root.iter('Sequence')}
+        success = lambda port: "Port('delivery_result_" + port + "') == Enum('DeliveryResult','Success')"
+        wanted = ('(' + success('returnHome_disabled') + " AND Port('delivery_started_returnHome') AND Port('delivery_started_disabled'))"
+                  " OR (" + success('returnHome') + " AND Port('delivery_started_returnHome') AND Port('c_disabled_done'))"
+                  " OR (" + success('disabled') + " AND Port('delivery_started_disabled') AND Port('c_home_done'))"
+                  " OR (" + success('first') + " AND Port('c_first_started'))")
+        self.assertEqual(sequences['seq_2'].get('EntryCondition'), wanted)
+        self.assertEqual(sequences['seq_3'].get('EntryCondition'), '!(' + wanted + ')')
+        ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in dialogue_root.iter('Port') if p.get('Direction')}
+        for port in ('delivery_result_returnHome_disabled', 'delivery_result_returnHome', 'delivery_result_disabled'):
+            self.assertEqual(ports[port], ('In', 'DeliveryResult'))
+
+    def test_the_chain_opens_the_delivery_for_exactly_the_fillable_members(self):
+        _, entry, _, _ = self.joined()
         nodes = {n.get('Name'): n for n in entry.find('./Skald/Project/Nodes')}
-        pair, single = 'lowered_delivery_handin_returnHome_disabled_', 'lowered_delivery_handin_first_'
+        stem = 'lowered_delivery_handin_'
+        whole = stem + 'returnHome_disabled_'
+        for member in ('returnHome', 'disabled'):
+            has = nodes[whole + 'has_' + member + '_0']
+            self.assertEqual((froms(has, 'A'), froms(has, 'B')),
+                             ([QUEST + '.' + member + '_Started'], [QUEST + '.' + member + '_TrackedCompleted']))
+            self.assertEqual(froms(nodes[whole + 'lacks_' + member], 'Value'), [whole + 'has_' + member + '_0.bool'])
+            self.assertEqual(froms(nodes[whole + 'idle_' + member], 'Value'), [QUEST + '.' + member + '_Started'])
+        none = nodes[whole + 'none_0']
+        self.assertEqual((froms(none, 'A'), froms(none, 'B')), ([whole + 'lacks_returnHome.bool'], [whole + 'lacks_disabled.bool']))
+        only = stem + 'returnHome_'
+        exact, empty = nodes[only + 'exact_0'], nodes[only + 'empty_1']
+        self.assertEqual((froms(exact, 'A'), froms(exact, 'B')), ([whole + 'has_returnHome_0.bool'], [whole + 'lacks_disabled.bool']))
+        self.assertEqual(froms(nodes[only + 'empty_0'], 'A') + froms(nodes[only + 'empty_0'], 'B'),
+                         [whole + 'none_0.bool', QUEST + '.returnHome_Started'])
+        self.assertEqual(froms(empty, 'B'), [whole + 'idle_disabled.bool'])
+        gate = nodes[only + 'started_0']
+        self.assertEqual((gate.get('MethodName'), froms(gate, 'A'), froms(gate, 'B')),
+                         ('math::boolean::Or', [only + 'exact_0.bool'], [only + 'empty_1.bool']))
+        # One chain through every delivery: the whole pair, each member alone, then the other group.
+        order = [whole, only, stem + 'disabled_', stem + 'first_']
+        for verb in ('begin', 'accept', 'reject'):
+            self.assertEqual(froms(nodes[order[0] + verb], 'Exec'), ['handin.delivery_' + verb])
+            for before, after in zip(order, order[1:]):
+                self.assertEqual(froms(nodes[after + verb], 'Exec'), [before + verb + '.False'])
+        self.assertEqual(froms(nodes[only + 'begin'], 'Condition'), [only + 'started_0.bool'])
+        self.assertEqual(froms(nodes[stem + 'first_begin'], 'Condition'), [QUEST + '.first_Started'])
+        self.assertEqual(constants(nodes[only + 'item_0']), dict(ItemClass=ITEMS['returnHome'][0], Amount='5', MinimumHealth='0.5'))
+        self.assertEqual(len([n for n in nodes if n.endswith('_handler')]), 4)
+
+    def test_a_handed_in_part_is_accepted_whichever_sequence_follows(self):
+        _, entry, _, _ = self.joined()
+        nodes = {n.get('Name'): n for n in entry.find('./Skald/Project/Nodes')}
+        stem = 'lowered_delivery_handin_'
+        for part in ('returnHome_disabled_', 'returnHome_', 'disabled_'):
+            g = stem + part
+            settle, handler = nodes[g + 'settle'], nodes[g + 'handler']
+            self.assertEqual((settle.tag, settle.get('TypeT'), settle.get('MethodName'), constants(settle)),
+                             ('IfFunction', 'DeliveryResult', 'Control::Compare', dict(Op='Equals', ValueB='Success')))
+            self.assertEqual((froms(settle, 'Exec'), froms(settle, 'ValueA')), ([g + 'reject.True'], [g + 'handler.DeliveryResult']))
+            self.assertEqual(froms(handler, 'AcceptDelivery'), [g + 'accept.True', g + 'settle.True'])
+            self.assertEqual(froms(handler, 'RejectDelivery'), [g + 'settle.False'])
+        single = stem + 'first_'
+        self.assertNotIn(single + 'settle', nodes)
+        self.assertEqual(froms(nodes[single + 'handler'], 'RejectDelivery'), [single + 'reject.True'])
+
+    def test_accept_completes_the_aggregate_before_the_effect_program(self):
+        _, entry, found, _ = self.joined()
+        nodes = {n.get('Name'): n for n in entry.find('./Skald/Project/Nodes')}
+        stem = 'lowered_delivery_handin_'
+        pair, single = stem + 'returnHome_disabled_', stem + 'first_'
         quest = nodes[QUEST]
-        self.assertEqual(froms(quest, 'complete_returnHome'), [pair + 'accepted.A'])
-        self.assertEqual(froms(quest, 'complete_disabled'), [pair + 'accepted.A'])
-        gate = nodes[pair + 'aggregate']
-        self.assertEqual((gate.tag, froms(gate, 'Exec'), froms(gate, 'Condition')),
-                         ('If', [pair + 'accepted.B'], [QUEST + '.second_Started']))
-        self.assertEqual(froms(quest, 'complete_second'), [pair + 'aggregate.True'])
+        self.assertEqual(froms(quest, 'complete_returnHome'), [pair + 'accepted.A', stem + 'returnHome_accepted.A'])
+        self.assertEqual(froms(quest, 'complete_disabled'), [pair + 'accepted.A', stem + 'disabled_accepted.A'])
+        parts = [pair, stem + 'returnHome_', stem + 'disabled_']
+        for g in parts:
+            gate, finished = nodes[g + 'aggregate'], nodes[g + 'finished']
+            self.assertEqual((gate.tag, froms(gate, 'Exec'), froms(gate, 'Condition')),
+                             ('If', [g + 'accepted.B'], [QUEST + '.second_Started']))
+            # The source effects of the accepting sequence run only once the whole group is in.
+            self.assertEqual((froms(finished, 'Exec'), froms(finished, 'Condition')),
+                             ([g + 'accepted.C'], [QUEST + '.second_Completed']))
+        self.assertEqual(froms(quest, 'complete_second'), [g + 'aggregate.True' for g in parts])
         self.assertNotIn(single + 'aggregate', nodes)
-        self.assertEqual(froms(nodes['handin_effects_2_0'], 'Exec'), [pair + 'accepted.C', single + 'accepted.B'])
-        # The started-check and the handlers still read the delivered objectives, not the aggregate.
-        self.assertEqual(froms(nodes[pair + 'begin'], 'Condition'), [pair + 'started_0.bool'])
+        self.assertEqual(froms(nodes['handin_effects_2_0'], 'Exec'), [g + 'finished.True' for g in parts] + [single + 'accepted.B'])
+
+    def test_the_lab_compares_a_delivery_result_by_member_name(self):
+        from quest_lab import Unsupported
+        from quest_lab.pure import compare, comparison
+        node = E.fromstring('<IfFunction TypeT="DeliveryResult" MethodName="Control::Compare" DeclaringType="Control"/>')
+        self.assertTrue(comparison(node))
+        value = lambda a, op='Equals': compare(dict(Op=op, ValueA=a, ValueB='Success'), 'DeliveryResult')
+        self.assertEqual([value('Success'), value('Canceled'), value(None), value('Canceled', 'NotEquals')],
+                         [True, False, False, True])
+        with self.assertRaises(Unsupported): value('Sucess')
+        with self.assertRaises(Unsupported): value('Success', 'Less')
+
+    def test_an_aggregate_of_one_member_stays_one_delivery(self):
+        change = dict(scripts=(CALL % "'returnHome','disabled','first'",) * 2, pair=('action_home',), join=('disabled',))
+        accept = "Port('c_first_done') OR Port('c_second_done') OR Port('c_home_done')"
+        _, entry, found, _ = lowered(accept=accept, reject='!(' + accept + ')', **change)
+        group = next(g for g in found['groups'] if g['objectives'] == ['disabled'])
+        self.assertEqual(group['aggregate'], 'second')
+        self.assertNotIn('parts', group)
+        nodes = {n.get('Name'): n for n in entry.find('./Skald/Project/Nodes')}
+        g = 'lowered_delivery_handin_disabled_'
+        self.assertNotIn(g + 'settle', nodes)
+        self.assertEqual(froms(nodes['handin_effects_2_0'], 'Exec')[1], g + 'accepted.C')
 
     def test_unlabelled_objective_omits_the_optional_labels(self):
         blob, entry, quest, tracking = staged()

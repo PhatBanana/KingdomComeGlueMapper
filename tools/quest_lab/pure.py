@@ -113,6 +113,10 @@ COMPARE = {'Equals': operator.eq, 'NotEquals': operator.ne,
            'Less': operator.lt, 'LessEquals': operator.le,
            'Greater': operator.gt, 'GreaterEquals': operator.ge}
 COMPARE_TYPES = {'int', 'uint', 'float', 'bool', 'string'}
+# Native enumerations a graph compares by name (retail: IfFunction Control::Compare TypeT="DeliveryResult").
+# A handler without a result yet reads None, which equals no member.
+COMPARE_ENUMS = {'DeliveryResult': ('Success', 'Canceled', 'WrongItems', 'MissingItems', 'StolenMismatch',
+                                    'QualityMismatch', 'PriceMismatch', 'Invalid')}
 
 
 def reference_type(typ):
@@ -123,7 +127,8 @@ def comparison(element):
     return (element.tag in ('Function', 'IfFunction') and
             element.get('DeclaringType') == 'Control' and
             element.get('MethodName') == 'Control::Compare' and
-            (element.get('TypeT') in COMPARE_TYPES or reference_type(element.get('TypeT'))))
+            (element.get('TypeT') in COMPARE_TYPES or element.get('TypeT') in COMPARE_ENUMS
+             or reference_type(element.get('TypeT'))))
 
 
 def compare(values, typ):
@@ -139,6 +144,11 @@ def compare(values, typ):
         expected = bool if typ == 'bool' else str
         if type(a) is not expected or type(b) is not expected:
             raise Unsupported('Comparison values do not match ' + typ)
+        if op not in ('Equals', 'NotEquals'):
+            raise Unsupported('Only equality is modeled for ' + typ)
+    elif typ in COMPARE_ENUMS:
+        if any(v is not None and v not in COMPARE_ENUMS[typ] for v in (a, b)):
+            raise Unsupported('Comparison value is not a member of ' + typ)
         if op not in ('Equals', 'NotEquals'):
             raise Unsupported('Only equality is modeled for ' + typ)
     elif reference_type(typ):

@@ -771,7 +771,9 @@ def bind_scripts(row, model, resources, bindings, npc_assets):
         dialogue, entry = delivery.bind(dialogue, entry, quests[quest], hand_in, plan_, npc_assets, assets=assets)
         report['delivery'].append(dict(dialogue=hand_in['dialogue'], topic=topic, sites=list(hand_in['sites']),
             groups=[dict(dict(name=g['name'], objectives=g['objectives'], descriptors=len(g['descriptors'])),
-                         **({'aggregate': g['aggregate']} if g.get('aggregate') else {}))
+                         **({'aggregate': g['aggregate']} if g.get('aggregate') else {}),
+                         **({'parts': [dict(name=u['name'], objectives=u['objectives']) for u in g['parts']]}
+                            if g.get('parts') else {}))
                     for g in hand_in['groups']],
             decision=hand_in.get('decision'), accept=hand_in.get('accept_sequence'),
             reject=hand_in.get('reject_sequence'), assumptions=hand_in.get('assumptions', [])))
@@ -1280,10 +1282,12 @@ def delivery_audit(resources, quest, model, delivery, tracked):
         dialogue = record['dialogue']
         stem = 'lowered_delivery_' + dialogue + '_'
         handlers = sorted(n for n, node in nodes.items() if n.startswith(stem) and node.tag == 'ItemDeliveryHandler')
-        expected = sorted(stem + g['name'] + '_handler' for g in record['groups'])
+        # A group whose members are handed in separately has one delivery per subset of them.
+        units = [u for g in record['groups'] for u in (g.get('parts') or [g])]
+        expected = sorted(stem + u['name'] + '_handler' for u in units)
         if handlers != expected:
             problems.append('%s: handlers %r differ from the expected groups %r' % (dialogue, handlers, expected))
-        for group in record['groups']:
+        for group in units:
             g = stem + group['name'] + '_'
             wanted = [d for o in group['objectives'] for d in tracked.get(objective_ids[o], dict(descriptors=[]))['descriptors']]
             found, index = [], 0
@@ -1295,7 +1299,7 @@ def delivery_audit(resources, quest, model, delivery, tracked):
                 problems.append('%s: delivery %s descriptors %r differ from tracking %r' % (dialogue, group['name'], found, wanted))
         if not record['groups']:
             continue
-        first = stem + record['groups'][0]['name'] + '_'
+        first = stem + units[0]['name'] + '_'
         for verb in ('begin', 'accept', 'reject'):
             gate = nodes.get(first + verb)
             source = dialogue + '.delivery_' + verb
