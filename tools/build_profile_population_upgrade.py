@@ -120,7 +120,14 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             if ('final/sa_garrison.xml','Guard') in kinds and not any(
                     l['label']=='garrison_forcedWorkplace' for l in person['ai']['links']):
                 pending.append(dict(person=name, reason='Source garrison assignment is pending', schedule=schedule));continue
-            entries=resolve_arrivals(schedule,archive,person,source,reader,target)
+            try:
+                entries=resolve_arrivals(schedule,archive,person,source,reader,target)
+            except ValueError as error:
+                # A work adapter whose contract the resident's workplace does not
+                # meet (Rattay's stable has no authored hay cart) leaves that one
+                # resident on the native wait; nothing has been written yet.
+                if not home_time: raise
+                pending.append(dict(person=name, reason='Work binding failed: '+str(error), schedule=schedule));continue
             # Parse the mission, scheduler and source mission once for every
             # person and serialize after the loop, instead of per person.
             if trees is None:
@@ -170,25 +177,44 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
             person = people[name]; schedule = plan(person, tables)
             work = [e for e in schedule['resolved'] if fence_supports(e)]
             if not blocking_pending(schedule, person, home_time) and work:
-                housework_schedules[name] = resolve_arrivals(dict(schedule, resolved=work), archive, person, source, reader, target)
+                try:
+                    housework_schedules[name] = resolve_arrivals(dict(schedule, resolved=work), archive, person, source, reader, target)
+                except ValueError as error:
+                    if not home_time: raise
+                    pending.append(dict(person=name, reason='Household work binding failed: '+str(error), schedule=schedule))
+        def isolated(label, adapter, files, *args):
+            """Run a household adapter on everyone; for residents, a workplace that does not meet its
+            contract drops only that person to pending (the adapter is rerun person by person)."""
+            try:
+                return adapter(files, housework_schedules, *args)
+            except ValueError:
+                if not home_time: raise
+            done = []
+            for person in sorted(housework_schedules):
+                try:
+                    files, rows = adapter(files, {person: housework_schedules[person]}, *args)
+                    done.extend(rows)
+                except ValueError as error:
+                    pending.append(dict(person=person, reason=f'{label} binding failed: {error}'))
+            return files, done
         if housework_schedules:
             notify('Binding fence work')
-            files, repaired = upgrade_fences(files, housework_schedules, archive, target)
+            files, repaired = isolated('Fence work', upgrade_fences, files, archive, target)
             from character_home_rest import upgrade as upgrade_rest
             notify('Binding household rest places')
-            files, resting = upgrade_rest(files, housework_schedules, archive, target)
+            files, resting = isolated('Household rest', upgrade_rest, files, archive, target)
             repaired.extend(resting)
             from character_chopping_work import upgrade as upgrade_chopping
             notify('Binding chopping workplaces')
-            files, chopping = upgrade_chopping(files, housework_schedules, archive, target, items)
+            files, chopping = isolated('Chopping work', upgrade_chopping, files, archive, target, items)
             repaired.extend(chopping)
             from character_household_work import upgrade as upgrade_household
             notify('Binding household workplaces')
-            files, household = upgrade_household(files, housework_schedules, archive, target, source, reader, tables)
+            files, household = isolated('Household work', upgrade_household, files, archive, target, source, reader, tables)
             repaired.extend(household)
             from character_water_work import upgrade as upgrade_water
             notify('Binding water workplaces')
-            files, water = upgrade_water(files, housework_schedules, archive, target, source, reader, tables, items)
+            files, water = isolated('Water work', upgrade_water, files, archive, target, source, reader, tables, items)
             repaired.extend(water)
             changed = {r['person'] for r in repaired if not r.get('extension_only')}
             converted = [r for r in converted if not (r['person'] in changed and r.get('job') == 'source_housework_pending')]

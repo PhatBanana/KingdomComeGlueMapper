@@ -45,7 +45,9 @@ RESERVED = frozenset({'rat_refugee_ales'})
 # Placed people the KCD1 main quests up to the hunt need, with or without work
 # (feat/kcd1-quests-1, 2026-11-14).
 QUEST_PEOPLE = frozenset({'rat_bernard', 'rat_bailiff', 'rat_hanus', 'rat_racek_kobyla', 'rat_ptacek',
-                          'rat_guardJanik', 'rat_refugee_jana', 'rat_refugee_beggar', 'rat_parson'})
+                          'rat_guardJanik', 'rat_refugee_jana', 'rat_refugee_beggar', 'rat_parson',
+                          # q_escapeToTalmberk (Talmberg session, 2026-11-14).
+                          'tal_borek', 'tal_divis', 'tal_stepanka', 'tal_castlemaid1', 'prib_kolik'})
 GARRISON = 'final/sa_garrison.xml:Guard'
 
 

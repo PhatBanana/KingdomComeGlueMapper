@@ -548,6 +548,11 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     role_changes, receipt['shop_roles'] = add_haggle_roles(role_files, people)
     if role_changes:
         rewrite(package, travel, role_changes)
+    # Town residents speak in their KCD1 voice before work speech and the voice
+    # fallbacks read the final characters.
+    from resident_voices import upgrade as upgrade_resident_voices
+    resident_voice_files, receipt['resident_voices'] = upgrade_resident_voices(package, source, target)
+    receipt['files'].update(resident_voice_files)
     # Speech binds the final actor, staffed-shop and dialogue registrations.
     # Apply it after all person/service upgrades in both build paths.
     from setup_work_speech import upgrade as upgrade_work_speech

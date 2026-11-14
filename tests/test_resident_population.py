@@ -58,6 +58,16 @@ class SelectionTests(unittest.TestCase):
             discover(Path('unused'), 'rataje', ['q_skalitz_normal'], None, names=['rat_ruch'])
 
 
+class VerifyTests(unittest.TestCase):
+    def test_every_interval_needs_a_converted_place(self):
+        from verify_residents import unbound_intervals
+        day = [dict(activity='work', start_minute=455, end_minute=1205), dict(activity='sleep', start_minute=1205, end_minute=1440),
+               dict(activity='Eat', start_minute=0, end_minute=365), dict(activity='pray', start_minute=365, end_minute=455)]
+        self.assertEqual(unbound_intervals(day, beds=['bed'], work=['job'], home=True), ['pray 365-455'])
+        self.assertEqual(unbound_intervals(day, beds=[], work=[], home=False),
+                         ['work 455-1205', 'sleep 1205-1440', 'Eat 0-365', 'pray 365-455'])
+
+
 class CensusTests(unittest.TestCase):
     def row(self, **kw):
         base = dict(person='p', soul_rows=1, reserved=False, quest=False, keeper=False, home=True, blocking=[],
