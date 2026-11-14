@@ -70,6 +70,33 @@ def soul_alias(name):
     return 'gm_soul_' + re.sub(r'[^A-Za-z0-9_]', '_', name)
 
 
+def place_alias(name):
+    return 'gm_place_' + re.sub(r'[^A-Za-z0-9_]', '_', name)
+
+
+def place_names(models):
+    return sorted({row['entity'] for model in models
+                   for row in model['tables'].get('quest_place', {}).get('rows', []) if row.get('entity')})
+
+
+def place_classes(reader, game, names, level='Levels/rataje/level.pak'):
+    """EntityClass of each named source level entity; ambiguous or missing names are omitted."""
+    from campaign_sources import key
+    wanted = {n.encode() for n in names}
+    if not wanted:
+        return {}
+    with zipfile.ZipFile(Path(game) / 'Data' / level) as archive:
+        layers = [n for n in archive.namelist() if key(n).startswith('layers/') and key(n).endswith('.xml')]
+    pattern = re.compile(rb'<Entity [^>]*?(?<= )Name="(' + b'|'.join(re.escape(n) for n in sorted(wanted)) + rb')"[^>]*>')
+    found = {}
+    for path in layers:
+        data = reader(game, {'layer': (level, path)})['layer']['data']
+        for match in pattern.finditer(data):
+            cls = re.search(rb' EntityClass="([^"]*)"', match.group(0))
+            found.setdefault(match.group(1).decode(), set()).add(cls.group(1).decode() if cls else None)
+    return {name: next(iter(classes)) for name, classes in found.items() if len(classes) == 1}
+
+
 def build_bindings(models, source, target, assume, player_asset='player', policies=None):
     """Bindings for `campaign_quest_lowerings.lower` from source and target tables."""
     registered = {k: set(v) for k, v in target['registered'].items()}
@@ -78,6 +105,13 @@ def build_bindings(models, source, target, assume, player_asset='player', polici
     bindings = dict(player_asset=player_asset, item_categories=source['item_categories'], soul_assets={},
         factions={}, money_changes={}, reputation_changes={}, exp_changes={}, exp_targets={}, perks={},
         policies=dict(policies or {}))
+    if source.get('functions') is not None:
+        # Source data, not a registration: the same table the dialogue converter expands.
+        bindings['condition_functions'] = dict(source['functions'])
+    if assume and source.get('place_classes') is not None:
+        bindings['place_assets'] = {
+            row['entity']: dict(alias=place_alias(row['entity']), entity_class=source['place_classes'].get(row['entity']))
+            for model in models for row in model['tables'].get('quest_place', {}).get('rows', []) if row.get('entity')}
     for kind, names in (('reputation_changes', source['reputation']), ('exp_changes', source['exp']),
                         ('money_changes', source['money'])):
         table = dict(reputation_changes='reputation_change', exp_changes='xp_change', money_changes='money_change')[kind]
@@ -151,7 +185,8 @@ def load_context(kcd1, kcd2, mod=None):
             money_amounts={r['name']: r['change'] for r in source_rows(reader, kcd1, 'quest/money_change')},
             reputation_amounts={r['name']: r['change'] for r in source_rows(reader, kcd1, 'rpg/reputation_change')},
             souls={r['soul_id'].lower(): r['soul_name'] for r in source_rows(reader, kcd1, 'rpg/soul')},
-            item_categories={r['item_id'].lower(): r['item_category_id'] for r in source_rows(reader, kcd1, 'item/item')})
+            item_categories={r['item_id'].lower(): r['item_category_id'] for r in source_rows(reader, kcd1, 'item/item')},
+            functions={r['function_name']: r['expression'] for r in source_rows(reader, kcd1, 'text/dialogue_functions')})
     native_items = installed(kcd2, mod, 'player')
     target = dict(item_map=native_items['item_map'], registered_items=native_items['registered'],
         registered=dict(money_change=target_names(kcd2, 'money_change'),
@@ -167,6 +202,7 @@ def report(kcd1, kcd2, quests, with_quests=(), mod=None, policies=None, context=
     source, target = context or load_context(kcd1, kcd2, mod)
     with RetailSourceReader(Path(kcd1)) as reader:
         models = source_models(Path(kcd1), [*quests, *with_quests], reader)
+        source = dict(source, place_classes=place_classes(reader, Path(kcd1), place_names(models)))
     files, emitted = emit_project(models, 'QuestLoweringReport')
     native = dict(registered_items={i.lower() for i in target['registered_items']},
                   registered={k: set(v) for k, v in target['registered'].items()})

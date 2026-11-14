@@ -1,0 +1,284 @@
+{
+  "converted": {
+    "function_conditions": [
+      {
+        "functions": [
+          "q_skalitz_henryStoleSomething"
+        ],
+        "objective": "henryIsStealing"
+      }
+    ],
+    "linked_conditions": 0,
+    "local_conditions": 8,
+    "quest_end": {
+      "join": "all",
+      "predecessors": [
+        "4"
+      ]
+    },
+    "resolved": {
+      "conditions": 1,
+      "rewards": 3,
+      "tracking": 41
+    }
+  },
+  "converter": "C1",
+  "counts": {
+    "after": {
+      "completion_policy": 1
+    },
+    "after_by_residue_kind": {
+      "expression_unbound": 1
+    },
+    "after_total": 1,
+    "before": {
+      "completion_policy": 17,
+      "rewards": 3,
+      "tracked_completion": 26
+    },
+    "before_total": 46
+  },
+  "emitted_sha256": "f8c76dc70784a7fedf29e7ef45d85be1c3b5289b80090c2d6901c7fcfa296bec",
+  "lowered_nodes": [
+    "lowered_reward_11",
+    "lowered_reward_12",
+    "lowered_reward_122",
+    "lowered_reward_173",
+    "lowered_reward_18",
+    "lowered_reward_182",
+    "lowered_reward_24",
+    "lowered_reward_404",
+    "lowered_reward_478",
+    "lowered_reward_48",
+    "lowered_reward_9",
+    "lowered_track_1021_0_descriptor",
+    "lowered_track_1021_0_matches",
+    "lowered_track_1021_0_watch",
+    "lowered_track_1021_all_0",
+    "lowered_track_1021_complete",
+    "lowered_track_1021_queued",
+    "lowered_track_1190_0_descriptor",
+    "lowered_track_1190_0_matches",
+    "lowered_track_1190_0_watch",
+    "lowered_track_1190_all_0",
+    "lowered_track_1190_complete",
+    "lowered_track_1190_queued",
+    "lowered_track_11_0_descriptor",
+    "lowered_track_11_0_matches",
+    "lowered_track_11_0_watch",
+    "lowered_track_11_all_0",
+    "lowered_track_11_complete",
+    "lowered_track_11_queued",
+    "lowered_track_122_0_dead",
+    "lowered_track_122_0_watch",
+    "lowered_track_12_0_descriptor",
+    "lowered_track_12_0_matches",
+    "lowered_track_12_0_watch",
+    "lowered_track_12_all_0",
+    "lowered_track_12_complete",
+    "lowered_track_12_queued",
+    "lowered_track_31_0_descriptor",
+    "lowered_track_31_0_matches",
+    "lowered_track_31_0_watch",
+    "lowered_track_31_all_0",
+    "lowered_track_31_complete",
+    "lowered_track_31_queued",
+    "lowered_track_32_0_descriptor",
+    "lowered_track_32_0_matches",
+    "lowered_track_32_0_watch",
+    "lowered_track_32_all_0",
+    "lowered_track_32_complete",
+    "lowered_track_32_queued",
+    "lowered_track_33_0_descriptor",
+    "lowered_track_33_0_matches",
+    "lowered_track_33_0_watch",
+    "lowered_track_33_all_0",
+    "lowered_track_33_complete",
+    "lowered_track_33_queued",
+    "lowered_track_478_0_inside",
+    "lowered_track_478_0_watch",
+    "lowered_track_478_all_0",
+    "lowered_track_478_complete",
+    "lowered_track_478_queued",
+    "lowered_track_50_0_inside",
+    "lowered_track_50_0_watch",
+    "lowered_track_50_all_0",
+    "lowered_track_50_complete",
+    "lowered_track_50_queued",
+    "lowered_track_543_0_descriptor",
+    "lowered_track_543_0_matches",
+    "lowered_track_543_0_watch",
+    "lowered_track_543_all_0",
+    "lowered_track_543_complete",
+    "lowered_track_543_queued",
+    "lowered_track_544_0_descriptor",
+    "lowered_track_544_0_matches",
+    "lowered_track_544_0_watch",
+    "lowered_track_544_all_0",
+    "lowered_track_544_complete",
+    "lowered_track_544_queued",
+    "lowered_track_545_0_descriptor",
+    "lowered_track_545_0_matches",
+    "lowered_track_545_0_watch",
+    "lowered_track_545_all_0",
+    "lowered_track_545_complete",
+    "lowered_track_545_queued",
+    "lowered_track_5_0_dead",
+    "lowered_track_5_0_watch",
+    "lowered_track_721_0_inside",
+    "lowered_track_721_0_watch",
+    "lowered_track_721_all_0",
+    "lowered_track_721_complete",
+    "lowered_track_721_queued",
+    "lowered_track_955_0_descriptor",
+    "lowered_track_955_0_matches",
+    "lowered_track_955_0_watch",
+    "lowered_track_955_all_0",
+    "lowered_track_955_complete",
+    "lowered_track_955_queued",
+    "lowered_track_9_0_descriptor",
+    "lowered_track_9_0_matches",
+    "lowered_track_9_0_watch",
+    "lowered_track_9_all_0",
+    "lowered_track_9_complete",
+    "lowered_track_9_queued",
+    "lowered_track_inventory",
+    "lowered_track_soul",
+    "source_condition_1153",
+    "source_condition_1153_apply_0",
+    "source_condition_1153_apply_0_condition",
+    "source_condition_1153_apply_0_gate",
+    "source_condition_1262",
+    "source_condition_1262_apply_0",
+    "source_condition_1262_apply_0_condition",
+    "source_condition_1262_apply_0_gate",
+    "source_condition_1432",
+    "source_condition_1432_apply_0",
+    "source_condition_1432_apply_0_condition",
+    "source_condition_1432_apply_0_gate",
+    "source_condition_1709",
+    "source_condition_1709_apply_0",
+    "source_condition_1709_apply_0_condition",
+    "source_condition_1709_apply_0_gate",
+    "source_condition_18",
+    "source_condition_18_apply_0",
+    "source_condition_18_apply_0_condition",
+    "source_condition_18_apply_0_gate",
+    "source_condition_23",
+    "source_condition_23_apply_0",
+    "source_condition_23_apply_0_condition",
+    "source_condition_23_apply_0_condition_1",
+    "source_condition_23_apply_0_condition_1_0",
+    "source_condition_23_apply_0_gate",
+    "source_condition_24",
+    "source_condition_24_apply_0",
+    "source_condition_24_apply_0_condition",
+    "source_condition_24_apply_0_gate",
+    "source_condition_404",
+    "source_condition_404_apply_0",
+    "source_condition_404_apply_0_condition",
+    "source_condition_404_apply_0_gate",
+    "source_condition_55",
+    "source_condition_55_apply_0",
+    "source_condition_55_apply_0_condition",
+    "source_condition_55_apply_0_gate"
+  ],
+  "node_tags": {
+    "AddReward": 11,
+    "AreaTrigger": 3,
+    "Function": 161,
+    "If": 117,
+    "ItemDescriptorTrigger": 12,
+    "JournalBinding": 21,
+    "MemberFunction": 13,
+    "ObjectProperties": 1,
+    "Output": 1,
+    "SoulDeathTrigger": 2,
+    "State": 116,
+    "Timer": 57,
+    "TriggerSequence": 9
+  },
+  "quest": "q_skalitz",
+  "residue": [
+    {
+      "item": "practiceFencing",
+      "kind": "completion_policy",
+      "reasons": [
+        "condition is not bound: IsQuestCompleted('q_tutorial_swordOne')"
+      ],
+      "residue_kinds": [
+        "expression_unbound"
+      ]
+    }
+  ],
+  "schema": 1,
+  "source": {
+    "completion_classes": {
+      "constant": 28,
+      "expression": 6,
+      "external": 50,
+      "never": 4,
+      "timed": 4,
+      "tracked_auto": 15,
+      "tracked_manual": 2
+    },
+    "objectives": 109,
+    "reward_rows": 20,
+    "tracked_assets": 26,
+    "transitions": 63
+  },
+  "source_equivalence": {
+    "categories": {
+      "completion": {
+        "checked": 109,
+        "failed": 0,
+        "passed": 108,
+        "residue": 1
+      },
+      "objectives": {
+        "checked": 111,
+        "failed": 0,
+        "passed": 111,
+        "residue": 0
+      },
+      "quest_end": {
+        "checked": 1,
+        "failed": 0,
+        "passed": 1,
+        "residue": 0
+      },
+      "references": {
+        "checked": 22,
+        "failed": 0,
+        "passed": 22,
+        "residue": 0
+      },
+      "rewards": {
+        "checked": 13,
+        "failed": 0,
+        "passed": 11,
+        "residue": 2
+      },
+      "transitions": {
+        "checked": 118,
+        "failed": 0,
+        "passed": 118,
+        "residue": 0
+      }
+    },
+    "summary": {
+      "checked": 374,
+      "failed": 0,
+      "passed": 371,
+      "residue": 3
+    },
+    "verdict": "PASS"
+  },
+  "world_requirements": [
+    {
+      "asset": "gm_place_q_skalitz_germanHouse",
+      "kind": "TriggerArea",
+      "source_entity": "q_skalitz_germanHouse"
+    }
+  ]
+}
