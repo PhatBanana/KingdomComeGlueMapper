@@ -4,8 +4,20 @@ A KCD1 sequence script such as `QuestSystem.StartQuest('<quest>')` is copied
 into the emitted dialogue as an `ExitScript`. KCD2 Lua has no such table, so
 the call is replaced by an `Out` trigger port on the dialogue, a
 `Triggers/Port` on the sequence and an edge to the quest's input in the
-container. The call-to-input table is `campaign_quest_bridge.QUEST_ACTIONS`;
-a lifecycle call it does not map (for example `CancelQuest`) stays pending.
+container. The call-to-input table is `campaign_quest_bridge.QUEST_ACTIONS`
+plus our own `CancelQuest` -> `cancel`; any other lifecycle call stays pending.
+
+KCD1 `CancelQuest` ends a quest without success and leaves its objectives as
+they are. KCD2's quest progress is None / Active / Done / Failed, and retail
+ends a quest that can no longer be done with Failed: of the edges into a quest's
+progress that follow a death trigger, 24 are SetFailed and 4 SetDone (for
+example klaster_hibernate_mode/staryMnich.xml and kutnohorsko/klasterniTajemstvi.xml,
+`deathtrigger.OnDeath -> SetFailed`). SetNone is used by 17 retail quests, for
+resets and version patches, and would let the quest be offered again. So a
+canceled quest becomes Failed. `expose_cancel` adds that input to an emitted
+quest: `cancel` fails an active quest and always sets the `canceled` output,
+so the source's own word for the ending stays readable. **Guess:** the journal
+lists it with the failed quests, as it does a retail failed quest.
 
 A script is lowered only when it consists of nothing but such calls on quests
 the caller registered. Any other statement keeps the whole sequence pending and
@@ -19,7 +31,12 @@ import re
 import xml.etree.ElementTree as ET
 
 from campaign_quest_bridge import QUEST_ACTIONS
-from campaign_quest_graph import identifier, xml
+from campaign_quest_graph import constant, edge, identifier, xml
+
+# Ours, on top of the maintainer's table: what a source quest function becomes on an emitted quest.
+QUEST_INPUTS = dict(QUEST_ACTIONS, CancelQuest='cancel')
+CANCEL, CANCELED = 'cancel', 'canceled'
+CANCEL_GATE, CANCEL_LATCH = 'lowered_cancel_if_active', 'lowered_cancel_canceled'
 
 PREFIX = 'lifecycle_'
 CANDIDATE = re.compile(r'QuestSystem\s*\.\s*\w*Quest\s*\(')
@@ -69,7 +86,7 @@ def plan(dialogue_blob, quest_names):
             continue
         reasons = []
         for function, quest in calls:
-            if function not in QUEST_ACTIONS:
+            if function not in QUEST_INPUTS:
                 reasons.append('no native input for QuestSystem.' + function)
             elif quest not in quests:
                 reasons.append('unregistered quest ' + quest)
@@ -79,8 +96,8 @@ def plan(dialogue_blob, quest_names):
             pending.append(dict(sequence=name, reason='; '.join(reasons), script=script))
             continue
         for function, quest in calls:
-            sites.append(dict(sequence=name, function=function, quest=quest, input=QUEST_ACTIONS[function],
-                              port=port_name(quest, QUEST_ACTIONS[function])))
+            sites.append(dict(sequence=name, function=function, quest=quest, input=QUEST_INPUTS[function],
+                              port=port_name(quest, QUEST_INPUTS[function])))
     return dict(dialogue=host.get('Name'), sites=sites, pending=pending, runtime_verified=False)
 
 
@@ -129,6 +146,47 @@ def quest_port(quest_blob, quest, port, direction, kind):
     found = [p for p in host.findall('Ports/Port') if p.get('Name') == port]
     if len(found) != 1 or found[0].get('Direction') != direction or found[0].get('Type') != kind:
         raise ValueError('Quest does not declare ' + direction + ' ' + kind + ' port ' + quest + '.' + port)
+
+
+def expose_cancel(quest_blob, sources=()):
+    """Give an emitted quest the `cancel` input and `canceled` output; returns the quest blob.
+
+    sources are triggers inside the quest definition (for example `objective_79.OnCompleted` behind a
+    controller rule's own gate) that cancel it too. Calling it again only adds sources that are new.
+    """
+    root, host = host_of(quest_blob)
+    if host.tag != 'Quest':
+        raise ValueError('Expected an emitted quest definition')
+    ports, nodes = host.find('Ports'), host.find('Nodes')
+    by_name = {n.get('Name'): n for n in nodes}
+    progress, output = by_name.get('quest_progress'), by_name.get('Output')
+    if progress is None or output is None or progress.get('TypeT') != 'wh::questmodule::QuestProgress':
+        raise ValueError('Quest has no native progress state to cancel')
+    declared = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in ports}
+    if CANCEL_GATE not in by_name:
+        if CANCEL in declared or CANCELED in declared or CANCEL_LATCH in by_name:
+            raise ValueError('Quest already declares a different cancel')
+        ET.SubElement(ports, 'Port', Name=CANCEL, Direction='In', Type='trigger')
+        ET.SubElement(ports, 'Port', Name=CANCELED, Direction='Out', Type='bool')
+        gate = ET.SubElement(nodes, 'If', Name=CANCEL_GATE)
+        edge(gate, 'quest_progress.Active', 'Condition')
+        edge(gate, CANCEL, 'Exec')
+        latch = ET.SubElement(nodes, 'State', Name=CANCEL_LATCH, TypeT='bool')
+        constant(latch, 'DefaultValue', 'false')
+        edge(latch, CANCEL, 'SetTrue')
+        edge(progress, CANCEL_GATE + '.True', 'SetFailed')
+        edge(output, CANCEL_LATCH + '.State', CANCELED)
+    elif declared.get(CANCEL) != ('In', 'trigger') or declared.get(CANCELED) != ('Out', 'bool'):
+        raise ValueError('Quest already declares a different cancel')
+    gate, latch = nodes.find("If[@Name='" + CANCEL_GATE + "']"), nodes.find("State[@Name='" + CANCEL_LATCH + "']")
+    for source in sources:
+        origin = source.partition('.')[0]
+        if '.' not in source or nodes.find("*[@Name='" + origin + "']") is None:
+            raise ValueError('Cancel source is not a node of the quest: ' + source)
+        if not any(e.get('From') == source and e.get('To') == 'Exec' for e in gate.findall('Edge')):
+            edge(gate, source, 'Exec')
+            edge(latch, source, 'SetTrue')
+    return xml(root)
 
 
 def bind(dialogue_blob, entry_blob, plan_, quests):

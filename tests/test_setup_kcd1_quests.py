@@ -1077,7 +1077,13 @@ class RetailPlanTests(unittest.TestCase):
         self.assertFalse([f for f in r['files'] if f.endswith('q_huntPtacek.xml')])
         self.assertIn(quests.MARKER, r['files'])
         self.assertIn(quests.FOLDER + QUEST + '.xml', r['files'])
-        self.assertFalse(r['controller_pending']['converted'])
+        self.assertTrue(r['controller_pending']['converted'])
+        self.assertEqual(r['controller_pending']['pattern'], 'objective_state_rule')
+        self.assertEqual([(c['tree'], [(x['objective'], x['function']) for x in c['rules']]) for c in r['controller']['consumed']],
+                         [('onUpdate', [('npcIsDead', 'CancelQuest')])])
+        quest = quests.host_of_blob(self.resources[quests.FOLDER + QUEST + '.xml'])
+        ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in quest.iterfind('Ports/Port')}
+        self.assertEqual((ports['cancel'], ports['canceled']), (('In', 'trigger'), ('Out', 'bool')))
         self.assertFalse(r['runtime_verified'])
 
     def test_no_quest_system_call_remains_and_the_shared_predicate_map_is_clean(self):

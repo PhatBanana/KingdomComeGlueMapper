@@ -36,7 +36,7 @@ STATES = ('Unchanged', 'Started', 'Completed', 'Failed', 'Canceled')
 ACTIONS = {'1': 'start', '2': 'complete', '3': 'cancel'}
 TOKEN = re.compile(r"\s*(?:(AND\b|OR\b|&&?|\|\|?|!|\(|\))|([A-Za-z_]\w*)\s*\(([^()]*)\)|([A-Za-z_]\w*)|(\d+))")
 _NAME = r"'([^'\\]*)'"
-LIFECYCLE = re.compile(r"\s*QuestSystem\s*\.\s*(ActivateQuest|StartQuest)\s*\(\s*" + _NAME + r"\s*\)\s*;?\s*")
+LIFECYCLE = re.compile(r"\s*QuestSystem\s*\.\s*(ActivateQuest|StartQuest|CancelQuest)\s*\(\s*" + _NAME + r"\s*\)\s*;?\s*")
 _OPEN = r"QuestSystem\s*\.\s*OpenInventory\s*\(\s*" + _NAME + r"\s*,\s*dc\s*\[\s*'(\w+)'\s*\]\s*\.\s*this\s*\.\s*id\s*((?:,\s*" + _NAME + r"\s*)+)\)\s*;?"
 OPEN = re.compile(r"\s*" + _OPEN + r"\s*")
 GUARDED = re.compile(r"\s*if\s+QuestSystem\s*\.\s*IsObjectiveStarted\s*\(\s*" + _NAME + r"\s*,\s*" + _NAME
@@ -296,9 +296,12 @@ class Reference:
         for objective, state, function in self.rules:
             if objective == name and state == 'Completed' and s['quest'] == 'Started':
                 if function != 'CancelQuest': raise Unsupported('KCD1 controller action is not modeled: ' + function)
-                s['quest'] = 'Canceled'; s['events'].append(('cancel_quest', self.quest))
+                self.cancel_quest()
         oid = next(i for i, n in self.names.items() if n == name)
         self.advance(oid)
+
+    def cancel_quest(self):
+        self.state['quest'] = 'Canceled'; self.state['events'].append(('cancel_quest', self.quest))
 
     def cancel(self, name):
         self.state['objectives'][name] = 'Canceled'; self.state['events'].append(('cancel', name))
@@ -357,6 +360,7 @@ class Reference:
                 raise Unsupported('KCD1 script on another quest: ' + sid)
             if call[0] == 'lifecycle':
                 if call[1] == 'ActivateQuest': s['activated'] = True
+                elif call[1] == 'CancelQuest': self.cancel_quest()
                 else:
                     s['quest'] = 'Started'; s['events'].append(('start_quest', self.quest))
                     self.advance(self.begin)

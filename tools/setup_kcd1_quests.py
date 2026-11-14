@@ -672,6 +672,8 @@ def stage_quest(row, model, resources, context, souls, factions, text, chain=())
     resources[PROJECT], resources[ENTRY], quest_blob, registered = registration.register(
         resources[PROJECT], resources[ENTRY], files[PROJECT_NAME + '.xml'], files[path],
         '../' + PROJECT_NAME + '/' + name + '.xml', model=model, souls=aliases, group=group, shared_types=True)
+    # The quest's controller, where it is one of the declared shapes.
+    quest_blob, controller = lower_controller(quest_blob, model)
     resources[FOLDER + name + '.xml'] = quest_blob
     missing = sorted(set(row['prerequisites']) - {link['quest'] for link in chain})
     if missing:
@@ -694,7 +696,7 @@ def stage_quest(row, model, resources, context, souls, factions, text, chain=())
                            for g in quest_report['lowerings']['rewards']['converted']],
                   policy=quest_report['lowerings']['policy']['converted'], registration=registered,
                   value_names=value_names, journal_strings=len(quest_report['journal_strings']),
-                  soul_assets=aliases, factions=dict(factions), story=story)
+                  soul_assets=aliases, factions=dict(factions), story=story, controller=controller)
     return resources, bindings, report, quest_report['journal_strings']
 
 
@@ -764,6 +766,9 @@ def bind_scripts(row, model, resources, bindings, npc_assets):
             raise ValueError('Missing converted dialogue: ' + path)
         dialogue, entry = resources[path], resources[ENTRY]
         found = lifecycle.plan(dialogue, quests.keys())
+        if any(s['input'] == lifecycle.CANCEL for s in found['sites']):
+            # A conversation cancels the quest: it needs the cancel input before the edge is validated.
+            quests[quest] = resources[FOLDER + quest + '.xml'] = lifecycle.expose_cancel(quests[quest])
         dialogue, entry = lifecycle.bind(dialogue, entry, found, quests)
         report['lifecycle'].append(dict(dialogue=found['dialogue'], topic=topic,
             sites=[dict(sequence=s['sequence'], function=s['function'], port=s['port']) for s in found['sites']]))
@@ -841,7 +846,7 @@ def plan_quest(row, source, target, package=None, context=None, base=None):
     written = {p for p, b in resources.items() if base.get(p) != b} | {MARKER, *value_paths(report)}
     report.update(scripts, evidence=evidence, npc_assets=npc_assets, assumed=assumed,
                   assumed_prerequisites=prerequisite_report(row, source, chain, report['story']),
-                  controller_pending=controller_pending(model), files=sorted(written),
+                  controller_pending=controller_pending(model, report.get('controller')), files=sorted(written),
                   archives=archives, runtime_verified=False)
     return resources, report
 
@@ -856,10 +861,22 @@ def value_paths(report):
     return paths
 
 
-def controller_pending(model):
-    """The source controller behaviour is not converted; it is reported, never hand-wired."""
+def lower_controller(quest_blob, model):
+    """(quest blob, report): the controller lowered by a declared pattern, or left as it is with the reason."""
+    import campaign_controller_patterns as patterns
+    try:
+        return patterns.lower(quest_blob, model)
+    except patterns.Unmatched as error:
+        return quest_blob, dict(pattern=None, consumed=[], rules=[], reason=str(error), runtime_verified=False)
+
+
+def controller_pending(model, controller=None):
+    """What of the source controller is still not converted; a declared pattern may have consumed it."""
+    converted = bool(controller and controller.get('pattern') and controller.get('consumed'))
     return dict(entry=model.get('behavior_entry'), status=model.get('behavior_status'),
-                operations=len(model.get('operations') or ()), converted=False)
+                operations=len(model.get('operations') or ()), converted=converted,
+                pattern=controller.get('pattern') if controller else None,
+                reason=(controller or {}).get('reason'))
 
 
 def plan(source, target, package=None, notify=lambda *a: None):
@@ -995,7 +1012,7 @@ def migrate_quest(package, source, target, row, marker, notify):
             final, scripts = bind_scripts(row, model, staged, bindings, npc_assets)
         entry = dict(selection=selection_digest(row), report={k: v for k, v in report.items()},
                      lifecycle=scripts['lifecycle'], delivery=scripts['delivery'], evidence=evidence,
-                     npc_assets=npc_assets, controller_pending=controller_pending(model),
+                     npc_assets=npc_assets, controller_pending=controller_pending(model, report.get('controller')),
                      assumed_prerequisites=prerequisite_report(row, source, chain, report['story']),
                      people=dict(converted=[p['person'] for p in people_report['converted']],
                                  existing=[p.get('person') for p in people_report['existing']]),

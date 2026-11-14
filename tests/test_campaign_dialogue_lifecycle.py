@@ -78,13 +78,30 @@ class LifecycleTests(unittest.TestCase):
         for script in (call('StartQuest') + " Utils.GiveItem('x')", "if a then " + call('StartQuest') + " end",
                        call('StartQuest') + " QuestSystem.OpenInventory('" + QUEST + "', 1, 'first')",
                        "QuestSystem.StartQuest(name)", call('StartQuest') + call('StartQuest'),
-                       call('CancelQuest'), call('CompleteQuest')):
+                       call('FailQuest'), call('CompleteQuest')):
             with self.subTest(script=script):
                 blob = dialogue([script, call('ActivateQuest')])
                 found = plan(blob, quests)
                 self.assertEqual([p['sequence'] for p in found['pending']], ['seq_0'])
                 self.assertEqual([s['sequence'] for s in found['sites']], ['seq_1'])
                 with self.assertRaises(ValueError): bind(blob, entry, found, quests)
+
+    def test_cancel_quest_is_our_own_mapping_and_needs_the_exposed_input(self):
+        from campaign_dialogue_lifecycle import QUEST_INPUTS, expose_cancel
+        self.assertEqual({k: v for k, v in QUEST_INPUTS.items() if k not in QUEST_ACTIONS}, dict(CancelQuest='cancel'))
+        self.assertNotIn('CancelQuest', QUEST_ACTIONS)              # the maintainer's table is left alone
+        entry, quests = container()
+        blob = dialogue([call('CancelQuest')])
+        found = plan(blob, quests)
+        self.assertEqual([(s['input'], s['port']) for s in found['sites']], [('cancel', 'lifecycle_arbitrary_quest_cancel')])
+        with self.assertRaisesRegex(ValueError, 'does not declare In trigger port arbitrary_quest.cancel'):
+            bind(blob, entry, found, quests)
+        exposed = {QUEST: expose_cancel(quests[QUEST])}
+        lowered, wired = bind(blob, entry, plan(blob, exposed), exposed)
+        node = E.fromstring(wired).find("./Skald/Project/Nodes/" + QUEST)
+        self.assertEqual([(e.get('From'), e.get('To')) for e in node.findall('Edge')],
+                         [('talk.lifecycle_arbitrary_quest_cancel', 'cancel')])
+        self.assertNotIn(b'QuestSystem.', lowered)
 
     def test_scripts_without_a_quest_call_are_not_this_modules_concern(self):
         _, quests = container()

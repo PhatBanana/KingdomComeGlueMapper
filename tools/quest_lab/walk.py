@@ -258,8 +258,10 @@ class Walk:
                         topic=None if state['closing'] else state['decision'].removeprefix('topic_'),
                         window=g.world.state['window'] is not None)
         items = g.world.items(BAG)[1]
+        # A quest lowered without the cancel outcome has no such output: it then reads as never canceled.
+        canceled = bool(g.value(q + '.canceled')) if q + '.canceled' in g.output_ports else False
         return dict(objectives=objectives, activated=g.value(q + '.available'), started=g.value(q + '.started'),
-                    completed=g.value(q + '.completed'), ledger=ledger, amounts=amounts, talk=talk,
+                    completed=g.value(q + '.completed'), canceled=canceled, ledger=ledger, amounts=amounts, talk=talk,
                     items={k: sorted((s['amount'], s['health']) for s in v) for k, v in items.items()})
 
     def expected(self):
@@ -272,22 +274,23 @@ class Walk:
                    if self.money is not None else None)
         talk = s['talk'] and dict(dialogue=s['talk']['dialogue'], topic=s['talk']['topic'], window=s['talk']['window'] is not None)
         return dict(objectives=dict(s['objectives']), activated=s['activated'], started=s['quest'] == 'Started',
-                    completed=s['quest'] == 'Completed', ledger=+ledger, amounts=amounts, talk=talk,
+                    completed=s['quest'] == 'Completed', canceled=s['quest'] == 'Canceled', ledger=+ledger,
+                    amounts=amounts, talk=talk,
                     items={k: sorted((x['amount'], x['health']) for x in v) for k, v in s['items'].items()})
 
     def compare(self):
         want, got, found = self.expected(), self.lowered(), []
         moves = self.moves()
         if len(moves) == 1 and moves[0][0] == 'plays':      # not an observation point: see RULES['observation']
-            for field in ('objectives', 'activated', 'started', 'completed', 'items', 'ledger', 'amounts'):
+            for field in ('objectives', 'activated', 'started', 'completed', 'canceled', 'items', 'ledger', 'amounts'):
                 got[field] = want[field]
         for name in want['objectives']:
             if want['objectives'][name] != got['objectives'][name]:
                 found.append(dict(field='objective ' + name, kcd1=want['objectives'][name], lowered=got['objectives'][name]))
-        for field in ('activated', 'started', 'completed', 'talk', 'items'):
+        for field in ('activated', 'started', 'completed', 'canceled', 'talk', 'items'):
             if want[field] != got[field]:
                 kcd1 = want[field] if field != 'started' else str(want[field]) + ' (quest ' + self.reference.state['quest'] + ')'
-                found.append(dict(field='quest ' + field if field in ('activated', 'started', 'completed') else field,
+                found.append(dict(field='quest ' + field if field in ('activated', 'started', 'completed', 'canceled') else field,
                                   kcd1=kcd1, lowered=got[field]))
         if +want['ledger'] != +got['ledger']:
             keys = sorted(set(want['ledger']) | set(got['ledger']))
