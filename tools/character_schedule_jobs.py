@@ -14,6 +14,7 @@ import character_seated_work
 import character_shop_guard_work
 import character_farmer_work
 import character_horse_handler_work
+import character_work_adapters
 
 
 def population_work_supports(entry):
@@ -22,7 +23,8 @@ def population_work_supports(entry):
     identity = (behavior['tree_file'].replace('\\', '/').lower(), behavior['tree_name'])
     return (identity in {('final/sa_home.xml', 'housework'), ('final/sa_garrison.xml', 'Guard')}
             or character_city_work.supports(entry) or character_seated_work.supports(entry)
-            or character_shop_guard_work.supports(entry) or character_farmer_work.supports(entry) or character_horse_handler_work.supports(entry))
+            or character_shop_guard_work.supports(entry) or character_farmer_work.supports(entry) or character_horse_handler_work.supports(entry)
+            or character_work_adapters.supports(entry))
 
 
 def job_resources(source, target, files, schedules):
@@ -111,9 +113,17 @@ def bind_job_trees(files, mission, scheduler, schedules, archive, target, regist
     if source_entities is None:
         source_entities=source_mission_entities(archive)
     waiting=[];report=[]; renamed={};city_pools={};seated_pools={};guard_pools={};farmer_pools={};stable_pools={}
+    registry_pools={}
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
+            registered=character_work_adapters.bind(mission,scheduler,person,entry,target,registry_pools)
+            if registered is not None:
+                job,links,item_report,activity=registered
+                if job is not None:
+                    waiting.extend(links);report.append(item_report)
+                    renamed[job.get('EntityGuid')]=activity
+                continue
             if entry.get('horse_handler_work'):
                 key = (person, entry['arrival']['EntityGuid'])
                 if key in stable_pools:
