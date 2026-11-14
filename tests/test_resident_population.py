@@ -59,11 +59,19 @@ class SelectionTests(unittest.TestCase):
 
 
 class VerifyTests(unittest.TestCase):
+    def test_only_unlisted_mismatches_fail(self):
+        from verify_residents import check
+        self.assertEqual(check(True, 'fine'), dict(ok=True, detail='fine'))
+        self.assertTrue(check(False, 'gap', 'Work binding failed: x')['residue'])
+        self.assertNotIn('residue', check(False, 'gap'))
+
     def test_every_interval_needs_a_converted_place(self):
         from verify_residents import unbound_intervals
         day = [dict(activity='work', start_minute=455, end_minute=1205), dict(activity='sleep', start_minute=1205, end_minute=1440),
                dict(activity='Eat', start_minute=0, end_minute=365), dict(activity='pray', start_minute=365, end_minute=455)]
-        self.assertEqual(unbound_intervals(day, beds=['bed'], work=['job'], home=True), ['pray 365-455'])
+        self.assertEqual(unbound_intervals(day, beds=['bed'], work=[(561, 1120)], home=True), ['pray 365-455'])
+        # A converted work window that misses the KCD1 work interval does not bind it.
+        self.assertEqual(unbound_intervals(day[:1], beds=[], work=[(1300, 1400)], home=True), ['work 455-1205'])
         self.assertEqual(unbound_intervals(day, beds=[], work=[], home=False),
                          ['work 455-1205', 'sleep 1205-1440', 'Eat 0-365', 'pray 365-455'])
 

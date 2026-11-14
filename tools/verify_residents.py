@@ -44,19 +44,40 @@ def person_namespace(soul_id):
 class Level:
     def __init__(self, package):
         from campaign_trigger_areas import read_areas
+        from campaign_entity_links import guid_value
         with zipfile.ZipFile(Path(package)/LEVEL/'level.pak') as z:
             self.entities = list(ET.fromstring(read(z, 'objects_mission0.xml')).iter('Entity'))
             self.areas = {a.guid for a in read_areas(read(z, 'triggerareas.fubar'))['areas']}
+            rows = ET.fromstring(read(z, 'tables/ai/scheduler.xml')).find('Schedulers')
         self.by_id = {e.get('EntityId'): e for e in self.entities if e.get('EntityId')}
+        self.by_guid = {str(guid_value(e.get('EntityGuid'))): e for e in self.entities if e.get('EntityGuid')}
         self.by_name = defaultdict(list)
         for e in self.entities:
             self.by_name[e.get('Name')].append(e)
+        # Scheduler activity links: hub or actor guid -> [(start minute, end minute, target entity)].
+        self.activities = defaultdict(list)
+        for row in rows:
+            for link in row.findall('Links/S_ActivityLink'):
+                p = link.find('Parameters')
+                if p is None:
+                    continue
+                # The native idle baseline (schedulerWait on sa_land) is not work.
+                if p.get('BehaviorName') == 'schedulerWait':
+                    continue
+                self.activities[row.get('EntityGuid')].append(
+                    (float(p.get('TimeOfDayStart', 0)), float(p.get('TimeOfDayEnd', 1440)), self.by_guid.get(link.get('TargetGuid'))))
 
     def links(self, entity):
         if entity is None:
             return
         for link in entity.findall('EntityLinks/Link'):
             yield link.get('Name') or '', self.by_id.get(link.get('TargetId'))
+
+    def activity_links(self, entity):
+        from campaign_entity_links import guid_value
+        if entity is None or not entity.get('EntityGuid'):
+            return []
+        return self.activities.get(str(guid_value(entity.get('EntityGuid'))), [])
 
 
 def position(entity):
@@ -66,17 +87,37 @@ def position(entity):
         return None
 
 
-def check(ok, detail=''):
-    return dict(ok=bool(ok), detail=detail)
+def check(ok, detail='', residue=None):
+    """ok, or a mismatch the stage listed as residue (with its reason), or a FAIL."""
+    if ok:
+        return dict(ok=True, detail=detail)
+    if residue:
+        return dict(ok=False, residue=True, detail=f'{detail} (residue: {residue})')
+    return dict(ok=False, detail=detail)
 
 
 def day_places(level, npc):
-    """(block, entity) for every place the converted day sends the person, one hop past its hubs."""
-    places = []
-    for label, target in level.links(npc):
+    """((block, entity) for every place the converted day sends the person, one hop past its hubs,
+    [(start, end)] clock windows of the person's converted work).
+
+    Work is bound two ways: entity links to job phases (housework) and the person's scheduler
+    activity links to gm_schedule_* job holders (city walk, farm, guard), with KCD1's clock.
+    """
+    places, windows, seen = [], [], set()
+    targets = [(label, target, None) for label, target in level.links(npc)]
+    targets += [('_', target, (start, end)) for start, end, target in level.activity_links(npc)]
+    for label, target, window in targets:
         if target is None:
             continue
         name = target.get('Name') or ''
+        work = name.startswith('gm_schedule_') or (
+            label.startswith('_') and target.get('EntityClass') != 'TriggerArea'
+            and not name.startswith(('gm_sleep_', 'gm_person_')))
+        if work and window is not None:
+            windows.append(window)
+        if target.get('EntityId') in seen:
+            continue
+        seen.add(target.get('EntityId'))
         if name.startswith('gm_sleep_'):
             places += [('sleep', bed) for _, bed in level.links(target)
                        if bed is not None and bed.get('EntityClass') in BEDS]
@@ -84,21 +125,28 @@ def day_places(level, npc):
             places.append(('home', target))
         elif name.startswith('gm_person_idle_'):
             places.append(('idle', target))
-        elif name.startswith('gm_schedule_') or (label.startswith('_') and target.get('EntityClass') != 'TriggerArea'):
+        elif work:
             hops = [t for _, t in level.links(target) if t is not None and t.get('EntityClass') != 'TriggerArea']
             places += [('work', t) for t in (hops or [target])]
-    return places
+            if window is None:
+                windows.append((0, 1440))   # a job phase linked on the entity carries its clock on the hub
+    return places, windows
 
 
 def unbound_intervals(intervals, *, beds, work, home):
-    """Daycycle intervals the converted day does not cover."""
+    """Daycycle intervals the converted day does not cover.
+
+    work: [(start, end)] clock windows of the converted work; a KCD1 work interval is bound when
+    some window overlaps it.
+    """
     from character_schedule import HOME_TIME
     missing = []
     for interval in intervals:
         activity = interval['activity'].casefold()
         if activity == 'sleep' and beds: continue
         if activity in HOME_TIME and home: continue
-        if activity == 'work' and work: continue
+        if activity == 'work' and any(a < interval['end_minute'] and interval['start_minute'] < b for a, b in work):
+            continue
         missing.append(f"{interval['activity']} {interval['start_minute']}-{interval['end_minute']}")
     return missing
 
@@ -109,6 +157,7 @@ def verify(package, source, target, out):
     from campaign_dependency_adapters import SourceTables
     from campaign_entity_links import guid_value
     from character_person_ai import STATS
+    from character_person import native_xml
     from character_schedule import plan, has_home
     from profile_population_upgrade import discover
     from audit_bed_navigation import Mesh, nearest
@@ -117,6 +166,9 @@ def verify(package, source, target, out):
         names = set(travel.namelist())
         marker = json.loads(read(travel, MARKER))
         people = [r['person'] for r in marker['residents']]
+        work_residue = {}
+        for row in marker.get('work', {}).get('pending', []):
+            work_residue.setdefault(row['person'], row.get('reason') or 'work pending')
         souls = {}
         for n in names:
             if n.startswith('Libs/Tables/rpg/soul__'):
@@ -129,7 +181,10 @@ def verify(package, source, target, out):
     with zipfile.ZipFile(target/'Data/Tables.pak') as tables:
         for n in tables.namelist():
             if n.lower().startswith('libs/tables/item/inventorypreset') and n.endswith('.xml'):
-                presets.update(p.get('Name') for p in ET.fromstring(read(tables, n)).iter('InventoryPreset'))
+                try:   # retail tables carry comments ElementTree rejects; native_xml strips them
+                    presets.update(p.get('Name') for p in native_xml(read(tables, n)).iter('InventoryPreset'))
+                except ET.ParseError:
+                    pass
     level = Level(package)
     mesh = Mesh(package/LEVEL/'recast.pak')
     kcd1_voices = {}
@@ -156,8 +211,10 @@ def verify(package, source, target, out):
                                  f"{soul.get('factionName')} vs KCD1 faction {kcd1.get('faction')}")
             ids = {row.get('voice_id') for row in characters.get(soul.get('skald_character_name'), [])}
             spoken = voice_rows.get(next(iter(ids)), ('?',))[0] if len(ids) == 1 else None
+            single = sum(1 for a, _ in voice_rows.values() if a == kcd1_voices[person]) == 1
             r['voice'] = check(spoken is not None and spoken == kcd1_voices[person],
-                               f"{soul.get('skald_character_name')} speaks {spoken}, KCD1 {kcd1_voices[person]}")
+                               f"{soul.get('skald_character_name')} speaks {spoken}, KCD1 {kcd1_voices[person]}",
+                               None if single else 'KCD1 voice is not a single KCD2 or imported voice')
             abilities = storm.get(f'Libs/Storm/abilities/{namespace}.xml', b'')
             set_stats = {o.get('stat'): o.get('value') for o in ET.fromstring(abilities).iter('setAttribute')} if abilities else {}
             wrong = [f'{new} {set_stats.get(new)} vs {kcd1.get(old)}' for old, new in STATS.items()
@@ -173,30 +230,36 @@ def verify(package, source, target, out):
             polygons = all(guid_value(a.get('EntityGuid')) in level.areas for a in areas)
             r['home'] = check((bool(areas) and polygons) if home else True,
                               f'KCD1 home {home}, converted home hubs {len(homes)}, home areas {len(areas)}')
-            places = day_places(level, npc)
+            places, work = day_places(level, npc)
             beds = [e for block, e in places if block == 'sleep']
-            work = [e for block, e in places if block == 'work']
             r['bed'] = check(beds, f'{len(beds)} beds in the sleep pool')
             schedule = plan(src, tables)
             unbound = unbound_intervals([*schedule['resolved'], *schedule['pending']], beds=beds, work=work, home=home)
             r['schedule'] = check(not unbound, 'unbound: ' + ', '.join(unbound) if unbound else
-                                  f"{len(schedule['resolved'])} work blocks bound to {len(work)} places")
-            off = [f"{block} {e.get('Name')}" for block, e in places
-                   if position(e) is None or nearest(mesh, position(e)) is None]
+                                  f"{len(schedule['resolved'])} work blocks bound to {len(work)} windows",
+                                  work_residue.get(person))
+            # A home hub sits at its ownership polygon's origin, not where anyone stands; the beds and
+            # benches inside are the places the day uses.
+            off = [f"{block} {e.get('Name')}" for block, e in places if block != 'home'
+                   and (position(e) is None or nearest(mesh, position(e)) is None)]
             r['navmesh'] = check(places and not off, f'{len(places)} places' + ('; off mesh: ' + ', '.join(off) if off else ''))
-            results[person] = dict(namespace=namespace, checks=r, fail=sorted(k for k, v in r.items() if not v['ok']))
-    summary = {k: dict(Counter('pass' if p['checks'][k]['ok'] else 'fail' for p in results.values())) for k in CHECKS}
+            results[person] = dict(namespace=namespace, checks=r,
+                                   fail=sorted(k for k, v in r.items() if not v['ok'] and not v.get('residue')),
+                                   residue=sorted(k for k, v in r.items() if v.get('residue')))
+    state = lambda c: 'pass' if c['ok'] else 'residue' if c.get('residue') else 'fail'
+    summary = {k: dict(Counter(state(p['checks'][k]) for p in results.values())) for k in CHECKS}
     report = dict(package=str(package), people=len(results), failed=sorted(p for p, v in results.items() if v['fail']),
                   summary=summary, residue=marker.get('residue', []), results=results)
     out.mkdir(parents=True, exist_ok=True)
     (out/'verify-residents.json').write_text(json.dumps(report, indent=1), encoding='utf-8')
     lines = [f"# Resident verification: {len(results)} people, {len(report['failed'])} with a FAIL", '',
-             '| Check | Pass | Fail |', '|---|---|---|']
-    lines += [f"| {k} | {v.get('pass', 0)} | {v.get('fail', 0)} |" for k, v in summary.items()]
-    lines += ['', '## Failures', '']
-    for person in report['failed']:
-        for k in results[person]['fail']:
-            lines.append(f"- {person} {k}: {results[person]['checks'][k]['detail']}")
+             '| Check | Pass | Residue | Fail |', '|---|---|---|---|']
+    lines += [f"| {k} | {v.get('pass', 0)} | {v.get('residue', 0)} | {v.get('fail', 0)} |" for k, v in summary.items()]
+    for title, key in (('Failures', 'fail'), ('Residue (listed by the stage, not a FAIL)', 'residue')):
+        lines += ['', '## ' + title, '']
+        for person in sorted(results):
+            for k in results[person][key]:
+                lines.append(f"- {person} {k}: {results[person]['checks'][k]['detail']}")
     (out/'verify-residents.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
     return report
 
