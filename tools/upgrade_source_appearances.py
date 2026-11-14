@@ -432,6 +432,8 @@ def stage(source, target, installed, output, people, *, notify=print):
     from build_profile_population_upgrade import clone_missing
     from build_recipe import require_current
     from build_quest_people_test import write_actor_paks
+    import shutil
+    from character_shared_textures import Store, pack as pack_shared
     from build_english_audio_test import merge_audio_strings
     from character_person import resolve_person
     from character_person_appearance import build_appearance
@@ -474,9 +476,14 @@ def stage(source, target, installed, output, people, *, notify=print):
                 verify_bindings(archive, character, namespace)
             actor_stage = output / 'packed' / namespace
             actor_stage.mkdir(parents=True)
-            paks, libs = write_actor_paks(appearance, actor_stage, namespace)
+            textures = Store(output / 'shared-textures' / namespace)
+            paks, libs = write_actor_paks(appearance, actor_stage, namespace, textures=textures)
             validate_resources(libs, namespace)
             resources.update(libs)
+            # Shared textures land before the materials that name them.
+            for pak in pack_shared(textures, package / 'Data'):
+                receipt['files']['Data/' + pak.name] = digest(pak)
+            shutil.rmtree(textures.folder, ignore_errors=True)
             strings = appearance / 'Localization/English/text_ui_items.xml'
             if strings.exists():
                 labels.append(strings.read_bytes())

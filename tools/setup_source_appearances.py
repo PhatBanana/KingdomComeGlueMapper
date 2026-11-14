@@ -12,6 +12,7 @@ import zipfile
 from character_person_appearance import APPEARANCE_POLICY_VERSION, build_appearance
 from character_person import resolve_person
 from build_quest_people_test import write_actor_paks
+from character_shared_textures import Store, pack as pack_shared
 from setup_campaign import digest
 from upgrade_source_appearances import (TRAVEL, LOCALE, imports, owned_shards,
     retire_shared_assets, retire_shared_definitions, validate_resources, verify_bindings, preserve_carried_assets)
@@ -60,7 +61,8 @@ def upgrade(package, receipt, source, target, notify=lambda *a: None, cancelled=
                     verify_bindings(archive, character, namespace)
                 packed = work/'packed'; packed.mkdir()
                 notify('Upgrade saved character clothing', index, len(stale), name + ': Packing and validating character assets')
-                paks, libs = write_actor_paks(appearance, packed, namespace)
+                textures = Store(work/'shared-textures')
+                paks, libs = write_actor_paks(appearance, packed, namespace, textures=textures)
                 validate_resources(libs, namespace); resources.update(libs)
                 strings = appearance/'Localization/English/text_ui_items.xml'
                 if strings.exists(): labels.append(strings.read_bytes())
@@ -68,6 +70,10 @@ def upgrade(package, receipt, source, target, notify=lambda *a: None, cancelled=
                 notify('Upgrade saved character clothing', index, len(stale), name + ': Preserving carried equipment')
                 kept = preserve_carried_assets(package, namespace, shards[name])
                 changed.update(kept); retained_equipment.update(kept)
+                # Shared textures land before the materials that name them.
+                # Archives already in the package are reused and never touched.
+                for pak in pack_shared(textures, package/'Data'):
+                    changed['Data/'+pak.name] = digest(pak)
                 for pak in paks:
                     relative = 'Data/'+pak.name
                     changed[relative] = digest(pak)
