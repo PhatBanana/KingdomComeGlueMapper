@@ -92,11 +92,12 @@ class Innkeeper(unittest.TestCase):
         point.find('Properties/Script').set('Misc', 'leanBack:false|leanLeft:true|leanRight:true')
         with self.assertRaisesRegex(ValueError, 'source lean direction'): lean_side(point)
 
-    def test_keeper_floor_wins_over_plan_distance(self):
-        pose = lambda pos: E.Element('Entity', Pos=pos)
-        upstairs, far, near = ('a', pose('0,0,3.5')), ('b', pose('9,0,0.2')), ('c', pose('4,0,0.1'))
-        self.assertEqual(choose([upstairs, far, near], (0, 0, 0))[0], 'c')
-        self.assertEqual(choose([upstairs, far], (0, 0, 0))[0], 'b')
+    def test_pub_owned_spot_nearest_the_arrival_wins(self):
+        spot = lambda identity, pos: (E.Element('Entity', EntityId=identity), E.Element('Entity', Pos=pos))
+        street, inside_far, inside_near = spot('1', '0,0,0'), spot('2', '9,0,0'), spot('3', '4,0,0')
+        self.assertEqual(choose([street, inside_far, inside_near], (0, 0, 0), {'1'})[0].get('EntityId'), '3')
+        self.assertEqual(choose([street, inside_far, inside_near], (0, 0, 0))[0].get('EntityId'), '1')
+        self.assertEqual(choose([street], (0, 0, 0), {'1'})[0].get('EntityId'), '1')
 
     def test_shop_role_follows_the_work_kind(self):
         self.assertEqual(service_role([dict(inn_work={})]), 'innkeeper')
