@@ -7,9 +7,13 @@ presentation. This adapter lowers the first two for counted item assets and
 named-NPC death assets. An empty or '0' condition never completes by itself:
 the objective keeps its source completion path and only gains the predicate.
 
-Markers and zero-count rows are presentation and are listed, not bound. Place
-assets, category-only items, class/faction NPC selectors, expressions and
-timeouts on a counted objective stay pending. Nothing here is runtime-verified.
+Markers and zero-count rows are presentation and are listed, not bound.
+Category-only items, class/faction NPC selectors, expressions and timeouts on
+a counted objective stay pending. Nothing here is runtime-verified.
+
+A counted place asset is lowered only when the caller registers its source
+entity as a TriggerArea (`bindings['place_assets']`, see campaign_quest_places).
+Every other place stays pending.
 
 Native shapes follow retail KCD2 quest XML: CreateItemClassDescriptor with
 MinimumHealth, ItemDescriptorTrigger, and SoulDeathTrigger with a persistent
@@ -21,6 +25,7 @@ import uuid
 import xml.etree.ElementTree as ET
 
 from campaign_objective_conditions import counted_asset
+import campaign_quest_places
 from campaign_quest_graph import all_of, constant, edge, identifier, objective_identifier, xml
 
 PREFIX = 'lowered_track_'
@@ -128,7 +133,7 @@ def plan(model, bindings):
             seen.add(aid)
             if aid in items: requirement, why = item_requirement(row, items[aid], bindings)
             elif aid in npcs: requirement, why = npc_requirement(row, npcs[aid], bindings)
-            elif aid in places: requirement, why = None, 'place tracking requires a spatial adapter ' + aid
+            elif aid in places: requirement, why = campaign_quest_places.requirement(row, places[aid], bindings)
             else: requirement, why = None, 'unknown asset kind ' + aid
             if why: reasons.append(why)
             else: requirements.append(requirement)
@@ -156,8 +161,9 @@ def bind(blob, model, bindings):
     report['converted'] = [r for r in report['converted'] if r not in owned]
     if not report['converted']:
         return blob, report
-    if any(q['kind'] == 'item' for r in report['converted'] for q in r['requirements']):
-        player = identifier(bindings.get('player_asset'))
+    kinds = {q['kind'] for r in report['converted'] for q in r['requirements']}
+    player = identifier(bindings.get('player_asset')) if kinds & {'item', 'place'} else None
+    if 'item' in kinds:
         soul = ET.SubElement(nodes, 'ObjectProperties', Name=PREFIX + 'soul', DeclaringType='wh::rpgmodule::I_Soul')
         ET.SubElement(soul, 'Asset', Name='I_Soul', Alias=player)
         inventory = ET.SubElement(nodes, 'MemberFunction', Name=PREFIX + 'inventory',
@@ -190,6 +196,9 @@ def bind(blob, model, bindings):
                     edge(watch, PREFIX + 'soul.Inventory', 'Inventory')
                     edge(watch, state_name + '.Started', 'IsActive')
                     events += [name + '_watch.OnAcquire', name + '_watch.OnTargetAmountAcquire']
+            elif req['kind'] == 'place':
+                check, event = campaign_quest_places.emit(nodes, name, req, player)
+                checks.append(check); events.append(event)
             else:
                 watch = ET.SubElement(nodes, 'SoulDeathTrigger', Name=name + '_watch')
                 ET.SubElement(watch, 'Asset', Name='Souls', Alias=req['soul_asset'])

@@ -3,7 +3,8 @@
 Call after quest emission (and after campaign_quest_items.bind when a caller
 still uses it). `lower` applies, per quest:
 
-    campaign_quest_tracking  counted item / named-NPC tracking and its predicate
+    campaign_quest_tracking  counted item / named-NPC / area tracking and its predicate
+    campaign_quest_conditions  objective conditions that name a source function
     campaign_quest_policy    never-automatic and timed completion policies
     campaign_quest_rewards   objective rewards as native Reward nodes
 
@@ -19,6 +20,9 @@ Bindings (all optional; a missing one leaves the rows that need it pending):
     registered_items    target item class ids that exist in the package
     item_categories     {source item id: source item_category_id}
     soul_assets         {source soul id: SoulAsset alias declared by the project}
+    place_assets        {source entity name: dict(alias=TriggerAreaAsset alias,
+                         entity_class=source EntityClass)}
+    condition_functions {source dialogue_functions name: expression}
     factions            {source faction_id: target faction name}
     money_changes, reputation_changes, exp_changes   {source id: target row name}
     exp_targets         {source rpg_attr: ('StatReward' | 'SkillReward', Type)}
@@ -31,6 +35,7 @@ import copy
 import hashlib
 
 from campaign_quest_graph import objective_identifier
+import campaign_quest_conditions
 import campaign_quest_policy
 import campaign_quest_rewards
 import campaign_quest_tracking
@@ -47,12 +52,13 @@ def enable_tracked_predicate():
     OBJECTIVE.setdefault('IsObjectiveTrackedCompleted', campaign_quest_tracking.PREDICATE)
 
 
-def reconcile(unsupported, tracking, policy, rewards):
+def reconcile(unsupported, tracking, policy, rewards, conditions=None):
     """Return (remaining, resolved) for one quest's emitter `unsupported` list."""
     tracked = {objective_identifier(r['objective']): r for r in tracking['converted']}
     tracked.update({objective_identifier(r['objective']): r for r in tracking.get('bound_by_quest_items', [])})
     shown = {objective_identifier(r['objective']) for r in tracking['presentation']}
     policies = {objective_identifier(r['objective']): r for r in policy['converted']}
+    functions = {objective_identifier(r['objective']): r for r in (conditions or {}).get('converted', [])}
     reward_pending = {}
     for record in rewards['pending']:
         reward_pending.setdefault(record['table'], []).append(record)
@@ -71,6 +77,9 @@ def reconcile(unsupported, tracking, policy, rewards):
         elif kind == 'completion_policy' and name in policies:
             resolved.append(dict(kind=kind, objective=name, by='campaign_quest_policy',
                                  how=policies[name]['policy']))
+        elif kind == 'completion_policy' and name in functions:
+            resolved.append(dict(kind=kind, objective=name, by='campaign_quest_conditions',
+                                 how='expanded ' + ', '.join(functions[name]['functions'])))
         elif kind == 'rewards':
             left = reward_pending.get(record['table'], [])
             if left:
@@ -95,12 +104,14 @@ def lower(files, report, models, bindings):
         path = project + '/' + model['quest'] + '.xml'
         blob = files[path]
         blob, tracking = campaign_quest_tracking.bind(blob, model, bindings)
+        blob, conditions = campaign_quest_conditions.bind(blob, model, bindings)
         blob, policy = campaign_quest_policy.bind(blob, model)
         blob, rewards = campaign_quest_rewards.bind(blob, model, bindings)
         files[path] = blob
         before = quest['unsupported']
-        quest['unsupported'], resolved = reconcile(before, tracking, policy, rewards)
-        quest['lowerings'] = dict(tracking=tracking, policy=policy, rewards=rewards, resolved=resolved,
+        quest['unsupported'], resolved = reconcile(before, tracking, policy, rewards, conditions)
+        quest['lowerings'] = dict(tracking=tracking, policy=policy, rewards=rewards, conditions=conditions,
+                                  resolved=resolved,
                                   unsupported_before=len(before), unsupported_after=len(quest['unsupported']),
                                   runtime_verified=False)
     report['files'] = {name: hashlib.sha256(blob).hexdigest() for name, blob in files.items()}
