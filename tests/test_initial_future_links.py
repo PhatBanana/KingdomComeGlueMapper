@@ -25,7 +25,7 @@ class FutureLinks(unittest.TestCase):
         source = actor('futureHome', 'futureWork[merchant]', "futureHome[event('later')]",
                        "futureWork[event('later'),work('pub')]")
         result = initial_future_links(source)
-        self.assertEqual(names(result)[-2:], [('Home', '1'), ('Work[merchant]', '2')])
+        self.assertEqual(names(result)[-2:], [('Home', '1'), ("Work[('merchant')]", '2')])
         self.assertEqual(len(names(source)), 4)  # the source graph is not mutated
 
     def test_existing_links_win(self):
@@ -35,6 +35,19 @@ class FutureLinks(unittest.TestCase):
     def test_evented_links_stay_quest_only(self):
         source = actor("futureWork[event('later')]")
         self.assertIs(initial_future_links(source), source)
+
+    def test_tags_not_spelling(self):
+        # A multi-tag link still counts; named work data gives the occupation.
+        result = initial_future_links(actor('futureHome,owner', "futureWork[work('merchant')]"))
+        self.assertEqual(names(result)[-2:], [('Home', '1'), ("Work[('merchant')]", '2')])
+        # An existing Home inside a multi-tag link wins over the future home.
+        self.assertEqual(names(initial_future_links(actor('owner,Home', 'futureHome'))), [('owner,Home', '1'), ('futureHome', '2')])
+
+    def test_positional_future_home_data_is_its_event(self):
+        source = actor("futureHome[('tal_siege')]", 'futureHome')
+        self.assertEqual(names(initial_future_links(source))[-1], ('Home', '2'))
+        only_evented = actor("futureHome[('tal_siege')]")
+        self.assertIs(initial_future_links(only_evented), only_evented)
 
     def test_two_defaults_are_ambiguous(self):
         with self.assertRaisesRegex(ValueError, 'Ambiguous default future work'):

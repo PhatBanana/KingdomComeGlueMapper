@@ -152,22 +152,42 @@ def initial_future_links(actor):
     An NPC without a Home link gets one to its futureHome whose event is empty;
     without a Work link, a Work[occupation] link to its un-evented futureWork.
     Evented future links stay quest-only. Returns a copy when anything is added.
+    Links are matched by tag, not spelling: a link can carry several tags
+    ('futureHome,owner'), and link data is typed. Source TypeDefinitions:
+    futureHome(event), futureWork(work, event); positional arguments fill the
+    members in that order, so futureHome[('x')] is evented.
     """
+    from campaign_bindings import parse_link_labels
     links = actor.find('EntityLinks')
     if links is None: return actor
-    names = [l.get('Name', '') for l in links]
-    tags = [n.split('[', 1)[0] for n in names]
-    def default(tag):
-        return [l for l, n in zip(links, names) if n.split('[', 1)[0] == tag and 'event(' not in n]
+    MEMBERS = {'futureHome': ('event',), 'futureWork': ('work', 'event')}
+    parsed = []
+    for link in links:
+        for tag in parse_link_labels(link.get('Name', '')):
+            data = {}
+            if tag['tag'] in MEMBERS:
+                members = MEMBERS[tag['tag']]
+                if len(tag['positional']) > len(members):
+                    raise ValueError('Unsupported source future link data: ' + link.get('Name', ''))
+                data = dict(zip(members, tag['positional']), **tag['named'])
+                if set(data) - set(members) or any(not isinstance(v, str) for v in data.values()):
+                    raise ValueError('Unsupported source future link data: ' + link.get('Name', ''))
+            parsed.append((tag['tag'], data, link))
+    tags = {tag for tag, _, _ in parsed}
+    def default(kind):
+        return [(data, link) for tag, data, link in parsed if tag == kind and not data.get('event')]
     added = []
-    if not any(t.split(',')[0] == 'Home' for t in tags):
+    if 'Home' not in tags:
         homes = default('futureHome')
         if len(homes) > 1: raise ValueError('Ambiguous default future home')
-        added += [('Home', homes[0])] if homes else []
+        added += [('Home', homes[0][1])] if homes else []
     if 'Work' not in tags:
         works = default('futureWork')
         if len(works) > 1: raise ValueError('Ambiguous default future work')
-        if works: added.append(('Work' + works[0].get('Name')[len('futureWork'):], works[0]))
+        if works:
+            occupation = works[0][0].get('work')
+            if not occupation: raise ValueError('Default future work has no occupation')
+            added.append(("Work[('%s')]" % occupation, works[0][1]))
     if not added: return actor
     import copy
     actor = copy.deepcopy(actor); links = actor.find('EntityLinks')
