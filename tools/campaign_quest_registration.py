@@ -17,13 +17,19 @@ def _section(owner, tag):
     return found if found is not None else ET.SubElement(owner, tag)
 
 
+def _shape(node):
+    return node.tag, sorted(node.attrib.items()), [_shape(child) for child in node]
+
+
 def register(project_blob, entry_blob, emitted_project_blob, quest_blob, quest_path,
-             *, model=None, souls=None, group=None):
+             *, model=None, souls=None, group=None, shared_types=False):
     """Return (project_blob, entry_blob, quest_blob, report).
 
     souls maps a soul GUID to the SoulAsset alias declared in the project.
     With a model, bind_markers then attaches journal markers to those assets.
     group is the source quest group; unknown groups are refused.
+    shared_types lets a further quest of the same emitted project reuse a type
+    the project already holds, when it is identical; a different one is refused.
     """
     project_root, entry_root = ET.fromstring(project_blob), ET.fromstring(entry_blob)
     emitted_root, quest_root = ET.fromstring(emitted_project_blob), ET.fromstring(quest_blob)
@@ -48,8 +54,11 @@ def register(project_blob, entry_blob, emitted_project_blob, quest_blob, quest_p
     types = _section(project, 'Types')
     copied_types = []
     for node in emitted.findall('Types/Type'):
-        if any(t.get('TypeName') == node.get('TypeName') for t in types):
-            raise ValueError('Quest type already registered: ' + str(node.get('TypeName')))
+        held = [t for t in types if t.get('TypeName') == node.get('TypeName')]
+        if held:
+            if not shared_types or len(held) != 1 or _shape(held[0]) != _shape(node):
+                raise ValueError('Quest type already registered: ' + str(node.get('TypeName')))
+            continue
         types.append(copy.deepcopy(node))
         copied_types.append(node.get('TypeName'))
     log_types = _section(project, 'ObjectiveValueTypes')

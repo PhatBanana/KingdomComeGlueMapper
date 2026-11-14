@@ -21,6 +21,11 @@ KCD1 = Path(os.environ.get('GLUEMAPPER_KCD1', 'D:/SteamLibrary/steamapps/common/
 KCD2 = Path(os.environ.get('GLUEMAPPER_KCD2', 'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance2'))
 QUEST = 'a_huntsman_alex'
 ROW = quests.QUESTS[0]
+BUTCHER = 'a_huntsman_butcher'
+BUTCHER_ROW = quests.QUESTS[1]
+# A built package that has the shop imports: two of the butcher's item classes exist only there.
+PACKAGE = Path(os.environ.get('GLUEMAPPER_KCD1_QUEST_PACKAGE', 'D:/KCD/Builds/glue/jobs-unified-cold-20261102/'
+                              '20261111-170855-7144498-unified-11-shops2/package/map'))
 
 
 def contract_model():
@@ -66,6 +71,40 @@ class SelectionTests(unittest.TestCase):
             quests.row_for('q_other')
         self.assertEqual(quests.selection_digest(ROW), quests.selection_digest(dict(ROW)))
         self.assertNotEqual(quests.selection_digest(ROW), quests.selection_digest(dict(ROW, namespace='other')))
+
+    def test_the_second_quest_is_pinned_and_needs_a_package_to_plan(self):
+        self.assertEqual([r['quest'] for r in quests.QUESTS], [QUEST, BUTCHER])
+        row = BUTCHER_ROW
+        self.assertEqual((row['people'], row['prerequisites'], row['lab_order']),
+                         (('sas_butcher',), {'q_returnToSkalitz': 'completed'}, ('boar', 'offal')))
+        self.assertEqual(row['branches'], (('38322', '27388'), ('38324', '27396')))
+        self.assertEqual(row['accepted_pending'], tuple(sorted(
+            'quest_reward_reputation:' + o + ':' + target
+            for o in ('boarMoney', 'endOfFun', 'kidneyMoney', 'liverMoney', 'offalMoney')
+            for target in ('faction_81', 'sas_bailiff'))))
+        self.assertEqual(len(row['accepted_pending']), 10)
+        self.assertTrue(row['needs_package'])
+        self.assertNotIn('needs_package', ROW)
+        self.assertEqual(len({r['namespace'] for r in quests.QUESTS}), 2)
+        # How a quest is planned is not part of what was ported.
+        self.assertEqual(quests.selection_digest(row), quests.selection_digest(dict(row, needs_package=False)))
+
+    def test_plan_without_a_package_skips_a_quest_that_needs_one(self):
+        with mock.patch.object(quests, 'plan_quest', side_effect=lambda row, *a, **k: ({}, dict(quest=row['quest']))) as planned:
+            report = quests.plan('kcd1', 'kcd2')
+            self.assertEqual(list(report['quests']), [QUEST])
+            self.assertEqual(list(report['skipped']), [BUTCHER])
+            self.assertIsNone(planned.call_args.kwargs['base'])
+        chain = []
+        def fake(row, source, target, package, base=None):
+            chain.append(base)
+            return dict(base or {}, **{row['quest']: b'x'}), dict(quest=row['quest'])
+        with mock.patch.object(quests, 'plan_quest', side_effect=fake):
+            report = quests.plan('kcd1', 'kcd2', 'package')
+        self.assertEqual(list(report['quests']), [QUEST, BUTCHER])
+        self.assertNotIn('skipped', report)
+        # Each quest is planned on what the one before it left, as the stage ports them.
+        self.assertEqual(chain, [None, {QUEST: b'x'}])
 
     def test_storm_role_is_read_by_exact_person_name(self):
         data = b'''<storm><rules><rule name="x"><selectors><hasName name="rat_refugee_ales"/></selectors>
@@ -155,6 +194,40 @@ class LabScenarioTests(unittest.TestCase):
         names = ' | '.join(u['name'] for u in unsupported)
         for needed in ('below/at/above', 'one money payout', 'after payout', 'min_health', 'Early talk', 'giver'):
             self.assertIn(needed, names)
+
+    def test_a_completion_starts_what_the_source_graph_chains_to_it(self):
+        model = contract_model()
+        rows = model['tables']['quest_objective']['rows']
+        paid = dict(rows[0], objective_id='346', objective_name='rabbitPaid')
+        both = dict(rows[0], objective_id='12', objective_name='bothDone', condition='1')
+        rows.extend((paid, both))
+        for name, hidden in (('rabbitPaid', '1'), ('bothDone', '1')):
+            oid = '346' if name == 'rabbitPaid' else '12'
+            model['graph']['nodes'][oid] = dict(attributes={'Class': 'Quest:Objective'}, payload=[dict(op='Inputs',
+                attributes=dict(Name=name, IsHidden=hidden, IsExclusive='0'))])
+        for a, b in (('5', '346'), ('5', '12'), ('6', '12')):
+            model['tables']['quest_transition']['rows'].append(dict(quest_id='7', from_objective_id=a, to_objective_id=b,
+                                                                    enabled='True'))
+            model['graph']['edges'].append(dict(nodeOut=a, nodeIn=b, portOut='Out', portIn='In', enabled='1'))
+        facts = quests.source_expectations(model)
+        self.assertEqual(facts['joins']['rabbitPaid'], ['rabbit'])
+        self.assertEqual(facts['joins']['bothDone'], ['rabbit', 'stag'])
+        self.assertIn('bothDone', facts['automatic'])
+        start = {n: 'Unchanged' for n in facts['objectives']}
+        after = quests.after_completion(facts, start, 'rabbit')
+        self.assertEqual((after['rabbit'], after['rabbitPaid'], after['bothDone']), ('Completed', 'Started', 'Unchanged'))
+        both_done = quests.after_completion(facts, after, 'stag')
+        self.assertEqual(both_done['bothDone'], 'Completed')
+        results, _ = self.run_all(model)
+        self.assertEqual([r['status'] for r in results], ['PASS'] * 7, [r['error'] for r in results])
+        # Without the chained expectation the exhaustive assertion would call the payment objective untouched.
+        runs, _ = quests.lab_scenarios(model)
+        self.assertTrue(runs[4]['steps'][4]['values']['output.rabbitPaid_Started'])
+
+    def test_the_unsupported_list_names_the_quests_own_prerequisite(self):
+        _, unsupported = quests.lab_scenarios(contract_model(), prerequisites={'q_returnToSkalitz': 'completed'})
+        self.assertEqual(unsupported[0]['name'], 'Early talk before q_returnToSkalitz is a no-op')
+        self.assertEqual(quests.lab_scenarios(contract_model())[1][0]['name'], 'Early talk before q_huntPtacek is a no-op')
 
     def test_the_explicit_order_names_the_next_hunt(self):
         runs, _ = quests.lab_scenarios(contract_model(), order=('rabbit', 'stag'))
@@ -429,6 +502,89 @@ class JournalAndMediaAuditTests(unittest.TestCase):
             self.assertIn('a / b', markdown)
 
 
+# ---------------------------------------------------------------- two quests in one container
+
+def lowering_context(model):
+    items = [r['item_id'] for r in model['tables']['quest_item']['rows']]
+    source = dict(souls={GIVER: 'giver'}, item_categories={i: '5' for i in items}, reputation={}, exp={}, money={})
+    target = dict(item_map={i: i for i in items}, registered_items=items,
+                  registered=dict(money_change=set(), reputation_change=set(), xp_change=set(), xp_target=set(),
+                                  faction=set(), perk=set()))
+    return source, target
+
+
+GIVER = '4bd6aed3-4d8a-e72c-dae5-fcf29ec7daa1'
+
+
+def giver_model(name=QUEST):
+    model = contract_model()
+    model['quest'] = name
+    model['tables']['quest']['rows'][0]['quest_name'] = name
+    model['tables']['quest_npc']['rows'][0]['soul_id'] = GIVER
+    return model
+
+
+def second_model():
+    return giver_model('a_second')
+
+
+class SharedRegistrationTests(unittest.TestCase):
+    def stage(self, row, model, resources):
+        return quests.stage_quest(row, model, resources, lowering_context(model), {GIVER}, {}, None)
+
+    def rows(self, second=None):
+        first = dict(quest=QUEST, prerequisites={'q_before': 'completed'}, accepted_pending=())
+        return first, dict(quest='a_second', prerequisites=second or {'q_before': 'completed', 'q_other': 'unchanged'},
+                           accepted_pending=())
+
+    def test_stand_ins_host_and_type_are_registered_once(self):
+        first, second = self.rows()
+        one, _, report_one, _ = self.stage(first, giver_model(), quests.synthetic_container())
+        both, _, report_two, _ = self.stage(second, second_model(), one)
+        level = quests.host_of_blob(both[quests.ENTRY])
+        self.assertEqual(sorted(n.tag for n in level.find('Nodes')),
+                         sorted([QUEST, 'a_second', 'q_before', 'q_other', quests.HOST]))
+        files = [d.get('File') for d in level.find('Definitions')]
+        self.assertEqual(len(files), len(set(files)))
+        self.assertEqual(len(files), 5)
+        project = quests.host_of_blob(both[quests.PROJECT])
+        self.assertEqual([t.get('TypeName') for t in project.findall('Types/Type')], ['gm_kcd1_questsObjectiveProgress'])
+        self.assertEqual(report_one['registration']['types'], ['gm_kcd1_questsObjectiveProgress'])
+        self.assertEqual(report_two['registration']['types'], [])
+        # The shared files are byte-for-byte what the first quest wrote.
+        for name in ('q_before', quests.HOST, QUEST):
+            self.assertEqual(both[quests.FOLDER + name + '.xml'], one[quests.FOLDER + name + '.xml'])
+        self.assertEqual(len(project.findall('Assets/SoulAsset')), 2)        # the plan's player and the one giver
+
+    def test_a_stand_in_declared_in_another_state_is_refused(self):
+        first, second = self.rows(second={'q_before': 'unchanged'})
+        one, _, _, _ = self.stage(first, giver_model(), quests.synthetic_container())
+        with self.assertRaisesRegex(ValueError, 'declared differently: q_before'):
+            self.stage(second, second_model(), one)
+        with self.assertRaisesRegex(ValueError, 'already registered'):
+            self.stage(first, giver_model(), one)
+
+    def test_value_tables_keep_the_rows_of_the_quests_already_ported(self):
+        marker = dict(quests={QUEST: dict(report=dict(value_names=dict(money=['2-minor'], reputation=['micro']))),
+                              'older': dict(report={})})
+        report = dict(value_names=dict(money=['5-big', '2-minor'], reputation=[]))
+        self.assertEqual(quests.merged_value_names(report), dict(money=['2-minor', '5-big'], reputation=[]))
+        self.assertEqual(quests.merged_value_names(report, marker), dict(money=['2-minor', '5-big'], reputation=['micro']))
+
+        class Reader:
+            def __init__(self, *args): pass
+            def __enter__(self): return self
+            def __exit__(self, *args): return False
+        rows = dict(money=[dict(name='2-minor', change='40'), dict(name='5-big', change='300'), dict(name='x', change='1')],
+                    reputation=[dict(name='micro', change='1', target='soul')])
+        with tempfile.TemporaryDirectory() as temporary, mock.patch('campaign_sources.RetailSourceReader', Reader), \
+                mock.patch('quest_lowering_report.source_rows',
+                           side_effect=lambda reader, game, path: rows['money' if 'money' in path else 'reputation']), \
+                mock.patch('campaign_quest_rewards.kcd1_value_tables', side_effect=lambda *a: a) as written:
+            quests.value_tables(temporary, report, marker)
+        self.assertEqual(written.call_args.args[2:], (['2-minor', '5-big'], ['micro']))
+
+
 # ---------------------------------------------------------------- stage on a tiny fake package
 
 def zip_with(path, files):
@@ -485,14 +641,44 @@ class UpgradeTests(unittest.TestCase):
             self.assertEqual(quests.upgrade(Path(temporary) / 'empty', None, None), ({}, {}))
 
     def test_a_ported_package_is_unchanged_by_a_second_run(self):
-        marker = dict(version=quests.VERSION, quests={QUEST: dict(selection=quests.selection_digest(ROW), report={})})
+        marker = dict(version=quests.VERSION, quests={row['quest']: dict(selection=quests.selection_digest(row), report={})
+                                                      for row in quests.QUESTS})
         with tempfile.TemporaryDirectory() as temporary:
             package = fake_package(temporary, marker=marker)
             before = digest_tree(package)
             files, report = quests.upgrade(package, None, None)
             self.assertEqual(files, {})
             self.assertEqual(report['quests'][QUEST]['report'], {})
+            self.assertEqual(sorted(report['quests']), [QUEST, BUTCHER])
             self.assertEqual(digest_tree(package), before)
+
+    def test_a_package_with_the_first_quest_gets_only_the_second(self):
+        first = dict(selection=quests.selection_digest(ROW), report=dict(value_names=dict(money=['2-minor'], reputation=['a'])),
+                     kept='as ported')
+        with tempfile.TemporaryDirectory() as temporary:
+            package = fake_package(temporary, marker=dict(version=quests.VERSION, quests={QUEST: first}))
+            source, target = fake_games(temporary)
+            patchers = self.patched(package)
+            calls = []
+            def tables(source_, report, marker=None):
+                calls.append((report['quest'], quests.merged_value_names(report, marker)))
+                return {'Libs/Tables/rpg/money_change__gm_kcd1_quest.xml': b'<m/>'}
+            patchers[7] = mock.patch.object(quests, 'value_tables', tables)
+            with contextlib.ExitStack() as stack:
+                for patcher in patchers:
+                    stack.enter_context(patcher)
+                files, report = quests.upgrade(package, source, target)
+            self.assertEqual(self.ported, [BUTCHER])
+            # The value tables are one file for every quest: the first quest's rows are written again.
+            self.assertEqual(calls, [(BUTCHER, dict(money=['2-minor', 'butcher-money'], reputation=['a']))])
+            with zipfile.ZipFile(package / quests.TRAVEL) as archive:
+                marker = json.loads(archive.read(quests.MARKER))
+            self.assertEqual(marker['quests'][QUEST], first)
+            self.assertEqual(marker['quests'][BUTCHER]['selection'], quests.selection_digest(BUTCHER_ROW))
+            self.assertEqual(sorted(report['quests']), [QUEST, BUTCHER])
+            after = digest_tree(package)
+            self.assertEqual(quests.upgrade(package, None, None)[0], {})
+            self.assertEqual(digest_tree(package), after)
 
     def test_a_changed_selection_or_version_is_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -523,13 +709,22 @@ class UpgradeTests(unittest.TestCase):
             self.assertEqual(sorted(files), sorted([quests.ENGLISH, quests.ENGLISH_XML, quests.FACIALS, quests.LEVEL_PAK,
                                                     'Data/gm_person_x.pak', quests.TRAVEL]))
             self.assertEqual(report['quests'][QUEST]['dialogues'], [ROW['namespace'] + '_27371', ROW['namespace'] + '_27375'])
+            self.assertEqual(report['quests'][BUTCHER]['dialogues'],
+                             [BUTCHER_ROW['namespace'] + '_27388', BUTCHER_ROW['namespace'] + '_27396'])
+            self.assertEqual(self.ported, [QUEST, BUTCHER])
             with zipfile.ZipFile(package / quests.TRAVEL) as archive:
                 marker = json.loads(archive.read(quests.MARKER))
-                self.assertIn('Quests/GlueTravel/gm_kcd1_quests/' + QUEST + '.xml', archive.namelist())
+                for name in (QUEST, BUTCHER):
+                    self.assertIn('Quests/GlueTravel/gm_kcd1_quests/' + name + '.xml', archive.namelist())
                 self.assertIn('Libs/Tables/rpg/money_change__gm_kcd1_quest.xml', archive.namelist())
                 self.assertEqual(archive.read(quests.DIALOGUE_FOLDER + ROW['namespace'] + '_27371.xml'), b'<bound/>')
-            self.assertEqual(marker['quests'][QUEST]['selection'], quests.selection_digest(ROW))
-            self.assertEqual(marker['quests'][QUEST]['evidence']['person'], 'rat_refugee_ales')
+                self.assertEqual(archive.read(quests.DIALOGUE_FOLDER + BUTCHER_ROW['namespace'] + '_27396.xml'), b'<bound/>')
+            self.assertEqual(sorted(marker['quests']), [QUEST, BUTCHER])
+            for row in quests.QUESTS:
+                self.assertEqual(marker['quests'][row['quest']]['selection'], quests.selection_digest(row))
+                self.assertEqual(marker['quests'][row['quest']]['evidence']['person'], row['people'][0])
+            # The second quest was staged on the package the first one left, with the first one's marker.
+            self.assertEqual(self.markers_seen, [[], [QUEST]])
             with zipfile.ZipFile(package / quests.ENGLISH_XML) as archive:
                 self.assertIn('t1', archive.read('text_ui_dialog.xml').decode())
                 self.assertIn('old', archive.read('text_ui_quest.xml').decode())
@@ -559,8 +754,12 @@ class UpgradeTests(unittest.TestCase):
 
     def patched(self, package):
         """The stages that need the games, replaced by fakes that write what the real ones write."""
-        model = dict(quest=QUEST, quest_id='1', behavior_entry='b', behavior_status='s', operations=[1, 2])
-        evidence = dict(person='rat_refugee_ales', soul='S', faction='31', storm_roles=['ROLE'], branches=[])
+        self.ported, self.markers_seen = [], []
+
+        def selection(source, row, reader):
+            self.ported.append(row['quest'])
+            return (dict(quest=row['quest'], quest_id='1', behavior_entry='b', behavior_status='s', operations=[1, 2]),
+                    dict(person=row['people'][0], soul='S', faction='31', storm_roles=['ROLE'], branches=[]))
 
         def people(a):
             stage = a.output / 'package'
@@ -571,15 +770,16 @@ class UpgradeTests(unittest.TestCase):
             zip_with(stage / quests.ENGLISH_XML, {'text_ui_soul.xml': table({'ales': 'Ales'}),
                                                   'text_ui_quest.xml': table({'old': 'x'}),
                                                   'text_ui_dialog.xml': table({'old': 'y'})})
-            (a.output / 'report.json').write_text(json.dumps(dict(converted=[dict(person='rat_refugee_ales')],
+            (a.output / 'report.json').write_text(json.dumps(dict(converted=[dict(person=a.person[0])],
                                                                    existing=[], pending=[])))
 
         def dialogues(a):
             stage = a.output / 'package'
             with zipfile.ZipFile(a.archive) as archive:
                 files = {n: archive.read(n) for n in archive.namelist()}
-            for topic in ('27371', '27375'):
-                files[quests.DIALOGUE_FOLDER + ROW['namespace'] + '_' + topic + '.xml'] = b'<dialogue/>'
+            self.markers_seen.append(sorted(json.loads(files[quests.MARKER])['quests']) if quests.MARKER in files else [])
+            for topic in a.start_topic:
+                files[quests.DIALOGUE_FOLDER + a.namespace + '_' + topic + '.xml'] = b'<dialogue/>'
             zip_with(stage / quests.TRAVEL, files)
             zip_with(stage / quests.ENGLISH, {'dialog/new.ogg': 'new'})
             zip_with(stage / quests.ENGLISH_XML, {'text_ui_dialog.xml': table({'t1': 'Hello'})})
@@ -587,14 +787,16 @@ class UpgradeTests(unittest.TestCase):
 
         def stage_quest(row, model_, base, context, souls, factions, text):
             resources = dict(base)
-            resources['Quests/GlueTravel/gm_kcd1_quests/' + QUEST + '.xml'] = b'<quest/>'
-            report = dict(quest=QUEST, pending=sorted(row['accepted_pending']), value_names=dict(money=[], reputation=[]))
+            resources['Quests/GlueTravel/gm_kcd1_quests/' + row['quest'] + '.xml'] = b'<quest/>'
+            money = ['butcher-money'] if row['quest'] == BUTCHER else []
+            report = dict(quest=row['quest'], pending=sorted(row['accepted_pending']),
+                          value_names=dict(money=money, reputation=[]))
             return resources, {}, report, [dict(key='journal', text='Beggars')]
 
         def bind(row, model_, resources, bindings, npc_assets):
             resources = dict(resources)
-            for topic in ('27371', '27375'):
-                resources[quests.DIALOGUE_FOLDER + ROW['namespace'] + '_' + topic + '.xml'] = b'<bound/>'
+            for _, topic in row['branches']:
+                resources[quests.DIALOGUE_FOLDER + row['namespace'] + '_' + topic + '.xml'] = b'<bound/>'
             return resources, dict(lifecycle=[], delivery=[])
 
         class Reader:
@@ -604,7 +806,7 @@ class UpgradeTests(unittest.TestCase):
 
         return [
             mock.patch('campaign_sources.RetailSourceReader', Reader),
-            mock.patch.object(quests, 'verify_selection', return_value=(model, evidence)),
+            mock.patch.object(quests, 'verify_selection', selection),
             mock.patch.object(quests, 'source_model', return_value=dict(quest='q_huntPtacek')),
             mock.patch('campaign_quest_text.load', return_value=({}, dict(missing=[]))),
             mock.patch('build_quest_people_test.build', people),
@@ -665,9 +867,10 @@ class RetailPlanTests(unittest.TestCase):
             blob = self.resources[quests.DIALOGUE_FOLDER + ROW['namespace'] + '_' + topic + '.xml']
             self.assertEqual(quests.exit_script_calls(blob), [])
 
-    def test_plan_runs_every_selected_quest(self):
+    def test_plan_runs_every_quest_that_retail_alone_can_plan(self):
         report = quests.plan(KCD1, KCD2)
-        self.assertEqual(list(report['quests']), [row['quest'] for row in quests.QUESTS])
+        self.assertEqual(list(report['quests']), [row['quest'] for row in quests.QUESTS if not row.get('needs_package')])
+        self.assertEqual(list(report['skipped']), [BUTCHER])
         self.assertEqual(report['quests'][QUEST]['pending'], self.report['pending'])
         self.assertFalse(report['runtime_verified'])
 
@@ -690,6 +893,87 @@ class RetailPlanTests(unittest.TestCase):
         audit = quests.graph_audit(resources, paths, owned, definitions, quests.aliases_of(resources))
         self.assertEqual(audit['problems'], [])
         self.assertGreater(audit['nodes'], 100)
+
+
+@unittest.skipUnless((KCD1 / 'Data/Tables.pak').exists() and (KCD2 / 'Data/Tables.pak').exists()
+                     and (PACKAGE / quests.TRAVEL).is_file(),
+                     'requires installed KCD1 and KCD2 data and a built package with the shop imports')
+class PackagePlanTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.first, cls.first_report = quests.plan_quest(ROW, KCD1, KCD2, PACKAGE)
+        cls.resources, cls.report = quests.plan_quest(BUTCHER_ROW, KCD1, KCD2, PACKAGE, base=cls.first)
+
+    def test_the_package_resolves_every_item_and_leaves_the_accepted_pending_rows(self):
+        r = self.report
+        self.assertEqual((r['unsupported_before'], r['unsupported_after']), (11, 1))
+        self.assertEqual(r['pending'], sorted(BUTCHER_ROW['accepted_pending']))
+        self.assertEqual(len(r['pending']), 10)
+        self.assertEqual(sorted(t['objective'] for t in r['tracking'] if t['mode'] == 'manual'),
+                         ['boar', 'boarFeast', 'deerFeast', 'hareFeast', 'kidney', 'liver', 'offal'])
+        self.assertEqual(self.first_report['pending'], sorted(ROW['accepted_pending']))
+
+    def test_one_window_for_whichever_group_is_started(self):
+        r = self.report
+        self.assertEqual([(s['function'], s['sequence']) for d in r['lifecycle'] for s in d['sites']],
+                         [('ActivateQuest', 'seq_56805'), ('StartQuest', 'seq_56905')])
+        hand_in = r['delivery'][1]
+        self.assertEqual(hand_in['sites'], ['seq_56812', 'seq_56887', 'seq_56888'])
+        self.assertEqual([g['objectives'] for g in hand_in['groups']],
+                         [['boar'], ['hareFeast', 'deerFeast', 'boarFeast'], ['kidney'], ['liver'], ['offal']])
+        self.assertEqual([g.get('aggregate') for g in hand_in['groups']], [None, 'feast', None, None, None])
+        self.assertEqual((hand_in['decision'], hand_in['accept'], hand_in['reject']),
+                         ('topic_27398', 'seq_56813', 'seq_56815'))
+        self.assertEqual(r['npc_assets'], {'REZNIK_SAZAVA': 'gm_soul_sas_butcher'})
+        for _, topic in BUTCHER_ROW['branches']:
+            blob = self.resources[quests.DIALOGUE_FOLDER + BUTCHER_ROW['namespace'] + '_' + topic + '.xml']
+            self.assertEqual(quests.exit_script_calls(blob), [])
+
+    def test_the_feast_is_completed_before_the_source_effects_read_it(self):
+        dialogue = BUTCHER_ROW['namespace'] + '_27396'
+        stem = 'lowered_delivery_' + dialogue + '_hareFeast_deerFeast_boarFeast_'
+        nodes = {n.get('Name'): n for n in quests.host_of_blob(self.resources[quests.ENTRY]).iterfind('Nodes/*')}
+        sources = lambda node, port: [e.get('From') for e in node.findall('Edge') if e.get('To') == port]
+        quest = nodes[BUTCHER]
+        for member in ('hareFeast', 'deerFeast', 'boarFeast'):
+            self.assertEqual(sources(quest, 'complete_' + member), [stem + 'accepted.A'])
+        self.assertEqual(sources(nodes[stem + 'aggregate'], 'Exec'), [stem + 'accepted.B'])
+        self.assertEqual(sources(nodes[stem + 'aggregate'], 'Condition'), [BUTCHER + '.feast_Started'])
+        self.assertEqual(sources(quest, 'complete_feast'), [stem + 'aggregate.True'])
+        program = sources(nodes[dialogue + '_effects_56813_0'], 'Exec')
+        self.assertEqual(program, ['lowered_delivery_' + dialogue + '_' + g + '_accepted.' + port for g, port in (
+            ('boar', 'B'), ('hareFeast_deerFeast_boarFeast', 'C'), ('kidney', 'B'), ('liver', 'B'), ('offal', 'B'))])
+        items = [quests.node_constants(nodes[stem + 'item_%d' % i]) for i in range(3)]
+        self.assertEqual([(c['Amount'], c['MinimumHealth']) for c in items], [('100', '0.5'), ('70', '0.5'), ('40', '0.5')])
+
+    def test_shared_registrations_and_the_first_quest_are_untouched(self):
+        level = quests.host_of_blob(self.resources[quests.ENTRY])
+        tags = [n.tag for n in level.find('Nodes')]
+        for name in (QUEST, BUTCHER, quests.HOST, 'q_huntPtacek', 'q_returnToSkalitz'):
+            self.assertEqual(tags.count(name), 1, name)
+        project = quests.host_of_blob(self.resources[quests.PROJECT])
+        self.assertEqual([t.get('TypeName') for t in project.findall('Types/Type')].count('gm_kcd1_questsObjectiveProgress'), 1)
+        for path in (quests.FOLDER + QUEST + '.xml', quests.FOLDER + quests.HOST + '.xml',
+                     *(quests.DIALOGUE_FOLDER + ROW['namespace'] + '_' + t + '.xml' for _, t in ROW['branches'])):
+            self.assertEqual(self.resources[path], self.first[path], path)
+        self.assertNotIn(quests.FOLDER + quests.HOST + '.xml', self.report['files'])
+        self.assertIn(quests.FOLDER + 'q_returnToSkalitz.xml', self.report['files'])
+
+    def test_the_lowered_graph_passes_the_package_audit(self):
+        with zipfile.ZipFile(KCD2 / 'Data/IPL_GameData.pak') as archive:
+            definitions = quests.Definitions(archive.read(quests.DEFINITIONS))
+        dialogues = [BUTCHER_ROW['namespace'] + '_' + t for _, t in BUTCHER_ROW['branches']]
+        owned = {BUTCHER, quests.HOST, 'q_returnToSkalitz', *dialogues}
+        owned.update(n.get('Name') for n in quests.host_of_blob(self.resources[quests.ENTRY]).iterfind('Nodes/*')
+                     if any(n.get('Name', '').startswith('lowered_delivery_' + d + '_') for d in dialogues))
+        paths = [quests.FOLDER + BUTCHER + '.xml', quests.FOLDER + 'q_returnToSkalitz.xml',
+                 *[quests.DIALOGUE_FOLDER + d + '.xml' for d in dialogues], quests.ENTRY]
+        audit = quests.graph_audit(self.resources, paths, owned, definitions, quests.aliases_of(self.resources))
+        self.assertEqual(audit['problems'], [])
+        for path, d in zip(paths[2:4], dialogues):
+            self.assertEqual(quests.dialogue_audit(self.resources[path], d), [])
+        model_items = {t['objective']: t['requirements'] for t in self.report['tracking']}
+        self.assertEqual(model_items['offal'][0]['target_item'][:8], '3a2d670c')
 
 
 if __name__ == '__main__':

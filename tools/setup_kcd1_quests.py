@@ -7,6 +7,7 @@ classes, recordings and positions are read from KCD1 by the shared importers
 hand-in lowerings). Nothing here is runtime-verified.
 
     python tools/setup_kcd1_quests.py --plan                 # retail only, in memory
+    python tools/setup_kcd1_quests.py --plan --package <map> # every quest, on top of a built package
     python tools/setup_kcd1_quests.py --check <package>      # read-only audit of a built package
     python tools/setup_kcd1_quests.py --lab <dir>            # quest_lab graph and scenarios
 
@@ -43,7 +44,22 @@ QUESTS = (dict(
         for objective in ('boar', 'deer', 'doe', 'hare', 'mushrooms')
         for soul in ('rat_bailiff', 'rat_berthold', 'rat_hanus'))),
     # Objective order for the lab's "next order" scenario: the hunt that follows the first.
-    lab_order=('hare', 'boar')),)
+    lab_order=('hare', 'boar')),
+    dict(
+    quest='a_huntsman_butcher',
+    people=('sas_butcher',),
+    branches=(('38322', '27388'), ('38324', '27396')),
+    namespace='gm_kcd1_quest_a_huntsman_butcher',
+    prerequisites={'q_returnToSkalitz': 'completed'},
+    # The bailiff's soul is not in the package and faction 81 is not in its FactionTree.
+    accepted_pending=tuple(sorted(
+        'quest_reward_reputation:' + objective + ':' + target
+        for objective in ('boarMoney', 'endOfFun', 'kidneyMoney', 'liverMoney', 'offalMoney')
+        for target in ('faction_81', 'sas_bailiff'))),
+    lab_order=('boar', 'offal'),
+    # Two of its item classes (offal, liver) exist only in a package that has the shop imports,
+    # so `plan` needs that package; the stage always reads the package it is upgrading.
+    needs_package=True))
 FOLDER = 'Quests/GlueTravel/gm_kcd1_quests/'
 MARKER = 'Libs/GlueMapper/kcd1_quests.json'
 PROJECT_NAME = 'gm_kcd1_quests'
@@ -169,11 +185,33 @@ def source_expectations(model):
                 if r['is_hidden'] == 'True' and o not in linked and not tracked[o]]
     if len(refusals) != 1:
         raise ValueError('Expected one unlinked hidden source objective: ' + repr(refusals))
+    # What a completion starts: a target whose enabled, non-exclusive predecessors are all objectives.
+    joins = {rows[target]['objective_name']: [rows[p]['objective_name'] for p in predecessors]
+             for target, predecessors in ((t, [p for p, targets in following.items() if t in targets]) for t in rows)
+             if predecessors and all(p in rows and rows[p]['is_exclusive'] != 'True' for p in predecessors)}
+    automatic = {rows[o]['objective_name'] for o in rows if rows[o]['condition'].strip() == '1' and not tracked[o]}
     return dict(goods=goods, accepted={rows[o]['objective_name']: s for o, s in started.items()},
-                refusal=refusals[0], objectives=[r['objective_name'] for r in rows.values()])
+                refusal=refusals[0], objectives=[r['objective_name'] for r in rows.values()],
+                joins=joins, automatic=automatic)
 
 
-def lab_scenarios(model, source='graph', order=None):
+def after_completion(facts, values, name):
+    """Objective states once `name` is completed: the source transitions it satisfies start their targets."""
+    values = dict(values, **{name: 'Completed'})
+    queue = [name]
+    while queue:
+        done = queue.pop(0)
+        for target, predecessors in facts['joins'].items():
+            if (done in predecessors and values[target] in ('Unchanged', 'Canceled')
+                    and all(values[p] == 'Completed' for p in predecessors)):
+                if target in facts['automatic']:
+                    values[target] = 'Completed'; queue.append(target)
+                else:
+                    values[target] = 'Started'
+    return values
+
+
+def lab_scenarios(model, source='graph', order=None, prerequisites=('q_huntPtacek',)):
     """quest_lab scenarios for the objective state machine, plus the items quest_lab cannot model.
 
     order is (first hunt, the hunt KCD1 gives next); by default the first started hunt and the first
@@ -198,6 +236,13 @@ def lab_scenarios(model, source='graph', order=None):
         raise ValueError('Lab order must name the accepted hunt and a hunt not yet started: ' + repr(order))
     accept = [dict(action='fire', port='activate'), dict(action='fire', port='start'),
               dict(action='advance', duration='1m')]
+    # Completing a hunt may start what the source graph chains to it (the butcher's payment objectives).
+    done = after_completion(facts, accepted, first)
+    if done.get(other) != 'Unchanged':
+        raise ValueError('Lab order: completing the first hunt must not start the next one: ' + repr(order))
+    complete = [dict(action='fire', port='complete_' + names[first])]
+    if any(done[n] != accepted[n] and n in facts['automatic'] for n in done):
+        complete.append(dict(action='advance', duration='1m'))       # queued automatic completions
     scenario = lambda name, steps: dict(schema=1, name=name, source=source, entry=model['quest'], steps=steps)
     runs = [
         scenario('No source input leaves the quest untouched', [dict(action='advance', duration='2h'),
@@ -212,25 +257,22 @@ def lab_scenarios(model, source='graph', order=None):
             dict(action='assert', values=state(accepted, started=True)),
             dict(action='fire', port='start'), dict(action='advance', duration='1m'),
             dict(action='assert', values=state(accepted, started=True))]),
-        scenario('Hunt objectives change independently', accept + [
-            dict(action='fire', port='complete_' + names[first]),
-            dict(action='assert', values=state(dict(accepted, **{first: 'Completed'}))),
+        scenario('Hunt objectives change independently', accept + complete + [
+            dict(action='assert', values=state(done)),
             dict(action='fire', port='start_' + names[other]),
-            dict(action='assert', values=state(dict(accepted, **{first: 'Completed', other: 'Started'}))),
+            dict(action='assert', values=state(dict(done, **{other: 'Started'}))),
             dict(action='fire', port='cancel_' + names[first]),
-            dict(action='assert', values=state(dict(accepted, **{first: 'Canceled', other: 'Started'})))]),
-        scenario('Completing the first hunt is recorded', accept + [
-            dict(action='fire', port='complete_' + names[first]),
+            dict(action='assert', values=state(dict(done, **{first: 'Canceled', other: 'Started'})))]),
+        scenario('Completing the first hunt is recorded', accept + complete + [
             dict(action='assert', values={'output.' + names[first] + '_Completed': True})]),
-        scenario('Cancelling the finished hunt and starting the next gives the next order', accept + [
-            dict(action='fire', port='complete_' + names[first]),
+        scenario('Cancelling the finished hunt and starting the next gives the next order', accept + complete + [
             dict(action='fire', port='cancel_' + names[first]),
             dict(action='fire', port='start_' + names[other]),
-            dict(action='assert', values=state(dict(accepted, **{first: 'Canceled', other: 'Started'}), started=True))]),
+            dict(action='assert', values=state(dict(done, **{first: 'Canceled', other: 'Started'}), started=True))]),
     ]
     reason = 'quest_lab does not model ItemDeliveryHandler, tracked item descriptors or the dialogue hand-in window'
     unsupported = [
-        dict(name='Early talk before q_huntPtacek is a no-op',
+        dict(name='Early talk before ' + ', '.join(sorted(prerequisites)) + ' is a no-op',
              reason='the prerequisite is a declared stand-in; quest_lab does not run dialogue conditions'),
         dict(name='Accept/refuse reached from the source conversation',
              reason='lifecycle triggers are dialogue-side; quest_lab does not run dialogues'),
@@ -244,7 +286,7 @@ def lab_scenarios(model, source='graph', order=None):
     return runs, unsupported
 
 
-def write_lab(model, directory, order=None, blobs=None):
+def write_lab(model, directory, order=None, blobs=None, prerequisites=('q_huntPtacek',)):
     """Graph and scenarios for `python tools/quest_lab_test.py run <dir>/*-scenario.json --output <out>`.
 
     blobs maps a path to the quest definition files of a built package; by default the quest is emitted
@@ -258,7 +300,7 @@ def write_lab(model, directory, order=None, blobs=None):
         blobs, _ = emit_project([model], 'GlueQuestsLab')
     for name, blob in blobs.items():
         path = directory / 'graph' / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(blob)
-    runs, unsupported = lab_scenarios(model, source='graph', order=order)
+    runs, unsupported = lab_scenarios(model, source='graph', order=order, prerequisites=prerequisites)
     paths = []
     for index, s in enumerate(runs, 1):
         path = directory / ('%02d-scenario.json' % index)
@@ -431,10 +473,16 @@ def stage_quest(row, model, resources, context, souls, factions, text):
     group = model['tables']['quest']['rows'][0].get('group')
     resources[PROJECT], resources[ENTRY], quest_blob, registered = registration.register(
         resources[PROJECT], resources[ENTRY], files[PROJECT_NAME + '.xml'], files[path],
-        '../' + PROJECT_NAME + '/' + name + '.xml', model=model, souls=aliases, group=group)
+        '../' + PROJECT_NAME + '/' + name + '.xml', model=model, souls=aliases, group=group, shared_types=True)
     resources[FOLDER + name + '.xml'] = quest_blob
     for quest, state in sorted(row['prerequisites'].items()):
-        resources[FOLDER + quest + '.xml'] = prerequisites.stub(quest, state)
+        # A stand-in another ported quest already declared is shared, never registered twice.
+        blob = prerequisites.stub(quest, state)
+        if FOLDER + quest + '.xml' in resources:
+            if resources[FOLDER + quest + '.xml'] != blob:
+                raise ValueError('Prerequisite stand-in is already declared differently: ' + quest)
+            continue
+        resources[FOLDER + quest + '.xml'] = blob
         resources[ENTRY] = prerequisites.register(resources[ENTRY], '../' + PROJECT_NAME + '/' + quest + '.xml', quest)
     if FOLDER + HOST + '.xml' not in resources:
         resources[FOLDER + HOST + '.xml'] = prerequisites.host(HOST)
@@ -456,17 +504,29 @@ def stage_quest(row, model, resources, context, souls, factions, text):
     return resources, bindings, report, quest_report['journal_strings']
 
 
-def value_tables(source, report):
-    """The 'kcd1_<name>' money and reputation rows the quest's AddReward nodes name."""
+def merged_value_names(report, marker=None):
+    """The quest's value names together with those of every quest the marker already holds."""
+    names = {kind: set(report['value_names'][kind]) for kind in ('money', 'reputation')}
+    for entry in (marker or {}).get('quests', {}).values():
+        for kind in names:
+            names[kind].update(entry.get('report', {}).get('value_names', {}).get(kind, ()))
+    return {kind: sorted(found) for kind, found in names.items()}
+
+
+def value_tables(source, report, marker=None):
+    """The 'kcd1_<name>' money and reputation rows the ported quests' AddReward nodes name.
+
+    Each table is one file for all quests, so it is written with the rows of the quests already ported too.
+    """
     import quest_lowering_report as lowering
     import campaign_quest_rewards
     from campaign_sources import RetailSourceReader
     source = Path(source)
+    names = merged_value_names(report, marker)
     with RetailSourceReader(source) as reader:
         money = lowering.source_rows(reader, source, 'quest/money_change')
         reputation = lowering.source_rows(reader, source, 'rpg/reputation_change')
-    return campaign_quest_rewards.kcd1_value_tables(money, reputation, report['value_names']['money'],
-                                                    report['value_names']['reputation'])
+    return campaign_quest_rewards.kcd1_value_tables(money, reputation, names['money'], names['reputation'])
 
 
 # ---------------------------------------------------------------- stage: dialogues
@@ -516,7 +576,8 @@ def bind_scripts(row, model, resources, bindings, npc_assets):
         hand_in = delivery.plan(dialogue, entry, quests[quest], plan_, npc_assets)
         dialogue, entry = delivery.bind(dialogue, entry, quests[quest], hand_in, plan_, npc_assets, assets=assets)
         report['delivery'].append(dict(dialogue=hand_in['dialogue'], topic=topic, sites=list(hand_in['sites']),
-            groups=[dict(name=g['name'], objectives=g['objectives'], descriptors=len(g['descriptors']))
+            groups=[dict(dict(name=g['name'], objectives=g['objectives'], descriptors=len(g['descriptors'])),
+                         **({'aggregate': g['aggregate']} if g.get('aggregate') else {}))
                     for g in hand_in['groups']],
             decision=hand_in.get('decision'), accept=hand_in.get('accept_sequence'),
             reject=hand_in.get('reject_sequence'), assumptions=hand_in.get('assumptions', [])))
@@ -537,8 +598,12 @@ def kcd_roots(source, target):
     return source, target
 
 
-def plan_quest(row, source, target, package=None, context=None):
-    """Steps 2 to 4 of the stage in memory. Returns (resources, report); writes nothing."""
+def plan_quest(row, source, target, package=None, context=None, base=None):
+    """Steps 2 to 4 of the stage in memory. Returns (resources, report); writes nothing.
+
+    base is the archive content to plan on instead of the package's own (the result of the quest
+    planned before this one), so quests share what the stage registers once.
+    """
     from character_factions import LEAF
     from campaign_quest_text import load as load_text
     import quest_lowering_report as lowering
@@ -550,7 +615,7 @@ def plan_quest(row, source, target, package=None, context=None):
     context = context or lowering.load_context(source, target, package)
     people = {evidence['soul']}
     if package is None:
-        base = synthetic_container()
+        base = base or synthetic_container()
         references = sorted({r['faction_id'] for r in model['tables'].get('quest_reward_reputation', {}).get('rows', [])
                              if r.get('faction_id')})
         factions = {f: LEAF + f for f in references}
@@ -559,7 +624,7 @@ def plan_quest(row, source, target, package=None, context=None):
         archives = [TRAVEL, LEVEL_PAK, ENGLISH, ENGLISH_XML, FACIALS]
     else:
         package = Path(package)
-        base = read_travel(package / TRAVEL, ('Quests/', 'Libs/Tables/rpg/FactionTree'))
+        base = base or read_travel(package / TRAVEL, ('Quests/', 'Libs/Tables/rpg/FactionTree'))
         if ENTRY not in base:
             raise ValueError('Package has no kcd1_travel campaign entry')
         factions = faction_names(base)
@@ -601,12 +666,25 @@ def controller_pending(model):
 
 
 def plan(source, target, package=None, notify=lambda *a: None):
-    """Report of what the stage does for every selected quest. Reads retail (and the package, if given)."""
-    quests = {}
-    for row in QUESTS:
-        notify('Plan KCD1 quest', len(quests), len(QUESTS), row['quest'])
-        quests[row['quest']] = plan_quest(row, source, target, package)[1]
-    return dict(version=VERSION, quests=quests, runtime_verified=False)
+    """Report of what the stage does for every selected quest. Reads retail (and the package, if given).
+
+    With a package the quests are planned one on top of the other, as the stage ports them. Without one,
+    a quest that needs package content is listed under `skipped` and every other quest is planned alone.
+    """
+    quests, skipped, resources = {}, {}, None
+    for index, row in enumerate(QUESTS):
+        notify('Plan KCD1 quest', index, len(QUESTS), row['quest'])
+        if package is None and row.get('needs_package'):
+            skipped[row['quest']] = 'needs a package that has the shop imports (--package)'
+            continue
+        planned, quests[row['quest']] = plan_quest(row, source, target, package,
+                                                   base=resources if package is not None else None)
+        if package is not None:
+            resources = planned
+    report = dict(version=VERSION, quests=quests, runtime_verified=False)
+    if skipped:
+        report['skipped'] = skipped
+    return report
 
 
 def summary(report):
@@ -693,7 +771,7 @@ def migrate_quest(package, source, target, row, marker, notify):
         resources, bindings, report, records = stage_quest(
             row, model, base, context, souls, faction_names(base), text)
         journal = localization_table(records)
-        tables = value_tables(source, report)
+        tables = value_tables(source, report, marker)
         resources.update(tables)
         quest_travel = temporary / 'quest' / TRAVEL
         rewrite(people_travel, quest_travel, {p: b for p, b in resources.items() if base.get(p) != b})
@@ -1348,6 +1426,8 @@ def main(argv=None):
             args.output.parent.mkdir(parents=True, exist_ok=True)
             args.output.write_text(json.dumps(report, indent=2, default=str), encoding='utf-8')
         print(json.dumps(summary(report), indent=2))
+        for name, reason in report.get('skipped', {}).items():
+            print('skipped ' + name + ': ' + reason)
         return 0
     if args.lab:
         from campaign_sources import RetailSourceReader
@@ -1363,7 +1443,7 @@ def main(argv=None):
                 for path, blob in resources.items():
                     if path.startswith(FOLDER) or path == PROJECT:
                         blobs[path.removeprefix('Quests/')] = blob
-            paths = write_lab(model, directory, order=row['lab_order'], blobs=blobs)
+            paths = write_lab(model, directory, order=row['lab_order'], blobs=blobs, prerequisites=row['prerequisites'])
             print(json.dumps([str(p) for p in paths], indent=2))
         return 0
     return check_main(args)

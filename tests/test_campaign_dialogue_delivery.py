@@ -6,7 +6,7 @@ import unittest
 import xml.etree.ElementTree as E
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import campaign_quest_tracking
-from campaign_dialogue_delivery import bind, canonical, delivered, parse, plan
+from campaign_dialogue_delivery import aggregates, bind, canonical, delivered, parse, plan
 from campaign_dialogue_effects import predicate
 from campaign_dialogue_runtime import attach_dialogue
 from campaign_quest_graph import emit_project
@@ -21,6 +21,8 @@ CALL = "QuestSystem.OpenInventory('arbitrary_quest', dc['GIVER'].this.id,%s)"
 BRANCHED = ("if QuestSystem.IsObjectiveStarted('arbitrary_quest', 'disabled') then \r\n"
             + CALL % "'returnHome','disabled'" + " \r\nelse \r\n" + CALL % "'first'" + " \r\nend")
 DONE = "Port('c_first_done') OR (Port('c_disabled_done') AND Port('c_home_done'))"
+# The same outcome read through an objective that restates "returnHome and disabled are completed".
+JOINED = "Port('c_first_done') OR Port('c_second_done')"
 
 # Port lists copied from retail KCD2 Libs/concept/definitions.xml (IPL_GameData.pak)
 # for every node type the lowering writes. Unused I_Soul outputs are left out.
@@ -64,9 +66,21 @@ RETAIL = E.fromstring('''<Definitions>
 RETAIL_ARRAYS = {'wh::entitymodule::HomogenousItemDescriptors', 'wh::framework::LocalizedStrings'}
 
 
-def source():
-    """first, returnHome and disabled are manual item hand-ins; second is untracked."""
+def source(join=None):
+    """first, returnHome and disabled are manual item hand-ins; second is untracked.
+
+    join lists the objectives whose completion starts `second`, which then completes at once
+    (KCD1 condition '1'): an aggregate objective when they are exactly one delivered group.
+    """
     m = model()
+    if join:
+        rows = m['tables']['quest_objective']['rows']
+        ids = {r['objective_name']: r['objective_id'] for r in rows}
+        next(r for r in rows if r['objective_name'] == 'second')['condition'] = '1'
+        pairs = [('1', '3'), ('3', '4'), *((ids[o], ids['second']) for o in join), (ids['second'], '2')]
+        m['tables']['quest_transition']['rows'] = [dict(quest_id='42', from_objective_id=a, to_objective_id=b,
+                                                        enabled='True') for a, b in pairs]
+        m['graph']['edges'] = [dict(nodeOut=a, nodeIn=b, portOut='Out', portIn='In', enabled='1') for a, b in pairs]
     ids = {r['objective_name']: r['objective_id'] for r in m['tables']['quest_objective']['rows']}
     m['tables']['quest_tracked_asset'] = dict(rows=[dict(quest_id='42', objective_id=ids[o], quest_asset_id=str(90 + i),
         count=ITEMS[o][1], map_asset_id='') for i, o in enumerate(ITEMS)])
@@ -84,7 +98,7 @@ def dialogue(scripts=(BRANCHED, BRANCHED), accept=DONE, reject='!(' + DONE + ')'
     root = E.Element('Database', Name='brambora')
     host = E.SubElement(E.SubElement(root, 'Skald'), 'FaderDialog', Name='handin')
     ports = E.SubElement(host, 'Ports')
-    for name in ('active', 'c_first_done', 'c_home_done', 'c_disabled_done', 'c_first_started'):
+    for name in ('active', 'c_first_done', 'c_home_done', 'c_disabled_done', 'c_first_started', 'c_second_done'):
         E.SubElement(ports, 'Port', Name=name, Direction='In', Type='bool')
     for name in ('effects_2', 'action_home', 'action_disabled', 'action_first'):
         E.SubElement(ports, 'Port', Name=name, Direction='Out', Type='trigger')
@@ -111,9 +125,9 @@ def dialogue(scripts=(BRANCHED, BRANCHED), accept=DONE, reject='!(' + DONE + ')'
     return E.tostring(root)
 
 
-def staged(**changes):
+def staged(join=None, **changes):
     """(dialogue, container, quest, tracking) as the stage holds them after attach_dialogue."""
-    m, bindings, names = source()
+    m, bindings, names = source(join)
     files, _ = emit_project([m], 'Example', localization=names)
     path = 'Example/' + QUEST + '.xml'
     files[path], tracking = campaign_quest_tracking.bind(files[path], m, bindings)
@@ -122,7 +136,8 @@ def staged(**changes):
     cancel = lambda objective, port: dict(action('cancel', objective), predicate=predicate("Port('" + port + "')"))
     report = dict(active_port='active',
         conditions=dict(c_first_done=output('first', 'Completed'), c_home_done=output('returnHome', 'Completed'),
-                        c_disabled_done=output('disabled', 'Completed'), c_first_started=output('first', 'Started')),
+                        c_disabled_done=output('disabled', 'Completed'), c_first_started=output('first', 'Started'),
+                        c_second_done=output('second', 'Completed')),
         actions=dict(action_home=action('start', 'returnHome'), action_disabled=action('start', 'disabled'),
                      action_first=action('start', 'first')),
         action_programs=dict(effects_2=[cancel('disabled', 'c_disabled_done'), cancel('first', 'c_first_done'),
@@ -275,7 +290,7 @@ class BindTests(unittest.TestCase):
             self.assertEqual(ports[port], ('Out', 'trigger'))
         for port in ('delivery_result_returnHome_disabled', 'delivery_result_first'):
             self.assertEqual(ports[port], ('In', 'DeliveryResult'))
-        for port in ('delivery_started_returnHome', 'delivery_started_disabled', 'c_first_started'):
+        for port in ('delivery_started_returnHome', 'delivery_started_disabled', 'c_first_started', 'c_second_done'):
             self.assertEqual(ports[port], ('In', 'bool'))
         self.assertNotIn('delivery_started_first', ports)
         self.assertNotIn('effects_2', ports)
@@ -364,7 +379,11 @@ class BindTests(unittest.TestCase):
         self.assertFalse([e for n in nodes.values() for e in n.findall('Edge') if e.get('From') == 'handin.effects_2'])
 
     def test_every_emitted_node_and_port_exists_in_retail(self):
-        _, entry, _, _ = lowered()
+        for change in ({}, dict(join=('returnHome', 'disabled'), accept=JOINED, reject='!(' + JOINED + ')')):
+            with self.subTest(change=change):
+                self.retail_ports(lowered(**change)[1])
+
+    def retail_ports(self, entry):
         container = entry.find('./Skald/Project/Nodes')
         emitted = {n.get('Name'): n for n in container if n.get('Name').startswith('lowered_delivery_')}
         self.assertEqual({n.tag for n in emitted.values()},
@@ -408,6 +427,60 @@ class BindTests(unittest.TestCase):
         self.assertEqual(bind(new_blob, new_entry, quest, again, tracking, NPC), (new_blob, new_entry))
         # A fresh hand-in dialogue of the same name over an already lowered container is a collision.
         with self.assertRaises(ValueError): bind(blob, new_entry, quest, plan(blob, new_entry, quest, tracking, NPC), tracking, NPC)
+
+    def test_an_aggregate_objective_is_proven_from_the_quest_graph(self):
+        host = lambda join: E.fromstring(staged(join=join)[2]).find('./Skald/Quest')
+        self.assertEqual(aggregates(host(('returnHome', 'disabled'))), {'second': frozenset(('returnHome', 'disabled'))})
+        self.assertEqual(aggregates(host(('first', 'returnHome', 'disabled')))['second'],
+                         frozenset(('first', 'returnHome', 'disabled')))
+        # In the unchanged model returnHome waits for first and second but does not complete by itself.
+        self.assertEqual(aggregates(host(None)), {})
+        for damage in ('timer', 'second start', 'second completion', 'condition'):
+            with self.subTest(damage=damage):
+                quest = host(('returnHome', 'disabled'))
+                nodes = {n.get('Name'): n for n in quest.find('Nodes')}
+                if damage == 'timer':
+                    nodes['complete_5_queued'].find("Constant[@Name='Duration']").set('Value', '1h')
+                elif damage == 'second start':
+                    E.SubElement(nodes['objective_5'], 'Edge', From='advance_4.True', To='SetStarted')
+                elif damage == 'second completion':
+                    E.SubElement(nodes['objective_5'], 'Edge', From='advance_4.True', To='SetCompleted')
+                else:
+                    nodes['ready_5_predecessors_0'].set('MethodName', 'math::boolean::Or')
+                self.assertEqual(aggregates(quest), {})
+
+    def test_the_outcome_may_test_a_group_through_its_aggregate(self):
+        for accept in (JOINED, DONE):
+            with self.subTest(accept=accept):
+                found = plan(*staged(join=('returnHome', 'disabled'), accept=accept, reject='!(' + accept + ')'), NPC)
+                self.assertEqual(found['pending'], [])
+                self.assertEqual([g.get('aggregate') for g in found['groups']], ['second', None])
+                self.assertEqual((found['accept_sequence'], found['reject_sequence']), ('seq_2', 'seq_3'))
+                self.assertIn('same trigger chain', found['assumptions'][-1])
+        reason = ['outcome conditions are not "a delivered group is completed" and its negation']
+        # Not an aggregate of the delivered group: nothing joins, or it also waits for another objective.
+        for join in (None, ('first', 'returnHome', 'disabled'), ('returnHome',)):
+            with self.subTest(join=join):
+                found = plan(*staged(join=join, accept=JOINED, reject='!(' + JOINED + ')'), NPC)
+                self.assertEqual([p['reason'] for p in found['pending']], reason)
+        self.assertNotIn('aggregate', plan(*staged(), NPC)['groups'][0])
+        self.assertEqual(len(plan(*staged(), NPC)['assumptions']), 5)
+
+    def test_accept_completes_the_aggregate_before_the_effect_program(self):
+        _, entry, found, _ = lowered(join=('returnHome', 'disabled'), accept=JOINED, reject='!(' + JOINED + ')')
+        nodes = {n.get('Name'): n for n in entry.find('./Skald/Project/Nodes')}
+        pair, single = 'lowered_delivery_handin_returnHome_disabled_', 'lowered_delivery_handin_first_'
+        quest = nodes[QUEST]
+        self.assertEqual(froms(quest, 'complete_returnHome'), [pair + 'accepted.A'])
+        self.assertEqual(froms(quest, 'complete_disabled'), [pair + 'accepted.A'])
+        gate = nodes[pair + 'aggregate']
+        self.assertEqual((gate.tag, froms(gate, 'Exec'), froms(gate, 'Condition')),
+                         ('If', [pair + 'accepted.B'], [QUEST + '.second_Started']))
+        self.assertEqual(froms(quest, 'complete_second'), [pair + 'aggregate.True'])
+        self.assertNotIn(single + 'aggregate', nodes)
+        self.assertEqual(froms(nodes['handin_effects_2_0'], 'Exec'), [pair + 'accepted.C', single + 'accepted.B'])
+        # The started-check and the handlers still read the delivered objectives, not the aggregate.
+        self.assertEqual(froms(nodes[pair + 'begin'], 'Condition'), [pair + 'started_0.bool'])
 
     def test_unlabelled_objective_omits_the_optional_labels(self):
         blob, entry, quest, tracking = staged()

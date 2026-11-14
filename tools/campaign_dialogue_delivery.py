@@ -26,6 +26,14 @@ gates (group started?), so exactly one handler acts per conversation. The chain
 order is the script's order, which makes the source `if ... else` the first
 gate of the chain.
 
+The source may test a group through an aggregate objective instead of naming its
+members: a hidden objective the quest graph starts when every member is
+completed and completes at once (the butcher's `feast` over `hareFeast`,
+`deerFeast`, `boarFeast`). `aggregates` proves that shape from the emitted
+quest graph. Its completion is queued through a zero-duration timer there, so
+the accepting chain completes it itself, after the members and before the
+source effect program, which reads it.
+
 `plan` reads only the staged dialogue, its container, the quest definition and
 `campaign_quest_tracking.plan`; item class, count and minimum health are the
 tracking plan's, so tracking and delivery cannot disagree. Anything it cannot
@@ -33,6 +41,7 @@ prove leaves the dialogue pending and `bind` refuses it.
 
 Not runtime-verified. See `ASSUMPTIONS`.
 """
+import itertools
 import re
 import string
 import xml.etree.ElementTree as ET
@@ -54,6 +63,8 @@ ASSUMPTIONS = (
     'the source window completes an objective exactly when its tracked count is handed over',
     'objectives of one group are always started together, so a group is never partly started',
 )
+SYNCHRONOUS = ('a state change reaches the states it starts within the same trigger chain, so the step after a '
+               'completion sees the aggregate objective started (the source effect programs rely on the same)')
 
 _NAME = r"'([A-Za-z_][\w ]*)'"
 _NPC = r"dc\s*(?:\[\s*'(\w+)'\s*\]|\.\s*(\w+))\s*\.\s*this\s*\.\s*id"
@@ -112,10 +123,70 @@ def canonical(tree, outputs):
     return ('other', repr(sorted(tree.items())))
 
 
-def delivered(groups):
-    """The source outcome: some group has every objective completed."""
-    return _fold('or', [_fold('and', [('output', objective_identifier(o) + '_Completed') for o in group])
-                        for group in groups])
+def delivered(groups, aggregate=()):
+    """The source outcome: some group has every objective completed.
+
+    aggregate names, per group, an objective proven to complete exactly then (or None);
+    the term for such a group is that objective's own Completed output.
+    """
+    names = list(aggregate) + [None] * (len(groups) - len(aggregate))
+    return _fold('or', [('output', name + '_Completed') if name else
+                        _fold('and', [('output', objective_identifier(o) + '_Completed') for o in group])
+                        for group, name in zip(groups, names)])
+
+
+def _boolean(nodes, reference):
+    """Canonical tree of a quest-graph bool reference through its And/Or folds."""
+    name, _, port = reference.partition('.')
+    node = nodes.get(name)
+    method = None if node is None else node.get('MethodName')
+    if node is None or node.tag != 'Function' or port != 'bool' or method not in ('math::boolean::And', 'math::boolean::Or'):
+        return ('ref', reference)
+    return _fold(method.rsplit('::', 1)[1].lower(), [_boolean(nodes, e.get('From')) for e in node.findall('Edge')])
+
+
+def aggregates(quest_host):
+    """{objective: frozenset(members)} for objectives that only restate "all members are completed".
+
+    Read from the emitted quest graph: the objective's only graph start is one gate that fires on each
+    member's completion and requires all of them completed (and the objective itself restartable), and its
+    only graph completion is the queued zero-duration recheck of "started".
+    """
+    nodes = {n.get('Name'): n for n in quest_host.findall('Nodes/*')}
+    output = nodes.get('Output')
+    if output is None:
+        return {}
+    names = {e.get('From').partition('.')[0]: e.get('To')[:-len('_Completed')] for e in output.findall('Edge')
+             if e.get('From', '').endswith('.Completed') and e.get('To', '').endswith('_Completed')}
+    sources = lambda node, port: [e.get('From') for e in node.findall('Edge') if e.get('To') == port]
+    found = {}
+    for state, name in names.items():
+        node = nodes.get(state)
+        if node is None or node.tag != 'State':
+            continue
+        starts = [s for s in sources(node, 'SetStarted') if '.' in s]
+        completions = [s for s in sources(node, 'SetCompleted') if '.' in s]
+        if len(starts) != 1 or len(completions) != 1 or not starts[0].endswith('.True') or not completions[0].endswith('.True'):
+            continue
+        gate, recheck = nodes.get(starts[0][:-5]), nodes.get(completions[0][:-5])
+        if gate is None or recheck is None or gate.tag != 'If' or recheck.tag != 'If':
+            continue
+        fired = sources(gate, 'Exec')
+        members = [s[:-len('.OnCompleted')] for s in fired if s.endswith('.OnCompleted')]
+        if not members or len(members) != len(fired) or len(set(members)) != len(members) or any(m not in names for m in members):
+            continue
+        ready = _fold('and', [('ref', m + '.Completed') for m in members]
+                      + [_fold('or', [('ref', state + '.Unchanged'), ('ref', state + '.Canceled')])])
+        if len(sources(gate, 'Condition')) != 1 or _boolean(nodes, sources(gate, 'Condition')[0]) != ready:
+            continue
+        timers = [nodes.get(s[:-len('.OnFinished')]) for s in sources(recheck, 'Exec') if s.endswith('.OnFinished')]
+        if (len(timers) != 1 or len(sources(recheck, 'Exec')) != 1 or timers[0] is None or timers[0].tag != 'Timer'
+                or sources(recheck, 'Condition') != [state + '.Started']
+                or {c.get('Name'): c.get('Value') for c in timers[0].findall('Constant')}.get('Duration') != '0s'
+                or [(e.get('From'), e.get('To')) for e in timers[0].findall('Edge')] != [(state + '.OnStarted', 'SetRunning')]):
+            continue
+        found[name] = frozenset(names[m] for m in members)
+    return found
 
 
 def group_name(objectives):
@@ -224,6 +295,7 @@ def plan(dialogue_blob, entry_blob, quest_blob, tracking, npc_assets):
     tracked = {r['objective']: r for r in tracking.get('converted', [])}
     labels = {o.get('Name'): o.find('LocalizedName').get('StringName') for o in quest_host.findall('Objectives/Objective')
               if o.find('LocalizedName') is not None and o.find('LocalizedName').get('StringName')}
+    joined = aggregates(quest_host)
     for objectives in groups:
         descriptors = []
         for objective in objectives:
@@ -240,8 +312,17 @@ def plan(dialogue_blob, entry_blob, quest_blob, tracking, npc_assets):
         if len(descriptors) > len(string.ascii_uppercase):
             return stop('too many descriptors in one delivery')
         gname = group_name(objectives)
-        result['groups'].append(dict(name=gname, objectives=objectives, descriptors=descriptors,
-            labelled=all(d['label'] for d in descriptors), result_port=identifier(RESULT + gname)))
+        group = dict(name=gname, objectives=objectives, descriptors=descriptors,
+            labelled=all(d['label'] for d in descriptors), result_port=identifier(RESULT + gname))
+        restated = sorted(a for a, members in joined.items() if members == {objective_identifier(o) for o in objectives})
+        if len(restated) > 1:
+            return stop('group has several aggregate objectives: ' + ', '.join(restated))
+        if restated:
+            if (ports.get('complete_' + restated[0]) != ('In', 'trigger')
+                    or ports.get(restated[0] + '_Started') != ('Out', 'bool')):
+                return stop('quest does not expose aggregate objective ' + restated[0])
+            group['aggregate'] = restated[0]
+        result['groups'].append(group)
 
     # The sequences after the window must test exactly "a delivered group is completed".
     targets = set()
@@ -262,15 +343,18 @@ def plan(dialogue_blob, entry_blob, quest_blob, tracking, npc_assets):
         if source == quest:
             outputs[e.get('To')] = output
             started_ports.setdefault(output, e.get('To'))
-    expected = delivered([g['objectives'] for g in result['groups']])
+    # A group with an aggregate may be tested either way; every other group only by its members.
+    members = [g['objectives'] for g in result['groups']]
+    expected = [delivered(members, choice) for choice in itertools.product(
+        *[(None, g['aggregate']) if g.get('aggregate') else (None,) for g in result['groups']])]
     roles = {}
     for sequence in outcomes:
         try:
             shape = canonical(predicate(sequence.get('EntryCondition', '')), outputs)
         except ValueError:
             shape = None
-        if shape == expected: roles.setdefault('accept', []).append(sequence)
-        elif shape == ('not', expected): roles.setdefault('reject', []).append(sequence)
+        if shape in expected: roles.setdefault('accept', []).append(sequence)
+        elif shape in [('not', e) for e in expected]: roles.setdefault('reject', []).append(sequence)
         else: roles.setdefault('other', []).append(sequence)
     if len(outcomes) != 2 or len(roles.get('accept', [])) != 1 or len(roles.get('reject', [])) != 1:
         return stop('outcome conditions are not "a delivered group is completed" and its negation',
@@ -299,7 +383,7 @@ def plan(dialogue_blob, entry_blob, quest_blob, tracking, npc_assets):
                   reject_sequence=reject.get('Name'), programs=programs, role=call['role'], soul_asset=alias,
                   script=call, started_ports={objective_identifier(o) + '_Started':
                                               started_ports[objective_identifier(o) + '_Started'] for o in listed},
-                  assumptions=list(ASSUMPTIONS))
+                  assumptions=list(ASSUMPTIONS) + ([SYNCHRONOUS] if any(g.get('aggregate') for g in result['groups']) else []))
     result['accept_condition'] = success_condition(result)
     result['reject_condition'] = '!(' + result['accept_condition'] + ')'
     return result
@@ -433,6 +517,12 @@ def bind(dialogue_blob, entry_blob, quest_blob, plan_, tracking, npc_assets, ass
         edge(done, g + 'handler.OnAccept', 'Exec')
         for objective in group['objectives']:
             edge(quest_node, g + 'accepted.A', 'complete_' + objective_identifier(objective))
+        if group.get('aggregate'):
+            # The quest graph would complete it one queued step later, after the effect program read it.
+            joined = ET.SubElement(nodes, 'If', Name=g + 'aggregate')
+            edge(joined, g + 'accepted.B', 'Exec')
+            edge(joined, quest + '.' + group['aggregate'] + '_Started', 'Condition')
+            edge(quest_node, g + 'aggregate.True', 'complete_' + group['aggregate'])
         edge(instance, g + 'handler.DeliveryResult', group['result_port'])
         declare_port(host, group['result_port'], 'In', 'DeliveryResult')
         previous = g
@@ -443,7 +533,7 @@ def bind(dialogue_blob, entry_blob, quest_blob, plan_, tracking, npc_assets, ass
             node = by_name[step]
             for e in [e for e in node.findall('Edge') if e.get('From') == source and e.get('To') == 'Exec']:
                 node.remove(e)
-            # After the completion (output A), in the source effect order.
+            # After the completion (output A, then B for an aggregate), in the source effect order.
             for group in current['groups']:
-                edge(node, stem + group['name'] + '_accepted.B', 'Exec')
+                edge(node, stem + group['name'] + '_accepted.' + ('C' if group.get('aggregate') else 'B'), 'Exec')
     return xml(root), xml(entry)

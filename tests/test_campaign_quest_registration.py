@@ -73,6 +73,19 @@ class RegistrationTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             register(PROJECT, b'<Database><Skald><Project Name="x"/></Skald></Database>', project, quest, PATH)
 
+    def test_a_further_quest_may_share_an_identical_type_on_request(self):
+        project, quest = emitted()
+        p, e, _, _ = register(PROJECT, ENTRY, project, quest, PATH)
+        other = quest.replace(b'arbitrary_quest', b'another_quest')
+        p2, e2, _, report = register(p, e, project, other, '../gm_quests/another_quest.xml', shared_types=True)
+        self.assertEqual(report['types'], [])
+        self.assertEqual(len(E.fromstring(p2).findall('Skald/Project/Types/Type')), 1)
+        self.assertEqual([n.tag for n in E.fromstring(e2).find('Skald/Level/Nodes')], ['arbitrary_quest', 'another_quest'])
+        changed = p.replace(b'ObjectiveValueType="Started"', b'ObjectiveValueType="Completed"', 1)
+        self.assertNotEqual(changed, p)
+        with self.assertRaisesRegex(ValueError, 'Quest type already registered'):
+            register(changed, e, project, other, '../gm_quests/another_quest.xml', shared_types=True)
+
     def test_refused_registration_does_not_change_inputs(self):
         project, quest = emitted()
         before = (PROJECT, ENTRY)
