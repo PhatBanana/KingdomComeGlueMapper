@@ -36,8 +36,9 @@ QUESTS = (dict(
     # (skald element, start topic)
     branches=(('38230', '27371'), ('38231', '27375')),
     namespace='gm_kcd1_quest_a_huntsman_alex',
-    # Quests the dialogue conditions read that are not ported: bound to declared stand-ins.
-    prerequisites={'q_huntPtacek': 'completed'},
+    # Story quests the dialogue conditions read. Each is read for real when it is registered, and through
+    # its premise (PREMISES) while it is not.
+    prerequisites=('q_huntPtacek',),
     # Reward rows the package cannot register (their souls are not in it); anything else pending is refused.
     accepted_pending=tuple(sorted(
         'quest_reward_reputation:' + objective + ':' + soul
@@ -50,7 +51,7 @@ QUESTS = (dict(
     people=('sas_butcher',),
     branches=(('38322', '27388'), ('38324', '27396')),
     namespace='gm_kcd1_quest_a_huntsman_butcher',
-    prerequisites={'q_returnToSkalitz': 'completed'},
+    prerequisites=('q_returnToSkalitz',),
     # The bailiff's soul is not in the package and faction 81 is not in its FactionTree.
     accepted_pending=tuple(sorted(
         'quest_reward_reputation:' + objective + ':' + target
@@ -60,6 +61,16 @@ QUESTS = (dict(
     # Two of its item classes (offal, liver) exist only in a package that has the shop imports,
     # so `plan` needs that package; the stage always reads the package it is upgrading.
     needs_package=True))
+# KCD1's story chain (q_master_main) up to the quests the givers above wait for, less what is ported:
+# one row per story quest that is not registered for real. A premise reads completed in a save whose
+# story was never begun (coach arrival: the first story quest is untouched) and not started in a New
+# Game, where the story is being played and cannot get past what is ported. Porting a quest deletes its
+# row; the stage refuses a row whose quest is registered, and a chain quest that is neither.
+PREMISES = ('q_escapeToTalmberk', 'q_returnToSkalitz', 'q_awakeningInRattay', 'q_basicTraining',
+            'q_nightsWatch', 'q_huntPtacek')
+STORY = 'q_master_main'
+PREMISE = 'gm_kcd1_quest_premise'       # the module every premise is an instance of
+SWITCH = 'gm_kcd1_story_premise'        # the one switch; its input is the first story quest's `unchanged`
 FOLDER = 'Quests/GlueTravel/gm_kcd1_quests/'
 MARKER = 'Libs/GlueMapper/kcd1_quests.json'
 PROJECT_NAME = 'gm_kcd1_quests'
@@ -211,7 +222,7 @@ def after_completion(facts, values, name):
     return values
 
 
-def lab_scenarios(model, source='graph', order=None, prerequisites=('q_huntPtacek',)):
+def lab_scenarios(model, source='graph', order=None):
     """quest_lab scenarios for the objective state machine, plus the items quest_lab cannot model.
 
     order is (first hunt, the hunt KCD1 gives next); by default the first started hunt and the first
@@ -272,8 +283,6 @@ def lab_scenarios(model, source='graph', order=None, prerequisites=('q_huntPtace
     ]
     reason = 'quest_lab does not model ItemDeliveryHandler, tracked item descriptors or the dialogue hand-in window'
     unsupported = [
-        dict(name='Early talk before ' + ', '.join(sorted(prerequisites)) + ' is a no-op',
-             reason='the prerequisite is a declared stand-in; quest_lab does not run dialogue conditions'),
         dict(name='Accept/refuse reached from the source conversation',
              reason='lifecycle triggers are dialogue-side; quest_lab does not run dialogues'),
         *(dict(name='Hand-in ' + g + ' below/at/above the tracked count', reason=reason) for g in facts['goods']),
@@ -286,7 +295,7 @@ def lab_scenarios(model, source='graph', order=None, prerequisites=('q_huntPtace
     return runs, unsupported
 
 
-def write_lab(model, directory, order=None, blobs=None, prerequisites=('q_huntPtacek',)):
+def write_lab(model, directory, order=None, blobs=None):
     """Graph and scenarios for `python tools/quest_lab_test.py run <dir>/*-scenario.json --output <out>`.
 
     blobs maps a path to the quest definition files of a built package; by default the quest is emitted
@@ -300,12 +309,115 @@ def write_lab(model, directory, order=None, blobs=None, prerequisites=('q_huntPt
         blobs, _ = emit_project([model], 'GlueQuestsLab')
     for name, blob in blobs.items():
         path = directory / 'graph' / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(blob)
-    runs, unsupported = lab_scenarios(model, source='graph', order=order, prerequisites=prerequisites)
+    runs, unsupported = lab_scenarios(model, source='graph', order=order)
     paths = []
     for index, s in enumerate(runs, 1):
         path = directory / ('%02d-scenario.json' % index)
         path.write_text(json.dumps(s, indent=2), encoding='utf-8'); paths.append(path)
     (directory / 'unsupported.json').write_text(json.dumps(unsupported, indent=2), encoding='utf-8')
+    return paths
+
+
+# ---------------------------------------------------------------- quest_lab: the story gate in both kinds of save
+
+def gate_offers(dialogue_blob, entry_blob, premises):
+    """{dialogue: [root sequences whose condition reads a premise]} for one staged dialogue."""
+    host = host_of_blob(dialogue_blob)
+    name = host.get('Name')
+    instance = next(n for n in host_of_blob(entry_blob).iterfind('Nodes/*') if n.get('Name') == name)
+    reads = {e.get('To') for e in instance.findall('Edge') if e.get('From', '').split('.', 1)[0] in premises}
+    root = host.find('Dialogue/Decision')
+    return [s.get('Name') for s in root.findall('Sequences/Sequence')
+            if reads & set(re.findall(r"Port\('([^']+)'\)", s.get('EntryCondition') or ''))]
+
+
+def gate_scenarios(entry, head, offers, source='graph'):
+    """A giver's offer in a save whose story never began, during the story, and after its ported part.
+
+    offers maps a dialogue to its root sequences that wait for a premise. The first story quest is real:
+    the scenarios drive it through the entry's own ports and read the dialogue's choices.
+    """
+    scenario = lambda name, steps: dict(schema=1, name=name, source=source, entry=entry, steps=steps)
+    def talk(expected):
+        steps = []
+        for dialogue, sequences in sorted(offers.items()):
+            steps += [dict(action='dialogue_start', dialogue=dialogue),
+                      dict(action='assert_dialogue', dialogue=dialogue, choices=sequences if expected else []),
+                      dict(action='dialogue_end', dialogue=dialogue)]
+        return steps
+    begin = [dict(action='fire', port=head + '__start'), dict(action='advance', duration='1m')]
+    return [
+        scenario('Travel save (the story never began): the giver offers the work', talk(True) + [
+            dict(action='save', name='arrived'), dict(action='advance', duration='2h'),
+            dict(action='load', name='arrived')] + talk(True)),
+        scenario('New Game (the story is being played): the giver stays silent', begin + talk(False) + [
+            dict(action='save', name='prologue'), dict(action='advance', duration='2h'),
+            dict(action='load', name='prologue')] + talk(False)),
+        scenario('New Game past the ported part of the story: still silent, the next quest is not ported',
+                 begin + [dict(action='fire', port=head + '__complete'), dict(action='advance', duration='1m')]
+                 + talk(False)),
+    ]
+
+
+def gate_lab(row, source):
+    """(files, scenarios): the switch, the premises and the giver's opening dialogue as quest_lab can run them.
+
+    Built by the stage's own steps on the plan container, from the unlowered quest (the gate needs neither
+    items nor rewards): the first story quest is a stand-in with the real one's ports.
+    """
+    import campaign_quest_prerequisites as prerequisites
+    import campaign_quest_registration as registration
+    import campaign_dialogue_lifecycle as lifecycle
+    from campaign_dialogue import emit, load_many
+    from campaign_dialogue_runtime import attach_dialogue
+    from campaign_quest_graph import emit_project
+    from campaign_sources import RetailSourceReader
+    source = Path(source)
+    with RetailSourceReader(source) as reader:
+        model = source_model(source, row['quest'], reader)
+        others = [source_model(source, name, reader, behavior=False) for name in sorted(row['prerequisites'])]
+        chain = story_chain(source, reader, row)
+    head = chain[0]['quest']
+    resources = synthetic_container(head)
+    files, _ = emit_project([model], PROJECT_NAME)
+    name = row['quest']
+    resources[PROJECT], resources[ENTRY], resources[FOLDER + name + '.xml'], _ = registration.register(
+        resources[PROJECT], resources[ENTRY], files[PROJECT_NAME + '.xml'], files[PROJECT_NAME + '/' + name + '.xml'],
+        '../' + PROJECT_NAME + '/' + name + '.xml', shared_types=True)
+    resources, story = stage_story(resources, chain)
+    resources[FOLDER + HOST + '.xml'] = prerequisites.host(HOST)
+    resources[ENTRY] = prerequisites.register(resources[ENTRY], '../' + PROJECT_NAME + '/' + HOST + '.xml', HOST)
+    staged = {n.removeprefix('Quests/'): b for n, b in resources.items()}
+    quests, offers = [quest_records(m) for m in (model, *others)], {}
+    topics = [t for _, t in row['branches']]
+    for topic, loaded in zip(topics, load_many(source, [(None, t) for t in topics])):
+        if not any(q in (s['entry']['entry_condition'] or '') for q in row['prerequisites']
+                   for t_ in loaded['topics'].values() for s in t_['sequences']):
+            continue
+        dialogue = row['namespace'] + '_' + topic
+        blob, report = emit(loaded, dialogue, quests, kind='FaderDialog',
+                            participant_assets={'Dude': DIALOGUE_PLAYER}, area_assets={})
+        staged = attach_dialogue(staged, CONTAINER, blob, report, HOST + '.active', ENTRY.removeprefix('Quests/'))
+        path, entry = DIALOGUE_FOLDER.removeprefix('Quests/') + dialogue + '.xml', ENTRY.removeprefix('Quests/')
+        definitions = {name: staged[FOLDER.removeprefix('Quests/') + name + '.xml']}
+        staged[path], staged[entry] = lifecycle.bind(staged[path], staged[entry],
+                                                     lifecycle.plan(staged[path], definitions), definitions)
+        offers[dialogue] = gate_offers(staged[path], staged[entry], set(story['premises']))
+    if not any(offers.values()):
+        raise ValueError('No opening sequence of ' + name + ' waits for a story premise')
+    return staged, gate_scenarios(CONTAINER, head, {d: s for d, s in offers.items() if s})
+
+
+def write_gate_lab(files, scenarios, directory):
+    directory = Path(directory)
+    if directory.exists():
+        raise FileExistsError('Choose a fresh lab directory')
+    for name, blob in files.items():
+        path = directory / 'graph' / name; path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(blob)
+    paths = []
+    for index, s in enumerate(scenarios, 1):
+        path = directory / ('%02d-scenario.json' % index)
+        path.write_text(json.dumps(s, indent=2), encoding='utf-8'); paths.append(path)
     return paths
 
 
@@ -385,19 +497,37 @@ def read_travel(path, prefixes=('Quests/',), suffix='.xml'):
         return {n: read(archive, n) for n in archive.namelist() if n.startswith(prefixes) and n.endswith(suffix)}
 
 
-def synthetic_container():
-    """Minimal Project and Level entry with the aliases the quest and its dialogues use (plan only)."""
+def synthetic_container(head=None):
+    """Minimal Project and Level entry with the aliases the quest and its dialogues use (plan only).
+
+    head names the first story quest: the package has it for real, in the Level, started through the
+    entry's `<head>__start` port and completed by its own graph. Here it is a stand-in with the same
+    ports (and a `<head>__complete` port, so the lab can also put it past its end).
+    """
     from campaign_quest_graph import definition, xml
     root, project = definition('Project', 'GlueTravel_kcd1')
     definitions = ET.SubElement(project, 'Definitions')
     ET.SubElement(definitions, 'Definition', File='entry/kcd1_travel.xml')
+    if head:
+        ET.SubElement(definitions, 'Definition', File='gm_imported_scene/' + head + '.xml')
     nodes = ET.SubElement(project, 'Nodes')
     ET.SubElement(nodes, CONTAINER, Name=CONTAINER)
     ET.SubElement(ET.SubElement(project, 'Assets'), 'SoulAsset', Name=PLAYER_ASSET, SharedSoulGuids=SYNTHETIC_PLAYER)
     entry_root, level = definition('Level', CONTAINER)
-    ET.SubElement(level, 'Definitions'); ET.SubElement(level, 'Nodes')
+    files = {}
+    if head:
+        files['Quests/GlueTravel/gm_imported_scene/' + head + '.xml'] = story_head_stand_in(head)
+        ports = ET.SubElement(level, 'Ports')
+        ET.SubElement(level, 'Definitions')
+        node = ET.SubElement(ET.SubElement(level, 'Nodes'), head, Name=head)
+        for verb in ('start', 'complete'):
+            ET.SubElement(ports, 'Port', Name=head + '__' + verb, Direction='In', Type='trigger')
+            ET.SubElement(node, 'Edge', From=head + '__' + verb, To=verb)
+    else:
+        ET.SubElement(level, 'Definitions'); ET.SubElement(level, 'Nodes')
     ET.SubElement(ET.SubElement(level, 'Assets'), 'SoulAsset', Name=DIALOGUE_PLAYER, SharedSoulGuids=SYNTHETIC_PLAYER)
-    return {PROJECT: xml(root), ENTRY: xml(entry_root)}
+    files.update({PROJECT: xml(root), ENTRY: xml(entry_root)})
+    return files
 
 
 def visible_assets(resources):
@@ -436,22 +566,90 @@ def quest_records(model):
     return json.loads(json.dumps(model))
 
 
-def prerequisite_report(row, source):
-    """Every stand-in with the source condition text and sequences that read it."""
+def prerequisite_report(row, source, chain, story):
+    """Every story quest the giver waits for: premise or real, KCD1's condition, and the sequences that read it."""
     from campaign_dialogue import load_many
-    from campaign_quest_prerequisites import assumed_prerequisites
+    from campaign_quest_prerequisites import premise_report
     topics = [t for _, t in row['branches']]
     models = [dict(m, alias=m.get('alias') or row['namespace'] + '_' + t)
               for t, m in zip(topics, load_many(source, [(None, t) for t in topics]))]
-    return assumed_prerequisites(models, row['prerequisites'])
+    return premise_report(chain, story, models, STORY)
+
+
+# ---------------------------------------------------------------- the story the givers wait for
+
+def story_chain(source, reader, row=None):
+    """KCD1's story order up to what the selected quests (or one row) wait for.
+
+    Refuses a premise row that the chain of the selected quests does not contain.
+    """
+    from campaign_quest_prerequisites import story_chain as chain
+    master = source_model(source, STORY, reader, behavior=False)
+    everything = chain(master, sorted({q for r in QUESTS for q in r['prerequisites']}))
+    stale = sorted(set(PREMISES) - {link['quest'] for link in everything})
+    if stale:
+        raise ValueError('Premise rows outside the story chain of the selected quests: ' + ', '.join(stale))
+    return everything if row is None else chain(master, sorted(row['prerequisites']))
+
+
+def definition_ports(resources, name):
+    """{port: (direction, type)} of the Skald definition called `name`, or None."""
+    needle = ('Name="' + name + '"').encode()
+    for path, blob in resources.items():
+        if path.startswith('Quests/') and path.endswith('.xml') and needle in blob:
+            try:
+                host = host_of_blob(blob)
+            except (ValueError, ET.ParseError):
+                continue
+            if host.get('Name') == name:
+                return {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in host.iterfind('Ports/Port')}
+    return None
+
+
+def stage_story(resources, chain):
+    """Register the switch and the premises of `chain` once; returns (resources, report)."""
+    import campaign_quest_prerequisites as prerequisites
+    resources = dict(resources)
+    for name, blob in ((PREMISE, prerequisites.premise(PREMISE)), (SWITCH, prerequisites.switch(SWITCH))):
+        if chain and resources.setdefault(FOLDER + name + '.xml', blob) != blob:
+            raise ValueError('Story module is already declared differently: ' + name)
+    relative = lambda name: '../' + PROJECT_NAME + '/' + name + '.xml'
+    resources[ENTRY], report = prerequisites.story(
+        resources[ENTRY], chain, PREMISES, lambda name: definition_ports(resources, name),
+        PREMISE, relative(PREMISE), SWITCH, relative(SWITCH))
+    return resources, report
+
+
+def story_head_stand_in(name):
+    """Plan only: a quest with the state ports of the real first story quest, startable like it."""
+    from campaign_quest_graph import constant, definition, edge, xml
+    root, quest = definition('Quest', name)
+    ports, nodes = ET.SubElement(quest, 'Ports'), ET.SubElement(quest, 'Nodes')
+    output = ET.SubElement(nodes, 'Output', Name='Output')
+    progress = ET.SubElement(nodes, 'State', Name='quest_progress', TypeT='wh::questmodule::QuestProgress')
+    constant(progress, 'DefaultValue', 'None')
+    available = ET.SubElement(nodes, 'State', Name='quest_available', TypeT='bool')
+    constant(available, 'DefaultValue', 'false')
+    for port, node, target in (('activate', available, 'SetTrue'), ('deactivate', available, 'SetFalse'),
+                               ('start', progress, 'SetActive'), ('complete', progress, 'SetDone'),
+                               ('fail', progress, 'SetFailed')):
+        ET.SubElement(ports, 'Port', Name=port, Direction='In', Type='trigger')
+        edge(node, port, target)
+    for port, source_ in (('available', 'quest_available.State'), ('started', 'quest_progress.Active'),
+                          ('completed', 'quest_progress.Done'), ('failed', 'quest_progress.Failed'),
+                          ('unchanged', 'quest_progress.None')):
+        ET.SubElement(ports, 'Port', Name=port, Direction='Out', Type='bool')
+        edge(output, source_, port)
+    return xml(root)
 
 
 # ---------------------------------------------------------------- stage: emit, lower, register
 
-def stage_quest(row, model, resources, context, souls, factions, text):
+def stage_quest(row, model, resources, context, souls, factions, text, chain=()):
     """Emit, lower and register one quest in `resources` (archive path -> bytes).
 
-    Returns (resources, bindings, report). Refuses a pending set other than row['accepted_pending'].
+    chain is the story the quest's givers wait for (`story_chain`). Returns (resources, bindings, report,
+    journal strings). Refuses a pending set other than row['accepted_pending'].
     """
     import campaign_quest_prerequisites as prerequisites
     import campaign_quest_registration as registration
@@ -475,15 +673,11 @@ def stage_quest(row, model, resources, context, souls, factions, text):
         resources[PROJECT], resources[ENTRY], files[PROJECT_NAME + '.xml'], files[path],
         '../' + PROJECT_NAME + '/' + name + '.xml', model=model, souls=aliases, group=group, shared_types=True)
     resources[FOLDER + name + '.xml'] = quest_blob
-    for quest, state in sorted(row['prerequisites'].items()):
-        # A stand-in another ported quest already declared is shared, never registered twice.
-        blob = prerequisites.stub(quest, state)
-        if FOLDER + quest + '.xml' in resources:
-            if resources[FOLDER + quest + '.xml'] != blob:
-                raise ValueError('Prerequisite stand-in is already declared differently: ' + quest)
-            continue
-        resources[FOLDER + quest + '.xml'] = blob
-        resources[ENTRY] = prerequisites.register(resources[ENTRY], '../' + PROJECT_NAME + '/' + quest + '.xml', quest)
+    missing = sorted(set(row['prerequisites']) - {link['quest'] for link in chain})
+    if missing:
+        raise ValueError('Quests the dialogue conditions read are outside the story chain: ' + ', '.join(missing))
+    # The switch and a premise another ported quest already registered are shared, never registered twice.
+    resources, story = stage_story(resources, chain)
     if FOLDER + HOST + '.xml' not in resources:
         resources[FOLDER + HOST + '.xml'] = prerequisites.host(HOST)
         resources[ENTRY] = prerequisites.register(resources[ENTRY], '../' + PROJECT_NAME + '/' + HOST + '.xml', HOST)
@@ -500,7 +694,7 @@ def stage_quest(row, model, resources, context, souls, factions, text):
                            for g in quest_report['lowerings']['rewards']['converted']],
                   policy=quest_report['lowerings']['policy']['converted'], registration=registered,
                   value_names=value_names, journal_strings=len(quest_report['journal_strings']),
-                  soul_assets=aliases, factions=dict(factions))
+                  soul_assets=aliases, factions=dict(factions), story=story)
     return resources, bindings, report, quest_report['journal_strings']
 
 
@@ -612,10 +806,11 @@ def plan_quest(row, source, target, package=None, context=None, base=None):
     with RetailSourceReader(source) as reader:
         model, evidence = verify_selection(source, row, reader)
         prerequisites = [source_model(source, name, reader, behavior=False) for name in sorted(row['prerequisites'])]
+        chain = story_chain(source, reader, row)
     context = context or lowering.load_context(source, target, package)
     people = {evidence['soul']}
     if package is None:
-        base = base or synthetic_container()
+        base = base or synthetic_container(chain[0]['quest'] if chain else None)
         references = sorted({r['faction_id'] for r in model['tables'].get('quest_reward_reputation', {}).get('rows', [])
                              if r.get('faction_id')})
         factions = {f: LEAF + f for f in references}
@@ -636,14 +831,14 @@ def plan_quest(row, source, target, package=None, context=None, base=None):
     text, text_report = load_text(source, [model], 'English')
     if text_report['missing']:
         raise ValueError('Missing journal strings: ' + repr(text_report['missing']))
-    resources, bindings, report, _ = stage_quest(row, model, base, context, souls, factions, text)
+    resources, bindings, report, _ = stage_quest(row, model, base, context, souls, factions, text, chain=chain)
     npc_assets = {evidence['storm_roles'][0]: lowering.soul_alias(evidence['person'])}
     with tracked_predicate():
         resources = emit_dialogues(row, model, prerequisites, resources, source)
         resources, scripts = bind_scripts(row, model, resources, bindings, npc_assets)
     written = {p for p, b in resources.items() if base.get(p) != b} | {MARKER, *value_paths(report)}
     report.update(scripts, evidence=evidence, npc_assets=npc_assets, assumed=assumed,
-                  assumed_prerequisites=prerequisite_report(row, source),
+                  assumed_prerequisites=prerequisite_report(row, source, chain, report['story']),
                   controller_pending=controller_pending(model), files=sorted(written),
                   archives=archives, runtime_verified=False)
     return resources, report
@@ -749,6 +944,7 @@ def migrate_quest(package, source, target, row, marker, notify):
         with RetailSourceReader(source) as reader:
             model, evidence = verify_selection(source, row, reader)
             prerequisites = [source_model(source, n, reader, behavior=False) for n in sorted(row['prerequisites'])]
+            chain = story_chain(source, reader, row)
         text, text_report = load_text(source, [model], 'English')
         if text_report['missing']:
             raise ValueError('Missing journal strings: ' + repr(text_report['missing']))
@@ -769,7 +965,7 @@ def migrate_quest(package, source, target, row, marker, notify):
         context = lowering.load_context(source, target, package)
         souls = level_souls(people_level)
         resources, bindings, report, records = stage_quest(
-            row, model, base, context, souls, faction_names(base), text)
+            row, model, base, context, souls, faction_names(base), text, chain=chain)
         journal = localization_table(records)
         tables = value_tables(source, report, marker)
         resources.update(tables)
@@ -798,7 +994,7 @@ def migrate_quest(package, source, target, row, marker, notify):
         entry = dict(selection=selection_digest(row), report={k: v for k, v in report.items()},
                      lifecycle=scripts['lifecycle'], delivery=scripts['delivery'], evidence=evidence,
                      npc_assets=npc_assets, controller_pending=controller_pending(model),
-                     assumed_prerequisites=prerequisite_report(row, source),
+                     assumed_prerequisites=prerequisite_report(row, source, chain, report['story']),
                      people=dict(converted=[p['person'] for p in people_report['converted']],
                                  existing=[p.get('person') for p in people_report['existing']]),
                      dialogues=[row['namespace'] + '_' + t for _, t in row['branches']],
@@ -1327,7 +1523,8 @@ def quest_checks(package, kcd1, kcd2):
         alias = lowering.soul_alias(entry['evidence']['person'])
         quest_path = FOLDER + name + '.xml'
         dialogues = entry['dialogues']
-        stubs = [FOLDER + q + '.xml' for q in sorted(row['prerequisites'])] + [FOLDER + HOST + '.xml']
+        story = entry['report'].get('story') or dict(premises=[], real=[])
+        stubs = [FOLDER + n + '.xml' for n in ((PREMISE, SWITCH) if story['premises'] else ())] + [FOLDER + HOST + '.xml']
         dialogue_paths = [DIALOGUE_FOLDER + d + '.xml' for d in dialogues]
         for path in (quest_path, *stubs, *dialogue_paths, ENTRY, PROJECT):
             if path not in resources:
@@ -1335,7 +1532,10 @@ def quest_checks(package, kcd1, kcd2):
         if problems:
             result['status'] = 'fail'
             continue
-        owned = {name, HOST, *row['prerequisites'], *dialogues}
+        owned = {name, HOST, SWITCH, *story['premises'], *dialogues}
+        for premise in story['premises']:
+            if premise not in PREMISES:
+                problems.append('premise %s has no premise row any more: the package predates its port' % premise)
         owned.update(n.get('Name') for n in host_of_blob(resources[ENTRY]).iterfind('Nodes/*')
                      if any(n.get('Name', '').startswith('lowered_delivery_' + d + '_') for d in dialogues))
         result['npc'] = dict(person=entry['evidence']['person'], problems=npc_audit(level, resources, entry['evidence'], alias))
@@ -1443,7 +1643,8 @@ def main(argv=None):
                 for path, blob in resources.items():
                     if path.startswith(FOLDER) or path == PROJECT:
                         blobs[path.removeprefix('Quests/')] = blob
-            paths = write_lab(model, directory, order=row['lab_order'], blobs=blobs, prerequisites=row['prerequisites'])
+            paths = write_lab(model, directory, order=row['lab_order'], blobs=blobs)
+            paths += write_gate_lab(*gate_lab(row, args.kcd1), directory / 'gate')
             print(json.dumps([str(p) for p in paths], indent=2))
         return 0
     return check_main(args)

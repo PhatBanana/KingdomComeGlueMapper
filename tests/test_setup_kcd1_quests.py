@@ -62,7 +62,7 @@ class SelectionTests(unittest.TestCase):
     def test_selection_row_is_complete_and_pinned(self):
         self.assertEqual(ROW['quest'], QUEST)
         self.assertEqual(ROW['people'], ('rat_refugee_ales',))
-        self.assertEqual(ROW['prerequisites'], {'q_huntPtacek': 'completed'})
+        self.assertEqual(ROW['prerequisites'], ('q_huntPtacek',))
         self.assertEqual(len(ROW['accepted_pending']), 15)
         self.assertEqual({p.rsplit(':', 1)[1] for p in ROW['accepted_pending']},
                          {'rat_hanus', 'rat_berthold', 'rat_bailiff'})
@@ -76,7 +76,7 @@ class SelectionTests(unittest.TestCase):
         self.assertEqual([r['quest'] for r in quests.QUESTS], [QUEST, BUTCHER])
         row = BUTCHER_ROW
         self.assertEqual((row['people'], row['prerequisites'], row['lab_order']),
-                         (('sas_butcher',), {'q_returnToSkalitz': 'completed'}, ('boar', 'offal')))
+                         (('sas_butcher',), ('q_returnToSkalitz',), ('boar', 'offal')))
         self.assertEqual(row['branches'], (('38322', '27388'), ('38324', '27396')))
         self.assertEqual(row['accepted_pending'], tuple(sorted(
             'quest_reward_reputation:' + o + ':' + target
@@ -192,7 +192,7 @@ class LabScenarioTests(unittest.TestCase):
                 self.assertEqual(r['status'], 'PASS', r['error'])
                 self.assertFalse(r['native_runtime_verified'])
         names = ' | '.join(u['name'] for u in unsupported)
-        for needed in ('below/at/above', 'one money payout', 'after payout', 'min_health', 'Early talk', 'giver'):
+        for needed in ('below/at/above', 'one money payout', 'after payout', 'min_health', 'giver'):
             self.assertIn(needed, names)
 
     def test_a_completion_starts_what_the_source_graph_chains_to_it(self):
@@ -223,11 +223,6 @@ class LabScenarioTests(unittest.TestCase):
         # Without the chained expectation the exhaustive assertion would call the payment objective untouched.
         runs, _ = quests.lab_scenarios(model)
         self.assertTrue(runs[4]['steps'][4]['values']['output.rabbitPaid_Started'])
-
-    def test_the_unsupported_list_names_the_quests_own_prerequisite(self):
-        _, unsupported = quests.lab_scenarios(contract_model(), prerequisites={'q_returnToSkalitz': 'completed'})
-        self.assertEqual(unsupported[0]['name'], 'Early talk before q_returnToSkalitz is a no-op')
-        self.assertEqual(quests.lab_scenarios(contract_model())[1][0]['name'], 'Early talk before q_huntPtacek is a no-op')
 
     def test_the_explicit_order_names_the_next_hunt(self):
         runs, _ = quests.lab_scenarios(contract_model(), order=('rabbit', 'stag'))
@@ -528,22 +523,231 @@ def second_model():
     return giver_model('a_second')
 
 
-class SharedRegistrationTests(unittest.TestCase):
-    def stage(self, row, model, resources):
-        return quests.stage_quest(row, model, resources, lowering_context(model), {GIVER}, {}, None)
+def master_model(order=('q_skalitz', 'q_escapeToTalmberk', 'q_returnToSkalitz', 'q_awakeningInRattay',
+                        'q_basicTraining', 'q_nightsWatch', 'q_huntPtacek', 'q_massacre')):
+    """KCD1's q_master_main in miniature: one objective per story quest, chained, plus a side gate."""
+    objectives = [dict(objective_id=str(21 + i), objective_name=name, condition="IsQuestCompleted('%s')" % name)
+                  for i, name in enumerate(order)]
+    objectives.append(dict(objective_id='580', objective_name='dog_activation',
+                           condition="IsQuestCompleted('q_returnToSkalitz')"))
+    transitions = [dict(from_objective_id='2', to_objective_id='21', enabled='False')]
+    transitions += [dict(from_objective_id=str(21 + i), to_objective_id=str(22 + i), enabled='True')
+                    for i in range(len(order) - 1)]
+    transitions.append(dict(from_objective_id='520', to_objective_id='580', enabled='True'))
+    return dict(quest='q_master_main', tables=dict(quest_objective=dict(rows=objectives),
+                                                   quest_transition=dict(rows=transitions)))
 
-    def rows(self, second=None):
-        first = dict(quest=QUEST, prerequisites={'q_before': 'completed'}, accepted_pending=())
-        return first, dict(quest='a_second', prerequisites=second or {'q_before': 'completed', 'q_other': 'unchanged'},
-                           accepted_pending=())
+
+def chain_to(*quests_):
+    from campaign_quest_prerequisites import story_chain
+    return story_chain(master_model(), quests_)
+
+
+class StoryPremiseTests(unittest.TestCase):
+    def container(self):
+        return quests.synthetic_container('q_skalitz')
+
+    def nodes(self, resources):
+        return {n.get('Name'): n for n in quests.host_of_blob(resources[quests.ENTRY]).find('Nodes')}
+
+    def test_the_premise_rows_are_the_unported_part_of_the_source_chain(self):
+        chain = chain_to('q_huntPtacek', 'q_returnToSkalitz')
+        self.assertEqual([link['quest'] for link in chain], ['q_skalitz', *quests.PREMISES])
+        self.assertEqual(chain[0], dict(quest='q_skalitz', objective_id='21', condition="IsQuestCompleted('q_skalitz')",
+                                        after=None))
+        self.assertEqual([link['after'] for link in chain][1:], ['q_skalitz', *quests.PREMISES[:-1]])
+        self.assertEqual([link['quest'] for link in chain_to('q_returnToSkalitz')],
+                         ['q_skalitz', 'q_escapeToTalmberk', 'q_returnToSkalitz'])
+        from campaign_quest_prerequisites import story_chain
+        with self.assertRaisesRegex(ValueError, 'not in the source story chain'):
+            story_chain(master_model(), ['q_other'])
+        forked = master_model()
+        forked['tables']['quest_transition']['rows'].append(dict(from_objective_id='21', to_objective_id='23', enabled='True'))
+        with self.assertRaisesRegex(ValueError, 'not linear'):
+            story_chain(forked, ['q_returnToSkalitz'])
+
+    def test_the_stage_reads_the_chain_from_the_master_quest_and_refuses_a_stale_premise_row(self):
+        with mock.patch.object(quests, 'source_model', return_value=master_model()) as loaded:
+            self.assertEqual([l['quest'] for l in quests.story_chain('kcd1', None, ROW)], ['q_skalitz', *quests.PREMISES])
+            self.assertEqual([l['quest'] for l in quests.story_chain('kcd1', None, BUTCHER_ROW)],
+                             ['q_skalitz', 'q_escapeToTalmberk', 'q_returnToSkalitz'])
+            self.assertEqual(loaded.call_args.args[1], quests.STORY)
+            with mock.patch.object(quests, 'PREMISES', (*quests.PREMISES, 'q_massacre')), \
+                    self.assertRaisesRegex(ValueError, 'outside the story chain of the selected quests: q_massacre'):
+                quests.story_chain('kcd1', None, ROW)
+
+    def test_one_switch_reads_the_real_first_quest_and_every_premise_reads_the_switch(self):
+        resources, report = quests.stage_story(self.container(), chain_to('q_huntPtacek'))
+        self.assertEqual(report, dict(switch=dict(name=quests.SWITCH, signal='q_skalitz.unchanged'),
+                                      premises=list(quests.PREMISES), real=['q_skalitz']))
+        nodes = self.nodes(resources)
+        edges = lambda name: [(e.get('From'), e.get('To')) for e in nodes[name].findall('Edge')]
+        self.assertEqual((nodes[quests.SWITCH].tag, edges(quests.SWITCH)),
+                         (quests.SWITCH, [('q_skalitz.unchanged', 'story_unchanged')]))
+        before = 'q_skalitz'
+        for name in quests.PREMISES:
+            self.assertEqual(nodes[name].tag, quests.PREMISE)
+            self.assertEqual(edges(name), [(quests.SWITCH + '.assumed', 'assumed'), (before + '.completed', 'activated')])
+            before = name
+        # The real quest is read as it is: no premise, no edge added to it.
+        self.assertEqual(nodes['q_skalitz'].tag, 'q_skalitz')
+        self.assertEqual(edges('q_skalitz'), [('q_skalitz__start', 'start'), ('q_skalitz__complete', 'complete')])
+        level = quests.host_of_blob(resources[quests.ENTRY])
+        self.assertEqual([d.get('File') for d in level.find('Definitions')],
+                         ['../gm_kcd1_quests/' + quests.SWITCH + '.xml', '../gm_kcd1_quests/' + quests.PREMISE + '.xml'])
+        inputs = [e.get('From') for n in level.find('Nodes') for e in n.findall('Edge') if e.get('To') == 'story_unchanged']
+        self.assertEqual(inputs, ['q_skalitz.unchanged'])
+
+    def test_premises_are_shared_and_a_second_run_changes_nothing(self):
+        short, _ = quests.stage_story(self.container(), chain_to('q_returnToSkalitz'))
+        self.assertEqual([n for n in self.nodes(short) if n.startswith('q_')],
+                         ['q_skalitz', 'q_escapeToTalmberk', 'q_returnToSkalitz'])
+        full, report = quests.stage_story(short, chain_to('q_huntPtacek'))
+        self.assertEqual(report['premises'], list(quests.PREMISES))
+        direct, _ = quests.stage_story(self.container(), chain_to('q_huntPtacek'))
+        self.assertEqual(full, direct)
+        self.assertEqual(quests.stage_story(full, chain_to('q_huntPtacek'))[0], full)
+        self.assertEqual(quests.stage_story(full, chain_to('q_returnToSkalitz'))[0], full)
+        self.assertEqual(quests.stage_story(self.container(), [])[0], self.container())
+
+    def test_porting_a_chain_quest_deletes_one_row_and_is_refused_until_then(self):
+        import campaign_quest_prerequisites as prerequisites
+        ported = self.container()
+        ported['Quests/GlueTravel/gm_imported_scene/q_escapeToTalmberk.xml'] = quests.story_head_stand_in('q_escapeToTalmberk')
+        ported[quests.ENTRY] = prerequisites.register(ported[quests.ENTRY], '../gm_imported_scene/q_escapeToTalmberk.xml',
+                                                      'q_escapeToTalmberk')
+        with self.assertRaisesRegex(ValueError, 'registered for real; delete its premise row: q_escapeToTalmberk'):
+            quests.stage_story(ported, chain_to('q_huntPtacek'))
+        remaining = tuple(q for q in quests.PREMISES if q != 'q_escapeToTalmberk')
+        with mock.patch.object(quests, 'PREMISES', remaining):
+            resources, report = quests.stage_story(ported, chain_to('q_huntPtacek'))
+            self.assertEqual((report['real'], report['premises']), (['q_skalitz', 'q_escapeToTalmberk'], list(remaining)))
+            nodes = self.nodes(resources)
+            # The next premise now follows the real quest.
+            self.assertEqual([(e.get('From'), e.get('To')) for e in nodes['q_returnToSkalitz'].findall('Edge')][1],
+                             ('q_escapeToTalmberk.completed', 'activated'))
+            # A row deleted without the port: neither registered nor a premise. A package staged before it: refused too.
+            with self.assertRaisesRegex(ValueError, 'neither registered nor a declared premise: q_escapeToTalmberk'):
+                quests.stage_story(self.container(), chain_to('q_huntPtacek'))
+        staged, _ = quests.stage_story(self.container(), chain_to('q_huntPtacek'))
+        with mock.patch.object(quests, 'PREMISES', remaining), \
+                self.assertRaisesRegex(ValueError, 'Premise instance has no premise row: q_escapeToTalmberk'):
+            quests.stage_story(staged, chain_to('q_huntPtacek'))
+
+    def test_the_switch_needs_the_first_story_quest_for_real(self):
+        with self.assertRaisesRegex(ValueError, 'neither registered nor a declared premise: q_skalitz'):
+            quests.stage_story(quests.synthetic_container(), chain_to('q_huntPtacek'))
+        with mock.patch.object(quests, 'PREMISES', ('q_skalitz', *quests.PREMISES)), \
+                self.assertRaisesRegex(ValueError, 'needs the first story quest registered for real: q_skalitz'):
+            quests.stage_story(quests.synthetic_container(), chain_to('q_huntPtacek'))
+        stateless = self.container()
+        stateless['Quests/GlueTravel/gm_imported_scene/q_skalitz.xml'] = stateless[
+            'Quests/GlueTravel/gm_imported_scene/q_skalitz.xml'].replace(b'Name="unchanged"', b'Name="untouched"')
+        with self.assertRaisesRegex(ValueError, 'does not expose its state: q_skalitz'):
+            quests.stage_story(stateless, chain_to('q_huntPtacek'))
+
+
+GATE_DIALOGUE = b'''<Database Name="brambora"><Skald><FaderDialog Name="giver_talk"><Ports>
+<Port Name="active" Direction="In" Type="bool"/><Port Name="told" Direction="In" Type="bool"/>
+<Port Name="refused" Direction="In" Type="bool"/></Ports><Dialogue TechnicalStatus="Enabled"><Decision Name="root"><Sequences>
+<Sequence Name="offer" EndType="EndDialogue" EntryCondition="Port('active') AND ((Port('told')) AND !SequenceUsed('offer'))"/>
+<Sequence Name="again" EndType="EndDialogue" EntryCondition="Port('active') AND Port('refused')"/>
+</Sequences></Decision></Dialogue></FaderDialog></Skald></Database>'''
+
+
+class StoryGateLabTests(unittest.TestCase):
+    """The same graph in a save whose story never began and in a New Game, run by quest_lab."""
+
+    def staged(self, gate='q_huntPtacek', wiring=None):
+        import campaign_quest_prerequisites as prerequisites
+        from campaign_dialogue_runtime import attach_dialogue
+        files, _ = emit_project([contract_model()], quests.PROJECT_NAME)
+        resources = quests.synthetic_container('q_skalitz')
+        import campaign_quest_registration as registration
+        resources[quests.PROJECT], resources[quests.ENTRY], resources[quests.FOLDER + QUEST + '.xml'], _ = registration.register(
+            resources[quests.PROJECT], resources[quests.ENTRY], files[quests.PROJECT_NAME + '.xml'],
+            files[quests.PROJECT_NAME + '/' + QUEST + '.xml'], '../gm_kcd1_quests/' + QUEST + '.xml')
+        resources, story = quests.stage_story(resources, chain_to(gate))
+        resources[quests.FOLDER + quests.HOST + '.xml'] = prerequisites.host(quests.HOST)
+        resources[quests.ENTRY] = prerequisites.register(resources[quests.ENTRY],
+                                                         '../gm_kcd1_quests/' + quests.HOST + '.xml', quests.HOST)
+        staged = {n.removeprefix('Quests/'): b for n, b in resources.items()}
+        report = dict(actions={}, active_port='active', conditions=dict(
+            told=dict(quest=gate, output='completed'), refused=dict(quest=QUEST, output='refused_Started')))
+        entry = quests.ENTRY.removeprefix('Quests/')
+        staged = attach_dialogue(staged, quests.CONTAINER, GATE_DIALOGUE, report, quests.HOST + '.active', entry)
+        if wiring:
+            staged[entry] = staged[entry].replace(*wiring)
+        offers = quests.gate_offers(staged['GlueTravel/entry/kcd1_travel/giver_talk.xml'], staged[entry], set(story['premises']))
+        return staged, quests.gate_scenarios(quests.CONTAINER, 'q_skalitz', dict(giver_talk=offers))
+
+    def run_all(self, staged, scenarios):
+        return [Runner(s, source=Source.blobs(staged)).run() for s in scenarios]
+
+    def test_offered_in_a_travel_save_and_hidden_in_a_new_game(self):
+        for gate in ('q_huntPtacek', 'q_returnToSkalitz'):
+            with self.subTest(gate=gate):
+                staged, scenarios = self.staged(gate)
+                self.assertEqual([s['name'].split(':')[0] for s in scenarios],
+                                 ['Travel save (the story never began)', 'New Game (the story is being played)',
+                                  'New Game past the ported part of the story'])
+                travel, new_game, later = scenarios
+                self.assertEqual(travel['steps'][1], dict(action='assert_dialogue', dialogue='giver_talk', choices=['offer']))
+                self.assertEqual(new_game['steps'][0], dict(action='fire', port='q_skalitz__start'))
+                self.assertEqual(new_game['steps'][3], dict(action='assert_dialogue', dialogue='giver_talk', choices=[]))
+                self.assertIn(dict(action='fire', port='q_skalitz__complete'), later['steps'])
+                for result in self.run_all(staged, scenarios):
+                    self.assertEqual(result['status'], 'PASS', result['error'])
+                    self.assertFalse(result['native_runtime_verified'])
+
+    def test_the_scenarios_fail_on_a_constant_or_an_unswitched_premise(self):
+        # A premise that ignores the switch (the old silent stub) is caught by the New Game scenarios.
+        always = (('<Edge From="%s.assumed" To="assumed" />' % quests.SWITCH).encode(),
+                  ('<Edge From="%s.active" To="assumed" />' % quests.HOST).encode())
+        staged, scenarios = self.staged(wiring=always)
+        self.assertEqual([r['status'] for r in self.run_all(staged, scenarios)], ['PASS', 'FAIL', 'FAIL'])
+        # A switch on the wrong state of the first quest hides the offer from the travel save.
+        wrong = (b'<Edge From="q_skalitz.unchanged" To="story_unchanged" />',
+                 b'<Edge From="q_skalitz.completed" To="story_unchanged" />')
+        staged, scenarios = self.staged(wiring=wrong)
+        self.assertEqual([r['status'] for r in self.run_all(staged, scenarios)], ['FAIL', 'PASS', 'FAIL'])
+
+    def test_the_premise_states_follow_the_switch_and_the_chain(self):
+        staged, _ = self.staged('q_returnToSkalitz')
+        probe = lambda steps, values: Runner(dict(schema=1, name='probe', entry=quests.CONTAINER, steps=steps + [
+            dict(action='assert', values=values)]), source=Source.blobs(staged)).run()
+        told = {'q_escapeToTalmberk.completed': True, 'q_escapeToTalmberk.unchanged': False,
+                'q_escapeToTalmberk.available': True, 'q_escapeToTalmberk.started': False,
+                'q_returnToSkalitz.completed': True}
+        result = probe([], told)
+        self.assertEqual(result['status'], 'PASS', result['error'])
+        begin = [dict(action='fire', port='q_skalitz__start')]
+        playing = {'q_escapeToTalmberk.completed': False, 'q_escapeToTalmberk.unchanged': True,
+                   'q_escapeToTalmberk.available': False, 'q_returnToSkalitz.available': False}
+        self.assertEqual(probe(begin, playing)['status'], 'PASS')
+        # KCD1's dispatch: the quest after a completed one is activated, and here nobody can play it.
+        after = dict(playing, **{'q_escapeToTalmberk.available': True})
+        self.assertEqual(probe(begin + [dict(action='fire', port='q_skalitz__complete')], after)['status'], 'PASS')
+
+
+class SharedRegistrationTests(unittest.TestCase):
+    def stage(self, row, model, resources, gate='q_returnToSkalitz'):
+        return quests.stage_quest(row, model, resources, lowering_context(model), {GIVER}, {}, None,
+                                  chain=chain_to(gate))
+
+    def rows(self):
+        first = dict(quest=QUEST, prerequisites=('q_returnToSkalitz',), accepted_pending=())
+        return first, dict(quest='a_second', prerequisites=('q_huntPtacek',), accepted_pending=())
 
     def test_stand_ins_host_and_type_are_registered_once(self):
         first, second = self.rows()
-        one, _, report_one, _ = self.stage(first, giver_model(), quests.synthetic_container())
-        both, _, report_two, _ = self.stage(second, second_model(), one)
+        one, _, report_one, _ = self.stage(first, giver_model(), quests.synthetic_container('q_skalitz'))
+        both, _, report_two, _ = self.stage(second, second_model(), one, gate='q_huntPtacek')
         level = quests.host_of_blob(both[quests.ENTRY])
-        self.assertEqual(sorted(n.tag for n in level.find('Nodes')),
-                         sorted([QUEST, 'a_second', 'q_before', 'q_other', quests.HOST]))
+        self.assertEqual(sorted(n.get('Name') for n in level.find('Nodes')),
+                         sorted([QUEST, 'a_second', 'q_skalitz', quests.SWITCH, *quests.PREMISES, quests.HOST]))
+        self.assertEqual(report_one['story']['premises'], ['q_escapeToTalmberk', 'q_returnToSkalitz'])
+        self.assertEqual(report_two['story']['premises'], list(quests.PREMISES))
         files = [d.get('File') for d in level.find('Definitions')]
         self.assertEqual(len(files), len(set(files)))
         self.assertEqual(len(files), 5)
@@ -552,17 +756,20 @@ class SharedRegistrationTests(unittest.TestCase):
         self.assertEqual(report_one['registration']['types'], ['gm_kcd1_questsObjectiveProgress'])
         self.assertEqual(report_two['registration']['types'], [])
         # The shared files are byte-for-byte what the first quest wrote.
-        for name in ('q_before', quests.HOST, QUEST):
+        for name in (quests.PREMISE, quests.SWITCH, quests.HOST, QUEST):
             self.assertEqual(both[quests.FOLDER + name + '.xml'], one[quests.FOLDER + name + '.xml'])
         self.assertEqual(len(project.findall('Assets/SoulAsset')), 2)        # the plan's player and the one giver
 
-    def test_a_stand_in_declared_in_another_state_is_refused(self):
-        first, second = self.rows(second={'q_before': 'unchanged'})
-        one, _, _, _ = self.stage(first, giver_model(), quests.synthetic_container())
-        with self.assertRaisesRegex(ValueError, 'declared differently: q_before'):
-            self.stage(second, second_model(), one)
+    def test_a_quest_outside_the_chain_or_a_changed_story_module_is_refused(self):
+        first, second = self.rows()
+        one, _, _, _ = self.stage(first, giver_model(), quests.synthetic_container('q_skalitz'))
+        with self.assertRaisesRegex(ValueError, 'outside the story chain: q_huntPtacek'):
+            self.stage(second, second_model(), one)             # its gate is not in the chain it was given
         with self.assertRaisesRegex(ValueError, 'already registered'):
             self.stage(first, giver_model(), one)
+        changed = dict(one, **{quests.FOLDER + quests.PREMISE + '.xml': b'<other/>'})
+        with self.assertRaisesRegex(ValueError, 'Story module is already declared differently'):
+            self.stage(second, second_model(), changed, gate='q_huntPtacek')
 
     def test_value_tables_keep_the_rows_of_the_quests_already_ported(self):
         marker = dict(quests={QUEST: dict(report=dict(value_names=dict(money=['2-minor'], reputation=['micro']))),
@@ -785,12 +992,12 @@ class UpgradeTests(unittest.TestCase):
             zip_with(stage / quests.ENGLISH_XML, {'text_ui_dialog.xml': table({'t1': 'Hello'})})
             zip_with(stage / quests.FACIALS, {'index': 'new'})
 
-        def stage_quest(row, model_, base, context, souls, factions, text):
+        def stage_quest(row, model_, base, context, souls, factions, text, chain=()):
             resources = dict(base)
             resources['Quests/GlueTravel/gm_kcd1_quests/' + row['quest'] + '.xml'] = b'<quest/>'
             money = ['butcher-money'] if row['quest'] == BUTCHER else []
             report = dict(quest=row['quest'], pending=sorted(row['accepted_pending']),
-                          value_names=dict(money=money, reputation=[]))
+                          value_names=dict(money=money, reputation=[]), story=dict(premises=[], real=[]))
             return resources, {}, report, [dict(key='journal', text='Beggars')]
 
         def bind(row, model_, resources, bindings, npc_assets):
@@ -816,6 +1023,7 @@ class UpgradeTests(unittest.TestCase):
                               return_value={'Libs/Tables/rpg/money_change__gm_kcd1_quest.xml': b'<m/>'}),
             mock.patch('build_actor_dialogues_test.build', dialogues),
             mock.patch.object(quests, 'prerequisite_report', return_value=[]),
+            mock.patch.object(quests, 'story_chain', return_value=[]),
             mock.patch.object(quests, 'bind_scripts', bind)]
 
 
@@ -853,8 +1061,20 @@ class RetailPlanTests(unittest.TestCase):
 
     def test_prerequisite_stand_in_and_files(self):
         r = self.report
-        self.assertEqual([p['quest'] for p in r['assumed_prerequisites']], ['q_huntPtacek'])
-        self.assertEqual(r['assumed_prerequisites'][0]['sequences'][0]['sequence'], '56751')
+        rows = r['assumed_prerequisites']
+        self.assertEqual([(p['quest'], p['premise']) for p in rows],
+                         [('q_skalitz', False), *((q, True) for q in quests.PREMISES)])
+        self.assertEqual(rows[-1]['sequences'][0]['sequence'], '56751')
+        self.assertEqual(rows[-1]['conditions'][0]['text'], "IsQuestCompleted('q_huntPtacek')")
+        self.assertEqual(rows[-1]['source'], dict(quest='q_master_main', objective_id='30',
+                                                  condition="IsQuestCompleted('q_huntPtacek')"))
+        self.assertEqual((rows[-1]['signal'], rows[-1]['when_signal_true'], rows[-1]['when_signal_false']),
+                         ('q_skalitz.unchanged', 'completed', 'not started'))
+        self.assertEqual([p['after'] for p in rows], [None, 'q_skalitz', *quests.PREMISES[:-1]])
+        self.assertEqual(r['story']['premises'], list(quests.PREMISES))
+        for name in (quests.PREMISE, quests.SWITCH, quests.HOST):
+            self.assertIn(quests.FOLDER + name + '.xml', r['files'])
+        self.assertFalse([f for f in r['files'] if f.endswith('q_huntPtacek.xml')])
         self.assertIn(quests.MARKER, r['files'])
         self.assertIn(quests.FOLDER + QUEST + '.xml', r['files'])
         self.assertFalse(r['controller_pending']['converted'])
@@ -866,6 +1086,16 @@ class RetailPlanTests(unittest.TestCase):
         for _, topic in ROW['branches']:
             blob = self.resources[quests.DIALOGUE_FOLDER + ROW['namespace'] + '_' + topic + '.xml']
             self.assertEqual(quests.exit_script_calls(blob), [])
+
+    def test_the_story_gate_lab_passes_for_both_quests_in_both_kinds_of_save(self):
+        for row, offer in ((ROW, 'seq_56751'), (BUTCHER_ROW, 'seq_56805')):
+            with self.subTest(quest=row['quest']):
+                files, scenarios = quests.gate_lab(row, KCD1)
+                dialogue = row['namespace'] + '_' + row['branches'][0][1]
+                self.assertEqual(scenarios[0]['steps'][1], dict(action='assert_dialogue', dialogue=dialogue, choices=[offer]))
+                self.assertEqual(scenarios[1]['steps'][3], dict(action='assert_dialogue', dialogue=dialogue, choices=[]))
+                results = [Runner(s, source=Source.blobs(files)).run() for s in scenarios]
+                self.assertEqual([r['status'] for r in results], ['PASS'] * 3, [r['error'] for r in results])
 
     def test_plan_runs_every_quest_that_retail_alone_can_plan(self):
         report = quests.plan(KCD1, KCD2)
@@ -885,10 +1115,11 @@ class RetailPlanTests(unittest.TestCase):
         with z.ZipFile(KCD2 / 'Data/IPL_GameData.pak') as archive:
             definitions = quests.Definitions(archive.read(quests.DEFINITIONS))
         dialogues = [ROW['namespace'] + '_' + t for _, t in ROW['branches']]
-        owned = {QUEST, quests.HOST, 'q_huntPtacek', *dialogues}
+        owned = {QUEST, quests.HOST, quests.SWITCH, *quests.PREMISES, *dialogues}
         owned.update(n.get('Name') for n in quests.host_of_blob(resources[quests.ENTRY]).iterfind('Nodes/*')
                      if n.get('Name', '').startswith('lowered_delivery_'))
-        paths = [quests.FOLDER + QUEST + '.xml', quests.FOLDER + 'q_huntPtacek.xml', quests.FOLDER + quests.HOST + '.xml',
+        paths = [quests.FOLDER + QUEST + '.xml', quests.FOLDER + quests.PREMISE + '.xml',
+                 quests.FOLDER + quests.SWITCH + '.xml', quests.FOLDER + quests.HOST + '.xml',
                  *[quests.DIALOGUE_FOLDER + d + '.xml' for d in dialogues], quests.ENTRY]
         audit = quests.graph_audit(resources, paths, owned, definitions, quests.aliases_of(resources))
         self.assertEqual(audit['problems'], [])
@@ -949,28 +1180,40 @@ class PackagePlanTests(unittest.TestCase):
     def test_shared_registrations_and_the_first_quest_are_untouched(self):
         level = quests.host_of_blob(self.resources[quests.ENTRY])
         tags = [n.tag for n in level.find('Nodes')]
-        for name in (QUEST, BUTCHER, quests.HOST, 'q_huntPtacek', 'q_returnToSkalitz'):
+        for name in (QUEST, BUTCHER, quests.HOST, quests.SWITCH, 'q_skalitz'):
             self.assertEqual(tags.count(name), 1, name)
+        self.assertEqual(tags.count(quests.PREMISE), len(quests.PREMISES))
+        nodes = {n.get('Name'): n for n in level.find('Nodes')}
+        self.assertEqual([(e.get('From'), e.get('To')) for e in nodes[quests.SWITCH].findall('Edge')],
+                         [('q_skalitz.unchanged', 'story_unchanged')])
+        # The package's first story quest is the real one, read as it is.
+        self.assertEqual(self.report['story'], dict(switch=dict(name=quests.SWITCH, signal='q_skalitz.unchanged'),
+                                                    premises=['q_escapeToTalmberk', 'q_returnToSkalitz'], real=['q_skalitz']))
+        self.assertEqual(self.first_report['story']['premises'], list(quests.PREMISES))
+        gate = [e.get('From') for e in nodes[BUTCHER_ROW['namespace'] + '_27388'].findall('Edge')]
+        self.assertIn('q_returnToSkalitz.completed', gate)
         project = quests.host_of_blob(self.resources[quests.PROJECT])
         self.assertEqual([t.get('TypeName') for t in project.findall('Types/Type')].count('gm_kcd1_questsObjectiveProgress'), 1)
         for path in (quests.FOLDER + QUEST + '.xml', quests.FOLDER + quests.HOST + '.xml',
                      *(quests.DIALOGUE_FOLDER + ROW['namespace'] + '_' + t + '.xml' for _, t in ROW['branches'])):
             self.assertEqual(self.resources[path], self.first[path], path)
-        self.assertNotIn(quests.FOLDER + quests.HOST + '.xml', self.report['files'])
-        self.assertIn(quests.FOLDER + 'q_returnToSkalitz.xml', self.report['files'])
+        for name in (quests.HOST, quests.PREMISE, quests.SWITCH):
+            self.assertNotIn(quests.FOLDER + name + '.xml', self.report['files'])
+        self.assertFalse([p for p in self.resources if p.startswith(quests.FOLDER + 'q_')])
 
     def test_the_lowered_graph_passes_the_package_audit(self):
         with zipfile.ZipFile(KCD2 / 'Data/IPL_GameData.pak') as archive:
             definitions = quests.Definitions(archive.read(quests.DEFINITIONS))
         dialogues = [BUTCHER_ROW['namespace'] + '_' + t for _, t in BUTCHER_ROW['branches']]
-        owned = {BUTCHER, quests.HOST, 'q_returnToSkalitz', *dialogues}
+        owned = {BUTCHER, quests.HOST, quests.SWITCH, *quests.PREMISES, *dialogues}
         owned.update(n.get('Name') for n in quests.host_of_blob(self.resources[quests.ENTRY]).iterfind('Nodes/*')
                      if any(n.get('Name', '').startswith('lowered_delivery_' + d + '_') for d in dialogues))
-        paths = [quests.FOLDER + BUTCHER + '.xml', quests.FOLDER + 'q_returnToSkalitz.xml',
+        paths = [quests.FOLDER + BUTCHER + '.xml', quests.FOLDER + quests.PREMISE + '.xml',
+                 quests.FOLDER + quests.SWITCH + '.xml',
                  *[quests.DIALOGUE_FOLDER + d + '.xml' for d in dialogues], quests.ENTRY]
         audit = quests.graph_audit(self.resources, paths, owned, definitions, quests.aliases_of(self.resources))
         self.assertEqual(audit['problems'], [])
-        for path, d in zip(paths[2:4], dialogues):
+        for path, d in zip(paths[3:5], dialogues):
             self.assertEqual(quests.dialogue_audit(self.resources[path], d), [])
         model_items = {t['objective']: t['requirements'] for t in self.report['tracking']}
         self.assertEqual(model_items['offal'][0]['target_item'][:8], '3a2d670c')
