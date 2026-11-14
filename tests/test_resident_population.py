@@ -38,7 +38,8 @@ class HomeTimeTests(unittest.TestCase):
 class SelectionTests(unittest.TestCase):
     def test_batch_has_no_duplicates_or_shop_keepers(self):
         self.assertEqual(residents.check_selection(), list(residents.RESIDENTS))
-        self.assertEqual(len(residents.RATTAY_1), 81)
+        self.assertEqual(len(residents.RESIDENTS), 78)    # census-selected Rattay residents
+        self.assertNotIn('rat_refugee_ales', residents.RESIDENTS)
 
     def test_rejects_duplicates_and_keepers(self):
         with self.assertRaises(ValueError):
