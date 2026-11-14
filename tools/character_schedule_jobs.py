@@ -110,7 +110,7 @@ def bind_job_trees(files, mission, scheduler, schedules, archive, target, regist
     """
     if source_entities is None:
         source_entities=source_mission_entities(archive)
-    waiting=[];report=[]; renamed={};city_pools={};seated_pools={};guard_pools={};farmer_pools={};stable_pools={}
+    waiting=[];report=[]; renamed={};inn_jobs={};city_pools={};seated_pools={};guard_pools={};farmer_pools={};stable_pools={}
     for person,entries in schedules.items():
         for entry in entries:
             behavior=entry['behavior']
@@ -190,6 +190,18 @@ def bind_job_trees(files, mission, scheduler, schedules, archive, target, regist
                 from character_market_jobs import bind as bind_market, ACTIVITY
                 job, item_report = bind_market(mission, scheduler, person, entry, target)
                 renamed[job.get('EntityGuid')] = ACTIVITY
+                report.append(item_report)
+                continue
+            if 'inn_work' in entry:
+                # A shift across midnight is two intervals on one lean job.
+                key = (person, entry['arrival']['EntityGuid'])
+                if key in inn_jobs:
+                    inn_jobs[key]['intervals'].append([entry['start_minute'], entry['end_minute']])
+                    continue
+                from character_inn_work import bind as bind_inn
+                job, item_report = bind_inn(mission, scheduler, person, entry, target)
+                item_report['intervals'] = [[entry['start_minute'], entry['end_minute']]]
+                inn_jobs[key] = item_report
                 report.append(item_report)
                 continue
             if entry.get('station_work'):

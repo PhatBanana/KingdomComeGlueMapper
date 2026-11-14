@@ -16,6 +16,11 @@ class MarketLayers(unittest.TestCase):
         self.assertEqual(set(owned_layers(mission,areas,layers,'seller')),{8})
         self.assertEqual(owned_layers(mission,areas,layers,'other'),{})
 
+    def test_bathhouse_work_spot_finds_its_area(self):
+        mission,areas,layers=self.fixture()
+        areas['a'].find('EntityLinks/Link').set('Name','abbessWorkSpot')
+        self.assertEqual(set(owned_layers(mission,areas,layers,'seller')),{8})
+
     def test_ambiguous_point_fails(self):
         mission,areas,layers=self.fixture()
         areas['b'].find('EntityLinks/Link').set('TargetId','42')

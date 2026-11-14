@@ -49,8 +49,8 @@ FAREWELL = {'man': '15518', 'woman': '15547'}
 HAGGLE = {'man': '23469', 'woman': '23605'}
 TRADE = '22069'
 # Speaker voices of the converted traders (KCD1 abbreviations, as imported).
-VOICES = {'man': ('rpro', 'bcas', 'ccla', 'bdou', 'dsir', 'tzie', 'bbra', 'jcom'),
-          'woman': ('akem', 'aric', 'bvac', 'amil', 'jpres', 'bada', 'vhoga')}
+VOICES = {'man': ('rpro', 'bcas', 'ccla', 'bdou', 'dsir', 'tzie', 'bbra', 'jcom', 'lhil', 'jhig1'),
+          'woman': ('akem', 'aric', 'bvac', 'amil', 'jpres', 'bada', 'vhoga', 'sphe')}
 HENRY_VOICE = 'tmck'
 NATIVE_HAGGLE = {
     'man': 'Quests/Final/Barbora/open_world/shop/bribe_haggle_negotiation_vyjednavani_smlouvani_podplaceni/smlouvani_v_obchode_muz.xml',

@@ -91,7 +91,10 @@ SCOPE = ('ska_merchant1', 'ska_merchant2', 'ska_merchant3', 'ska_merchant4', 'sk
          'rat_konrad_hagen',
          # Third batch (feat/kcd1-shops-3, 11-11).
          'rat_merchant_grocery', 'rat_woman11', 'rat_merchant_shop1', 'rat_merchant_shop3', 'rat_merchant_shop2',
-         'rat_butchers_wife', 'rat_shoemakers_wife')
+         'rat_butchers_wife', 'rat_shoemakers_wife',
+         # Fourth batch (feat/kcd1-shops-4, 11-14).
+         'rat_bakers_wife', 'rat_swordsmith', 'rat_innkeeper2', 'rat_innkeeper1', 'sas_innkeeper1', 'led_innkeeper',
+         'aus_innkeeper', 'rat_spaAbbess', 'sas_spaMistress', 'led_barber1', 'tal_spaAbbess')
 CHARACTER_TABLE = 'Libs/Tables/skald/skald_character__gm_kcd1_shop.xml'
 DROP_ROLES = frozenset(('SMLOUVANI_MUZ', 'SMLOUVANI_ZENA', 'OBCHODNIK_Z_DIALOGU_MUZ', 'OBCHODNICE_Z_DIALOGU_ZENA'))
 DROP_OPERATIONS = frozenset(('addShopRoles_greeting_man', 'addShopRoles_greeting_woman',

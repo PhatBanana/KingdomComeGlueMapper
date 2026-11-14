@@ -111,6 +111,11 @@ def source_item(tables, source_id, namespace, component, template, source_string
     localized = ET.Element('Table')
     for old, new in [('ui_name', 'UIName'), ('ui_info', 'UIInfo')]:
         key = rows['player_item'].get(old)
+        if not key and old == 'ui_info':
+            # Some source garments have a name but no description. Keep none
+            # rather than the native template's text.
+            result.attrib.pop(new, None)
+            continue
         if not key:
             raise ValueError('Source clothing has no ' + old + ': ' + source_id)
         matches = [r for r in source_strings.findall('Row') if (r.findtext('Cell') or '').lower() == key.lower()]

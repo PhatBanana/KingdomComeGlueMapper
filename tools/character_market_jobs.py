@@ -3,6 +3,15 @@
 The source area's entry point is not necessarily its selling point. Resolve
 the authored merchantPoint link and use the native interruptible activity at
 that transform. Selection is by work contract, never actor or quest identity.
+
+Several merchantPoints: the source merchant idles among them and serves each
+customer from the one nearest that customer. The native seller holds one
+point, so keep the point the source daycycle delivers the merchant to (the
+area's `inside` link) and report the others. A Shop entity linked as a
+merchantPoint is the shop marker the source finds by class, not a pose.
+
+The bathhouse abbess (sa_bathhouse Abbess) walks to her one authored
+abbessWorkSpot, aligns and waits there for orders: the same contract.
 """
 import copy
 import xml.etree.ElementTree as E
@@ -13,29 +22,62 @@ from character_person import resolve_link_targets, unique, world_entity
 from upgrade_map import read
 
 SOURCE = ('final/sa_shop2.xml', 'merchant')
+BATHHOUSE = ('final/sa_bathhouse.xml', 'Abbess')
+# Source behaviour -> the area link tag naming its selling pose.
+POINTS = {SOURCE: 'merchantPoint', BATHHOUSE: 'abbessWorkSpot'}
 NATIVE_TABLE = 'Libs/Tables/ai/smartEntity/SmartEntity__so_seller.xml'
 ACTIVITY = 'seller_market'
 
 
+def source_behavior(entry):
+    behavior = entry.get('behavior')
+    if behavior is None: return SOURCE
+    return (behavior['tree_file'].replace('\\', '/').lower(), behavior['tree_name'])
+
+
 def supports(entry):
-    behavior = entry['behavior']
-    return (behavior['tree_file'].replace('\\', '/').lower(), behavior['tree_name']) == SOURCE
+    return source_behavior(entry) in POINTS
+
+
+def tagged(entry, tag):
+    return [link for link in entry['target_links'] if tag in link.get('Name', '').split(',')]
 
 
 def resolve(entry, archive):
+    # Callers resolve selling poses for any work routed here; only the abbess differs.
+    kind = BATHHOUSE if source_behavior(entry) == BATHHOUSE else SOURCE
     area = E.Element('Entity', entry['area'])
     links = E.SubElement(area, 'EntityLinks')
-    for link in entry['target_links']:
-        if 'merchantPoint' in link.get('Name', '').split(','):
-            E.SubElement(links, 'Link', link)
-    link = unique(links, 'authored merchant selling point')
+    for link in tagged(entry, POINTS[kind]):
+        E.SubElement(links, 'Link', link)
+    if not len(links) or kind == BATHHOUSE:
+        unique(links, 'authored merchant selling point')
     entities = resolve_link_targets(archive, area,
         list(E.fromstring(read(archive, 'objects_mission0.xml'))), {})
-    point = unique((e for e in entities if e.get('EntityId') == link.get('TargetId')),
-                   'merchant selling point entity')
+    points = [unique((e for e in entities if e.get('EntityId') == link.get('TargetId')),
+                     'merchant selling point entity') for link in links]
+    alternates = []
+    if len(points) > 1:
+        poses = [p for p in points if p.get('EntityClass') == 'TagPoint']
+        if len(poses) > 1:
+            arrival = {link.get('TargetId') for link in tagged(entry, 'inside')}
+            chosen = [p for p in poses if p.get('EntityId') in arrival]
+            if len(chosen) != 1:
+                raise ValueError('Expected one authored merchant selling point at the area arrival, found '
+                                 + str(len(chosen)))
+            poses = chosen
+        if not poses:
+            raise ValueError('Merchant selling point must have a converted point contract')
+        point = poses[0]
+        alternates = [dict(EntityId=p.get('EntityId'), EntityClass=p.get('EntityClass'), Name=p.get('Name'),
+                           Pos=world_entity(archive, p, entities).get('Pos')) for p in points if p is not point]
+    else:
+        point = points[0]
     if point.get('EntityClass') != 'TagPoint':
         raise ValueError('Merchant selling point must have a converted point contract')
-    return dict(entry, arrival=dict(world_entity(archive, point, entities).attrib), market_work=True)
+    result = dict(entry, arrival=dict(world_entity(archive, point, entities).attrib), market_work=True)
+    if alternates: result['market_alternates'] = alternates
+    return result
 
 
 def contract(target):
@@ -63,6 +105,12 @@ def bind(mission, scheduler, person, entry, target):
     for link in scheduler.findall('.//S_ActivityLink'):
         if link.get('TargetGuid') == str(guid_value(job.get('EntityGuid'))):
             link.find('Parameters').set('BehaviorName', ACTIVITY)
-    return job, dict(person=person, job='native_market_seller', native_behavior=ACTIVITY,
-                    source_selling_point=entry['arrival'], pending=[], runtime_verified=False,
-                    policy='Native market selling replaces legacy customer/idle dispatch')
+    report = dict(person=person, job='native_market_seller', native_behavior=ACTIVITY,
+                  source_selling_point=entry['arrival'], pending=[], runtime_verified=False,
+                  policy='Native market selling replaces legacy customer/idle dispatch')
+    if entry.get('market_alternates'):
+        report['source_alternate_points'] = entry['market_alternates']
+        report['policy'] += '; one native point replaces serving from the merchantPoint nearest each customer'
+    if source_behavior(entry) == BATHHOUSE:
+        report['source_services_not_converted'] = ['bathhouse service orders (bath, healing, love) relayed to the area']
+    return job, report

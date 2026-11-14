@@ -14,8 +14,9 @@ from upgrade_map import read
 # profile are selected here one by one; their namespace is the one the profile
 # builder derives from the source shop (gm_source_shop_<source shop id>), so a
 # keeper who later arrives with a profile keeps the same shop, saves and links.
-# Every keeper below sells at an authored market point and otherwise only
-# sleeps at home; other daycycles need their own work adapters first.
+# Every keeper below sells at an authored market point (innkeepers lean at
+# their pub's Lean spot) and otherwise only sleeps at home; other daycycles
+# need their own work adapters first.
 MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),
              # Sasau: general stall, grocer, baker, tanner and vegetable stall.
              ('sas_woman23', 'gm_source_shop_62'),
@@ -43,7 +44,21 @@ MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),
              ('rat_merchant_shop3', 'gm_source_shop_98'),
              ('rat_merchant_shop2', 'gm_source_shop_99'),
              ('rat_butchers_wife', 'gm_source_shop_50'),
-             ('rat_shoemakers_wife', 'gm_source_shop_56'))
+             ('rat_shoemakers_wife', 'gm_source_shop_56'),
+             # Fourth batch: two-point Rattay keepers, innkeepers and bathhouses.
+             # The swordsmith imports 13 weapons; the lower pub, the Rattay and
+             # Sasau bathhouses 1 item each.
+             ('rat_bakers_wife', 'gm_source_shop_49'),
+             ('rat_swordsmith', 'gm_source_shop_100'),
+             ('rat_innkeeper2', 'gm_source_shop_90'),
+             ('rat_innkeeper1', 'gm_source_shop_93'),
+             ('sas_innkeeper1', 'gm_source_shop_64'),
+             ('led_innkeeper', 'gm_source_shop_77'),
+             ('aus_innkeeper', 'gm_source_shop_61'),
+             ('rat_spaAbbess', 'gm_source_shop_83'),
+             ('sas_spaMistress', 'gm_source_shop_82'),
+             ('led_barber1', 'gm_source_shop_84'),
+             ('tal_spaAbbess', 'gm_source_shop_85'))
 SOURCE_SHOP = 'gm_source_shop_'
 
 

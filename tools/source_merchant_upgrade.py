@@ -28,9 +28,6 @@ def bind_storage(files, merchant, source, namespace, model, *, authored=None, re
     record = dict(model=original.get('object_Model',''),kind='service',
         source_properties=E.tostring(original,encoding='unicode'),
         lock=dict(original.find('Lock').attrib),phase=dict(original.find('Phase').attrib) if original.find('Phase') is not None else {})
-    props = properties(record,model,inventory_contract or dict(preset='',restock_days=0,read_only=False,registered_keys=registered_keys))
-    minimum = original.find('Database').get('iMinimalShopItemPrice')
-    if minimum is not None: props.find('Database').set('iMinimalShopItemPrice',minimum)
     owned = mission is None
     if owned: mission = E.fromstring(files['objects_mission0.xml'])
     shop = next(e for e in mission if e.get('Name')==namespace+'_shop')
@@ -49,6 +46,11 @@ def bind_storage(files, merchant, source, namespace, model, *, authored=None, re
         # World container conversion already owns its collision, lock, keys and
         # inventory. Add service links without creating a second chest in place.
     else:
+        # Only a new stash needs converted properties; an existing world
+        # conversion already carries them, phase model included.
+        props = properties(record,model,inventory_contract or dict(preset='',restock_days=0,read_only=False,registered_keys=registered_keys))
+        minimum = original.find('Database').get('iMinimalShopItemPrice')
+        if minimum is not None: props.find('Database').set('iMinimalShopItemPrice',minimum)
         stash = E.SubElement(mission,'Entity',Name=name,EntityClass='Stash',EntityGuid=guid(name),
             EntityId=str(max(int(e.get('EntityId','0')) for e in mission)+1),CastShadowMinSpec='1')
         for key in ('Pos','Rotate','Scale'):
@@ -63,6 +65,14 @@ def bind_storage(files, merchant, source, namespace, model, *, authored=None, re
     if owned: result['objects_mission0.xml']=xml(mission)
     result['waitinglinks.xml']=append_links(files['waitinglinks.xml'],[(a.get('EntityGuid'),b.get('EntityGuid'),label) for a,b,label in edges])
     return result,dict(source_entity=authored.get('Name'),source_id=authored.get('EntityId'),model=model)
+
+
+def service_role(entries):
+    """One native shop role per keeper: innkeeper for converted pub work, else seller."""
+    from character_inn_work import ROLE
+    kinds={'inn_work' in e for e in entries}
+    if len(kinds)!=1:raise ValueError('Mixed innkeeper and seller work for one shop')
+    return ROLE if kinds=={True} else 'seller'
 
 
 def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_policy='source_daily',source_level='rataje',asset_archive=None):
@@ -108,9 +118,11 @@ def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_
         tables=SourceTables(source,reader)
         schedule=selling_schedule(plan(merchant,tables))
         if schedule['pending']:raise ValueError('Unresolved merchant schedule')
-        schedules={person:resolve_arrivals(schedule,z,merchant,source,reader)}
-        if any(not (e.get('station_work') or e.get('market_work')) for e in schedules[person]):
+        schedules={person:resolve_arrivals(schedule,z,merchant,source,reader,target)}
+        if any(not (e.get('station_work') or e.get('market_work') or 'inn_work' in e) for e in schedules[person]):
             raise ValueError('Merchant service builder requires a converted selling activity')
+        # An innkeeper staffs the shop in the native innkeeper role; every other keeper sells.
+        shop_role=service_role(schedules[person])
         # Parse the 30+ MB mission once and serialize it after the last
         # binder, instead of once per binder and storage.
         mission=E.fromstring(files['objects_mission0.xml']);scheduler=E.fromstring(files['tables/ai/scheduler.xml'])
@@ -131,7 +143,7 @@ def build(source,target,baseline,stage,person,namespace,entry,level, *, restock_
         roles=[r for n,b in resources.items() if n.startswith('Libs/Tables/rpg/role__') for r in E.fromstring(b).iter('role') if r.get('role_name')==role]
         if len(roles)!=1:raise ValueError('Missing staged merchant role')
         resources,voice_binding=bind_soul_voice(resources,target,namespace,person,native_voice.get('voice_technical_name'),role,actor_ui_name(resources,person))
-    files,resources,service=register_trees(files,resources,mission,scheduler,entry,merchant,stock,namespace,role='seller')
+    files,resources,service=register_trees(files,resources,mission,scheduler,entry,merchant,stock,namespace,role=shop_role)
     storage=[]
     keys=native_item_registry(native_items(target,patches))
     for authored in authored_stashes:

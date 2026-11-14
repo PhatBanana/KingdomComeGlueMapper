@@ -63,6 +63,22 @@ class FemaleSourceClothingTests(unittest.TestCase):
         self.assertEqual(text[0].findall('Cell')[1].text, 'Gown')
         self.assertEqual(template.get('UIName'), 'wrong_coat')
 
+    def test_garment_without_source_description_keeps_none(self):
+        data = {'item': {'item_name': 'source_apron'}, 'armor': {}, 'player_item': {'ui_name': 'ui_apron', 'ui_info': ''},
+                'pickable_item': {}, 'equippable_item': {}}
+        class Tables:
+            def row(self, table, field, identity):
+                return data[table.split('/')[-1]]
+        strings = ET.fromstring('<Table><Row><Cell>ui_apron</Cell><Cell>Apron</Cell><Cell>Apron</Cell></Row></Table>')
+        template = ET.Element('Armor', UIName='native', UIInfo='native_info')
+        item, text = source_item(Tables(), 'source-id', 'female_a', 'apron', template, strings)
+        self.assertEqual(item.get('UIName'), 'female_a_ui_apron')
+        self.assertIsNone(item.get('UIInfo'))
+        self.assertEqual(len(text), 1)
+        data['player_item']['ui_name'] = ''
+        with self.assertRaisesRegex(ValueError, 'no ui_name'):
+            source_item(Tables(), 'source-id', 'female_a', 'apron', template, strings)
+
     def test_native_material_state_preserves_source_hair_tint_and_maps(self):
         native = ET.fromstring('<Material Shader="Hair" GenMask="11004008" Opacity="1" StringGenMask="%HAIR_PASS">'
             '<Textures><Texture Map="Diffuse" File="native.dds"/><Texture Map="Detail" File="direction.dds"/></Textures>'

@@ -153,6 +153,7 @@ class HaggleMappingTests(unittest.TestCase):
                                          'ccla': {'recorded': 0, 'facial': 0}, 'bdou': {'recorded': 0, 'facial': 0},
                                          'dsir': {'recorded': 0, 'facial': 0}, 'tzie': {'recorded': 0, 'facial': 0},
                                          'bbra': {'recorded': 0, 'facial': 0}, 'jcom': {'recorded': 0, 'facial': 0},
+                                         'lhil': {'recorded': 0, 'facial': 0}, 'jhig1': {'recorded': 0, 'facial': 0},
                                          'tmck': {'recorded': 2, 'facial': 1}})
 
 
