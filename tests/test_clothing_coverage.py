@@ -33,6 +33,30 @@ class ClothingCoverageTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'Cutout'):
                 opaque_native_surface(directory,material,1)
 
+    def test_skin_modelled_into_a_garment_covers_like_opaque_cloth(self):
+        # KCD1 karolina_dress: one cloth slot plus one HumanSkin slot of bare skin.
+        with tempfile.TemporaryDirectory() as directory:
+            material=Path(directory)/'dress.mtl'
+            material.write_text('<Material><SubMaterials><Material Shader="Nodraw"/>'
+                '<Material Shader="HumanSkin" MtlFlags="524288" Opacity="1" StringGenMask="%NORMAL_MAP%TEMP_SKIN"/>'
+                '</SubMaterials></Material>')
+            surfaces,evidence=native_alpha_surfaces(directory,material)
+            self.assertEqual(len(surfaces),2)
+            threshold,levels=surfaces[1]
+            self.assertTrue(all((level>threshold).all() for level in levels))
+            self.assertEqual(evidence[1],dict(shader='HumanSkin',opaque=True))
+            material.write_text('<Material Shader="Humanskin" Opacity="1"/>')
+            mask,_=opaque_native_surface(directory,material,3)
+            self.assertTrue(mask.all())
+            for attributes in ('Opacity="0.5"','Opacity="1" AlphaTest="0.5"'):
+                material.write_text('<Material Shader="HumanSkin" '+attributes+'/>')
+                with self.assertRaisesRegex(ValueError,'skin material'):
+                    native_alpha_surfaces(directory,material)
+            # Any other unconverted shader is still refused.
+            material.write_text('<Material Shader="Hair" Opacity="1"/>')
+            with self.assertRaisesRegex(ValueError,'opacity material'):
+                native_alpha_surfaces(directory,material)
+
     def test_cutout_ray_hits_use_uv_material_and_wrapped_filter_footprint(self):
         uv = np.array([[.25,.25]]*3 + [[.75,.75]]*3, dtype='<f4')
         skin = SimpleNamespace(n=6, streams={2: SimpleNamespace(data=struct.pack('<6I', 0,2,6,8,0,0)+uv.tobytes())},

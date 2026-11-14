@@ -43,6 +43,26 @@ class FemaleSourceClothingTests(unittest.TestCase):
         archetype, template = native_role(components, items, 'F_SimpleDress')
         self.assertEqual(archetype, '27'); self.assertEqual(template.get('UIName'), 'dress')
 
+    def test_garment_without_description_keeps_its_name_and_drops_the_template_text(self):
+        # KCD1 underskirt_001 and coat_hood_down_002: ui_name set, ui_info empty.
+        data = {'item': {'item_name': 'underskirt_001'}, 'armor': {'max_status': '10'},
+                'player_item': {'ui_name': 'ui_nm_underskirt', 'ui_info': ''},
+                'pickable_item': {'weight': '2', 'price': '72'}, 'equippable_item': {'charisma': '0'}}
+        class Tables:
+            def row(self, table, field, identity):
+                return data[table.split('/')[-1]]
+        strings = ET.fromstring('<Table><Row><Cell>ui_nm_underskirt</Cell><Cell>Underskirt</Cell><Cell>Underskirt</Cell></Row></Table>')
+        template = ET.Element('Armor', UIName='native_dress', UIInfo='native_dress_info', Price='1', Weight='1')
+        item, text = source_item(Tables(), 'source-id', 'female_a', 'skirt_component', template, strings)
+        self.assertEqual(item.get('UIName'), 'female_a_ui_nm_underskirt')
+        self.assertIsNone(item.get('UIInfo'))
+        self.assertEqual([row.findtext('Cell') for row in text], ['female_a_ui_nm_underskirt'])
+        self.assertEqual((item.get('Price'), item.get('Clothing')), ('72', 'skirt_component'))
+        self.assertEqual(template.get('UIInfo'), 'native_dress_info')
+        data['player_item'] = {'ui_name': '', 'ui_info': ''}
+        with self.assertRaisesRegex(ValueError, 'no ui_name'):
+            source_item(Tables(), 'source-id', 'female_a', 'skirt_component', template, strings)
+
     def test_import_retains_source_item_identity_and_localized_text(self):
         data = {'item': {'item_name': 'source_gown'}, 'armor': {'max_status': '40'},
                 'player_item': {'ui_name': 'ui_gown', 'ui_info': 'ui_gown_info'},
