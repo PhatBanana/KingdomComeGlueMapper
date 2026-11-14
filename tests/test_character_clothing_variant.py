@@ -30,5 +30,12 @@ class VariantTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             resolve_variant(dict(self.part, morph_target='#A_missing'), ['#A_shrink'], [self.base])
 
+    def test_variant_name_case_follows_the_mesh(self):
+        # rat_bailiff_wife: clothing asks for #V_003, the mesh spells it #v_003.
+        variant, report = resolve_variant(dict(self.part, morph_target='#V_003'), ['#V_001', '#v_003'], [])
+        self.assertEqual((variant, report['status'], report['requested']), ('#v_003', 'case_folded', '#V_003'))
+        with self.assertRaises(ValueError):   # more than one case-folded match stays an error
+            resolve_variant(dict(self.part, morph_target='#V_003'), ['#v_003', '#v_003'], [])
+
 
 if __name__ == '__main__': unittest.main()
