@@ -40,10 +40,21 @@ TOWNS = {
     'sasau': ((918.0, 1283.0), 557.0),
     'ledetchko': ((2036.0, 1316.0), 308.0),
 }
+# Further parts of a town, checked after every TOWNS circle. Talmberg village
+# lies below the castle by the river, outside the castle circle (the smith,
+# Rupert Kolin, the masons and the lumberjacks).
+TOWN_PARTS = {
+    'talmberg': (((2150.0, 3020.0), 160.0),),
+}
+# Profiles q_master_main enables at New Game (its ProfileCanBeLoaded ->
+# EnableProfile startup list) whose layers hold a town's everyday people. Their
+# people are placed like base-world ones. tal_others stays on until
+# q_counterOffensive, long after the escape to Talmberg.
+NEW_GAME_PROFILES = ('tal_others', 'tal_others_castle')
 # Souls a quest branch registers itself (feat/kcd1-quests-1).
 RESERVED = frozenset({'rat_refugee_ales'})
-# Placed people the KCD1 main quests up to the hunt need, with or without work
-# (feat/kcd1-quests-1, 2026-11-14).
+# Placed people the KCD1 main quests need, with or without work
+# (feat/kcd1-quests-1, 2026-11-14; q_escapeToTalmberk for Talmberg).
 QUEST_PEOPLE = frozenset({'rat_bernard', 'rat_bailiff', 'rat_hanus', 'rat_racek_kobyla', 'rat_ptacek',
                           'rat_guardJanik', 'rat_refugee_jana', 'rat_refugee_beggar', 'rat_parson',
                           # q_escapeToTalmberk (Talmberg session, 2026-11-14).
@@ -57,7 +68,19 @@ def town_of(pos):
     for name, ((cx, cy), r) in TOWNS.items():
         if (pos[0] - cx) ** 2 + (pos[1] - cy) ** 2 <= r * r:
             return name
+    for name, parts in TOWN_PARTS.items():
+        for (cx, cy), r in parts:
+            if (pos[0] - cx) ** 2 + (pos[1] - cy) ** 2 <= r * r:
+                return name
     return None
+
+
+def new_game_layers(profiles, profile_names=NEW_GAME_PROFILES):
+    """Level documents (layers/<layer>.xml) of the profiles enabled at New Game."""
+    wanted = {n.lower() for n in profile_names}
+    return sorted({'layers/' + layer.text.lower() + '.xml'
+                   for profile in profiles.iter('GameProfile') if profile.findtext('Name', '').lower() in wanted
+                   for layer in profile.findall('GameLayers/GameLayer')})
 
 
 def position(entity):
@@ -169,11 +192,14 @@ def census(source, towns, package=None, actor_reports=(), progress_path=None, ta
         raise ValueError('Unknown town: ' + ', '.join(sorted(unknown)))
     with zipfile.ZipFile(source/'Data/Levels/rataje/level.pak') as z:
         souls = E.fromstring(read(z, 'whdata_0'))
-        mission = E.fromstring(read(z, 'objects_mission0.xml'))
+        members = {n.replace('\\', '/').lower(): n for n in z.namelist()}
+        documents = [E.fromstring(read(z, 'objects_mission0.xml'))]
+        documents += [E.fromstring(read(z, members[path])) for path in new_game_layers(E.fromstring(read(z, 'whdata_1')))
+                      if path in members]
     names_by_guid = {int(s.findtext('EntityGuid')): s.findtext('Name')
                      for s in souls.findall('SoulList/Souls/Soul') if s.findtext('EntityGuid')}
     placed = {}
-    for e in mission.iter('Entity'):
+    for e in (e for document in documents for e in document.iter('Entity')):
         if e.get('EntityClass') not in ('NPC', 'NPC_Female') or not e.get('EntityGuid'):
             continue
         name = names_by_guid.get(int(e.get('EntityGuid'), 16))
