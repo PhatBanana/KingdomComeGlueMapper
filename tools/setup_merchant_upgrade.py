@@ -58,7 +58,21 @@ MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),
              ('rat_spaAbbess', 'gm_source_shop_83'),
              ('sas_spaMistress', 'gm_source_shop_82'),
              ('led_barber1', 'gm_source_shop_84'),
-             ('tal_spaAbbess', 'gm_source_shop_85'))
+             ('tal_spaAbbess', 'gm_source_shop_85'),
+             # Fifth batch: bulk run over every remaining shop (issues/items/shops-5).
+             # rat_berthold keeps the huntsman shop through his default future links.
+             ('rat_berthold', 'gm_source_shop_122'),
+             ('rat_konyas', 'gm_source_shop_42'),
+             ('sam_merchant', 'gm_source_shop_10'),
+             ('led_tailors_wife', 'gm_source_shop_47'),
+             ('led_pickpocket_merchant', 'gm_source_shop_75'),
+             ('sas_butchers_wife', 'gm_source_shop_66'),
+             ('sas_merchant', 'gm_source_shop_67'),
+             ('sas_shoemarkers_wife', 'gm_source_shop_69'),
+             ('sas_swordsmiths_wife', 'gm_source_shop_80'),
+             ('aus_butchers_wife', 'gm_source_shop_113'),
+             ('aus_merchant', 'gm_source_shop_115'),
+             ('prib_butchers_wife', 'gm_source_shop_161'))
 SOURCE_SHOP = 'gm_source_shop_'
 
 

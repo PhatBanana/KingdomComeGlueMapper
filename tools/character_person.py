@@ -146,6 +146,36 @@ def world_entity(archive, entity, entities, provenance=None):
     return result
 
 
+def initial_future_links(actor):
+    """Apply the source init of default future links (utils.xml initDynamicHome).
+
+    An NPC without a Home link gets one to its futureHome whose event is empty;
+    without a Work link, a Work[occupation] link to its un-evented futureWork.
+    Evented future links stay quest-only. Returns a copy when anything is added.
+    """
+    links = actor.find('EntityLinks')
+    if links is None: return actor
+    names = [l.get('Name', '') for l in links]
+    tags = [n.split('[', 1)[0] for n in names]
+    def default(tag):
+        return [l for l, n in zip(links, names) if n.split('[', 1)[0] == tag and 'event(' not in n]
+    added = []
+    if not any(t.split(',')[0] == 'Home' for t in tags):
+        homes = default('futureHome')
+        if len(homes) > 1: raise ValueError('Ambiguous default future home')
+        added += [('Home', homes[0])] if homes else []
+    if 'Work' not in tags:
+        works = default('futureWork')
+        if len(works) > 1: raise ValueError('Ambiguous default future work')
+        if works: added.append(('Work' + works[0].get('Name')[len('futureWork'):], works[0]))
+    if not added: return actor
+    import copy
+    actor = copy.deepcopy(actor); links = actor.find('EntityLinks')
+    for label, link in added:
+        new = ET.SubElement(links, 'Link', dict(link.attrib)); new.set('Name', label)
+    return actor
+
+
 def resolve_person(source, name, level='rataje', *, include_ai=True):
     with RetailSourceReader(source) as reader:
         tables = SourceTables(source, reader)
@@ -166,6 +196,7 @@ def resolve_person(source, name, level='rataje', *, include_ai=True):
                             actor_sources[entry] = hashlib.sha256(blob).hexdigest()
         actor = unique((e for e in entities if e.get('Name') == name and
                         e.get('EntityClass') in ('NPC', 'NPC_Female')), 'source person')
+        actor = initial_future_links(actor)
         if include_ai:
             entities = resolve_link_targets(archive, actor, entities, actor_sources)
         instance = unique((s for s in ET.fromstring(read(archive, 'whdata_0')).findall('./SoulList/Souls/Soul')
