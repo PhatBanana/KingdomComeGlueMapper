@@ -71,11 +71,6 @@
       "trees": 1
     },
     {
-      "reason": "Job item class conversion did not complete: 63abdbb4-b0fd-464b-87a4-80d26b33872a",
-      "sites": 2,
-      "trees": 2
-    },
-    {
       "reason": "Monologue request fields need an ABI adapter",
       "sites": 2,
       "trees": 1
@@ -116,21 +111,6 @@
       "trees": 1
     },
     {
-      "reason": "Job item class conversion did not complete: 8d76f58e-a521-4205-a7e8-9ac077eee5f0",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Job item class conversion did not complete: 983a6813-20b6-4fc8-bc2d-105939ff6000",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Job item class conversion did not complete: ea98e001-9d40-4eb8-a198-ccf5cb548747",
-      "sites": 1,
-      "trees": 1
-    },
-    {
       "reason": "Quest lifecycle policy needs an adapter: CancelQuest",
       "sites": 1,
       "trees": 1
@@ -167,21 +147,6 @@
     },
     {
       "reason": "Referenced AI link type conversion did not complete: testDoorAnim",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced item conversion did not complete: 5ef63059-322e-4e1b-abe8-926e100c770e",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced item conversion did not complete: d7a081e8-2b8c-49d0-915d-2d3c8d4c5274",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced item conversion did not complete: ff2b21b8-c613-45ff-89c6-8a347cf37ff6",
       "sites": 1,
       "trees": 1
     },
@@ -269,9 +234,9 @@
       "trees": 26
     },
     "items": {
-      "reasons": 8,
-      "sites": 9,
-      "trees": 2
+      "reasons": 1,
+      "sites": 1,
+      "trees": 1
     },
     "link_types": {
       "reasons": 8,

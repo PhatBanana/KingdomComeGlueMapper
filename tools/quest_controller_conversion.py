@@ -23,6 +23,7 @@ hand-written notes of an existing blocker file are kept on regeneration.
       [--write-golden]
 """
 import argparse
+from contextlib import ExitStack
 from collections import Counter, defaultdict
 import json
 from pathlib import Path
@@ -97,6 +98,7 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
     from campaign_behavior import convert_behaviors, native_catalog
     from campaign_buffs import BuffAdapter, native_contract as native_buff_contract
     from campaign_dependency_adapters import ItemTextAdapter, LazyAdapter
+    from world_item_definitions import native_items, native_item_registry
     from campaign_dependencies import DependencyImporter
     from campaign_link_types import LinkTypeAdapter
     from campaign_profiles import STREAMING_SOURCE
@@ -107,7 +109,7 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
     campaign_controller_contracts.register()
     catalog = native_catalog(kcd2)
     types = AITypeSource.load(kcd1, retail_sources, 'C2', work / 'types')
-    with RetailSourceReader(kcd1) as reader, zipfile.ZipFile(kcd2 / 'Data/Scripts.pak') as scripts:
+    with ExitStack() as stack, RetailSourceReader(kcd1) as reader, zipfile.ZipFile(kcd2 / 'Data/Scripts.pak') as scripts:
         model, tables = import_model(kcd1, quest, reader)
         # Quests compiled alongside so cross-quest state operations can bind.
         others = [import_model(kcd1, name, reader)[0] for name in with_quests]
@@ -117,13 +119,18 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
         prepared['implicit_links'] = {identity: row for identity, row in prepared['implicit_links'].items()
                                       if identity not in links.source}
         links.source.update({identity: dict(row) for identity, row in prepared['implicit_links'].items()})
+        native_item_definitions = native_items(kcd2)
         importer = DependencyImporter(dict(
             ai_types=AIStructureAdapter(types, catalog['variable_types']), ai_enums=AIEnumAdapter(types),
             mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')), link_types=links,
             # The campaign compiler's own buff conversion: table data only, no world.
             buffs=LazyAdapter(lambda: BuffAdapter(tables, native_buff_contract(kcd2), 'C2')),
             strings=LazyAdapter(lambda: ItemTextAdapter(kcd1, 'C2', 'English')),
-            buff_strings=LazyAdapter(lambda: ItemTextAdapter(kcd1, 'C2', 'English', 'text_ui_soul.xml'))))
+            buff_strings=LazyAdapter(lambda: ItemTextAdapter(kcd1, 'C2', 'English', 'text_ui_soul.xml')),
+            items=LazyAdapter(lambda: item_adapter(kcd2, tables, native_item_definitions)),
+            # Models an item needs are converted into the work directory, as the campaign compiler does.
+            assets=LazyAdapter(lambda: static_assets(stack, kcd1, kcd2, work))),
+            dict(items=native_item_registry(native_item_definitions)))
         # The scene converter's aliases: requests fire its module, a generated dispatcher runs the callbacks.
         import campaign_controller_scenes
         scene_seam = campaign_controller_scenes.apply(models[0], set(scenes))
@@ -137,10 +144,42 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
                                                            profile_streaming=read(scripts, STREAMING_SOURCE),
                                                            schedule_adapter=lease)
     failed = Counter((group, job.get('error', '')) for (group, _), job in importer.jobs.items()
-                     if job.get('status') == 'conversion_failed' and group == 'buffs')
+                     if job.get('status') == 'conversion_failed' and group in ('buffs', 'items'))
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
-                buff_failures=[dict(reason=reason, buffs=count) for (_, reason), count in failed.most_common()],
+                import_failures=[dict(group=group, reason=reason, count=count) for (group, reason), count in failed.most_common()],
                 schedule=schedule, scenes=scene_seam)
+
+
+def static_assets(stack, kcd1, kcd2, work):
+    from campaign_dependency_adapters import StaticAssetAdapter
+    from game_paths import GameLibrary
+    (work / 'stage').mkdir(parents=True, exist_ok=True)
+    (work / 'asset-cache').mkdir(exist_ok=True)
+    paths = work / 'paths.json'
+    paths.write_text(json.dumps(dict(schema=1, kcd1=str(Path(kcd1).resolve()), kcd2=str(Path(kcd2).resolve()),
+                                     build=str((work / 'stage').resolve()))), encoding='utf-8')
+    return StaticAssetAdapter(stack, GameLibrary(paths), 'C2', work / 'asset-cache')
+
+
+def item_adapter(kcd2, tables, native_item_definitions):
+    """The campaign compiler's item conversion, as campaign_compile builds it.
+
+    It reads tables only. An item that needs a converted model, clothing or a
+    document image asks for adapters this harness does not carry and fails
+    with that reason.
+    """
+    from campaign_item_types import native_tool_types
+    from character_person import native_xml
+    from document_reading import native_reading_contract
+    from item_buffs import native_buffs
+    from upgrade_map import read
+    from world_item_definitions import WorldItemAdapter
+    with zipfile.ZipFile(Path(kcd2) / 'Data/Tables.pak') as archive:
+        weapons = native_xml(read(archive, 'Libs/Tables/item/weapon_class.xml'))
+        components = native_xml(read(archive, 'Libs/Tables/Character/CharacterComponent.xml'))
+    return WorldItemAdapter(tables, 'C2', native_item_definitions, {r.get('id'): r.get('name') for r in weapons[0]},
+                            components, native_tool_types=native_tool_types(kcd2),
+                            native_reading=native_reading_contract(kcd2), native_buffs=native_buffs(kcd2))
 
 
 def ledger(run):
