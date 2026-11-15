@@ -12,7 +12,7 @@
     },
     {
       "reason": "Referenced message_type conversion did not complete: cutscene",
-      "sites": 21,
+      "sites": 18,
       "trees": 3
     },
     {
@@ -59,11 +59,6 @@
       "reason": "Referenced buff conversion did not complete: 7524aadc-7819-4c55-a3cf-8caec0d0f437",
       "sites": 5,
       "trees": 3
-    },
-    {
-      "reason": "Referenced enum conversion did not complete: gameVersion",
-      "sites": 4,
-      "trees": 1
     },
     {
       "reason": "Unconverted custom behavior request fields",
@@ -323,11 +318,6 @@
       "sites": 103,
       "trees": 26
     },
-    "enum": {
-      "reasons": 1,
-      "sites": 4,
-      "trees": 1
-    },
     "items": {
       "reasons": 8,
       "sites": 9,
@@ -345,7 +335,7 @@
     },
     "message_type": {
       "reasons": 3,
-      "sites": 27,
+      "sites": 24,
       "trees": 5
     },
     "op_inexpressible": {
@@ -431,6 +421,7 @@
     "scope_resolutions": 274,
     "stand_ins": {
       "DrawWeapon->DrawAction": 1,
+      "IfCondition->IfCondition": 4,
       "InstantDrawWeapon->DrawAction": 2,
       "LODCheck->SuppressFailure": 1,
       "MakeMeIdle->StopMovement": 4,
@@ -440,6 +431,140 @@
     "verbatim_lua": 7
   },
   "quest": "q_skalitz",
+  "scenes": {
+    "aliases": {
+      "forging_father_insert": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": null
+      },
+      "kovani_otcem": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": null
+      },
+      "navsteva_racka": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": {
+          "objective": "save_questStarted",
+          "quest": "q_escapeToTalmberk"
+        }
+      }
+    },
+    "converted_requests": 3,
+    "dispatcher": "q_skalitz_scene_dispatch",
+    "handed_to_playback": [
+      "save lock while the scene runs",
+      "fader and sound mute",
+      "player-not-in-scene lock",
+      "dropping a carried body",
+      "combat prevention and its buffs",
+      "player pre-teleport",
+      "actor restrictions and scene clothes",
+      "time of day",
+      "scene subscriptions",
+      "actor teleports and readiness wait",
+      "post-scene fade-in"
+    ],
+    "module": "gm_q_skalitz_scenes",
+    "not_owned": {
+      "(no alias)": 1,
+      "blankaGivesBeer": 1,
+      "dialogAfterKunesBeaten": 1,
+      "dialogAfterKunesWon": 4,
+      "dialogAfterSarka": 1,
+      "dialogBeforeKunes": 1,
+      "dialogBeforePainting": 1,
+      "dialogWithGuards": 1,
+      "manure_throw_nohenry": 1,
+      "nemec_hazeni_hnoje": 2,
+      "nemec_hospodska_hadka": 1,
+      "stribrna_skalice": 3
+    },
+    "requests": 21,
+    "runtime_verified": false,
+    "wiring": [
+      {
+        "alias": "forging_father_insert",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_forging_father_insert",
+        "type": "trigger"
+      },
+      {
+        "alias": "forging_father_insert",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_forging_father_insert",
+        "type": "bool"
+      },
+      {
+        "alias": "forging_father_insert",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_forging_father_insert",
+        "type": "trigger"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_kovani_otcem",
+        "type": "trigger"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_kovani_otcem",
+        "type": "bool"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_kovani_otcem",
+        "type": "trigger"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_navsteva_racka",
+        "type": "trigger"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_navsteva_racka",
+        "type": "bool"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_navsteva_racka",
+        "type": "trigger"
+      }
+    ]
+  },
   "schedule": {
     "accepted_requests": 5,
     "accepted_shape_in_a_rejected_tree": 15,
@@ -495,14 +620,14 @@
     "failed": 0,
     "nodes_compared": 224,
     "passed": 18,
-    "residue": 55,
+    "residue": 56,
     "rewritten_nodes": 2,
     "stand_in_nodes": 1
   },
   "trees": {
     "blocked": 40,
-    "blocked_by_include": 15,
+    "blocked_by_include": 16,
     "emitted": 18,
-    "total": 73
+    "total": 74
   }
 }

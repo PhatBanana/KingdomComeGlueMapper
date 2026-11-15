@@ -102,6 +102,9 @@ CONTRACTS = {
     # DrawAction WeaponSet="Primary" fullBody="false" tags="" useSelectedWeaponSet="false".
     'StopMovement': dict(waitUntilStopped='value'),
     'DrawAction': dict(WeaponSet='value', fullBody='value', tags='string_expression', useSelectedWeaponSet='value'),
+    # The barrier the quest bridge emits for objective gates; the scene
+    # dispatcher uses it with a context of its own (campaign_controller_scenes).
+    'GameContextBarrier': dict(context='value', Negation='value', RunLogic='value'),
 }
 # Engine-owned records: absent from KCD1 TypeDefinitions, declared as variable
 # types in retail KCD2 trees (the compiler still requires the type in the
@@ -360,6 +363,23 @@ def _after_animation(node):
     return _node('Sequence', [dict(node, children=[])] + event['children'])
 
 
+SAVE_VERSION = re.compile(r'\$__version\.loaded\s*<\s*\$enum:gameVersion\.[A-Za-z_]\w*')
+
+
+def _no_old_save(node):
+    """IfCondition `$__version.loaded < $enum:gameVersion.<KCD1 patch>` -> condition false.
+
+    A KCD1 save-migration check: it runs a fix-up when a save made before a
+    KCD1 patch is loaded. No KCD1 save can be loaded into the port, so no save
+    predates those patches. The branch is kept under a false condition.
+    KCD2's own `$__version.loaded` counts KCD2 versions, so converting the
+    enum would compare unrelated numbers. Remove this entry to reverse it.
+    """
+    if not SAVE_VERSION.fullmatch(_text(node, 'condition').strip()):
+        raise NotApplicable()
+    return dict(node, attributes=dict(node['attributes'], condition='"false"'))
+
+
 # Stand-ins: KCD1 operations with no faithful KCD2 form, replaced by the
 # closest native one by decision. Each use is reported as `stand_in`, never as
 # a faithful conversion. source op -> (native shape, rule, approval).
@@ -368,7 +388,9 @@ STAND_INS = {'MakeMeIdle': ('StopMovement', _stop_movement, APPROVED),
              'InstantDrawWeapon': ('DrawAction', _draw_action, APPROVED),
              'DrawWeapon': ('DrawAction', _draw_action, APPROVED),
              'LODCheck': ('the Detail branch', _detail_branch, APPROVED),
-             'PlayAnimation': ('Sequence after the animation', _after_animation, APPROVED)}
+             'PlayAnimation': ('Sequence after the animation', _after_animation, APPROVED),
+             'IfCondition': ('IfCondition false', _no_old_save,
+                             'recommended 2026-11-14, not confirmed by Sean; flagged in the ledger')}
 
 
 # source op -> (native shape, rule). The rule's docstring is its evidence.
@@ -486,6 +508,9 @@ def _before(compiler, source, record):
     return source, None
 
 
+# generated op -> handler(compiler, source node, owner): an emitted element for
+# a leaf, or the source node to lower in its place. Filled by register().
+LOWERINGS = {}
 # native op -> hook(compiler, emitted node, source node, site, record)
 POST = {'ProfileLoadedGate': _profile, 'DecoratorBuff': _buff, 'EvaLLyzer': _link_expression}
 GENERIC = 'Behavior operation needs an adapter: '
@@ -499,6 +524,8 @@ def register():
     """
     import campaign_ai_types
     import campaign_behavior
+    import campaign_controller_scenes
+    LOWERINGS.update(campaign_controller_scenes.LOWERINGS)
     for source, target in ENGINE_TYPES.items():
         campaign_ai_types.ENGINE_TYPE_ADAPTERS.setdefault(source, target)
     added = [op for op in CONTRACTS if op not in campaign_behavior.CONTRACTS]
@@ -508,6 +535,13 @@ def register():
     if not hasattr(original, 'controller_contracts'):
         def lower_node(self, source, owner, document, tree, path, record, animation_controllers=None):
             before = len(record['unresolved'])
+            handler = LOWERINGS.get(source['op'])
+            if handler is not None:
+                result = handler(self, source, owner)
+                if not isinstance(result, dict):
+                    self.converted[source['op']] += 1
+                    return result
+                source = result
             lowered, finish = _before(self, source, record)
             node = original(self, lowered, owner, document, tree, path, record, animation_controllers)
             if node is not None and finish is not None:

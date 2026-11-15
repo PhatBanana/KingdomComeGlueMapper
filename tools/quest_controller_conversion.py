@@ -18,7 +18,8 @@ An operation with no native equivalent is marked `inexpressible`. The
 hand-written notes of an existing blocker file are kept on regeneration.
 
   python tools/quest_controller_conversion.py --kcd1 <dir> --kcd2 <dir> --quest q_skalitz
-      --work <fresh dir> [--with q_other ...] [--level rataje] [--blockers <file.md>] [--golden <file>]
+      --work <fresh dir> [--with q_other ...] [--level rataje] [--scenes alias ...] [--blockers <file.md>]
+      [--golden <file>]
       [--write-golden]
 """
 import argparse
@@ -90,7 +91,7 @@ def shape(source, emitted, path, problems):
     return 1 + sum(shape(s, e, path + '/' + str(i), problems) for i, (s, e) in enumerate(zip(source['children'], children)))
 
 
-def convert(kcd1, kcd2, quest, work, with_quests=(), level=None):
+def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
     from campaign_ai_registration import MailboxAdapter, NativeAIRegistry
     from campaign_ai_types import AIEnumAdapter, AIStructureAdapter, AITypeSource
     from campaign_behavior import convert_behaviors, native_catalog
@@ -117,6 +118,9 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None):
         importer = DependencyImporter(dict(
             ai_types=AIStructureAdapter(types, catalog['variable_types']), ai_enums=AIEnumAdapter(types),
             mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')), link_types=links))
+        # The scene converter's aliases: requests fire its module, a generated dispatcher runs the callbacks.
+        import campaign_controller_scenes
+        scene_seam = campaign_controller_scenes.apply(models[0], set(scenes))
         # With a level, the daycycle requests the lease adapter accepts are bound to its actors.
         lease, schedule = None, None
         if level:
@@ -127,7 +131,7 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None):
                                                            profile_streaming=read(scripts, STREAMING_SOURCE),
                                                            schedule_adapter=lease)
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
-                schedule=schedule)
+                schedule=schedule, scenes=scene_seam)
 
 
 def ledger(run):
@@ -195,7 +199,7 @@ def ledger(run):
                               implicit_links=len(run['prepared'].get('implicit_links', ())),
                               value_renames=len(run['prepared'].get('value_renames', ())), verbatim_lua=verbatim,
                               completed_branches=len(run['prepared'].get('completed_branches', ()))),
-                schedule=run.get('schedule'),
+                schedule=run.get('schedule'), scenes=run.get('scenes'),
                 lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
                             for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
@@ -215,7 +219,7 @@ def markdown(led, main_path=()):
              '**Layer 1 (emitted trees vs source shape):** checked %(checked)d, passed %(passed)d, failed %(failed)d; '
              '%(residue)d trees not emitted; %(rewritten_nodes)d nodes of the emitted trees are rewritten operations, '
              '%(stand_in_nodes)d of them stand-ins.' % led['layers']['source_equivalence']['summary'], '',
-             '**Stand-ins (not faithful; approved replacements) in this controller:** '
+             '**Stand-ins (not faithful; approved replacements, the save-version check `IfCondition` is unconfirmed) in this controller:** '
              + (', '.join('`%s` x%d' % item for item in sorted(led['prepared'].get('stand_ins', {}).items())) or 'none') + '.', '',
              '## By family', '', '| Family | Reasons | Sites | Trees |', '|---|---:|---:|---:|']
     lines += ['| %s | %d | %d | %d |' % (k, v['reasons'], v['sites'], v['trees']) for k, v in led['families'].items()]
@@ -227,6 +231,18 @@ def markdown(led, main_path=()):
     lines += ['', '## Blockers', '', '| Reason | Family | Sites | Trees | Status |', '|---|---|---:|---:|---|']
     lines += ['| %s | %s | %d | %d | %s |' % (r['reason'].replace('|', '/')[:110], r['family'], r['sites'], len(r['trees']), r['status'])
               for r in led['blockers']]
+    if led.get('scenes'):
+        seam = led['scenes']
+        lines += ['', '## Scene requests and the scene module', '',
+                  'Module `%s`. %d `cutscene` requests; %d converted (fire `play_<alias>`); dispatcher tree: %s.' % (
+                      seam['module'], seam['requests'], seam['converted_requests'],
+                      '`%s` (generated; stands where `cutsceneAutomaton` was)' % seam['dispatcher'] if seam['dispatcher'] else 'none'),
+                  '', '| Alias | Requests | State | Save objective | Playback fields (C5) |', '|---|---:|---|---|---|']
+        lines += ['| %s | %d | %s | %s | %s |' % (alias, a['requests'], 'converted' if a['converted'] else a['reason'],
+                                                '%(quest)s.%(objective)s' % a['save'] if a['save'] else '',
+                                                ', '.join(a['playback_fields']))
+                  for alias, a in sorted(seam['aliases'].items())]
+        lines += ['| %s | %d | not owned by the scene converter | | |' % item for item in sorted(seam['not_owned'].items())]
     if led.get('schedule'):
         plan = led['schedule']
         lines += ['', '## Daycycle requests and the lease adapter', '',
@@ -253,7 +269,7 @@ def golden(led):
                 blockers=[dict(reason=r['reason'], sites=r['sites'], trees=len(r['trees'])) for r in led['blockers']],
                 prepared=led['prepared'], source_equivalence=led['layers']['source_equivalence']['summary'],
                 lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])],
-                schedule=led.get('schedule'))
+                schedule=led.get('schedule'), scenes=led.get('scenes'))
 
 
 def main():
@@ -263,10 +279,11 @@ def main():
     p.add_argument('--with', dest='with_quests', nargs='*', default=[])
     p.add_argument('--main-path', nargs='*', default=[], help='Trees to list first in the blocker file')
     p.add_argument('--level', help='Source level that binds the controller actors, e.g. rataje')
+    p.add_argument('--scenes', nargs='*', default=[], help='Scene aliases the scene converter (C5) owns')
     p.add_argument('--blockers', type=Path); p.add_argument('--golden', type=Path)
     p.add_argument('--write-golden', action='store_true')
     a = p.parse_args()
-    led = ledger(convert(a.kcd1, a.kcd2, a.quest, a.work, a.with_quests, a.level))
+    led = ledger(convert(a.kcd1, a.kcd2, a.quest, a.work, a.with_quests, a.level, a.scenes))
     print(json.dumps(dict(quest=led['quest'], trees=led['trees'], families=led['families'],
                           layer1=led['layers']['source_equivalence']['summary'])))
     failed = led['layers']['source_equivalence']['verdict'] != 'PASS'

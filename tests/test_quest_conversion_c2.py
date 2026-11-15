@@ -411,6 +411,17 @@ class ContractTests(unittest.TestCase):
         self.assertIsNone(lower(['distance2dSq'])[0])
         self.assertEqual(source['attributes']['Operation'], 'distance2dSq_wuid')
 
+    def test_a_kcd1_save_version_check_is_a_flagged_always_false_stand_in(self):
+        check = node('IfCondition', [node('Success')], failOnCondition=q('false'),
+                     condition=q('$__version.loaded < $enum:gameVersion.Ver_01_05'))
+        self.assertEqual(self.stand_in(check), '<IfCondition failOnCondition="false" condition="false"><Success /></IfCondition>')
+        for other in ('$__version.loaded >= $enum:gameVersion.Ver_01_05', '$count < $enum:gameVersion.Ver_01_05',
+                      '$__version.loaded < $enum:gameVersion.Ver_01_05 & $ready', '$ready'):
+            _, _, report = self.lower(dict(check, attributes=dict(check['attributes'], condition=q(other))),
+                                      [dict(name='ready', type='_bool', form='single'), dict(name='count', type='_int', form='single')])
+            self.assertEqual((report['stand_ins'], report['rename_blocked']), ([], []))
+        self.assertIn('not confirmed', contracts.STAND_INS['IfCondition'][2])
+
     def test_every_rewrite_target_and_hook_has_a_contract(self):
         import campaign_behavior
         contracts.register()
@@ -454,7 +465,8 @@ class RetailTests(unittest.TestCase):
     def test_q_skalitz_matches_its_golden_fixture(self):
         with tempfile.TemporaryDirectory() as tmp:
             led = c2.ledger(c2.convert(KCD1, KCD2, 'q_skalitz', Path(tmp) / 'work',
-                                       ['q_tutorials', 'q_tutorial_swordOne', 'q_escapeToTalmberk'], 'rataje'))
+                                       ['q_tutorials', 'q_tutorial_swordOne', 'q_escapeToTalmberk'], 'rataje',
+                                       ['kovani_otcem', 'forging_father_insert', 'navsteva_racka']))
         self.assertEqual(led['layers']['source_equivalence']['failures'], [])
         self.assertEqual(json.loads(json.dumps(c2.golden(led), sort_keys=True)),
                          json.loads((FIXTURES / 'q_skalitz.c2.golden.json').read_text(encoding='utf-8')))
