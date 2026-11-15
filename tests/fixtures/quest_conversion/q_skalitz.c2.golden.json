@@ -21,14 +21,9 @@
       "trees": 6
     },
     {
-      "reason": "Behavior operation needs an adapter: FinishPatch",
+      "reason": "Daycycle patch end needs the scheduled-activity lease: FinishPatch",
       "sites": 12,
       "trees": 11
-    },
-    {
-      "reason": "Behavior operation needs an adapter: AreaPresence",
-      "sites": 11,
-      "trees": 1
     },
     {
       "reason": "Referenced buff conversion did not complete: 360e7fef-1051-446a-b133-7f5970af00f7",
@@ -51,14 +46,9 @@
       "trees": 1
     },
     {
-      "reason": "Behavior operation needs an adapter: AddOpponent",
+      "reason": "Inexpressible as one native operation: AddOpponent (AddToSkirmish holds only while it runs)",
       "sites": 7,
       "trees": 4
-    },
-    {
-      "reason": "Behavior operation needs an adapter: ProfileLoadedGate",
-      "sites": 6,
-      "trees": 3
     },
     {
       "reason": "Custom combat dispatch requires a native behavior-consumer adapter",
@@ -71,7 +61,7 @@
       "trees": 4
     },
     {
-      "reason": "Behavior operation needs an adapter: MakeMeIdle",
+      "reason": "Inexpressible as one native operation: MakeMeIdle (no idle-reset operation)",
       "sites": 4,
       "trees": 4
     },
@@ -101,14 +91,14 @@
       "trees": 3
     },
     {
-      "reason": "Behavior operation needs an adapter: Detail",
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_attack",
       "sites": 3,
-      "trees": 3
+      "trees": 2
     },
     {
-      "reason": "Behavior operation needs an adapter: LOD",
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_mother_dialog_cameras",
       "sites": 3,
-      "trees": 3
+      "trees": 2
     },
     {
       "reason": "Referenced world profile conversion did not complete: q_skalitz_skinnerhouse",
@@ -131,47 +121,7 @@
       "trees": 3
     },
     {
-      "reason": "Behavior operation needs an adapter: AddPerceivableState",
-      "sites": 2,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: EvaLLyzer",
-      "sites": 2,
-      "trees": 2
-    },
-    {
-      "reason": "Behavior operation needs an adapter: InstantDrawWeapon",
-      "sites": 2,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: JoinedAnimationSynchronize",
-      "sites": 2,
-      "trees": 2
-    },
-    {
-      "reason": "Behavior operation needs an adapter: LODGuardian",
-      "sites": 2,
-      "trees": 2
-    },
-    {
-      "reason": "Behavior operation needs an adapter: LODLock",
-      "sites": 2,
-      "trees": 2
-    },
-    {
-      "reason": "Behavior operation needs an adapter: Look",
-      "sites": 2,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: MoraleGate",
-      "sites": 2,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: SetOwner",
+      "reason": "Inexpressible as one native operation: InstantDrawWeapon (DrawAction always animates)",
       "sites": 2,
       "trees": 1
     },
@@ -182,6 +132,11 @@
     },
     {
       "reason": "Monologue request fields need an ABI adapter",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Native operation lives in the quest graph: SetOwner (Skald Effect What/Who; needs a signal bridge)",
       "sites": 2,
       "trees": 1
     },
@@ -211,9 +166,14 @@
       "trees": 2
     },
     {
-      "reason": "Referenced world profile conversion did not complete: q_skalitz_mother_dialog_cameras",
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_givenhorse",
       "sites": 2,
-      "trees": 2
+      "trees": 1
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_normal",
+      "sites": 2,
+      "trees": 1
     },
     {
       "reason": "Source index requires type resolution: $t_actors[kunes]",
@@ -224,46 +184,6 @@
       "reason": "Source index requires type resolution: t_actors[matus]",
       "sites": 2,
       "trees": 2
-    },
-    {
-      "reason": "Behavior operation needs an adapter: AnimationEventCatch",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: DecoratorBuff",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: DrawWeapon",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: LODCheck",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: OnEvent",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: StateMachineGate",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: StreamingInstallGate",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Behavior operation needs an adapter: Teleport",
-      "sites": 1,
-      "trees": 1
     },
     {
       "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
@@ -277,6 +197,21 @@
     },
     {
       "reason": "Graph edge type did not convert: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Inexpressible as one native operation: Detail (branch of an unconverted LOD operation)",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Inexpressible as one native operation: LOD (branch of an unconverted LOD operation)",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Inexpressible as one native operation: LODCheck (no one-shot LOD test)",
       "sites": 1,
       "trees": 1
     },
@@ -297,6 +232,21 @@
     },
     {
       "reason": "Missing-branch failure semantics need an adapter",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Native operation has no shipped example: AnimationEventCatch (name in WHGame.dll only)",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Native operation has no shipped example: OnEvent (branch of AnimationEventCatch)",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Native operation lacks source fields: DrawWeapon (DrawAction has no ToCombatGuard, noAnimation, who)",
       "sites": 1,
       "trees": 1
     },
@@ -346,6 +296,11 @@
       "trees": 1
     },
     {
+      "reason": "Referenced buff conversion did not complete: 8e9cb93a-eb5f-4846-be2c-2c7010872704",
+      "sites": 1,
+      "trees": 1
+    },
+    {
       "reason": "Referenced buff conversion did not complete: bd22f98a-e61f-4d83-b39c-79d1d85b6b91",
       "sites": 1,
       "trees": 1
@@ -377,16 +332,6 @@
     },
     {
       "reason": "Referenced mailbox conversion did not complete: sound_behavior",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced world profile conversion did not complete: q_skalitz_attack",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced world profile conversion did not complete: q_skalitz_givenhorse",
       "sites": 1,
       "trees": 1
     },
@@ -468,9 +413,11 @@
     "cutscene_game_over",
     "cutscene_nemec_hospodska_hadka",
     "fatherPatch",
+    "friends_meetingBeforeKunes",
     "friends_patch",
     "friends_work",
     "guard_goesToTheGate",
+    "matej_waitsInfrontOfPub",
     "matus_runAway",
     "mother_goingShopping",
     "tereza_waitsForNails",
@@ -483,9 +430,9 @@
       "trees": 3
     },
     "buff": {
-      "reasons": 8,
-      "sites": 29,
-      "trees": 5
+      "reasons": 9,
+      "sites": 30,
+      "trees": 6
     },
     "combat_dispatch": {
       "reasons": 4,
@@ -493,9 +440,9 @@
       "trees": 7
     },
     "daycycle_lifecycle": {
-      "reasons": 3,
-      "sites": 87,
-      "trees": 21
+      "reasons": 4,
+      "sites": 99,
+      "trees": 29
     },
     "enum": {
       "reasons": 1,
@@ -522,10 +469,15 @@
       "sites": 29,
       "trees": 6
     },
-    "op_no_contract": {
-      "reasons": 24,
-      "sites": 72,
-      "trees": 22
+    "op_inexpressible": {
+      "reasons": 6,
+      "sites": 16,
+      "trees": 8
+    },
+    "op_partial": {
+      "reasons": 4,
+      "sites": 5,
+      "trees": 2
     },
     "other": {
       "reasons": 1,
@@ -533,8 +485,8 @@
       "trees": 1
     },
     "profile": {
-      "reasons": 5,
-      "sites": 8,
+      "reasons": 6,
+      "sites": 14,
       "trees": 5
     },
     "quest_state": {
@@ -549,8 +501,16 @@
     }
   },
   "prepared": {
-    "rename_blocked": 63,
+    "rename_blocked": 321,
     "renamed": {
+      "AreaPresence->AreaPresenceGate": 34,
+      "AreaPresence->AreaPresenceListener": 7,
+      "JoinedAnimationSynchronize->Synchronize": 16,
+      "LODGuardian->DetailBehaviorBarrier": 66,
+      "LODGuardian->Sequence": 2,
+      "StateMachineGate->ActorStateBarrier": 16,
+      "StreamingInstallGate->IfGate": 2,
+      "Teleport->TeleportAction": 36,
       "TurnBody->Turn": 63
     },
     "scope_resolutions": 45
@@ -558,16 +518,17 @@
   "quest": "q_skalitz",
   "schema": 1,
   "source_equivalence": {
-    "checked": 12,
+    "checked": 14,
     "failed": 0,
-    "nodes_compared": 156,
-    "passed": 12,
-    "residue": 61
+    "nodes_compared": 188,
+    "passed": 14,
+    "residue": 59,
+    "rewritten_nodes": 1
   },
   "trees": {
-    "blocked": 50,
+    "blocked": 48,
     "blocked_by_include": 11,
-    "emitted": 12,
+    "emitted": 14,
     "total": 73
   }
 }

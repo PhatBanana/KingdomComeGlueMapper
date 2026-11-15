@@ -7,11 +7,15 @@ and reports, for the quest's own controller document:
 
     trees      emitted / blocked, with every blocked site and reason
     blockers   one row per reason: family, sites, trees, status
-    layer 1    shape equivalence of every emitted tree with its source tree
+    layer 1    shape equivalence of every emitted tree with its source tree as
+               prepared; rewritten operations are counted, and each rewrite
+               rule is checked against its source form by the unit tests
 
 A tree is emitted only when every site in it, and every tree it includes,
 converted. No branch is omitted. World, item, buff and profile dependencies
 need the full campaign importer; their reasons are marked `needs_importer`.
+An operation with no native equivalent is marked `inexpressible`. The
+hand-written notes of an existing blocker file are kept on regeneration.
 
   python tools/quest_controller_conversion.py --kcd1 <dir> --kcd2 <dir> --quest q_skalitz
       --work <fresh dir> [--with q_other ...] [--blockers <file.md>] [--golden <file>] [--write-golden]
@@ -27,6 +31,7 @@ import zipfile
 import campaign_controller_contracts
 
 FAMILIES = (
+    (r'^Inexpressible', 'op_inexpressible'), (r'^Native operation (lacks|has no|lives)', 'op_partial'),
     (r'[Dd]aycycle', 'daycycle_lifecycle'), (r'Lua|script requires', 'lua'),
     (r'operation needs an adapter', 'op_no_contract'), (r'attributes', 'op_attributes'),
     (r'buff', 'buff'), (r'index requires type|variable type|variable reference|variable has no|array index', 'typed_variables'),
@@ -34,11 +39,20 @@ FAMILIES = (
     (r'combat|faction', 'combat_dispatch'), (r'item', 'items'), (r'[Qq]uest|[Oo]bjective|Missing-branch', 'quest_state'),
     (r'animation', 'animation'), (r'enum', 'enum'),
 )
-NEEDS_IMPORTER = {'buff', 'items', 'profile'}
+STATUS = dict(buff='needs_importer', items='needs_importer', profile='needs_importer',
+              op_inexpressible='inexpressible')
 # Source operations the compiler replaces with another native shape.
 LOWERED = {'SetQuest', 'SetQuestObjective', 'QuestCondition', 'QuestObjectiveCondition', 'QuestObjectiveGate',
            'EnableProfile', 'ExecuteLua', 'PlayAnimation', 'SmartAreaBehaviorTag', 'SmartObjectBehaviorTag',
            'MeleeGuardAutomation', 'MeleeDefenseAutomation', 'MeleeOffenseAutomation', 'WeaponAutomation'}
+
+
+NOTES = '## Notes'
+
+
+def walk(node):
+    yield node
+    for child in node['children']: yield from walk(child)
 
 
 def family(reason):
@@ -113,7 +127,7 @@ def ledger(run):
         for tree in ([root] if root.tag == 'BehaviorTree' else root.iter('BehaviorTree')):
             emitted.setdefault(tree.get('name'), []).append(tree)
     trees, blockers = [], defaultdict(lambda: dict(sites=0, trees=set()))
-    checked = passed = nodes = 0
+    checked = passed = nodes = rewritten = 0
     failures = []
     for name, source in model['behavior_documents'][own]['trees'].items():
         record = records[(own, name)]
@@ -130,6 +144,7 @@ def ledger(run):
                 problems.append('expected one emitted tree named ' + name + ', found %d' % len(candidates))
             else:
                 nodes += shape(source['root'], candidates[0].find('Root'), 'Root', problems)
+                rewritten += sum('source_op' in node for node in walk(source['root']))
                 declared = [v.get('name') for v in candidates[0].findall('./Variables/*')]
                 if declared != [v['name'] for v in source['variables']]:
                     problems.append('variable declarations differ from the source')
@@ -137,7 +152,7 @@ def ledger(run):
             else: passed += 1
         trees.append(entry)
     rows = [dict(reason=reason, family=family(reason), sites=b['sites'], trees=sorted(b['trees']),
-                 status='needs_importer' if family(reason) in NEEDS_IMPORTER else 'open')
+                 status=STATUS.get(family(reason), 'open'))
             for reason, b in sorted(blockers.items(), key=lambda p: (-p[1]['sites'], p[0]))]
     by_family = defaultdict(lambda: dict(reasons=0, sites=0, trees=set()))
     for row in rows:
@@ -152,7 +167,8 @@ def ledger(run):
                               rename_blocked=len(run['prepared']['rename_blocked'])),
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
                     summary=dict(checked=checked, passed=passed, failed=len(failures),
-                                 residue=len(trees) - checked, nodes_compared=nodes), failures=failures)),
+                                 residue=len(trees) - checked, nodes_compared=nodes,
+                                 rewritten_nodes=rewritten), failures=failures)),
                 runtime_verified=False)
 
 
@@ -164,7 +180,8 @@ def markdown(led, main_path=()):
                  led['trees']['total'], led['trees'].get('emitted', 0), led['trees'].get('blocked', 0),
                  led['trees'].get('blocked_by_include', 0)),
              '**Layer 1 (emitted trees vs source shape):** checked %(checked)d, passed %(passed)d, failed %(failed)d; '
-             '%(residue)d trees not emitted.' % led['layers']['source_equivalence']['summary'], '',
+             '%(residue)d trees not emitted; %(rewritten_nodes)d nodes of the emitted trees are rewritten operations.'
+             % led['layers']['source_equivalence']['summary'], '',
              '## By family', '', '| Family | Reasons | Sites | Trees |', '|---|---:|---:|---:|']
     lines += ['| %s | %d | %d | %d |' % (k, v['reasons'], v['sites'], v['trees']) for k, v in led['families'].items()]
     if main_path:
@@ -201,7 +218,9 @@ def main():
     for failure in led['layers']['source_equivalence']['failures']: print('  FAIL', failure)
     if a.blockers:
         a.blockers.parent.mkdir(parents=True, exist_ok=True)
-        a.blockers.write_text(markdown(led, a.main_path), encoding='utf-8', newline='\n')
+        old = a.blockers.read_text(encoding='utf-8') if a.blockers.is_file() else ''
+        notes = '\n' + old[old.index(NOTES):] if NOTES in old else ''
+        a.blockers.write_text(markdown(led, a.main_path) + notes, encoding='utf-8', newline='\n')
     if a.golden:
         current = json.loads(json.dumps(golden(led), sort_keys=True))
         if a.write_golden:
