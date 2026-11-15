@@ -113,7 +113,8 @@ def wire_bridge(files, project, bridge_files, report, instance_name='source_ques
 
 
 def compile_campaign(source, target, level, output, project, entry_action='Libs/UI/UIActions/MM_NewGame.xml', registered=None,
-                     engine_enum_evidence=None, baseline_objects=None, baseline_level=None, actor_roots=None):
+                     engine_enum_evidence=None, baseline_objects=None, baseline_level=None, actor_roots=None,
+                     work=None):  # fork: skalitz-finish (persistent work directory; see campaign_compile_resume)
     identifier(project)
     source, target, output = Path(source), Path(target), Path(output)
     if baseline_objects is not None and baseline_level is not None:
@@ -123,9 +124,10 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
     if not (target / 'Data/Scripts.pak').is_file():
         raise ValueError('The installed retail target game is required')
     output.parent.mkdir(parents=True, exist_ok=True)
-    with ExitStack() as stack, RetailSourceReader(source) as resolver, tempfile.TemporaryDirectory(prefix='.campaign-convert-', dir=output.parent) as temporary:
+    import campaign_compile_resume as resume  # fork: skalitz-finish
+    with ExitStack() as stack, RetailSourceReader(source) as resolver, resume.work_directory(work, output) as temporary:
         stage = Path(temporary) / 'stage'
-        stage.mkdir()
+        stage.mkdir(exist_ok=work is not None)
         links = build_links(source, level, entry_action, source_reader=resolver)
         actor_roots = actor_roots or {}
         seeds = sorted({r['database_row']['quest_name'] for r in links['quests']} | set(actor_roots))
@@ -162,20 +164,28 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
                 continue
             attempted.add(name)
             progress('Converting campaign dependencies', len(attempted), len(attempted) + len(pending), name)
-            try:
+            def build(name=name):
                 definition = controller_definition(tables, tables.row('quest/quest', 'quest_name', name))
                 bootstrap = sorted({p['file'] for p in definition['entry_points']}) if definition else []
                 model, _ = import_quest(source, name, bootstrap=bootstrap, source_reader=resolver,
                                        require_behavior=False, profile_level=level,
                                        native_person_brains=native_person_brains, actor_roots=actor_roots.get(name, ()))
                 model['controller_registration'] = definition
+                return model
+            try:
+                if work is None:
+                    model = build()
+                else:  # fork: skalitz-finish
+                    model, _ = resume.quest_model(stage, name, dict(quest=name, level=level, roots=actor_roots.get(name, ()),
+                                                                    brains=native_person_brains), build)
             except (ValueError, KeyError) as error:
                 failures.append(dict(kind='quest_import', quest=name, reason=str(error)))
                 continue
             models[name] = model
             path = stage / 'source-ir' / (name + '.json')
-            path.parent.mkdir(exist_ok=True)
-            path.write_text(json.dumps(model, indent=2), encoding='utf-8')
+            if work is None:
+                path.parent.mkdir(exist_ok=True)
+                path.write_text(json.dumps(model, indent=2), encoding='utf-8')
             for dependency in quest_dependencies(model):
                 dependencies.append(dict(owner=name, **dependency))
                 if dependency['dynamic']:
@@ -210,7 +220,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         paths.write_text(json.dumps(dict(schema=1, kcd1=str(source.resolve()), kcd2=str(target.resolve()),
                                         build=str(stage.resolve()))), encoding='utf-8')
         cache = Path(temporary) / 'asset-cache'
-        cache.mkdir()
+        cache.mkdir(exist_ok=work is not None)
         ai_types = AITypeSource.load(source, resolver, project, Path(temporary) / 'type-cache')
         link_types = LinkTypeAdapter.load(source, target, resolver, project, Path(temporary) / 'link-cache')
         export_version = int.from_bytes(hashlib.sha256(area_data + project.encode()).digest()[:4], 'little') or 1
@@ -230,6 +240,7 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
         person_registration = PersonRegistration(source, target, tables,
             [e for blob in documents.values() for e in ET.fromstring(blob).iter('Entity')],
             stage / 'person-assets', project,
+            appearance_builder=resume.appearance_builder(Path(temporary), progress=progress) if work is not None else None,
             item_name=lambda identity: registered_item_name(identity, native_item_definitions, importer.files))
         from campaign_work_dependencies import for_models, templates, merge_world, import_all as import_work_graphs
         work_closures = for_models(models.values(), dict(entities=all_entities, links=[]))
@@ -443,9 +454,11 @@ def compile_campaign(source, target, level, output, project, entry_action='Libs/
             path = stage / 'native-fragments' / name
             path.parent.mkdir(parents=True, exist_ok=True)
             if isinstance(payload, Path):
-                shutil.copyfile(payload, path)
+                shutil.copyfile(payload, path) if work is None else resume.place(payload, path, stage)
             else:
                 path.write_bytes(payload)
+        if work is not None:
+            resume.release_people(stage)  # fork: skalitz-finish (their files now live under native-fragments)
         counts = Counter()
         for model in models.values():
             document = 'libs/ai/quests/' + model['quest'].lower() + '.xml'
@@ -506,6 +519,7 @@ def main():
     p.add_argument('--engine-enums', type=Path, help='Explicit source-engine enum evidence; revalidated read-only against WHGame.dll')
     p.add_argument('--baseline-objects', type=Path, help='Converted objects_mission0.xml to assemble gameplay placements into')
     p.add_argument('--baseline-level', type=Path, help='Converted level.pak to assemble native world registration resources into')
+    p.add_argument('--work', type=Path, help='Persistent work directory: reuse imported quest IR and converted people on restart')
     p.add_argument('--actor-roots', type=Path, help='JSON mapping source quest owners to actor names; imports their authored routines and work dependencies')
     a = p.parse_args()
     import setup_progress
@@ -517,7 +531,7 @@ def main():
             not isinstance(names, list) or not all(isinstance(n, str) and n for n in names)
             for names in actor_roots.values())):
         p.error('--actor-roots must map quest names to lists of source actor names')
-    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered, a.engine_enums, a.baseline_objects, a.baseline_level, actor_roots), indent=2))
+    print(json.dumps(compile_campaign(a.kcd1, a.kcd2, a.level, a.output, a.project, a.entry_action, registered, a.engine_enums, a.baseline_objects, a.baseline_level, actor_roots, a.work), indent=2))
 
 
 if __name__ == '__main__':
