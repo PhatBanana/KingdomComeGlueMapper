@@ -151,7 +151,7 @@ def unbound_intervals(intervals, *, beds, work, home):
     return missing
 
 
-def verify(package, source, target, out):
+def verify(package, source, target, out, marker_path=MARKER):
     import kcd1_shop_install as shop
     from campaign_sources import RetailSourceReader
     from campaign_dependency_adapters import SourceTables
@@ -164,7 +164,7 @@ def verify(package, source, target, out):
     package, source, target, out = map(Path, (package, source, target, out))
     with zipfile.ZipFile(package/TRAVEL) as travel:
         names = set(travel.namelist())
-        marker = json.loads(read(travel, MARKER))
+        marker = json.loads(read(travel, marker_path))
         people = [r['person'] for r in marker['residents']]
         work_residue = {}
         for row in marker.get('work', {}).get('pending', []):
@@ -270,8 +270,10 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     for key in ('package', 'source', 'target', 'out'):
         p.add_argument('--' + key, type=Path, required=True)
+    p.add_argument('--marker', default='resident_population',
+                   help='the stage whose people to verify (garrison_population for town guards)')
     a = p.parse_args(argv)
-    report = verify(a.package, a.source, a.target, a.out)
+    report = verify(a.package, a.source, a.target, a.out, f'Libs/GlueMapper/{a.marker}.json')
     print(json.dumps(dict(people=report['people'], failed=len(report['failed']), summary=report['summary']), indent=1))
     return 1 if report['failed'] else 0
 

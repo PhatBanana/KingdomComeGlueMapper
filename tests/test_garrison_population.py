@@ -63,6 +63,14 @@ class WorkClockTests(unittest.TestCase):
         schedule = [dict(activity='sleep', start_minute=540), dict(activity='work', start_minute=1228)]
         self.assertEqual(posts.work_intervals(schedule), [['20:28', '09:00']])
 
+    def test_verifier_spans_wrap_midnight_and_detect_post_clashes(self):
+        import verify_garrison as v
+        night, day = v.span('20:28', '09:00'), v.span('09:00', '20:28')
+        self.assertEqual(night, (1228, 1980))
+        self.assertFalse(v.overlaps(night, day))                       # relief at 09:00 is not a clash
+        self.assertTrue(v.overlaps(night, v.span('08:30', '12:00')))   # the morning guard arrives early
+        self.assertTrue(v.overlaps(v.span('23:00', '01:00'), v.span('00:30', '02:00')))
+
 
 def mission(*entities):
     by_id, by_guid = {}, {}
