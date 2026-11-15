@@ -1,0 +1,573 @@
+{
+  "blockers": [
+    {
+      "reason": "Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer",
+      "sites": 57,
+      "trees": 17
+    },
+    {
+      "reason": "Daycycle addition requires explicit scheduling policy",
+      "sites": 26,
+      "trees": 11
+    },
+    {
+      "reason": "Referenced message_type conversion did not complete: cutscene",
+      "sites": 21,
+      "trees": 3
+    },
+    {
+      "reason": "Source Lua requires a semantic adapter",
+      "sites": 16,
+      "trees": 6
+    },
+    {
+      "reason": "Behavior operation needs an adapter: FinishPatch",
+      "sites": 12,
+      "trees": 11
+    },
+    {
+      "reason": "Behavior operation needs an adapter: AreaPresence",
+      "sites": 11,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: 360e7fef-1051-446a-b133-7f5970af00f7",
+      "sites": 9,
+      "trees": 4
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: c7c79394-cd16-4d86-a029-f8a5f6623f9d",
+      "sites": 9,
+      "trees": 5
+    },
+    {
+      "reason": "Source index requires type resolution: t_actors[kunes]",
+      "sites": 9,
+      "trees": 4
+    },
+    {
+      "reason": "Quest objective gate lifecycle needs an adapter: AfterReset",
+      "sites": 8,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: AddOpponent",
+      "sites": 7,
+      "trees": 4
+    },
+    {
+      "reason": "Behavior operation needs an adapter: ProfileLoadedGate",
+      "sites": 6,
+      "trees": 3
+    },
+    {
+      "reason": "Custom combat dispatch requires a native behavior-consumer adapter",
+      "sites": 6,
+      "trees": 5
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: suppressAssaultReactions",
+      "sites": 6,
+      "trees": 4
+    },
+    {
+      "reason": "Behavior operation needs an adapter: MakeMeIdle",
+      "sites": 4,
+      "trees": 4
+    },
+    {
+      "reason": "Missing or ambiguous link-data symbol: suppressAssaultReactions",
+      "sites": 4,
+      "trees": 3
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: 7524aadc-7819-4c55-a3cf-8caec0d0f437",
+      "sites": 4,
+      "trees": 2
+    },
+    {
+      "reason": "Referenced enum conversion did not complete: gameVersion",
+      "sites": 4,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted custom behavior request fields",
+      "sites": 4,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted daycycle removal fields",
+      "sites": 4,
+      "trees": 3
+    },
+    {
+      "reason": "Behavior operation needs an adapter: Detail",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Behavior operation needs an adapter: LOD",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_skinnerhouse",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Source index requires type resolution: t_actors[tereza]",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Unconverted variable type: additionalMoveParams",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Unconverted variable type: followFormationParams",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Behavior operation needs an adapter: AddPerceivableState",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: EvaLLyzer",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Behavior operation needs an adapter: InstantDrawWeapon",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: JoinedAnimationSynchronize",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Behavior operation needs an adapter: LODGuardian",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Behavior operation needs an adapter: LODLock",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Behavior operation needs an adapter: Look",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: MoraleGate",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: SetOwner",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Job item class conversion did not complete: 63abdbb4-b0fd-464b-87a4-80d26b33872a",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Monologue request fields need an ABI adapter",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Numerical operation requires a validated contract: distance2dSq_wuid",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Objective condition needs an adapter: IsObjectiveTrackedCompleted",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: rapeDoor",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: d5996d8b-611d-4cc8-bfbd-7ab2c8884cf6",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: f29ee947-a131-4597-8ed7-6f06aca0a4a2",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_mother_dialog_cameras",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Source index requires type resolution: $t_actors[kunes]",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Source index requires type resolution: t_actors[matus]",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Behavior operation needs an adapter: AnimationEventCatch",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: DecoratorBuff",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: DrawWeapon",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: LODCheck",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: OnEvent",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: StateMachineGate",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: StreamingInstallGate",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Behavior operation needs an adapter: Teleport",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Graph edge type did not convert: combat_attacker",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Graph edge type did not convert: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Job item class conversion did not complete: 8d76f58e-a521-4205-a7e8-9ac077eee5f0",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Job item class conversion did not complete: 983a6813-20b6-4fc8-bc2d-105939ff6000",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Job item class conversion did not complete: ea98e001-9d40-4eb8-a198-ccf5cb548747",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Missing-branch failure semantics need an adapter",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Quest lifecycle policy needs an adapter: CancelQuest",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: combat_attacker",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: crimeDistrict",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: reserved",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: reservedHavels",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: terezaSafeSpot",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: testDoorAnim",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: 46683e3b-e261-412f-b402-99ee17dda62a",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: bd22f98a-e61f-4d83-b39c-79d1d85b6b91",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced buff conversion did not complete: e860a7b2-dce1-4a77-a746-971ed8f537cf",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced item conversion did not complete: 5ef63059-322e-4e1b-abe8-926e100c770e",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced item conversion did not complete: d7a081e8-2b8c-49d0-915d-2d3c8d4c5274",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced item conversion did not complete: ff2b21b8-c613-45ff-89c6-8a347cf37ff6",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced mailbox conversion did not complete: perception_behavior",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced mailbox conversion did not complete: sound_behavior",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_attack",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_givenhorse",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_wanderer",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Source index requires type resolution: t_actors[enemy]",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted temporary faction context use",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted variable type: common:transform",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted variable type: cutscene",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted variable type: hearingInfo",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted variable type: perceptionInfo",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unknown legacy work animation parameters",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unregistered or dynamic objective: q_skalitz.meetInFrontOfKunes",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unsupported source variable reference: inhabitant,child,QuestActor",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unverified native item property: Questible",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation lacks a compatible native human fragment: SkalitzAbuse",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation requires event/context/alignment conversion: AnimationWUID",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation requires event/context/alignment conversion: SlavedObject",
+      "sites": 1,
+      "trees": 1
+    }
+  ],
+  "converter": "C2",
+  "emitted": [
+    "anybody_runAway",
+    "catchpoll_sitsDown",
+    "cutscene_game_over",
+    "cutscene_nemec_hospodska_hadka",
+    "fatherPatch",
+    "friends_patch",
+    "friends_work",
+    "guard_goesToTheGate",
+    "matus_runAway",
+    "mother_goingShopping",
+    "tereza_waitsForNails",
+    "varlet_sellPlace"
+  ],
+  "families": {
+    "animation": {
+      "reasons": 5,
+      "sites": 5,
+      "trees": 3
+    },
+    "buff": {
+      "reasons": 8,
+      "sites": 29,
+      "trees": 5
+    },
+    "combat_dispatch": {
+      "reasons": 4,
+      "sites": 9,
+      "trees": 7
+    },
+    "daycycle_lifecycle": {
+      "reasons": 3,
+      "sites": 87,
+      "trees": 21
+    },
+    "enum": {
+      "reasons": 1,
+      "sites": 4,
+      "trees": 1
+    },
+    "items": {
+      "reasons": 8,
+      "sites": 9,
+      "trees": 2
+    },
+    "link_types": {
+      "reasons": 10,
+      "sites": 19,
+      "trees": 9
+    },
+    "lua": {
+      "reasons": 1,
+      "sites": 16,
+      "trees": 6
+    },
+    "message_type": {
+      "reasons": 5,
+      "sites": 29,
+      "trees": 6
+    },
+    "op_no_contract": {
+      "reasons": 24,
+      "sites": 72,
+      "trees": 22
+    },
+    "other": {
+      "reasons": 1,
+      "sites": 2,
+      "trees": 1
+    },
+    "profile": {
+      "reasons": 5,
+      "sites": 8,
+      "trees": 5
+    },
+    "quest_state": {
+      "reasons": 5,
+      "sites": 13,
+      "trees": 2
+    },
+    "typed_variables": {
+      "reasons": 12,
+      "sites": 28,
+      "trees": 16
+    }
+  },
+  "prepared": {
+    "rename_blocked": 63,
+    "renamed": {
+      "TurnBody->Turn": 63
+    },
+    "scope_resolutions": 45
+  },
+  "quest": "q_skalitz",
+  "schema": 1,
+  "source_equivalence": {
+    "checked": 12,
+    "failed": 0,
+    "nodes_compared": 156,
+    "passed": 12,
+    "residue": 61
+  },
+  "trees": {
+    "blocked": 50,
+    "blocked_by_include": 11,
+    "emitted": 12,
+    "total": 73
+  }
+}
