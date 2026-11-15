@@ -23,7 +23,7 @@ MARKER = 'resident_population'
 # resident_census.py: every KCD1 base-world person in the selected towns whose
 # home and work the stage can convert today, plus the quest people. Everyone
 # else is residue with a reason in the census report. Towns built so far:
-TOWNS = ('rattay',)
+TOWNS = ('rattay', 'talmberg')
 
 
 def selected(towns=TOWNS):
