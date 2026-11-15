@@ -59,8 +59,9 @@ def is_core(tree):
 
 
 def includes(tree, default):
+    # Retail trees carry IncludeTree nodes without a Name (sas_dlouhej's area); they name no core.
     return {((attributes(n).get('File') or default).replace('\\', '/').lower(), attributes(n).get('Name'))
-            for n in tree.iter('IncludeTree')}
+            for n in tree.iter('IncludeTree') if attributes(n).get('Name')}
 
 
 def recognize(lookup, location, core=None):

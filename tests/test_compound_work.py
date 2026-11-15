@@ -93,6 +93,12 @@ class RecognitionTests(unittest.TestCase):
         self.assertFalse(work.recognize(lookup, ('final/sa_compoundwork.xml', 'carry'), ('final/sa_compoundwork.xml', 'CompoundWork')))
         self.assertFalse(work.recognize(lookup, ('final/sa_compoundwork.xml', 'missing')))
 
+    def test_nameless_includes_name_no_core(self):
+        # Retail area trees mix named and nameless IncludeTree nodes (sas_dlouhej).
+        tree = E.fromstring('<BehaviorTree name="w"><Root><Behavior><Sequence><IncludeTree File="'+Q('a.xml')+'"/>'
+                            '<IncludeTree File="'+Q('b.xml')+'" Name="'+Q('x')+'"/></Sequence></Behavior></Root></BehaviorTree>')
+        self.assertEqual(work.includes(tree, 'final/w.xml'), {('b.xml', 'x')})
+
     def test_core_needs_requested_behaviour_selection_and_chosen_call(self):
         self.assertTrue(work.is_core(E.fromstring(CORE.format('x'))))
         self.assertFalse(work.is_core(E.fromstring(CORE.format('x').replace('$__behaviorName', "'use'"))))
