@@ -107,7 +107,7 @@ CONTRACTS = {
 # .threshold; transform is passed whole to Get/SetSpatialInfo.
 ENGINE_TYPES = {'additionalMoveParams': 'additionalMoveParams', 'followFormationParams': 'followFormationParams',
                 'common:transform': 'transform', 'hearingInfo': 'hearingInfo', 'perceptionInfo': 'perceptionInfo'}
-# Native initialisers quote the time: destChangedThreshold('250ms') (47 uses).
+# Native initialisers quote the time: destChangedThreshold('250ms') (50+ uses).
 # KCD1 writes it quoted and bare; the bare form is quoted. Inference: equal.
 TIME_INITIALISER = re.compile(r"(destChangedThreshold)\(([0-9]+(?:ms|s|m|h)?)\)")
 # (op, attribute) -> {source value: value the compiler already lowers}.
