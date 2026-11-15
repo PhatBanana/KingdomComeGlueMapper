@@ -10,6 +10,7 @@ link: the same override KCD1's own authored guards carry, so the existing
 forced-workplace path (character_schedule_world, character_schedule_jobs) converts it.
 Any mismatch refuses the guard; nothing is guessed.
 """
+import copy
 import math
 import xml.etree.ElementTree as ET
 import zipfile
@@ -24,6 +25,50 @@ POSITION_TOLERANCE = 0.01
 def clock(minute):
     minute %= 1440
     return f'{minute // 60:02d}:{minute % 60:02d}'
+
+
+def _minute(text):
+    h, m = map(int, text.split(':'))
+    return h * 60 + m
+
+
+def _spans(start, end):
+    """[start, end) minutes as pieces within one day: 20:28-08:58 is (1228, 1440) and (0, 538)."""
+    return [(start, end)] if end > start else [(start, 1440), (0, end)] if end else [(start, 1440)]
+
+
+def post_windows(segments):
+    """Minute windows of one day in which the guard stands at its post.
+
+    KCD1's garrison gives a post one worker: a guard arriving before the post
+    is free waits (guardIdle) until the holder leaves. The census writes that
+    as an 'idle' segment; only the post segments are post time.
+    """
+    pieces = sorted(p for a, b, post in segments if post != 'idle' for p in _spans(_minute(a), _minute(b)))
+    merged = []
+    for a, b in pieces:
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
+def trim_links(scheduler, target_guid, windows):
+    """Cut every scheduler activity link to target_guid down to the given windows (split or drop as needed)."""
+    parents = {child: parent for parent in scheduler.iter() for child in parent}
+    for link in [l for l in scheduler.iter('S_ActivityLink') if l.get('TargetGuid') == target_guid]:
+        params = link.find('Parameters')
+        a, b = int(params.get('TimeOfDayStart')), int(params.get('TimeOfDayEnd'))
+        pieces = [(max(s, x), min(e, y)) for s, e in _spans(a, b) for x, y in windows if min(e, y) > max(s, x)]
+        parent = parents[link]
+        at = list(parent).index(link)
+        parent.remove(link)
+        for offset, (s, e) in enumerate(pieces):
+            piece = copy.deepcopy(link)
+            piece.find('Parameters').set('TimeOfDayStart', str(s))
+            piece.find('Parameters').set('TimeOfDayEnd', str(e))
+            parent.insert(at + offset, piece)
 
 
 def work_intervals(schedule):

@@ -220,6 +220,11 @@ def bind_job_trees(files, mission, scheduler, schedules, archive, target, regist
                     if link.get('TargetGuid')==str(guid_value(job.get('EntityGuid'))):
                         link.find('Parameters').set('BehaviorName',activity)
                 post=entry.get('garrison_post')
+                if post and post.get('segments'):
+                    # One worker per post: before relief the guard waits (scheduler wait), not at the post.
+                    import garrison_posts
+                    garrison_posts.trim_links(scheduler,str(guid_value(job.get('EntityGuid'))),
+                        garrison_posts.post_windows(post['segments']))
                 pending=['rain and secondary post selection']
                 if post and post.get('post_kind') in ('patrolWalls','patrolStreets'):
                     pending.append('patrol route: holds the patrol start point')

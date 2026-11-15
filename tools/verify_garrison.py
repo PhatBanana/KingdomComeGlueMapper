@@ -171,11 +171,12 @@ def check_post(person, record, job_rows, level, npc):
     post_pos = position(holder[0])
     if post_pos is None or math.dist(post_pos, record['post_pos']) > TOLERANCE:
         problems.append(f"holder at {post_pos}, KCD1 post at {record['post_pos']}")
+    from garrison_posts import post_windows
     got = merge_day((a, b if b > a else b + 1440) for a, b, t in level.activity_links(npc) if t is holder[0])
-    want = merge_day(span(a, b) for a, b in record['work'])
+    want = post_windows(record['segments'])   # KCD1 work minus the wait for relief
     if got != want:
-        problems.append(f'scheduled {got}, KCD1 work {want}')
-    return problems, post_pos
+        problems.append(f'scheduled {got}, KCD1 post time {want}')
+    return problems, (post_pos, got)
 
 
 def verify(package, census_path, out, guards=None):
@@ -226,12 +227,13 @@ def verify(package, census_path, out, guards=None):
         beds = [e for block, e in places if block == 'sleep']
         post_pos = None
         if record['role'] == 'posted':
-            problems, post_pos = check_post(person, record, jobs.get(person, []), level, npc)
+            problems, found = check_post(person, record, jobs.get(person, []), level, npc)
+            post_pos, scheduled = found or (None, [])
             r['post'] = result(not problems, '; '.join(problems) or
                                f"{record['post']} ({record['post_kind']}, KCD1 order {record['kcd1_order']})")
-            for a, b, post in record['segments']:
-                if post != 'idle':
-                    held[post].append((span(a, b), person))
+            # Clashes from what the package schedules, not from the census.
+            for window in scheduled:
+                held[record['post']].append((window, person))
         else:
             r['post'] = result(not jobs.get(person), f"reserve, {len(jobs.get(person, []))} guard jobs")
         bed = (by_soul.get(person) or {}).get('bed')
@@ -263,8 +265,8 @@ def verify(package, census_path, out, guards=None):
         else:
             r['patrol'] = result(True, 'no patrol')
         results[person] = dict(placed=True, checks=r, fail=sorted(k for k, v in r.items() if not v['ok']))
-    clashes = [f'{post}: {n1} and {n2}' for post, rows in held.items()
-               for i, (s1, n1) in enumerate(rows) for s2, n2 in rows[i + 1:] if overlaps(s1, s2)]
+    clashes = sorted({f'{post}: {" and ".join(sorted((n1, n2)))}' for post, rows in held.items()
+                      for i, (s1, n1) in enumerate(rows) for s2, n2 in rows[i + 1:] if n1 != n2 and overlaps(s1, s2)})
     summary = {k: dict(Counter('pass' if v['checks'][k]['ok'] else 'fail' for v in results.values() if v['placed']))
                for k in CHECKS}
     report = dict(package=str(package), guards=len(guards), placed=sum(v['placed'] for v in results.values()),

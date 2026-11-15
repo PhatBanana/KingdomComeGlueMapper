@@ -71,6 +71,25 @@ class WorkClockTests(unittest.TestCase):
         self.assertTrue(v.overlaps(night, v.span('08:30', '12:00')))   # the morning guard arrives early
         self.assertTrue(v.overlaps(v.span('23:00', '01:00'), v.span('00:30', '02:00')))
 
+    def test_post_windows_leave_out_the_wait_for_relief(self):
+        night = [['20:28', '21:06', 'idle'], ['21:06', '08:58', 'tp_primary3']]
+        day = [['08:06', '08:58', 'idle'], ['08:58', '21:06', 'tp_primary3']]
+        self.assertEqual(posts.post_windows(night), [(0, 538), (1266, 1440)])
+        self.assertEqual(posts.post_windows(day), [(538, 1266)])
+        self.assertEqual(posts.post_windows([['06:58', '22:44', 'tp_x']]), [(418, 1364)])
+
+    def test_trim_links_cuts_split_and_drops_scheduler_windows(self):
+        scheduler = ET.fromstring(
+            '<S><Hub><S_ActivityLink TargetGuid="7"><Parameters TimeOfDayStart="0" TimeOfDayEnd="538"/></S_ActivityLink>'
+            '<S_ActivityLink TargetGuid="7"><Parameters TimeOfDayStart="1228" TimeOfDayEnd="1440"/></S_ActivityLink>'
+            '<S_ActivityLink TargetGuid="8"><Parameters TimeOfDayStart="0" TimeOfDayEnd="100"/></S_ActivityLink></Hub></S>')
+        posts.trim_links(scheduler, '7', [(0, 538), (1266, 1440)])
+        windows = [(l.get('TargetGuid'), l.find('Parameters').get('TimeOfDayStart'), l.find('Parameters').get('TimeOfDayEnd'))
+                   for l in scheduler.iter('S_ActivityLink')]
+        self.assertEqual(windows, [('7', '0', '538'), ('7', '1266', '1440'), ('8', '0', '100')])
+        posts.trim_links(scheduler, '7', [(600, 700)])                      # outside every link: dropped
+        self.assertEqual([l.get('TargetGuid') for l in scheduler.iter('S_ActivityLink')], ['8'])
+
     def test_verifier_folds_overnight_scheduler_windows_onto_one_day(self):
         import verify_garrison as v
         kcd1 = v.merge_day([v.span('20:28', '08:58')])
