@@ -8,6 +8,7 @@ withholds every tree. This module selects, per tree, what the adapter can
 take today and says why the rest cannot, so the converter can lower the
 accepted trees and keep a typed reason on the others:
 
+    normalise        each request rewritten to the fields KCD1's own consumer acts on
     level_bindings   source level -> controller GUID and {expression: actor GUID}
     select           trees whose every request is accepted, and the capability
                      each rejected request lacks
@@ -31,6 +32,97 @@ from campaign_schedule_requests import dependencies
 # The lifecycle adapter's accepted shape (ScheduleAdapter.__init__ and
 # campaign_schedule_requests.request).
 SELF = ('this.id', '__object.id')
+
+
+FIELD = re.compile(r"\s*(\w+)\(\s*('[^'\r\n]*'|[^(),'\r\n]+)\s*\)\s*(?:,|$)")
+# KCD1 `Libs/AI/final/sb_daycycles.xml`, the `daycycleChange` inbox of every NPC, is the
+# consumer of `daycycle:change`; `Libs/AI/TypeDefinitions.xml` has the field defaults.
+# Each rule below restates what that tree does with a field before `AddPatch`/`RemovePatch`.
+CRITICAL_PRIORITY = {'cutscene_init': 100, 'cutscene_dialogFadingIn': 95}
+NUMBER = re.compile(r'-?\d+(?:\.\d+)?')
+
+
+def _fields(values):
+    fields, offset = {}, 0
+    while values[offset:].strip():
+        match = FIELD.match(values, offset)
+        if not match or match[1] in fields:
+            return None
+        fields[match[1]] = match[2].strip()
+        offset = match.end()
+    return fields
+
+
+def normalise(model):
+    """Rewrite the controller's daycycle requests in place; return the report.
+
+    removal      only `handle` is read (`RemovePatch handle`): `name` and
+                 `immediateDaycycleHaltSpeed` on a removal are dropped
+    critical     `criticalPriority` replaces the priority (100 for cutscene_init,
+                 95 for cutscene_dialogFadingIn) and is not stored in the patch
+    immediate    absent means false (the type's default); when true the consumer
+                 sets the window to the whole day, so a written window is dropped
+    window       `startTime`/`endTime` are hours of the day (defaults 0 and 24).
+                 On a request that is not immediate a narrower static window is
+                 kept in `windows` as minutes and removed from the request; a
+                 whole-day window is the default and is dropped. `startTime(-1)`
+                 with an `endTime` below 24 is a duration from the moment of the
+                 request and is left as written (no level-side form).
+    A request with any other unlisted field, or a dynamic value in one of these,
+    is left as written.
+    """
+    own = 'libs/ai/quests/' + model['quest'].lower() + '.xml'
+    report = dict(rewritten=[], windows={}, left=[])
+    for tree, body in model['behavior_documents'][own]['trees'].items():
+        stack = [(body['root'], 'Root')]
+        while stack:
+            node, path = stack.pop()
+            stack.extend((child, path + '/' + str(i)) for i, child in enumerate(node['children']))
+            raw = node['attributes'].get('values')
+            if raw is None or node['attributes'].get('type', '').strip('"').strip("'") != 'daycycle:change':
+                continue
+            quote = '"' if len(raw) > 1 and raw[0] == raw[-1] == '"' else ''
+            fields = _fields(raw[1:-1] if quote else raw)
+            if fields is None or fields.get('add') not in ('true', 'false'):
+                continue
+            rules, window = [], None
+            if fields['add'] == 'false':
+                for name in ('name', 'immediateDaycycleHaltSpeed'):
+                    if fields.pop(name, None) is not None:
+                        rules.append('removal:' + name)
+            else:
+                critical = fields.get('criticalPriority', '').removeprefix('$enum:daycyclePatchCriticalPriority.')
+                if critical in CRITICAL_PRIORITY:
+                    fields['priority'] = str(CRITICAL_PRIORITY[critical])
+                    del fields['criticalPriority']
+                    rules.append('critical:' + critical)
+                if 'immediate' not in fields:
+                    fields['immediate'] = 'false'
+                    rules.append('immediate:default')
+                if 'startTime' in fields or 'endTime' in fields:
+                    start, end = fields.get('startTime', '0'), fields.get('endTime', '24')
+                    static = bool(NUMBER.fullmatch(start) and NUMBER.fullmatch(end))
+                    if fields['immediate'] == 'true':
+                        rules.append('window:immediate')
+                    elif static and (float(end) >= 24 and float(start) in (0, -1)):
+                        rules.append('window:whole_day')
+                    elif static and 0 <= float(start) < float(end) <= 24 and all(
+                            (float(v) * 60).is_integer() for v in (start, end)):
+                        window = (int(float(start) * 60), int(float(end) * 60))
+                        rules.append('window:kept')
+                    else:
+                        report['left'].append(dict(tree=tree, path=path, reason='relative, wrapping or dynamic window'))
+                        window = False
+                    if window is not False:
+                        fields.pop('startTime', None); fields.pop('endTime', None)
+            if window:
+                report['windows'][(tree, path)] = window
+            if rules:
+                node['attributes']['values'] = quote + ','.join('%s(%s)' % item for item in fields.items()) + quote
+                report['rewritten'].append(dict(tree=tree, path=path, rules=rules, source=raw))
+    report['rules'] = dict(sorted(Counter(r.split(':')[0] + ':' + r.split(':')[1] if r.startswith('window') else r.split(':')[0]
+                                          for row in report['rewritten'] for r in row['rules']).items()))
+    return report
 
 
 def level_bindings(kcd1, level, model):
@@ -79,8 +171,12 @@ def _missing(record, callback, references):
     return None
 
 
-def select(model, references):
-    """Return (trees, actor_bindings, report) for the requests the adapter accepts."""
+def select(model, references, windows=None):
+    """Return (trees, actor_bindings, report) for the requests the adapter accepts.
+
+    `windows` is `normalise`'s: a time window is part of a lease's policy.
+    """
+    windows = windows or {}
     from campaign_sources import key
     from quest_import import behavior_path
     own = 'libs/ai/quests/' + model['quest'].lower() + '.xml'
@@ -96,7 +192,7 @@ def select(model, references):
         rejected.update(r['missing'] for r in records if r['missing'])
     # A lease is one actor and handle. It needs an addition with one policy
     # among the accepted trees; otherwise every tree that touches it waits.
-    changed = True
+    changed, by_policy = True, set()
     while changed:
         changed = False
         leases = {}
@@ -106,27 +202,31 @@ def select(model, references):
                 lease['trees'].add(tree)
                 if r['add']:
                     lease['policies'].add((r['behavior'], r['source'], r['priority'], r['immediate'], r['once'],
-                                           r.get('callback', {}).get('tree')))
+                                           r.get('callback', {}).get('tree'), windows.get((tree, r['path']))))
         for lease in leases.values():
             if len(lease['policies']) != 1 or None in {p[5] for p in lease['policies']}:
                 rejected['lease_policy'] += sum(len(requests[t]) for t in lease['trees'] & accepted)
+                by_policy |= lease['trees'] & accepted
                 accepted -= lease['trees']
                 changed = True
     bindings = {(own, tree, r['actor']): references[r['actor'].lstrip('$')] for tree in accepted for r in requests[tree]}
     report = dict(requests=sum(map(len, requests.values())), trees_with_requests=len(requests),
                   accepted_requests=sum(len(requests[t]) for t in accepted), accepted_trees=sorted(accepted),
                   rejected=dict(sorted(rejected.items())), runtime_verified=False, publishable=False)
+    # Why each request site outside the accepted trees waits: {tree: {path: capability}}.
+    report['sites'] = {tree: {r['path']: r['missing'] or ('lease_policy' if tree in by_policy else 'tree')
+                              for r in records} for tree, records in requests.items() if tree not in accepted}
     # Requests of the accepted shape that wait because their tree holds a rejected one.
     report['accepted_shape_in_a_rejected_tree'] = (report['requests'] - report['accepted_requests']
                                                    - sum(rejected.values()))
     return {(own, tree) for tree in accepted}, bindings, report
 
 
-def adapter(model, level, namespace):
+def adapter(model, level, namespace, windows=None):
     """Return (ScheduleAdapter or None, report) for the accepted trees of one controller."""
     from campaign_schedule_lifecycle import ScheduleAdapter
     from campaign_schedule_routes import plan
-    trees, bindings, report = select(model, level['references'])
+    trees, bindings, report = select(model, level['references'], windows)
     report.update(level=level['level'], controller=level['controller'])
     if not trees:
         return None, report

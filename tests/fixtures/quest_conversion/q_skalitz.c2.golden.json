@@ -1,14 +1,9 @@
 {
   "blockers": [
     {
-      "reason": "Daycycle addition requires explicit scheduling policy",
-      "sites": 52,
-      "trees": 11
-    },
-    {
-      "reason": "Schedule request differs from its resolved source site",
-      "sites": 23,
-      "trees": 7
+      "reason": "Daycycle request fits the lease adapter; its tree holds one that does not",
+      "sites": 18,
+      "trees": 2
     },
     {
       "reason": "Referenced message_type conversion did not complete: cutscene",
@@ -16,9 +11,19 @@
       "trees": 3
     },
     {
+      "reason": "Daycycle request needs a lease capability: next_activity_boundary",
+      "sites": 14,
+      "trees": 2
+    },
+    {
       "reason": "Daycycle patch end needs the scheduled-activity lease: FinishPatch",
       "sites": 12,
       "trees": 11
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: runtime_actor",
+      "sites": 12,
+      "trees": 8
     },
     {
       "reason": "Source Lua requires a semantic adapter",
@@ -29,11 +34,6 @@
       "reason": "Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer",
       "sites": 8,
       "trees": 2
-    },
-    {
-      "reason": "Unconverted daycycle removal fields",
-      "sites": 8,
-      "trees": 3
     },
     {
       "reason": "Inexpressible as one native operation: AddOpponent (AddToSkirmish holds only while it runs)",
@@ -64,6 +64,11 @@
       "reason": "Referenced world profile conversion did not complete: q_skalitz_skinnerhouse",
       "sites": 3,
       "trees": 3
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: lease_policy",
+      "sites": 2,
+      "trees": 1
     },
     {
       "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
@@ -156,6 +161,11 @@
       "trees": 1
     },
     {
+      "reason": "Schedule request source differs from its controller scope",
+      "sites": 1,
+      "trees": 1
+    },
+    {
       "reason": "Unconverted temporary faction context use",
       "sites": 1,
       "trees": 1
@@ -229,9 +239,9 @@
       "trees": 7
     },
     "daycycle_lifecycle": {
-      "reasons": 5,
-      "sites": 103,
-      "trees": 26
+      "reasons": 7,
+      "sites": 67,
+      "trees": 20
     },
     "items": {
       "reasons": 1,
@@ -481,17 +491,40 @@
     ]
   },
   "schedule": {
-    "accepted_requests": 5,
-    "accepted_shape_in_a_rejected_tree": 15,
+    "accepted_requests": 12,
+    "accepted_shape_in_a_rejected_tree": 18,
     "accepted_trees": [
+      "cutscene_blankaGivesBeer",
+      "cutscene_dialogAfterKunesBeaten",
+      "cutscene_dialogAfterKunesWon",
       "cutscene_dialogAfterSarka",
+      "cutscene_dialogBeforeKunes",
+      "cutscene_dialogBeforePainting",
+      "cutscene_dialogWithGuards",
       "cutscene_forging_father_insert",
+      "cutscene_janek_dialogAtTheGate",
       "cutscene_kovani_otcem",
       "cutscene_manure_throw_nohenry",
       "cutscene_nemec_hazeni_hnoje"
     ],
     "controller": "af5538b6-25f3-4be2",
     "leases": [
+      {
+        "actor": "4730390356553801077",
+        "behavior": "matus_afterChase",
+        "handle": "q_skalitz_matus_afterChase",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "4730390356553801077",
+        "behavior": "matus_lureWifeHenry",
+        "handle": "q_skalitz_matus_lureWifeHenry",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
       {
         "actor": "4957497055038492328",
         "behavior": "johanka_goingToSkinner",
@@ -515,15 +548,67 @@
         "once": true,
         "priority": 60,
         "sites": 1
+      },
+      {
+        "actor": "5384355815172519055",
+        "behavior": "blanka_givesBeer",
+        "handle": "q_skalitz_blanka_givesBeer",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunes_sitting",
+        "handle": "q_skalitz_kunes_sitting",
+        "once": false,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunes_winningOverHenry",
+        "handle": "q_skalitz_kunes_winningOverHenry",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "janek_dialogAtTheGate",
+        "handle": "q_skalitz_janek_dialogAtTheGate",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "janek_waitsAtTheGate",
+        "handle": "q_skalitz_janek_waitsAtTheGate",
+        "once": true,
+        "priority": 95,
+        "sites": 1
       }
     ],
     "level": "rataje",
+    "normalised": {
+      "left": 0,
+      "requests": 31,
+      "rules": {
+        "critical": 8,
+        "immediate": 18,
+        "removal": 4,
+        "window:immediate": 2,
+        "window:kept": 6,
+        "window:whole_day": 2
+      },
+      "windows": 6
+    },
     "publishable": false,
     "rejected": {
-      "addition_fields": 26,
       "lease_policy": 2,
-      "removal_fields": 4,
-      "runtime_actor": 6
+      "next_activity_boundary": 14,
+      "runtime_actor": 12
     },
     "requests": 58,
     "runtime_verified": false,
@@ -540,8 +625,8 @@
     "stand_in_nodes": 1
   },
   "trees": {
-    "blocked": 40,
-    "blocked_by_include": 16,
+    "blocked": 34,
+    "blocked_by_include": 22,
     "emitted": 18,
     "total": 74
   }

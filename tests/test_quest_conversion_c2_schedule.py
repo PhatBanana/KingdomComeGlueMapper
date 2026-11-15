@@ -99,4 +99,65 @@ class ScheduleTests(unittest.TestCase):
                                           dict(level='test', controller=CONTROLLER, references=REFERENCES), 'C2')[0], None)
 
 
+class NormaliseTests(unittest.TestCase):
+    """Each rule restates KCD1's own consumer (Libs/AI/final/sb_daycycles.xml, inbox daycycleChange)."""
+    BASE = "add(true),handle('h'),name('work'),priority(60),sourceId($this.id)"
+
+    def run_one(self, values):
+        subject = model(dict(a=send(values)))
+        report = schedule.normalise(subject)
+        return subject['behavior_documents'][DOCUMENT]['trees']['a']['root']['children'][0]['attributes']['values'], report
+
+    def test_a_removal_keeps_only_its_handle(self):
+        values, report = self.run_one("add(false),handle('h'),name('work'),immediateDaycycleHaltSpeed($enum:daycycleHaltSpeed.fast)")
+        self.assertEqual(values, "add(false),handle('h')")
+        self.assertEqual(report['rewritten'][0]['rules'], ['removal:name', 'removal:immediateDaycycleHaltSpeed'])
+        self.assertEqual(self.run_one("add(false),handle('h')")[1]['rewritten'], [])
+        # A field the consumer's removal branch is not known to ignore stays, and the request stays blocked.
+        self.assertIn('once(true)', self.run_one("add(false),handle('h'),once(true)")[0])
+
+    def test_a_critical_priority_replaces_the_priority(self):
+        for label, priority in (('cutscene_dialogFadingIn', 95), ('cutscene_init', 100)):
+            values, _ = self.run_one(self.BASE + ',immediate(true),criticalPriority($enum:daycyclePatchCriticalPriority.%s)' % label)
+            self.assertEqual(values, "add(true),handle('h'),name('work'),priority(%d),sourceId($this.id),immediate(true)" % priority)
+        values, report = self.run_one(self.BASE + ',immediate(true),criticalPriority($enum:daycyclePatchCriticalPriority.other)')
+        self.assertIn('criticalPriority', values)
+        self.assertEqual(report['rewritten'], [])
+
+    def test_a_request_without_immediate_is_not_immediate(self):
+        values, report = self.run_one(self.BASE)
+        self.assertEqual((values, report['rewritten'][0]['rules']), (self.BASE + ',immediate(false)', ['immediate:default']))
+
+    def test_an_immediate_request_has_no_window(self):
+        values, report = self.run_one(self.BASE + ',immediate(true),startTime(-1),endTime(0.5)')
+        self.assertEqual((values, report['windows']), (self.BASE + ',immediate(true)', {}))
+
+    def test_a_window_is_minutes_of_the_day_on_a_request_that_waits(self):
+        values, report = self.run_one("add(true), startTime(10),endTime(20.5),handle('h'),name('work'),priority(60),sourceId($this.id)")
+        self.assertEqual(values, self.BASE + ',immediate(false)')
+        self.assertEqual(report['windows'], {('a', 'Root/0'): (600, 1230)})
+        self.assertEqual(self.run_one(self.BASE + ',startTime(8)')[1]['windows'], {('a', 'Root/0'): (480, 1440)})
+        self.assertEqual(self.run_one(self.BASE + ',endTime(20)')[1]['windows'], {('a', 'Root/0'): (0, 1200)})
+        for whole in ('startTime(0),endTime(24)', 'startTime(-1),endTime(24)', 'endTime(24)'):
+            values, report = self.run_one(self.BASE + ',' + whole)
+            self.assertEqual((values, report['windows']), (self.BASE + ',immediate(false)', {}))
+
+    def test_a_window_without_a_level_form_is_left_as_written(self):
+        for window in ('startTime(-1),endTime(2)', 'startTime(22),endTime(6)', 'startTime($hour),endTime(24)',
+                       'startTime(10.001),endTime(20)', 'startTime(10),endTime(25)'):
+            values, report = self.run_one(self.BASE + ',' + window)
+            self.assertIn(window, values.replace(', ', ','))
+            self.assertEqual((report['windows'], len(report['left'])), ({}, 1))
+
+    def test_a_window_is_part_of_the_lease_policy(self):
+        trees = dict(cutscene_a=send(ADD + ',startTime(10),endTime(20)'), cutscene_b=send(ADD))
+        subject = prepared(trees)[0][0]
+        for tree in ('cutscene_a', 'cutscene_b'):   # as if the boundary adapter existed
+            node_ = subject['behavior_documents'][DOCUMENT]['trees'][tree]['root']['children'][0]
+            node_['attributes']['values'] = node_['attributes']['values'].replace(',startTime(10),endTime(20)', '')
+        self.assertEqual(len(schedule.select(subject, REFERENCES)[0]), 2)
+        selected, _, report = schedule.select(subject, REFERENCES, {('cutscene_a', 'Root/0'): (600, 1200)})
+        self.assertEqual((selected, report['rejected']), (set(), dict(lease_policy=2)))
+
+
 if __name__ == '__main__': unittest.main()

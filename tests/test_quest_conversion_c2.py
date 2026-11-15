@@ -459,6 +459,19 @@ class LedgerTests(unittest.TestCase):
                          [('op_no_contract', 2, 'open'), ('buff', 1, 'needs_importer')])
         self.assertIn('| Behavior operation needs an adapter: X | op_no_contract | 2 | 1 | open |', c2.markdown(led))
 
+    def test_a_refused_schedule_request_names_the_capability_it_waits_on(self):
+        refusal = 'Schedule request differs from its resolved source site'
+        sites = [dict(reason=refusal, site=dict(path='Root/0')), dict(reason=refusal, site=dict(path='Root/1')),
+                 dict(reason=refusal, site=dict(path='Root/2')), dict(reason='Other', site=dict(path='Root/0'))]
+        run = self.run_(sites, E.Element('Root'))
+        run['schedule'] = dict(sites=dict(callback={'Root/0': 'runtime_actor', 'Root/1': 'tree'}), requests=3)
+        led = c2.ledger(run)
+        self.assertEqual(sorted((b['reason'], b['family'], b['sites']) for b in led['blockers']), [
+            ('Daycycle request fits the lease adapter; its tree holds one that does not', 'daycycle_lifecycle', 1),
+            ('Daycycle request needs a lease capability: runtime_actor', 'daycycle_lifecycle', 1),
+            ('Other', 'other', 1), (refusal, 'daycycle_lifecycle', 1)])
+        self.assertEqual(c2.golden(led)['schedule'], dict(requests=3))
+
 
 @unittest.skipUnless(RETAIL, 'requires installed retail KCD1 and KCD2 scripts')
 class RetailTests(unittest.TestCase):

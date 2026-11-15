@@ -51,6 +51,7 @@ LOWERED = {'SetQuest', 'SetQuestObjective', 'QuestCondition', 'QuestObjectiveCon
 
 
 NOTES = '## Notes'
+SCHEDULE_REFUSAL = 'Schedule request differs from its resolved source site'
 
 
 def walk(node):
@@ -136,10 +137,14 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
         scene_seam = campaign_controller_scenes.apply(models[0], set(scenes))
         # With a level, the daycycle requests the lease adapter accepts are bound to its actors.
         lease, schedule = None, None
+        import campaign_controller_schedule
+        # Requests are first reduced to the fields KCD1's own daycycle consumer acts on.
+        requests = campaign_controller_schedule.normalise(models[0])
         if level:
-            import campaign_controller_schedule
             lease, schedule = campaign_controller_schedule.adapter(
-                models[0], campaign_controller_schedule.level_bindings(kcd1, level, models[0]), 'C2')
+                models[0], campaign_controller_schedule.level_bindings(kcd1, level, models[0]), 'C2', requests['windows'])
+            schedule['normalised'] = dict(requests=len(requests['rewritten']), rules=requests['rules'],
+                                          windows=len(requests['windows']), left=len(requests['left']))
         behaviors, bridges, conversion = convert_behaviors(models, 'C2', catalog, importer=importer,
                                                            profile_streaming=read(scripts, STREAMING_SOURCE),
                                                            schedule_adapter=lease)
@@ -195,8 +200,15 @@ def ledger(run):
     lua = defaultdict(lambda: dict(sites=0, trees=set()))
     checked = passed = nodes = rewritten = stand_ins = verbatim = 0
     failures = []
+    waiting = (run.get('schedule') or {}).get('sites', {})
     for name, source in model['behavior_documents'][own]['trees'].items():
         record = records[(own, name)]
+        for item in record['unresolved']:
+            # The lease adapter's refusal, restated as the capability the request waits on.
+            capability = waiting.get(name, {}).get((item.get('site') or {}).get('path'))
+            if capability and item['reason'] == SCHEDULE_REFUSAL:
+                item['reason'] = ('Daycycle request fits the lease adapter; its tree holds one that does not'
+                                  if capability == 'tree' else 'Daycycle request needs a lease capability: ' + capability)
         reasons = Counter(i['reason'] for i in record['unresolved'])
         for reason, count in reasons.items():
             blockers[reason]['sites'] += count; blockers[reason]['trees'].add(name)
@@ -317,7 +329,8 @@ def golden(led):
                 blockers=[dict(reason=r['reason'], sites=r['sites'], trees=len(r['trees'])) for r in led['blockers']],
                 prepared=led['prepared'], source_equivalence=led['layers']['source_equivalence']['summary'],
                 lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])],
-                schedule=led.get('schedule'), scenes=led.get('scenes'))
+                schedule={k: v for k, v in (led.get('schedule') or {}).items() if k != 'sites'} or None,
+                scenes=led.get('scenes'))
 
 
 def main():
