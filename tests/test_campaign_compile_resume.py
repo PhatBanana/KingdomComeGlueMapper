@@ -72,9 +72,39 @@ class ResumeTests(unittest.TestCase):
             build(None, None, None, 'p1', destination)
             self.assertEqual((built, sorted(p.name for p in destination.iterdir())), (['p1', 'p1'], ['model.bin']))
             capped = resume.appearance_builder(self.work, cap=5)
-            with self.assertRaises(RuntimeError):
+            with self.assertRaises(ValueError):
                 capped(None, None, None, 'p2', self.work / 'stage/person-assets/p2')
             self.assertEqual(capped(None, None, None, 'p1', destination), first)
+
+    def test_the_cap_is_recorded_as_that_persons_failure_and_the_import_goes_on(self):
+        from campaign_dependencies import DependencyImporter, ImportPlan
+        capped = resume.appearance_builder(self.work, cap=-1)
+        class Souls:
+            def plan(self, identity):
+                return ImportPlan()
+            def convert(self, identity, plan, registered):
+                if identity == 'ok':
+                    return 'ok', {}, {}
+                capped(None, None, None, identity, Path(self_work) / 'stage/person-assets' / identity)
+        self_work = self.work
+        importer = DependencyImporter(dict(souls=Souls()))
+        self.assertIsNone(importer.ensure('souls', 'p1'))
+        self.assertEqual(importer.ensure('souls', 'ok'), 'ok')
+        self.assertEqual(importer.jobs[('souls', 'p1')]['status'], 'conversion_failed')
+        self.assertIn('GB cap', importer.jobs[('souls', 'p1')]['error'])
+
+    def test_registration_only_people_get_a_record_and_no_files(self):
+        import xml.etree.ElementTree as ET
+        with mock.patch.object(resume, 'PEOPLE', 'register'),                 mock.patch('character_person_appearance.build_appearance', side_effect=AssertionError('built')),                 mock.patch('build_npc_clothing_probe.native_soul_archetype', lambda table, sex: 'arch-' + sex),                 mock.patch('zipfile.ZipFile') as archive:
+            archive.return_value.__enter__.return_value.read.return_value = b'<x/>'
+            build = resume.appearance_builder(self.work, cap=-1)   # the cap does not apply: nothing is built
+            destination = self.work / 'stage/person-assets/ns'
+            woman = build(None, 'kcd2', dict(actor=ET.Element('Entity', EntityClass='NPC_Female')), 'ns', destination)
+            man = build(None, 'kcd2', dict(actor=ET.Element('Entity', EntityClass='NPC')), 'ns2', destination)
+        self.assertEqual((woman['archetype'], woman['gender'], woman['inventory'], woman['appearance']),
+                         ('arch-Female', 'female', 'ns_clothes', {}))
+        self.assertEqual((man['archetype'], man['gender'], man['appearance_deferred']), ('arch-Male', 'male', True))
+        self.assertFalse(destination.exists())
 
     def test_person_assets_are_moved_and_other_payloads_copied(self):
         stage = self.work / 'stage'

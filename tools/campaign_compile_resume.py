@@ -18,8 +18,14 @@ resumed run and an uninterrupted one see the same models. Without `--work`
 none of this code runs and campaign_compile behaves as before.
 
 The directory is bounded: a person build is refused once the directory holds
-more than the cap, and person assets are moved, not copied, into the output
-fragments, after which stage/person-assets is removed.
+more than the cap (a ValueError, which the dependency importer records as that
+person's failed conversion), and person assets are moved, not copied, into the
+output fragments, after which stage/person-assets is removed.
+
+`PEOPLE = 'register'` (set by campaign_compile_analysis, never by
+campaign_compile) registers every person without building an appearance: the
+soul, role, brain, faction, inventory and Storm rows are produced, no mesh,
+material or outfit is. The result is for analysis only and is not a package.
 """
 from contextlib import contextmanager
 import hashlib
@@ -31,6 +37,7 @@ import tempfile
 
 CAP_BYTES = 60 * 1024 ** 3
 KEEP = ('source-ir', 'person-assets')
+PEOPLE = 'build'  # or 'register': see the module text
 
 
 def size(path):
@@ -70,8 +77,34 @@ def quest_model(stage, name, request, build):
     return json.loads(text), False
 
 
+def registered_appearance():
+    """The appearance record of a person whose appearance is not built.
+
+    It carries what the person's registration reads (`character_person.actor_resources`,
+    `PersonRegistration.convert`): the native soul archetype of the actor's sex, the
+    name the outfit preset would have, and no appearance operations. The sex is the
+    actor's entity class; a built appearance takes it from the resolved body instead.
+    """
+    archetypes = {}
+
+    def build(source, target, person, namespace, destination):
+        sex = 'Female' if person['actor'].get('EntityClass') == 'NPC_Female' else 'Male'
+        if not archetypes:
+            import xml.etree.ElementTree as ET
+            import zipfile
+            from build_npc_clothing_probe import native_soul_archetype
+            with zipfile.ZipFile(Path(target) / 'Data/Tables.pak') as archive:
+                table = ET.fromstring(archive.read('Libs/Tables/rpg/soul_archetype.xml'))
+            archetypes.update({name: native_soul_archetype(table, name) for name in ('Male', 'Female')})
+        return dict(appearance={}, inventory=namespace + '_clothes', gender=sex.lower(), archetype=archetypes[sex],
+                    appearance_deferred=True, outfit_mode='Not built: registration only', runtime_verified=False)
+    return build
+
+
 def appearance_builder(work, cap=CAP_BYTES, progress=None):
     """Wrap the person appearance builder: reuse a finished person, refuse to exceed the cap."""
+    if PEOPLE == 'register':
+        return registered_appearance()
     used = [size(work)]
 
     def build(source, target, person, namespace, destination):
@@ -86,7 +119,8 @@ def appearance_builder(work, cap=CAP_BYTES, progress=None):
         if destination.exists():
             shutil.rmtree(destination)  # an interrupted build
         if used[0] > cap:
-            raise RuntimeError('Campaign work directory is over its %d GB cap' % (cap // 1024 ** 3))
+            # A ValueError: the importer records this person as failed and the run goes on.
+            raise ValueError('Campaign work directory is over its %d GB cap' % (cap // 1024 ** 3))
         character = build_appearance(source, target, person, namespace, destination)
         used[0] += size(destination)
         try:
