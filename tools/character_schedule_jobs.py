@@ -219,9 +219,13 @@ def bind_job_trees(files, mission, scheduler, schedules, archive, target, regist
                 for link in scheduler.findall('.//S_ActivityLink'):
                     if link.get('TargetGuid')==str(guid_value(job.get('EntityGuid'))):
                         link.find('Parameters').set('BehaviorName',activity)
+                post=entry.get('garrison_post')
+                pending=['rain and secondary post selection']
+                if post and post.get('post_kind') in ('patrolWalls','patrolStreets'):
+                    pending.append('patrol route: holds the patrol start point')
                 report.append(dict(person=person,job='guard',native_behavior=activity,
                     source_workplace=entry['arrival'],source_workplace_links=entry.get('workplace_links',[]),
-                    pending=['rain and secondary post selection'],runtime_verified=False))
+                    garrison_post=post,pending=pending,runtime_verified=False))
                 continue
             if (behavior['tree_file'].lower(),behavior['tree_name']) == character_blacksmith_jobs.SOURCE_BEHAVIOR:
                 job=next(e for e in mission if e.get('Name')=='gm_schedule_'+person+'_'+entry['arrival']['EntityId'])

@@ -16,6 +16,8 @@ from upgrade_map import read, xml
 
 TRAVEL = 'Data/gluemappertravel.pak'
 MARKER = 'Libs/GlueMapper/resident_population.json'
+# Every selected-people stage whose people speak in their KCD1 voice.
+MARKERS = (MARKER, 'Libs/GlueMapper/garrison_population.json')
 RESIDENT_TABLE = 'Libs/Tables/skald/skald_character__gm_kcd1_residents.xml'
 
 
@@ -25,9 +27,10 @@ def plan(package, source, target):
     package = Path(package)
     with zipfile.ZipFile(package/TRAVEL) as travel:
         names = set(travel.namelist())
-        if MARKER not in names:
+        markers = [m for m in MARKERS if m in names]
+        if not markers:
             return {}, dict(switched=[], kept=[], residue=[])
-        people = [r['person'] for r in json.loads(read(travel, MARKER)).get('residents', [])]
+        people = [r['person'] for m in markers for r in json.loads(read(travel, m)).get('residents', [])]
         soul_tables = {n: ET.fromstring(read(travel, n)) for n in names if n.startswith('Libs/Tables/rpg/soul__')}
         table_blob = read(travel, RESIDENT_TABLE) if RESIDENT_TABLE in names else None
         pinned, _ = shop.pin_characters(soul_tables, target, people)

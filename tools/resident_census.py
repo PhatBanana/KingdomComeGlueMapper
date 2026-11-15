@@ -82,6 +82,9 @@ def bucket(row):
         return 'residue', 'native brain or social class: ' + row['brain_error']
     if row['quest']:
         return 'selected', 'quest person'
+    from garrison_selection import GUARDS
+    if row['person'] in GUARDS:
+        return 'residue', 'town guard: garrison stage (setup_garrison_population)'
     if not row['home']:
         return 'residue', 'no KCD1 home'
     if row['blocking']:

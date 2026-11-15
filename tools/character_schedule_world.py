@@ -82,8 +82,11 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None, t
             if point.get('EntityClass') != 'TagPoint':
                 raise ValueError('Unsupported forced guard workplace')
             pose = world_entity(archive, point, mission)
+            # garrison_post: the census record when the post came from the
+            # garrison allocator (garrison_posts), None for an authored post.
             result.append(dict(entry, arrival=dict(pose.attrib),
-                workplace_links=[dict(l.attrib) for l in point.findall('EntityLinks/Link')]))
+                workplace_links=[dict(l.attrib) for l in point.findall('EntityLinks/Link')],
+                garrison_post=forced[0].get('garrison')))
             continue
         area = ET.Element('Entity', entry['area'])
         links = ET.SubElement(area, 'EntityLinks')
