@@ -72,12 +72,11 @@ MERCHANTS = (('ska_collierVarlet', 'gm_charcoal'),
              ('sas_swordsmiths_wife', 'gm_source_shop_80'),
              ('aus_butchers_wife', 'gm_source_shop_113'),
              ('aus_merchant', 'gm_source_shop_115'),
-             ('prib_butchers_wife', 'gm_source_shop_161'),
              # Unlocked by typed future links: the Sasau armourer imports 38 items (about 4.5 GB).
+             # Not the Pribyslavitz butcher (161), innkeeper (154) or trader (163): KCD1 only loads
+             # them with the From the Ashes buildings (newhomes_* layer profiles), which the port lacks.
              ('sas_ota', 'gm_source_shop_68'),
-             ('tal_woman2', 'gm_source_shop_112'),
-             ('prib_innkeeper', 'gm_source_shop_154'),
-             ('prib_trader', 'gm_source_shop_163'))
+             ('tal_woman2', 'gm_source_shop_112'))
 SOURCE_SHOP = 'gm_source_shop_'
 
 
