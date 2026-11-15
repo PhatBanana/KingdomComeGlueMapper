@@ -65,6 +65,14 @@ class RegistryTest(unittest.TestCase):
         self.assertEqual(self.module.calls, ['p'])
         self.assertIsNone(registry.bind(None, None, 'p', entry('baker'), None, pools))
 
+    def test_bound_programs_publish_without_schedules(self):
+        # The population stage calls job_resources(..., {}) after binding.
+        self.module.entry_resources = lambda e: ('TPL', {'AI/gluemapper/x.xml': b'<x/>'})
+        with mock.patch.dict(registry._BOUND, clear=True):
+            registry.bind(None, None, 'p', entry('tanner', test_work=dict(tree='tanner')), None, {})
+            self.assertEqual(registry.resources({}, {'TPL'}), {'AI/gluemapper/x.xml': b'<x/>'})
+            self.assertEqual(registry.resources({}, {'OTHER'}), {})
+
     def test_conflicting_pool_contract_fails(self):
         pools = {}
         registry.bind(None, None, 'p', entry('tanner', test_work=dict(tree='a')), None, pools)

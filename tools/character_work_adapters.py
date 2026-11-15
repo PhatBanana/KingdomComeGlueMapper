@@ -13,16 +13,22 @@ Adapter module contract:
   bind(mission, scheduler, person, entry, target) -> (job, waiting_links, report)
       report carries ``interval``; it is turned into ``intervals`` per pool.
   ACTIVITY (optional): the behaviour name the job's ``_,use`` edge is renamed to.
+  entry_resources(entry) (optional) -> (template id, {package path: bytes}) of a
+      generated behaviour program; ``resources`` below publishes the used ones.
 """
 from collections import namedtuple
 import importlib
 
 Adapter = namedtuple('Adapter', 'module key')
+# Generated programs bound in this process: template id -> {package path: bytes}.
+_BOUND = {}
 
 # One row per adapter module; each module decides which KCD1 trees it claims.
 ADAPTERS = (
     Adapter('character_workplace_work', 'workplace_work'),
     Adapter('character_pub_visitor_work', 'pub_visitor_work'),
+    Adapter('character_area_wait_work', 'area_wait_work'),
+    Adapter('character_compound_work', 'compound_work'),
 )
 
 
@@ -80,7 +86,32 @@ def bind(mission, scheduler, person, entry, target, pools):
             report['intervals'].append([entry['start_minute'], entry['end_minute']])
             return None, [], None, None
         job, waiting, report = module.bind(mission, scheduler, person, entry, target)
+        publish = getattr(module, 'entry_resources', None)
+        if publish is not None:
+            template, definitions = publish(entry)
+            _BOUND[template] = definitions
         report['intervals'] = [report.pop('interval', [entry['start_minute'], entry['end_minute']])]
         pools[key] = (contract, report)
         return job, waiting, report, getattr(module, 'ACTIVITY', '')
     return None
+
+
+def resources(schedules, used):
+    """Generated programs of every bound entry whose template a holder uses.
+
+    job_resources publishes these next to the arrival program, including on resume.
+    The population stage calls job_resources with no schedules, so programs bound
+    earlier in this process are remembered (_BOUND) and published when used.
+    """
+    result = {d: v for t, defs in _BOUND.items() if t in used for d, v in defs.items()}
+    for adapter, module in _modules():
+        publish = getattr(module, 'entry_resources', None)
+        if publish is None:
+            continue
+        for entries in schedules.values():
+            for entry in entries:
+                if entry.get(adapter.key):
+                    template, definitions = publish(entry)
+                    if template in used:
+                        result.update(definitions)
+    return result

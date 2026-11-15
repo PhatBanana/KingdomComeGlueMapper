@@ -48,6 +48,7 @@ def job_resources(source, target, files, schedules):
                 template, definitions = station_resources(entry['station_work'])
                 if template in used:
                     resources.update(definitions)
+    resources.update(character_work_adapters.resources(schedules, used))
     if character_horse_handler_work.TEMPLATE in used:
         resources.update(character_horse_handler_work.resources())
     import character_pub_cleaning
