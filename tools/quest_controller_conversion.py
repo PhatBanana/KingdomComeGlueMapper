@@ -132,7 +132,7 @@ def ledger(run):
             emitted.setdefault(tree.get('name'), []).append(tree)
     trees, blockers = [], defaultdict(lambda: dict(sites=0, trees=set()))
     lua = defaultdict(lambda: dict(sites=0, trees=set()))
-    checked = passed = nodes = rewritten = stand_ins = 0
+    checked = passed = nodes = rewritten = stand_ins = verbatim = 0
     failures = []
     for name, source in model['behavior_documents'][own]['trees'].items():
         record = records[(own, name)]
@@ -147,6 +147,7 @@ def ledger(run):
                                 for call in campaign_controller_contracts.lua_shape(
                                     script[1:-1] if script[:1] == script[-1:] == '"' and len(script) > 1 else script)})
                 lua[' '.join(calls)]['sites'] += 1; lua[' '.join(calls)]['trees'].add(name)
+        verbatim += len(record.get('verbatim_lua', ()))
         status = 'emitted' if record['native_emitted'] else 'blocked' if reasons else 'blocked_by_include'
         entry = dict(tree=name, status=status, blocked_sites=sum(reasons.values()), reasons=len(reasons))
         if record['native_emitted']:
@@ -183,7 +184,7 @@ def ledger(run):
                                                      if r['quest'] == model['quest'] and r['document'] == own)),
                               initialisers=len(run['prepared'].get('initialisers', ())),
                               implicit_links=len(run['prepared'].get('implicit_links', ())),
-                              value_renames=len(run['prepared'].get('value_renames', ())),
+                              value_renames=len(run['prepared'].get('value_renames', ())), verbatim_lua=verbatim,
                               completed_branches=len(run['prepared'].get('completed_branches', ()))),
                 lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
                             for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],

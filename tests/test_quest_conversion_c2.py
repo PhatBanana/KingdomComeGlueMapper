@@ -186,6 +186,7 @@ class ContractTests(unittest.TestCase):
         contracts.register()
         catalog = dict(nodes={op: dict(attributes=list(fields), children=[])
                               for op, fields in campaign_behavior.CONTRACTS.items()}, variable_types=[], enum_types=[])
+        catalog['nodes']['ExecuteLua'] = dict(attributes=['code'], children=[])
         prepared, report = contracts.prepare([model(source, list(variables))])
         prepared = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
         compiler = campaign_behavior.BehaviorCompiler([], 'C2', catalog,
@@ -373,6 +374,42 @@ class ContractTests(unittest.TestCase):
             self.assertEqual((report['stand_ins'], len(report['rename_blocked'])), ([], 1))
         plain, report = contracts.prepare([model(node('PlayAnimation', animation=q('Idle')), [])])
         self.assertEqual((report['stand_ins'], report['rename_blocked']), ([], []))
+
+    def test_lua_made_of_native_calls_and_no_foreign_constant_is_emitted_verbatim(self):
+        import campaign_behavior
+        contracts.register()
+        accepted = ("local door1 = XGenAIModule.GetEntityByWUID(data.t_places['doorKunes1']) \ndoor1:Unlock()",
+                    "data.expo = (System.GetCVar('wh_sys_specVersion') == 'expo')",
+                    "local horseEnt = XGenAIModule.GetEntityByWUID(data.horse) \n \nplayer.player:SetPlayerHorse(horseEnt.id)",
+                    "if  data.ds.id ~= __null then  \n    DialogModule.SetAIInteractionState(data.ds.id, false) \nend")
+        for script in accepted:
+            emitted, reasons, _ = self.lower(node('ExecuteLua', code=q(script)))
+            self.assertEqual((reasons, emitted.get('code')), ([], script))
+        gate = "return entity.inventory:GetMoney() >= SocialClass.GetEntitySocialClassData(entity).diceMinimumBet"
+        self.assertTrue(contracts.verbatim_lua(gate))
+        for script in ("XGenAIModule.GetEntityByWUID(data.chest):SetLootLegal(true)",
+                       "Contexts.SetPersistentOption(entity, 'suppressTrainerLessons', 'q_x')",
+                       "data.expo = (System.GetCVar('wh_other') == 'expo')", "Shops.OpenShop(17)", "x = 'unterminated", ""):
+            self.assertFalse(contracts.verbatim_lua(script), script)
+        self.assertIsNone(self.lower(node('ExecuteLua', code=q("Shops.OpenShop(17)")))[0])
+
+    def test_a_native_wuid_distance_keeps_its_operation(self):
+        import campaign_behavior
+        from campaign_dependencies import DependencyImporter
+        contracts.register()
+        source = node('NumericalOperation', In1VariableName='this.id', In2VariableName='home', In3VariableName='',
+                      OutVariableName='dist', Operation='distance2dSq_wuid')
+        def lower(operations):
+            catalog = dict(nodes={op: dict(attributes=list(fields), children=[]) for op, fields in campaign_behavior.CONTRACTS.items()},
+                           variable_types=[], enum_types=[], numerical_operations=operations)
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', catalog, importer=DependencyImporter({}, {}))
+            record = dict(unresolved=[], buff_dependencies=[], item_dependencies=[], includes=[])
+            return compiler.lower_node(source, 'q', 'libs/ai/quests/q.xml', 't', 'Root', record), record['unresolved']
+        emitted, unresolved = lower(['distance2dSq', 'distance2dSq_wuid'])
+        self.assertEqual((unresolved, emitted.get('Operation'), emitted.get('In1VariableName'), emitted.get('OutVariableName')),
+                         ([], 'distance2dSq_wuid', 'this.id', '$dist'))
+        self.assertIsNone(lower(['distance2dSq'])[0])
+        self.assertEqual(source['attributes']['Operation'], 'distance2dSq_wuid')
 
     def test_every_rewrite_target_and_hook_has_a_contract(self):
         import campaign_behavior

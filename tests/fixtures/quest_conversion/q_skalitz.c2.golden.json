@@ -16,11 +16,6 @@
       "trees": 3
     },
     {
-      "reason": "Source Lua requires a semantic adapter",
-      "sites": 16,
-      "trees": 6
-    },
-    {
       "reason": "Daycycle patch end needs the scheduled-activity lease: FinishPatch",
       "sites": 12,
       "trees": 11
@@ -32,6 +27,11 @@
     },
     {
       "reason": "Referenced buff conversion did not complete: c7c79394-cd16-4d86-a029-f8a5f6623f9d",
+      "sites": 9,
+      "trees": 5
+    },
+    {
+      "reason": "Source Lua requires a semantic adapter",
       "sites": 9,
       "trees": 5
     },
@@ -97,11 +97,6 @@
     },
     {
       "reason": "Native operation lives in the quest graph: SetOwner (Skald Effect What/Who; needs a signal bridge)",
-      "sites": 2,
-      "trees": 1
-    },
-    {
-      "reason": "Numerical operation requires a validated contract: distance2dSq_wuid",
       "sites": 2,
       "trees": 1
     },
@@ -291,6 +286,7 @@
     "friends_meetingBeforeKunes",
     "friends_patch",
     "friends_work",
+    "gambler_playDiceTillYouRunOutOfMoney",
     "guard_goesToTheGate",
     "johanka_goingToSkinner",
     "matej_waitsInfrontOfPub",
@@ -337,8 +333,8 @@
     },
     "lua": {
       "reasons": 1,
-      "sites": 16,
-      "trees": 6
+      "sites": 9,
+      "trees": 5
     },
     "message_type": {
       "reasons": 3,
@@ -351,11 +347,6 @@
       "trees": 4
     },
     "op_partial": {
-      "reasons": 1,
-      "sites": 2,
-      "trees": 1
-    },
-    "other": {
       "reasons": 1,
       "sites": 2,
       "trees": 1
@@ -378,10 +369,6 @@
   },
   "lua_shapes": [
     {
-      "calls": "System.GetCVar data=",
-      "sites": 3
-    },
-    {
       "calls": "Contexts.ClearOption XGenAIModule.GetEntityByWUID",
       "sites": 2
     },
@@ -398,10 +385,6 @@
       "sites": 1
     },
     {
-      "calls": "<entity>:Unlock XGenAIModule.GetEntityByWUID",
-      "sites": 1
-    },
-    {
       "calls": "Contexts.ClearOption Contexts.SetNonpersistentOption entity.SetLootLegal",
       "sites": 1
     },
@@ -414,23 +397,11 @@
       "sites": 1
     },
     {
-      "calls": "DialogModule.SetAIInteractionState",
-      "sites": 1
-    },
-    {
       "calls": "Dump data= string.sub tonumber",
       "sites": 1
     },
     {
       "calls": "EnvironmentModule.BlendTimeOfDay EnvironmentModule.ForceImmediateWeatherUpdate",
-      "sites": 1
-    },
-    {
-      "calls": "SocialClass.GetEntitySocialClassData entity.inventory:GetMoney",
-      "sites": 1
-    },
-    {
-      "calls": "XGenAIModule.GetEntityByWUID player.player:SetPlayerHorse",
       "sites": 1
     }
   ],
@@ -458,23 +429,24 @@
       "MakeMeIdle->StopMovement": 4,
       "PlayAnimation->Sequence": 1
     },
-    "value_renames": 21
+    "value_renames": 21,
+    "verbatim_lua": 7
   },
   "quest": "q_skalitz",
   "schema": 1,
   "source_equivalence": {
-    "checked": 15,
+    "checked": 16,
     "failed": 0,
-    "nodes_compared": 201,
-    "passed": 15,
-    "residue": 58,
+    "nodes_compared": 214,
+    "passed": 16,
+    "residue": 57,
     "rewritten_nodes": 2,
     "stand_in_nodes": 1
   },
   "trees": {
-    "blocked": 45,
-    "blocked_by_include": 13,
-    "emitted": 15,
+    "blocked": 43,
+    "blocked_by_include": 14,
+    "emitted": 16,
     "total": 73
   }
 }

@@ -435,6 +435,57 @@ def _link_expression(compiler, node, source, site, record):
     node.set('Expresion', value)
 
 
+# Lua that runs unchanged. A script passes only when every call it makes is
+# listed here and every string literal is an index key or listed below; the
+# compiler then emits it verbatim, as it does a script identical to a native
+# one. Evidence, retail KCD2: GetEntityByWUID in 168 tree scripts; `:Unlock()`
+# on a door entity in 5; `player.player:SetPlayerHorse(<entity>.id)` in 1;
+# System.GetCVar in 1 tree script and 8 Lua files, the cvar named in
+# player.lua; DialogModule.SetAIInteractionState in DialogUtils.lua;
+# inventory:GetMoney in 1 tree script; SocialClass.GetEntitySocialClassData
+# and its diceMinimumBet field in SocialClass.lua; `data.x = ...`,
+# `data.x['key']` and `__null` in tree scripts. Inference: a call that kept
+# its name kept its meaning.
+VERBATIM_CALLS = {'XGenAIModule.GetEntityByWUID', '<entity>:Unlock', '<call>:Unlock', 'player.player:SetPlayerHorse',
+                  'System.GetCVar', 'data=', 'DialogModule.SetAIInteractionState', 'entity.inventory:GetMoney',
+                  'SocialClass.GetEntitySocialClassData'}
+VERBATIM_LITERALS = {'wh_sys_specVersion', 'expo'}
+LUA_FIELDS = {'ExecuteLua': ('code',), 'LuaGate': ('code',), 'LuaWrapper': ('onEnter', 'onExit')}
+# Numerical operations native trees use with the source's own operand form
+# (`In1VariableName="this.id" In2VariableName="t_horse"`), beyond the three
+# the compiler lists. The compiler still requires the name in the catalog.
+NUMERIC_OPERATIONS = {'distance2dSq_wuid': 'distance2dSq'}
+
+
+def verbatim_lua(script):
+    from campaign_lua_contracts import tokens
+    program = tokens(script)
+    if not program or not set(lua_shape(script)) <= VERBATIM_CALLS:
+        return False
+    for index, token in enumerate(program):
+        if token[:1] in ('"', "'", '[') and len(token) > 1 and token[1:-1] not in VERBATIM_LITERALS \
+                and not (index and program[index - 1] == '['):
+            return False
+    return True
+
+
+def _before(compiler, source, record):
+    """Return (source to lower, finish(node)) for the two cases the generic path needs help with."""
+    from campaign_lua_contracts import tokens
+    op = source['op']
+    for field in LUA_FIELDS.get(op, ()):
+        script = _text(source, field)
+        if script.strip() and verbatim_lua(script):
+            compiler.lua_contracts.by_site.setdefault((op, field), set()).add(tokens(script))
+            record.setdefault('verbatim_lua', []).append(dict(operation=op, field=field))
+    operation = _text(source, 'Operation')
+    if (op == 'NumericalOperation' and operation in NUMERIC_OPERATIONS
+            and operation in compiler.catalog.get('numerical_operations', ())):
+        stand_by = dict(source, attributes=dict(source['attributes'], Operation='"%s"' % NUMERIC_OPERATIONS[operation]))
+        return stand_by, lambda node: node.set('Operation', operation)
+    return source, None
+
+
 # native op -> hook(compiler, emitted node, source node, site, record)
 POST = {'ProfileLoadedGate': _profile, 'DecoratorBuff': _buff, 'EvaLLyzer': _link_expression}
 GENERIC = 'Behavior operation needs an adapter: '
@@ -457,7 +508,10 @@ def register():
     if not hasattr(original, 'controller_contracts'):
         def lower_node(self, source, owner, document, tree, path, record, animation_controllers=None):
             before = len(record['unresolved'])
-            node = original(self, source, owner, document, tree, path, record, animation_controllers)
+            lowered, finish = _before(self, source, record)
+            node = original(self, lowered, owner, document, tree, path, record, animation_controllers)
+            if node is not None and finish is not None:
+                finish(node)
             for entry in record['unresolved'][before:]:
                 reason = entry.get('reason', '')
                 if reason.startswith(GENERIC) and reason[len(GENERIC):] in RESIDUE:
