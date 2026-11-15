@@ -131,6 +131,7 @@ def ledger(run):
         for tree in ([root] if root.tag == 'BehaviorTree' else root.iter('BehaviorTree')):
             emitted.setdefault(tree.get('name'), []).append(tree)
     trees, blockers = [], defaultdict(lambda: dict(sites=0, trees=set()))
+    lua = defaultdict(lambda: dict(sites=0, trees=set()))
     checked = passed = nodes = rewritten = 0
     failures = []
     for name, source in model['behavior_documents'][own]['trees'].items():
@@ -138,6 +139,14 @@ def ledger(run):
         reasons = Counter(i['reason'] for i in record['unresolved'])
         for reason, count in reasons.items():
             blockers[reason]['sites'] += count; blockers[reason]['trees'].add(name)
+        for item in record['unresolved']:
+            site = item.get('site') or {}
+            if site.get('operation') in ('ExecuteLua', 'LuaGate', 'LuaWrapper'):
+                scripts = [site['arguments'][f] for f in ('code', 'onEnter', 'onExit') if f in site['arguments']]
+                calls = sorted({call for script in scripts
+                                for call in campaign_controller_contracts.lua_shape(
+                                    script[1:-1] if script[:1] == script[-1:] == '"' and len(script) > 1 else script)})
+                lua[' '.join(calls)]['sites'] += 1; lua[' '.join(calls)]['trees'].add(name)
         status = 'emitted' if record['native_emitted'] else 'blocked' if reasons else 'blocked_by_include'
         entry = dict(tree=name, status=status, blocked_sites=sum(reasons.values()), reasons=len(reasons))
         if record['native_emitted']:
@@ -170,7 +179,11 @@ def ledger(run):
                               renamed=dict(Counter(r['source'] + '->' + r['target'] for r in run['prepared']['renamed'])),
                               rename_blocked=len(run['prepared']['rename_blocked']),
                               initialisers=len(run['prepared'].get('initialisers', ())),
-                              implicit_links=len(run['prepared'].get('implicit_links', ()))),
+                              implicit_links=len(run['prepared'].get('implicit_links', ())),
+                              value_renames=len(run['prepared'].get('value_renames', ())),
+                              completed_branches=len(run['prepared'].get('completed_branches', ()))),
+                lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
+                            for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
                     summary=dict(checked=checked, passed=passed, failed=len(failures),
                                  residue=len(trees) - checked, nodes_compared=nodes,
@@ -198,6 +211,13 @@ def markdown(led, main_path=()):
     lines += ['', '## Blockers', '', '| Reason | Family | Sites | Trees | Status |', '|---|---|---:|---:|---|']
     lines += ['| %s | %s | %d | %d | %s |' % (r['reason'].replace('|', '/')[:110], r['family'], r['sites'], len(r['trees']), r['status'])
               for r in led['blockers']]
+    if led.get('lua_shapes'):
+        lines += ['', '## Lua residue by call shape', '',
+                  'Blocked Lua sites grouped by the calls they make (`campaign_controller_contracts.lua_shape`; '
+                  '`<entity>` is a local bound to `XGenAIModule.GetEntityByWUID`, `data=` a write to a tree variable).',
+                  '', '| Calls | Sites | Trees |', '|---|---:|---|']
+        lines += ['| `%s` | %d | %s |' % (r['calls'].replace('|', '/') or '(none)', r['sites'], ', '.join(r['trees']))
+                  for r in led['lua_shapes']]
     return '\n'.join(lines) + '\n'
 
 
@@ -205,7 +225,8 @@ def golden(led):
     return dict(schema=1, quest=led['quest'], converter='C2', trees=led['trees'], families=led['families'],
                 emitted=sorted(t['tree'] for t in led['tree_status'] if t['status'] == 'emitted'),
                 blockers=[dict(reason=r['reason'], sites=r['sites'], trees=len(r['trees'])) for r in led['blockers']],
-                prepared=led['prepared'], source_equivalence=led['layers']['source_equivalence']['summary'])
+                prepared=led['prepared'], source_equivalence=led['layers']['source_equivalence']['summary'],
+                lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])])
 
 
 def main():

@@ -101,6 +101,50 @@ class PrepareTests(unittest.TestCase):
             with self.assertRaises(campaign_behavior.UnsupportedOperation):
                 compiler.variable(variable)
 
+    def child(self, prepared):
+        return prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+
+    def test_an_after_reset_gate_is_the_unchanged_state(self):
+        gate = node('QuestObjectiveGate', [node('Success')], questName='""', objectiveName='"endQuest"',
+                    objectiveState='"AfterReset"', NegateTo='"true"', RunLogic='"Halt"')
+        prepared, report = contracts.prepare([model(gate, [])])
+        self.assertEqual(self.child(prepared)['attributes'], dict(gate['attributes'], objectiveState='"Unchanged"'))
+        self.assertEqual([r['source'] for r in report['value_renames']], ['AfterReset'])
+        for other in ('Started', 'StartedTrackingDone', '$state'):
+            kept = dict(gate, attributes=dict(gate['attributes'], objectiveState='"%s"' % other))
+            prepared, report = contracts.prepare([model(kept, [])])
+            self.assertEqual((self.child(prepared)['attributes']['objectiveState'], report['value_renames']), ('"%s"' % other, []))
+        condition = node('QuestObjectiveCondition', objective='"endQuest"', function='"AfterReset"')
+        self.assertEqual(contracts.prepare([model(condition, [])])[1]['value_renames'], [])
+
+    def test_a_missing_branch_that_must_fail_is_written_out(self):
+        def branches(children, policy='"true"', op='QuestObjectiveCondition'):
+            prepared, report = contracts.prepare([model(node(op, children, failSubtMissing=policy), [])])
+            return [(c['op'], c['attributes'], [g['op'] for g in c['children']]) for c in self.child(prepared)['children']], report
+        then, otherwise = node('Then', [node('Success')], canSkip='1'), node('Else', [node('Success')], canSkip='1')
+        self.assertEqual(branches([then])[0], [('Then', dict(canSkip='1'), ['Success']), ('Else', dict(canSkip='1'), ['Fail'])])
+        self.assertEqual(branches([otherwise], '1', 'QuestCondition')[0],
+                         [('Then', dict(canSkip='1'), ['Fail']), ('Else', dict(canSkip='1'), ['Success'])])
+        for children, policy, op in (([then], '"false"', 'QuestObjectiveCondition'), ([then, otherwise], '"true"', 'QuestCondition'),
+                                     ([], '"true"', 'QuestCondition'), ([then], '"true"', 'IfElseCondition')):
+            result, report = branches(children, policy, op)
+            self.assertEqual((len(result), report['completed_branches']), (len(children), []))
+
+    def test_lua_sites_cluster_by_the_calls_they_make(self):
+        shape = contracts.lua_shape
+        unlock = shape("local door1 = XGenAIModule.GetEntityByWUID(data.t_places['doorKunes1']) \ndoor1:Unlock()")
+        self.assertEqual(unlock, ('<entity>:Unlock', 'XGenAIModule.GetEntityByWUID'))
+        self.assertEqual(shape("local d = XGenAIModule.GetEntityByWUID(data.other)\n\nd:Unlock() -- note"), unlock)
+        self.assertEqual(shape("XGenAIModule.GetEntityByWUID(data.chest):SetLootLegal(true)"),
+                         ('<call>:SetLootLegal', 'XGenAIModule.GetEntityByWUID'))
+        self.assertEqual(shape("data.expo = (System.GetCVar('wh_sys_specVersion') == 'expo')"), ('System.GetCVar', 'data='))
+        self.assertEqual(shape("if data.ds.id ~= __null then DialogModule.SetAIInteractionState(data.ds.id, false) end"),
+                         ('DialogModule.SetAIInteractionState',))
+        self.assertEqual(shape("return entity.inventory:GetMoney() >= SocialClass.GetEntitySocialClassData(entity).diceMinimumBet"),
+                         ('SocialClass.GetEntitySocialClassData', 'entity.inventory:GetMoney'))
+        self.assertEqual(shape("print('Unlock(')"), ('print',))
+        self.assertEqual(shape("x = 'unterminated"), ('<unparsed>',))
+
     def test_a_renamed_operation_maps_every_attribute_or_is_left_blocked(self):
         prepared, report = contracts.prepare([model(node('TurnBody', destinationSpecification='"__player"', alignWith='false'), [])])
         turned = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]

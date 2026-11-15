@@ -36,11 +36,6 @@
       "trees": 5
     },
     {
-      "reason": "Quest objective gate lifecycle needs an adapter: AfterReset",
-      "sites": 8,
-      "trees": 1
-    },
-    {
       "reason": "Inexpressible as one native operation: AddOpponent (AddToSkirmish holds only while it runs)",
       "sites": 7,
       "trees": 4
@@ -187,11 +182,6 @@
     },
     {
       "reason": "Job item class conversion did not complete: ea98e001-9d40-4eb8-a198-ccf5cb548747",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Missing-branch failure semantics need an adapter",
       "sites": 1,
       "trees": 1
     },
@@ -420,8 +410,8 @@
       "trees": 5
     },
     "quest_state": {
-      "reasons": 5,
-      "sites": 13,
+      "reasons": 3,
+      "sites": 4,
       "trees": 2
     },
     "typed_variables": {
@@ -430,7 +420,66 @@
       "trees": 1
     }
   },
+  "lua_shapes": [
+    {
+      "calls": "System.GetCVar data=",
+      "sites": 3
+    },
+    {
+      "calls": "Contexts.ClearOption XGenAIModule.GetEntityByWUID",
+      "sites": 2
+    },
+    {
+      "calls": "<call>:SetLootLegal XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "<entity>:DoPlayAnimation XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "<entity>:GetDefaultAuxAudioProxyID <entity>:SetAudioRtpcValue AudioUtils.LookupRtpcID XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "<entity>:Unlock XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.ClearOption Contexts.SetNonpersistentOption entity.SetLootLegal",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.SetNonpersistentOption Shops.OpenShop XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.SetPersistentOption XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "DialogModule.SetAIInteractionState",
+      "sites": 1
+    },
+    {
+      "calls": "Dump data= string.sub tonumber",
+      "sites": 1
+    },
+    {
+      "calls": "EnvironmentModule.BlendTimeOfDay EnvironmentModule.ForceImmediateWeatherUpdate",
+      "sites": 1
+    },
+    {
+      "calls": "SocialClass.GetEntitySocialClassData entity.inventory:GetMoney",
+      "sites": 1
+    },
+    {
+      "calls": "XGenAIModule.GetEntityByWUID player.player:SetPlayerHorse",
+      "sites": 1
+    }
+  ],
   "prepared": {
+    "completed_branches": 15,
     "implicit_links": 23,
     "initialisers": 24,
     "rename_blocked": 321,
@@ -445,7 +494,8 @@
       "Teleport->TeleportAction": 36,
       "TurnBody->Turn": 63
     },
-    "scope_resolutions": 274
+    "scope_resolutions": 274,
+    "value_renames": 21
   },
   "quest": "q_skalitz",
   "schema": 1,

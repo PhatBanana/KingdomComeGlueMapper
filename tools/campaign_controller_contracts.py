@@ -110,6 +110,17 @@ ENGINE_TYPES = {'additionalMoveParams': 'additionalMoveParams', 'followFormation
 # Native initialisers quote the time: destChangedThreshold('250ms') (47 uses).
 # KCD1 writes it quoted and bare; the bare form is quoted. Inference: equal.
 TIME_INITIALISER = re.compile(r"(destChangedThreshold)\(([0-9]+(?:ms|s|m|h)?)\)")
+# (op, attribute) -> {source value: value the compiler already lowers}.
+# KCD1's gate states are Started, Completed, Canceled, AfterReset and
+# StartedTrackingDone (WHGame.dll, 1,506 retail uses); its conditions are
+# IsObjectiveStarted/Completed/Canceled/Unchanged and TrackedCompleted.
+# Inference: AfterReset, the one gate state left for the fourth condition, is
+# the untouched state the quest graph exposes as `<objective>_Unchanged`.
+VALUE_RENAMES = {('QuestObjectiveGate', 'objectiveState'): {'AfterReset': 'Unchanged'}}
+# With failSubtMissing a quest condition fails when the selected branch is not
+# authored. The native check has no such field (context, saveVersion), so the
+# absent branch is written out as a branch holding Fail: the same result.
+BRANCHED = {'QuestCondition', 'QuestObjectiveCondition'}
 # ActorStateBarrier ToState / ActorStateCheck State values on native examples.
 ACTOR_STATES = {'idle', 'minigame', 'jump', 'actorAnim', 'reading', 'readingFromInventory', 'carried', 'land',
                 'carryItem', 'ragdoll', 'dead', 'crouch', 'sprinting', 'hit', 'combat', 'ladder', 'stoneThrowing',
@@ -393,6 +404,43 @@ def document_scope(payload):
     return {name: v for name, v in seen.items() if name not in conflict}
 
 
+LUA_KEYWORDS = {'if', 'then', 'else', 'elseif', 'end', 'and', 'or', 'not', 'local', 'return', 'function', 'for',
+                'while', 'do', 'in', 'repeat', 'until', 'nil', 'true', 'false'}
+
+
+def lua_shape(script):
+    """The sorted set of calls a script makes, for clustering Lua sites.
+
+    Deterministic and lexical: literals are dropped, a local bound to
+    XGenAIModule.GetEntityByWUID(...) is written `<entity>`, a method called
+    on a call result `<call>`, and a write to a tree variable `data=`. Two
+    sites with one shape need the same lowering apart from their constants.
+    """
+    from campaign_lua_contracts import tokens
+    program = tokens(script)
+    if program is None:
+        return ('<unparsed>',)
+    name = re.compile(r'[A-Za-z_]\w*')
+    entities = {program[i - 1] for i in range(1, len(program) - 3)
+                if program[i:i + 4] == ('=', 'XGenAIModule', '.', 'GetEntityByWUID')}
+    calls = set()
+    for index, token in enumerate(program):
+        if token == '=' and index >= 3 and program[index - 3:index - 1] == ('data', '.'):
+            calls.add('data=')
+        if token != '(' or index == 0 or not name.fullmatch(program[index - 1]) or program[index - 1] in LUA_KEYWORDS:
+            continue
+        start = index - 1
+        while start >= 2 and program[start - 1] in ('.', ':') and name.fullmatch(program[start - 2]):
+            start -= 2
+        chain = list(program[start:index])
+        if start >= 2 and program[start - 1] in ('.', ':') and program[start - 2] == ')':
+            chain = ['<call>', program[start - 1]] + chain
+        elif chain[0] in entities:
+            chain[0] = '<entity>'
+        calls.add(''.join(chain))
+    return tuple(sorted(calls))
+
+
 def implicit_link_types(models):
     """{identity: row} for link tags that trees write but no definition declares.
 
@@ -434,7 +482,8 @@ def _walk(node, path='Root'):
 def prepare(models):
     """Return (models, report). Inputs are not modified."""
     models = copy.deepcopy(models)
-    report = dict(scope_resolutions=[], renamed=[], rename_blocked=[], initialisers=[],
+    report = dict(scope_resolutions=[], renamed=[], rename_blocked=[], initialisers=[], value_renames=[],
+                  completed_branches=[],
                   implicit_links=implicit_link_types(models), runtime_verified=False)
     for model in models:
         for document, payload in model['behavior_documents'].items():
@@ -468,6 +517,19 @@ def prepare(models):
                             part if i % 2 else INDEX.sub(lambda m: typed(m, attribute, path), part)
                             for i, part in enumerate(parts))
                     source_op = node['op']
+                    for (op, attribute), values in VALUE_RENAMES.items():
+                        if source_op == op and _text(node, attribute) in values:
+                            report['value_renames'].append(dict(site, path=path, operation=op, attribute=attribute,
+                                                                source=_text(node, attribute)))
+                            node['attributes'][attribute] = '"' + values[_text(node, attribute)] + '"'
+                    if source_op in BRANCHED and _text(node, 'failSubtMissing') in ('true', '1'):
+                        branches = [child['op'] for child in node['children']]
+                        if branches in (['Then'], ['Else']):
+                            missing = _node('Else' if branches == ['Then'] else 'Then', [_node('Fail')])
+                            missing['attributes'] = dict(canSkip='1')
+                            node['children'] = sorted(node['children'] + [missing], key=lambda c: c['op'] != 'Then')
+                            report['completed_branches'].append(dict(site, path=path, operation=source_op,
+                                                                     added=missing['op']))
                     rule = REWRITES[source_op][1] if source_op in REWRITES else (
                         _rename(source_op) if source_op in RENAMES else None)
                     if rule is None:
