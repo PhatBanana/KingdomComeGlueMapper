@@ -5,6 +5,7 @@ quest actors/services are retained. Full unsupported work programs stay in the
 report; they are never represented as successfully converted idle actions.
 """
 import argparse
+import copy
 import json
 import os
 from pathlib import Path
@@ -134,9 +135,18 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
                 trees=(E.fromstring(files['objects_mission0.xml']),E.fromstring(files['tables/ai/scheduler.xml']),
                        source_mission_entities(archive))
                 files=dict(files)
-            bind_arrival_trees(files,*trees[:2],{name:entries},target)
-            files,jobs=bind_job_trees(files,*trees[:2],{name:entries},archive,target,items,
-                                      convert_routes=True,source_entities=trees[2])
+            # A work adapter can also refuse while binding (none of a pub's or
+            # compound's converted seats exist in this mission). Residents roll
+            # back to the trees before this person and stay on the native wait.
+            saved=(dict(files),copy.deepcopy(trees[0]),copy.deepcopy(trees[1])) if home_time else None
+            try:
+                bind_arrival_trees(files,*trees[:2],{name:entries},target)
+                files,jobs=bind_job_trees(files,*trees[:2],{name:entries},archive,target,items,
+                                          convert_routes=True,source_entities=trees[2])
+            except ValueError as error:
+                if not home_time: raise
+                files,trees=saved[0],(saved[1],saved[2],trees[2])
+                pending.append(dict(person=name, reason='Work binding failed: '+str(error), schedule=schedule));continue
             converted.extend(jobs)
         if trees is not None:
             files.update({'objects_mission0.xml':xml(trees[0]),'tables/ai/scheduler.xml':xml(trees[1])})
