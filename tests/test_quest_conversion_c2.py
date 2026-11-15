@@ -42,7 +42,7 @@ class PrepareTests(unittest.TestCase):
 
     def test_an_index_is_left_alone_when_its_type_or_key_is_not_proven(self):
         cases = [([dict(ACTORS, form='array')], ()),                                   # not a string-keyed map
-                 ([ACTORS, dict(name='worker', type='_int', form='single')], ()),      # the key is a variable
+                 ([ACTORS, dict(name='worker', type='_string', form='single')], ()),   # a string variable could be the key
                  ([ACTORS], [dict(name='t_actors', type='_int', form='array')]),       # the tree declares it itself
                  ([], ())]                                                             # nobody declares it
         for entry, own in cases:
@@ -52,6 +52,54 @@ class PrepareTests(unittest.TestCase):
         conflicting['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['other'] = dict(
             variables=[dict(ACTORS, form='array')], root=node('Root'))
         self.assertEqual(contracts.prepare([conflicting])[1]['scope_resolutions'], [])
+
+    def test_a_bare_key_is_a_literal_even_when_a_wuid_variable_has_its_name(self):
+        worker = dict(name='worker', type='common:wuid', form='single')
+        for entry, own in (([ACTORS, worker], ()), ([ACTORS], [worker]), ([], [ACTORS, worker])):
+            prepared, report = contracts.prepare([model(node('Send', target='t_actors[worker]', other='$t_actors[$worker]'), entry, own)])
+            attrs = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]['attributes']
+            self.assertEqual(attrs, dict(target="t_actors['worker']", other='$t_actors[$worker]'))
+        other_tree = model(node('Send', target='t_actors[worker]'), [ACTORS])
+        other_tree['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['other'] = dict(
+            variables=[dict(name='worker', type='_string', form='single')], root=node('Root'))
+        self.assertEqual(contracts.prepare([other_tree])[1]['scope_resolutions'], [])
+
+    def test_a_bare_time_initialiser_is_quoted_as_native_ones_are(self):
+        def values(variable):
+            prepared, report = contracts.prepare([model(node('Success'), [variable])])
+            return prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['entry']['variables'][0]['values'], report
+        move = dict(name='addPars', type='additionalMoveParams', form='single')
+        self.assertEqual(values(dict(move, values='destChangedThreshold(250ms)'))[0], "destChangedThreshold('250ms')")
+        self.assertEqual(values(dict(move, values='destChangedThreshold(500)'))[0], "destChangedThreshold('500')")
+        for untouched in ("destChangedThreshold('2s')", 'destChangedThreshold($delay)', 'continueWhenHalting(true)', ''):
+            value, report = values(dict(move, values=untouched))
+            self.assertEqual((value, report['initialisers']), (untouched, []))
+        self.assertEqual(values(dict(move, type='_string', values='destChangedThreshold(250ms)'))[0], 'destChangedThreshold(250ms)')
+
+    def test_an_undeclared_link_tag_converts_only_when_a_tree_writes_it(self):
+        data = dict(name='linkData', type='crime:suppress', form='single')
+        source = model(node('Sequence', [
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"suppress"', Data='"$linkData"'),
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"suppress"', Data='""'),
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"plain"', Data='""'),
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"$dynamic"', Data='""'),
+            node('LinkTagFilter', tag='"levelOnly"'), node('RemoveLink', Tag='"removedOnly"')]), [], [data])
+        self.assertEqual(contracts.prepare([source])[1]['implicit_links'],
+                         dict(suppress=dict(name='suppress', type='crime:suppress'), plain=dict(name='plain')))
+        mixed = model(node('Sequence', [node('AddLink', Tag='"mixed"', Data='"a"'), node('AddLink', Tag='"mixed"', Data='"b"')]), [],
+                      [dict(name='a', type='one', form='single'), dict(name='b', type='two', form='single')])
+        self.assertEqual(contracts.prepare([mixed])[1]['implicit_links'], dict(mixed=dict(name='mixed')))
+
+    def test_an_engine_record_keeps_its_native_type_when_the_catalog_has_it(self):
+        import campaign_behavior
+        contracts.register()
+        for source, target in contracts.ENGINE_TYPES.items():
+            variable = dict(name='v', type=source, form='single')
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', dict(nodes={}, variable_types=[target], enum_types=[]))
+            self.assertEqual(compiler.variable(variable).get('type'), target)
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', dict(nodes={}, variable_types=[], enum_types=[]))
+            with self.assertRaises(campaign_behavior.UnsupportedOperation):
+                compiler.variable(variable)
 
     def test_a_renamed_operation_maps_every_attribute_or_is_left_blocked(self):
         prepared, report = contracts.prepare([model(node('TurnBody', destinationSpecification='"__player"', alignWith='false'), [])])

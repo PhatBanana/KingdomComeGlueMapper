@@ -9,10 +9,15 @@ names a quest, an actor or a site. Four rules:
    names such as `t_actors[x]` with an empty <Variables/> of their own. A bare
    index `name[key]` is therefore typed from the controller document when the
    tree does not declare `name`: every tree of that document that declares it
-   must declare it associative, and `key` must not itself be a variable in
-   either scope. The key is then quoted, exactly as
+   must declare it associative. The key is then quoted, as
    campaign_behavior.associative_indexes does for a locally declared map. No
-   declaration is added to the tree, so no variable is shadowed.
+   declaration is added to the tree, so no variable is shadowed. A bare key
+   is a literal even when a variable has the same name: KCD1 writes a
+   variable index with `$` (`kunesThings[$kunesThings_iterator]`), the same
+   document spells one place `t_places['henrysHome']` and
+   `t_places[henrysHome]`, and the namesakes (`kunes`, `tereza`) are WUIDs,
+   which cannot key a string map. Only a string variable of that name in the
+   document leaves the index untouched (and blocked).
 
 2. Rewritten operations. An operation whose KCD2 node has another name is
    rewritten on the source side, attribute by attribute: a plain rename
@@ -94,6 +99,17 @@ CONTRACTS = {
                                  reportInitialState='value'),
     'DetailBehaviorBarrier': dict(RunLogic='value'),
 }
+# Engine-owned records: absent from KCD1 TypeDefinitions, declared as variable
+# types in retail KCD2 trees (the compiler still requires the type in the
+# native catalog). Every field q_skalitz reads occurs on native uses:
+# additionalMoveParams.destChangedThreshold, followFormationParams.formation
+# and .leaderCallback, hearingInfo.soundId, perceptionInfo.perceptible and
+# .threshold; transform is passed whole to Get/SetSpatialInfo.
+ENGINE_TYPES = {'additionalMoveParams': 'additionalMoveParams', 'followFormationParams': 'followFormationParams',
+                'common:transform': 'transform', 'hearingInfo': 'hearingInfo', 'perceptionInfo': 'perceptionInfo'}
+# Native initialisers quote the time: destChangedThreshold('250ms') (47 uses).
+# KCD1 writes it quoted and bare; the bare form is quoted. Inference: equal.
+TIME_INITIALISER = re.compile(r"(destChangedThreshold)\(([0-9]+(?:ms|s|m|h)?)\)")
 # ActorStateBarrier ToState / ActorStateCheck State values on native examples.
 ACTOR_STATES = {'idle', 'minigame', 'jump', 'actorAnim', 'reading', 'readingFromInventory', 'carried', 'land',
                 'carryItem', 'ragdoll', 'dead', 'crouch', 'sprinting', 'hit', 'combat', 'ladder', 'stoneThrowing',
@@ -332,7 +348,10 @@ def register():
     Also wraps BehaviorCompiler.lower_node once, for POST and RESIDUE. A hook
     runs only for an operation whose contract is ours.
     """
+    import campaign_ai_types
     import campaign_behavior
+    for source, target in ENGINE_TYPES.items():
+        campaign_ai_types.ENGINE_TYPE_ADAPTERS.setdefault(source, target)
     added = [op for op in CONTRACTS if op not in campaign_behavior.CONTRACTS]
     for op in added:
         campaign_behavior.CONTRACTS[op] = dict(CONTRACTS[op])
@@ -374,6 +393,38 @@ def document_scope(payload):
     return {name: v for name, v in seen.items() if name not in conflict}
 
 
+def implicit_link_types(models):
+    """{identity: row} for link tags that trees write but no definition declares.
+
+    Both engines accept a tag absent from LinkTagDefinitions.xml (retail KCD2
+    trees use `crime_reactor`, with data, undeclared). Such a tag converts only
+    when a converted tree adds the link itself, so a writer of the converted
+    tag exists; its data type is the type of the variable every writer passes.
+    A tag that only level data or the engine writes is not listed and stays
+    blocked. The caller adds these rows to the link-type adapter's source
+    without replacing a declared one. Inference: declaring the converted tag
+    with its name and type alone leaves the engine defaults an undeclared tag
+    has.
+    """
+    rows, types = {}, {}
+    for model in models:
+        for payload in model['behavior_documents'].values():
+            for tree in payload['trees'].values():
+                declared = {v.get('name'): v.get('type') for v in tree['variables']}
+                for node, _ in _walk(tree['root']):
+                    tag = _text(node, 'Tag')
+                    if node['op'] != 'AddLink' or not re.fullmatch(r'[A-Za-z_]\w*', tag):
+                        continue
+                    data = _text(node, 'Data').lstrip('$')
+                    rows.setdefault(tag.lower(), dict(name=tag))
+                    types.setdefault(tag.lower(), set()).add(declared.get(data) if data else None)
+    for identity, row in rows.items():
+        found = types[identity] - {None}
+        if len(found) == 1:
+            row['type'] = found.pop()
+    return rows
+
+
 def _walk(node, path='Root'):
     yield node, path
     for index, child in enumerate(node['children']):
@@ -383,19 +434,25 @@ def _walk(node, path='Root'):
 def prepare(models):
     """Return (models, report). Inputs are not modified."""
     models = copy.deepcopy(models)
-    report = dict(scope_resolutions=[], renamed=[], rename_blocked=[], runtime_verified=False)
+    report = dict(scope_resolutions=[], renamed=[], rename_blocked=[], initialisers=[],
+                  implicit_links=implicit_link_types(models), runtime_verified=False)
     for model in models:
         for document, payload in model['behavior_documents'].items():
             scope = document_scope(payload)
+            strings = {v.get('name') for tree in payload['trees'].values() for v in tree['variables']
+                       if v.get('type') in ('_string', 'string')}
             for name, tree in payload['trees'].items():
-                local = {v.get('name') for v in tree['variables']}
+                local = {v.get('name'): v for v in tree['variables']}
                 site = dict(quest=model['quest'], document=document, tree=name)
+                for variable in tree['variables']:
+                    initial = TIME_INITIALISER.fullmatch(variable.get('values') or '')
+                    if variable.get('type') == 'additionalMoveParams' and initial:
+                        variable['values'] = "%s('%s')" % (initial[1], initial[2])
+                        report['initialisers'].append(dict(site, variable=variable['name'], source=initial[0]))
 
                 def typed(match, attribute, path):
                     base, key = match[2], match[3]
-                    if base in local or key in local or key in scope:
-                        return match[0]
-                    if scope.get(base, {}).get('form') != 'associative':
+                    if (local.get(base) or scope.get(base, {})).get('form') != 'associative' or key in strings:
                         return match[0]
                     report['scope_resolutions'].append(dict(site, path=path, attribute=attribute, source=match[0]))
                     return match[1] + base + "['" + key + "']"

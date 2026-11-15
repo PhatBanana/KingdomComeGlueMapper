@@ -108,10 +108,14 @@ def convert(kcd1, kcd2, quest, work, with_quests=()):
         # Quests compiled alongside so cross-quest state operations can bind.
         others = [import_model(kcd1, name, reader)[0] for name in with_quests]
         models, prepared = campaign_controller_contracts.prepare([model, *others])
+        links = LinkTypeAdapter.load(kcd1, kcd2, reader, 'C2', work / 'links')
+        # Only the tags no definition declares are added (and reported).
+        prepared['implicit_links'] = {identity: row for identity, row in prepared['implicit_links'].items()
+                                      if identity not in links.source}
+        links.source.update({identity: dict(row) for identity, row in prepared['implicit_links'].items()})
         importer = DependencyImporter(dict(
             ai_types=AIStructureAdapter(types, catalog['variable_types']), ai_enums=AIEnumAdapter(types),
-            mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')),
-            link_types=LinkTypeAdapter.load(kcd1, kcd2, reader, 'C2', work / 'links')))
+            mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')), link_types=links))
         behaviors, bridges, conversion = convert_behaviors(models, 'C2', catalog, importer=importer,
                                                            profile_streaming=read(scripts, STREAMING_SOURCE))
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion)
@@ -164,7 +168,9 @@ def ledger(run):
                           for k, v in sorted(by_family.items(), key=lambda p: -p[1]['sites'])},
                 prepared=dict(scope_resolutions=len(run['prepared']['scope_resolutions']),
                               renamed=dict(Counter(r['source'] + '->' + r['target'] for r in run['prepared']['renamed'])),
-                              rename_blocked=len(run['prepared']['rename_blocked'])),
+                              rename_blocked=len(run['prepared']['rename_blocked']),
+                              initialisers=len(run['prepared'].get('initialisers', ())),
+                              implicit_links=len(run['prepared'].get('implicit_links', ()))),
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
                     summary=dict(checked=checked, passed=passed, failed=len(failures),
                                  residue=len(trees) - checked, nodes_compared=nodes,

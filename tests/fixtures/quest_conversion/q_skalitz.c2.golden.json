@@ -2,8 +2,8 @@
   "blockers": [
     {
       "reason": "Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer",
-      "sites": 57,
-      "trees": 17
+      "sites": 66,
+      "trees": 23
     },
     {
       "reason": "Daycycle addition requires explicit scheduling policy",
@@ -36,11 +36,6 @@
       "trees": 5
     },
     {
-      "reason": "Source index requires type resolution: t_actors[kunes]",
-      "sites": 9,
-      "trees": 4
-    },
-    {
       "reason": "Quest objective gate lifecycle needs an adapter: AfterReset",
       "sites": 8,
       "trees": 1
@@ -56,24 +51,14 @@
       "trees": 5
     },
     {
-      "reason": "Referenced AI link type conversion did not complete: suppressAssaultReactions",
-      "sites": 6,
-      "trees": 4
+      "reason": "Referenced buff conversion did not complete: 7524aadc-7819-4c55-a3cf-8caec0d0f437",
+      "sites": 5,
+      "trees": 3
     },
     {
       "reason": "Inexpressible as one native operation: MakeMeIdle (no idle-reset operation)",
       "sites": 4,
       "trees": 4
-    },
-    {
-      "reason": "Missing or ambiguous link-data symbol: suppressAssaultReactions",
-      "sites": 4,
-      "trees": 3
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: 7524aadc-7819-4c55-a3cf-8caec0d0f437",
-      "sites": 4,
-      "trees": 2
     },
     {
       "reason": "Referenced enum conversion did not complete: gameVersion",
@@ -102,21 +87,6 @@
     },
     {
       "reason": "Referenced world profile conversion did not complete: q_skalitz_skinnerhouse",
-      "sites": 3,
-      "trees": 3
-    },
-    {
-      "reason": "Source index requires type resolution: t_actors[tereza]",
-      "sites": 3,
-      "trees": 3
-    },
-    {
-      "reason": "Unconverted variable type: additionalMoveParams",
-      "sites": 3,
-      "trees": 3
-    },
-    {
-      "reason": "Unconverted variable type: followFormationParams",
       "sites": 3,
       "trees": 3
     },
@@ -174,16 +144,6 @@
       "reason": "Referenced world profile conversion did not complete: q_skalitz_normal",
       "sites": 2,
       "trees": 1
-    },
-    {
-      "reason": "Source index requires type resolution: $t_actors[kunes]",
-      "sites": 2,
-      "trees": 1
-    },
-    {
-      "reason": "Source index requires type resolution: t_actors[matus]",
-      "sites": 2,
-      "trees": 2
     },
     {
       "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
@@ -326,22 +286,7 @@
       "trees": 1
     },
     {
-      "reason": "Referenced mailbox conversion did not complete: perception_behavior",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced mailbox conversion did not complete: sound_behavior",
-      "sites": 1,
-      "trees": 1
-    },
-    {
       "reason": "Referenced world profile conversion did not complete: q_skalitz_wanderer",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Source index requires type resolution: t_actors[enemy]",
       "sites": 1,
       "trees": 1
     },
@@ -351,22 +296,7 @@
       "trees": 1
     },
     {
-      "reason": "Unconverted variable type: common:transform",
-      "sites": 1,
-      "trees": 1
-    },
-    {
       "reason": "Unconverted variable type: cutscene",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Unconverted variable type: hearingInfo",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Unconverted variable type: perceptionInfo",
       "sites": 1,
       "trees": 1
     },
@@ -431,7 +361,7 @@
     },
     "buff": {
       "reasons": 9,
-      "sites": 30,
+      "sites": 31,
       "trees": 6
     },
     "combat_dispatch": {
@@ -441,8 +371,8 @@
     },
     "daycycle_lifecycle": {
       "reasons": 4,
-      "sites": 99,
-      "trees": 29
+      "sites": 108,
+      "trees": 31
     },
     "enum": {
       "reasons": 1,
@@ -455,9 +385,9 @@
       "trees": 2
     },
     "link_types": {
-      "reasons": 10,
-      "sites": 19,
-      "trees": 9
+      "reasons": 8,
+      "sites": 9,
+      "trees": 6
     },
     "lua": {
       "reasons": 1,
@@ -465,9 +395,9 @@
       "trees": 6
     },
     "message_type": {
-      "reasons": 5,
-      "sites": 29,
-      "trees": 6
+      "reasons": 3,
+      "sites": 27,
+      "trees": 5
     },
     "op_inexpressible": {
       "reasons": 6,
@@ -495,12 +425,14 @@
       "trees": 2
     },
     "typed_variables": {
-      "reasons": 12,
-      "sites": 28,
-      "trees": 16
+      "reasons": 2,
+      "sites": 2,
+      "trees": 1
     }
   },
   "prepared": {
+    "implicit_links": 23,
+    "initialisers": 24,
     "rename_blocked": 321,
     "renamed": {
       "AreaPresence->AreaPresenceGate": 34,
@@ -513,7 +445,7 @@
       "Teleport->TeleportAction": 36,
       "TurnBody->Turn": 63
     },
-    "scope_resolutions": 45
+    "scope_resolutions": 274
   },
   "quest": "q_skalitz",
   "schema": 1,
@@ -526,8 +458,8 @@
     "rewritten_nodes": 1
   },
   "trees": {
-    "blocked": 48,
-    "blocked_by_include": 11,
+    "blocked": 46,
+    "blocked_by_include": 13,
     "emitted": 14,
     "total": 73
   }
