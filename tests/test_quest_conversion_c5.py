@@ -154,6 +154,31 @@ class SceneTests(unittest.TestCase):
             converted(source(tree(loaded('elsewhere', objective('first')))))
 
 
+class ControllerSeamTests(unittest.TestCase):
+    def test_a_callback_the_controller_converter_owns_is_played_and_announced_but_not_lowered(self):
+        result = scenes.convert(source(), VIDEOS, whdata(), layers(), LEVEL, native, CUTSCENES, ('forge', 'visit'), 'helper.xml',
+                                controller_owned=('visit',))
+        module = E.fromstring(result['module']).find('./Skald/Module')
+        ports = [p.get('Name') for p in module.find('Ports')]
+        self.assertEqual(ports, ['play_forge', 'callback_forge', 'complete_intro', 'finished_forge',
+                                 'play_visit', 'callback_visit', 'finished_visit'])
+        self.assertEqual([p['alias'] for p in result['programs']], ['forge'])
+        self.assertEqual(result['plan'], {})                                  # its profiles are the controller's now
+        self.assertFalse(module.findall('Nodes/streamprofileshandling'))
+        self.assertEqual(result['report']['wiring'], [dict(port='complete_intro', quest=QUEST, input='complete_intro')])
+        ledger = result['ledger']
+        self.assertEqual([r for r in ledger['residue'] if r['kind'] == 'callback_handed_to_controller'],
+                         [dict(kind='callback_handed_to_controller', alias='visit', tree='cutscene_visit', owner='C2')])
+        self.assertEqual(ledger['residue_by_kind']['callback_op_deferred'], 1)
+        files, _ = emit_project([source()], 'Example')
+        quest = E.fromstring(files['Example/' + QUEST + '.xml']).find('./Skald/Quest')
+        quest_ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in quest.find('Ports')}
+        self.assertEqual(scenes.equivalence(source(), result, quest_ports)['verdict'], 'PASS')
+        with self.assertRaisesRegex(scenes.Unsupported, 'not converted scenes: quarrel'):
+            converted_owned = scenes.convert(source(), VIDEOS, whdata(), layers(), LEVEL, native, CUTSCENES, ('forge',), 'helper.xml',
+                                             controller_owned=('quarrel',))
+
+
 class ModuleTests(unittest.TestCase):
     def setUp(self):
         self.result = converted()

@@ -564,6 +564,9 @@ def ledger(model, records, programs, plan, emitted, rows):
                 if field in request['fields'] and record['status'] == 'converted':
                     residue.append(dict(kind='request_save_deferred', alias=record['alias'], field=field,
                                         value=request['fields'][field], owner='C2'))
+    for record in records:
+        if record.get('callback_owner') == 'C2' and record['callback']:
+            residue.append(dict(kind='callback_handed_to_controller', alias=record['alias'], tree=record['callback'], owner='C2'))
     for found in programs:
         for step in _flat(found['steps']):
             if step['kind'] == 'deferred':
@@ -579,7 +582,8 @@ def ledger(model, records, programs, plan, emitted, rows):
                     categories=dict(sorted(Counter(r['category'] for r in records).items())),
                     converted=[r['alias'] for r in records if r['status'] == 'converted'],
                     records=[dict(alias=r['alias'], category=r['category'], status=r['status'], callback=r['callback'],
-                                  requests=len(r['requests']), video=r['video']) for r in records]),
+                                  requests=len(r['requests']), video=r['video'],
+                                  **({'callback_owner': 'C2'} if r.get('callback_owner') == 'C2' else {})) for r in records]),
         callbacks=[dict(alias=p['alias'], tree=p['tree'], source_operations=p['source_operations'],
                         lowered=dict(sorted(Counter(s['kind'] for s in _flat(p['steps']) if s['kind'] != 'deferred').items())),
                         deferred_operations=p['deferred_operations']) for p in programs],
@@ -628,6 +632,9 @@ def equivalence(model, result, quest_ports, media=None):
     programs = {p['alias']: p for p in result['programs']}
     for alias, record in records.items():
         if record['status'] != 'converted':
+            continue
+        if record.get('callback_owner') == 'C2':
+            check('callbacks', alias not in programs, 'C5 lowered a callback the controller converter owns: ' + alias)
             continue
         check('callbacks', (record['callback'] is None) == (alias not in programs), 'callback tree of ' + alias)
         if alias not in programs:
@@ -689,12 +696,24 @@ def golden(ledger_, module_blob, table_rows):
 
 
 def convert(model, video_names, whdata, layer_entities, level_guids, native_guid, native_cutscenes, selection,
-            streaming_path=STREAMING + '.xml'):
-    """Run C5 on one quest model. Returns dict(module, table, ledger, records, programs, plan, report)."""
+            streaming_path=STREAMING + '.xml', controller_owned=()):
+    """Run C5 on one quest model. Returns dict(module, table, ledger, records, programs, plan, report).
+
+    controller_owned names the aliases whose callback tree the controller converter (C2) emits. For those
+    C5 lowers nothing of the tree: the module only plays the scene and fires `callback_<alias>`, and the
+    tree is listed as handed over. Profiles such a tree switches are then C2's to register.
+    """
     videos = video_sources(video_names).get(model['quest'].lower(), {})
     profiles = source_profiles(whdata)
     records = scenes(model, videos, profiles, selection)
-    programs = [p for p in (program(model, r['alias']) for r in records if r['status'] == 'converted') if p is not None]
+    owned = set(controller_owned)
+    unknown = sorted(owned - {r['alias'] for r in records if r['status'] == 'converted'})
+    if unknown:
+        raise Unsupported('Controller-owned scenes are not converted scenes: ' + ', '.join(unknown))
+    for record in records:
+        record['callback_owner'] = 'C2' if record['alias'] in owned else 'C5' if record['status'] == 'converted' else None
+    programs = [p for p in (program(model, r['alias']) for r in records
+                            if r['status'] == 'converted' and r['alias'] not in owned) if p is not None]
     switches = [(s.get('enable'), s.get('disable')) for p in programs for s in _flat(p['steps']) if s['kind'] == 'profile']
     plan = profile_plan(switches, profiles, layer_entities, level_guids, native_guid)
     awaited = {s['profile'] for p in programs for s in _flat(p['steps']) if s['kind'] == 'await'}
@@ -723,7 +742,7 @@ def layer_census(root):
     return found
 
 
-def convert_retail(kcd1, kcd2, quest, selection=None, package=None, model=None):
+def convert_retail(kcd1, kcd2, quest, selection=None, package=None, model=None, controller_owned=()):
     """C5 on retail KCD1 (and, for entity accounting, a built package's level). Reads only."""
     from pathlib import Path
     import zipfile
@@ -757,7 +776,8 @@ def convert_retail(kcd1, kcd2, quest, selection=None, package=None, model=None):
     with zipfile.ZipFile(kcd2 / 'Data/Tables.pak') as archive:
         cutscenes = read(archive, 'Libs/Tables/ui/cutscene.xml')
     return dict(convert(model, names, whdata, layers, guids, native_guid, cutscenes,
-                        selection if selection is not None else MAIN_PATH[quest]), model=model)
+                        selection if selection is not None else MAIN_PATH[quest], controller_owned=controller_owned),
+                model=model)
 
 
 def main(argv=None):
