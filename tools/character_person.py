@@ -163,6 +163,7 @@ def initial_future_links(actor):
     MEMBERS = {'futureHome': ('event',), 'futureWork': ('work', 'event')}
     parsed = []
     for link in links:
+        if not link.get('Name', '').strip(): continue  # 281 source NPC links (e.g. rat_konyas) carry no tag
         for tag in parse_link_labels(link.get('Name', '')):
             data = {}
             if tag['tag'] in MEMBERS:

@@ -49,6 +49,12 @@ class FutureLinks(unittest.TestCase):
         only_evented = actor("futureHome[('tal_siege')]")
         self.assertIs(initial_future_links(only_evented), only_evented)
 
+    def test_blank_link_names_carry_no_tag(self):
+        result = initial_future_links(actor('', 'futureHome'))
+        self.assertEqual(names(result)[-1], ('Home', '2'))
+        blank_only = actor('')
+        self.assertIs(initial_future_links(blank_only), blank_only)
+
     def test_two_defaults_are_ambiguous(self):
         with self.assertRaisesRegex(ValueError, 'Ambiguous default future work'):
             initial_future_links(actor('futureWork[a]', 'futureWork[b]'))
