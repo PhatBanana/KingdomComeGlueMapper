@@ -71,6 +71,14 @@ class WorkClockTests(unittest.TestCase):
         self.assertTrue(v.overlaps(night, v.span('08:30', '12:00')))   # the morning guard arrives early
         self.assertTrue(v.overlaps(v.span('23:00', '01:00'), v.span('00:30', '02:00')))
 
+    def test_verifier_folds_overnight_scheduler_windows_onto_one_day(self):
+        import verify_garrison as v
+        kcd1 = v.merge_day([v.span('20:28', '08:58')])
+        self.assertEqual(kcd1, [(0, 538), (1228, 1440)])
+        self.assertEqual(v.merge_day([(0, 538), (1228, 1440)]), kcd1)       # the scheduler's two links
+        self.assertNotEqual(v.merge_day([(0, 530), (1228, 1440)]), kcd1)    # eight minutes short is a mismatch
+        self.assertEqual(v.merge_day([v.span('08:00', '20:00')]), [(480, 1200)])
+
 
 def mission(*entities):
     by_id, by_guid = {}, {}

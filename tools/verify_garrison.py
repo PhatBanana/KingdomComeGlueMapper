@@ -132,9 +132,26 @@ def result(ok, detail):
     return dict(ok=bool(ok), detail=detail)
 
 
+def merge_day(spans):
+    """Minute spans folded onto one 24 h day and merged: 20:03-08:33 equals 00:00-08:33 plus 20:03-24:00."""
+    pieces = []
+    for a, b in spans:
+        a, b = a % 1440, a % 1440 + (b - a)
+        pieces += [(a, 1440), (0, b - 1440)] if b > 1440 else [(a, b)]
+    merged = []
+    for a, b in sorted(pieces):
+        if merged and a <= merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], b))
+        else:
+            merged.append((a, b))
+    return merged
+
+
 def check_post(person, record, job_rows, level, npc):
     """(problems, converted post position) for a posted guard."""
     problems, post_pos = [], None
+    # A KCD1 shift over midnight is two daycycle intervals at one workplace: one post, one holder.
+    job_rows = list({row['source_workplace'].get('EntityId'): row for row in job_rows}.values())
     if len(job_rows) != 1:
         return [f'{len(job_rows)} converted guard jobs'], None
     job = job_rows[0]
@@ -154,8 +171,8 @@ def check_post(person, record, job_rows, level, npc):
     post_pos = position(holder[0])
     if post_pos is None or math.dist(post_pos, record['post_pos']) > TOLERANCE:
         problems.append(f"holder at {post_pos}, KCD1 post at {record['post_pos']}")
-    got = sorted((a, b if b > a else b + 1440) for a, b, t in level.activity_links(npc) if t is holder[0])
-    want = sorted(span(a, b) for a, b in record['work'])
+    got = merge_day((a, b if b > a else b + 1440) for a, b, t in level.activity_links(npc) if t is holder[0])
+    want = merge_day(span(a, b) for a, b in record['work'])
     if got != want:
         problems.append(f'scheduled {got}, KCD1 work {want}')
     return problems, post_pos
@@ -226,9 +243,17 @@ def verify(package, census_path, out, guards=None):
         anchor = post_pos or next((position(e) for b, e in places if b == 'idle'), None)
         home = regions.region(anchor)
         off = [e.get('Name') for e in beds if regions.region(position(e)) != home]
-        r['reach'] = result(home is not None and beds and not off,
-                            ('post off the navmesh' if home is None else f'post and {len(beds)} beds connected') +
-                            ('; not connected: ' + ', '.join(off) if off else ''))
+        own = [e for e in beds if bed and position(e) and math.dist(position(e), bed['pos']) < 0.5]
+        # The guard's own KCD1 bed (or, with none, at least one pool bed) must be walkable from the post;
+        # other beds of the shared pool that are not are listed for review, not failed.
+        reachable = [e for e in (own or beds) if regions.region(position(e)) == home]
+        r['reach'] = result(home is not None and reachable,
+                            ('post off the navmesh' if home is None else
+                             f"post and {'KCD1 bed' if own else 'a pool bed'} connected; "
+                             f"{len(beds) - len(off)} of {len(beds)} pool beds connected") +
+                            ('; review, not connected: ' + ', '.join(off) if off else ''))
+        if off:
+            r['reach']['review'] = off
         if record['patrol']:
             route = (workplaces.get(record['post']) or {}).get('patrol', {}).get('points', [])
             stray = [p['name'] for p in route if regions.region(tuple(p['pos'])) != home]
