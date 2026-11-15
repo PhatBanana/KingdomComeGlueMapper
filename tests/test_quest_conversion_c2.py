@@ -454,7 +454,7 @@ class RetailTests(unittest.TestCase):
     def test_q_skalitz_matches_its_golden_fixture(self):
         with tempfile.TemporaryDirectory() as tmp:
             led = c2.ledger(c2.convert(KCD1, KCD2, 'q_skalitz', Path(tmp) / 'work',
-                                       ['q_tutorials', 'q_tutorial_swordOne', 'q_escapeToTalmberk']))
+                                       ['q_tutorials', 'q_tutorial_swordOne', 'q_escapeToTalmberk'], 'rataje'))
         self.assertEqual(led['layers']['source_equivalence']['failures'], [])
         self.assertEqual(json.loads(json.dumps(c2.golden(led), sort_keys=True)),
                          json.loads((FIXTURES / 'q_skalitz.c2.golden.json').read_text(encoding='utf-8')))

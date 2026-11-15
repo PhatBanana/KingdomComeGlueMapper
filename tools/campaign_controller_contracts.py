@@ -620,13 +620,40 @@ def _walk(node, path='Root'):
         yield from _walk(child, path + '/' + str(index))
 
 
+def controller_run_trees(model):
+    """{name: tree} for the scene trees the controller's own brain runs.
+
+    KCD1's scene handler is library code inside the controller: the entry tree
+    includes `cutsceneAutomaton` (final/questUtils.xml), whose
+    `cutsceneProgress` includes `cutscene_<alias>` from the quest's own file
+    (`$cutsceneOnEndTree = 'cutscene_' + $t_cutscene.alias`). In those trees
+    `this` is the controller object, although each is also registered as a
+    behaviour of that object. So a daycycle request there that names
+    `$this.id` as its source names the controller, which the lease adapter
+    accepts only when written `$__object.id`.
+    """
+    own = model['behavior_documents'].get('libs/ai/quests/' + model['quest'].lower() + '.xml')
+    entries = [e['tree'] for e in (model.get('controller_registration') or {}).get('entry_points', [])
+               if e.get('kind') != 'behavior_callback']
+    if not own or not any(node['op'] == 'IncludeTree' and _text(node, 'Name') == 'cutsceneAutomaton'
+                          for name in entries if name in own['trees'] for node, _ in _walk(own['trees'][name]['root'])):
+        return {}
+    return {name: tree for name, tree in own['trees'].items() if name.startswith('cutscene_')}
+
+
 def prepare(models):
     """Return (models, report). Inputs are not modified."""
     models = copy.deepcopy(models)
     report = dict(scope_resolutions=[], renamed=[], stand_ins=[], rename_blocked=[], initialisers=[], value_renames=[],
-                  completed_branches=[],
+                  completed_branches=[], controller_scope=[],
                   implicit_links=implicit_link_types(models), runtime_verified=False)
     for model in models:
+        for tree, body in controller_run_trees(model).items():
+            for node, path in _walk(body['root']):
+                values = node['attributes'].get('values', '')
+                if _text(node, 'type') == 'daycycle:change' and 'sourceId($this.id)' in values:
+                    node['attributes']['values'] = values.replace('sourceId($this.id)', 'sourceId($__object.id)')
+                    report['controller_scope'].append(dict(quest=model['quest'], tree=tree, path=path))
         for document, payload in model['behavior_documents'].items():
             scope = document_scope(payload)
             strings = {v.get('name') for tree in payload['trees'].values() for v in tree['variables']

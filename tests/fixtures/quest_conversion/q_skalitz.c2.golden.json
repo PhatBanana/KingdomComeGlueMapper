@@ -1,14 +1,14 @@
 {
   "blockers": [
     {
-      "reason": "Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer",
-      "sites": 66,
-      "trees": 23
+      "reason": "Daycycle addition requires explicit scheduling policy",
+      "sites": 52,
+      "trees": 11
     },
     {
-      "reason": "Daycycle addition requires explicit scheduling policy",
-      "sites": 26,
-      "trees": 11
+      "reason": "Schedule request differs from its resolved source site",
+      "sites": 23,
+      "trees": 7
     },
     {
       "reason": "Referenced message_type conversion did not complete: cutscene",
@@ -36,6 +36,16 @@
       "trees": 5
     },
     {
+      "reason": "Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer",
+      "sites": 8,
+      "trees": 2
+    },
+    {
+      "reason": "Unconverted daycycle removal fields",
+      "sites": 8,
+      "trees": 3
+    },
+    {
       "reason": "Inexpressible as one native operation: AddOpponent (AddToSkirmish holds only while it runs)",
       "sites": 7,
       "trees": 4
@@ -59,11 +69,6 @@
       "reason": "Unconverted custom behavior request fields",
       "sites": 4,
       "trees": 1
-    },
-    {
-      "reason": "Unconverted daycycle removal fields",
-      "sites": 4,
-      "trees": 3
     },
     {
       "reason": "Referenced world profile conversion did not complete: q_skalitz_attack",
@@ -280,7 +285,9 @@
   "emitted": [
     "anybody_runAway",
     "catchpoll_sitsDown",
+    "cutscene_forging_father_insert",
     "cutscene_game_over",
+    "cutscene_kovani_otcem",
     "cutscene_nemec_hospodska_hadka",
     "fatherPatch",
     "friends_meetingBeforeKunes",
@@ -312,9 +319,9 @@
       "trees": 7
     },
     "daycycle_lifecycle": {
-      "reasons": 4,
-      "sites": 108,
-      "trees": 31
+      "reasons": 5,
+      "sites": 103,
+      "trees": 26
     },
     "enum": {
       "reasons": 1,
@@ -433,20 +440,69 @@
     "verbatim_lua": 7
   },
   "quest": "q_skalitz",
+  "schedule": {
+    "accepted_requests": 5,
+    "accepted_shape_in_a_rejected_tree": 15,
+    "accepted_trees": [
+      "cutscene_dialogAfterSarka",
+      "cutscene_forging_father_insert",
+      "cutscene_kovani_otcem",
+      "cutscene_manure_throw_nohenry",
+      "cutscene_nemec_hazeni_hnoje"
+    ],
+    "controller": "af5538b6-25f3-4be2",
+    "leases": [
+      {
+        "actor": "4957497055038492328",
+        "behavior": "johanka_goingToSkinner",
+        "handle": "q_skalitz_johanka_goingToSkinner",
+        "once": true,
+        "priority": 60,
+        "sites": 2
+      },
+      {
+        "actor": "5252032958896979226",
+        "behavior": "tereza_waitsForNails",
+        "handle": "q_skalitz_tereza_waitsForNails",
+        "once": true,
+        "priority": 60,
+        "sites": 2
+      },
+      {
+        "actor": "5323406902383124631",
+        "behavior": "sarka_goToGerman",
+        "handle": "q_skalitz_sarka_goToGerman",
+        "once": true,
+        "priority": 60,
+        "sites": 1
+      }
+    ],
+    "level": "rataje",
+    "publishable": false,
+    "rejected": {
+      "addition_fields": 26,
+      "lease_policy": 2,
+      "removal_fields": 4,
+      "runtime_actor": 6
+    },
+    "requests": 58,
+    "runtime_verified": false,
+    "trees_with_requests": 23
+  },
   "schema": 1,
   "source_equivalence": {
-    "checked": 16,
+    "checked": 18,
     "failed": 0,
-    "nodes_compared": 214,
-    "passed": 16,
-    "residue": 57,
+    "nodes_compared": 224,
+    "passed": 18,
+    "residue": 55,
     "rewritten_nodes": 2,
     "stand_in_nodes": 1
   },
   "trees": {
-    "blocked": 43,
-    "blocked_by_include": 14,
-    "emitted": 16,
+    "blocked": 40,
+    "blocked_by_include": 15,
+    "emitted": 18,
     "total": 73
   }
 }

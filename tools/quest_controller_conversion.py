@@ -18,7 +18,8 @@ An operation with no native equivalent is marked `inexpressible`. The
 hand-written notes of an existing blocker file are kept on regeneration.
 
   python tools/quest_controller_conversion.py --kcd1 <dir> --kcd2 <dir> --quest q_skalitz
-      --work <fresh dir> [--with q_other ...] [--blockers <file.md>] [--golden <file>] [--write-golden]
+      --work <fresh dir> [--with q_other ...] [--level rataje] [--blockers <file.md>] [--golden <file>]
+      [--write-golden]
 """
 import argparse
 from collections import Counter, defaultdict
@@ -32,7 +33,7 @@ import campaign_controller_contracts
 
 FAMILIES = (
     (r'^Inexpressible', 'op_inexpressible'), (r'^Native operation (lacks|has no|lives)', 'op_partial'),
-    (r'[Dd]aycycle', 'daycycle_lifecycle'), (r'Lua|script requires', 'lua'),
+    (r'[Dd]aycycle|[Ss]chedule', 'daycycle_lifecycle'), (r'Lua|script requires', 'lua'),
     (r'operation needs an adapter', 'op_no_contract'), (r'attributes', 'op_attributes'),
     (r'buff', 'buff'), (r'index requires type|variable type|variable reference|variable has no|array index', 'typed_variables'),
     (r'link', 'link_types'), (r'profile', 'profile'), (r'mailbox|message_type|[Mm]onologue|request fields', 'message_type'),
@@ -89,7 +90,7 @@ def shape(source, emitted, path, problems):
     return 1 + sum(shape(s, e, path + '/' + str(i), problems) for i, (s, e) in enumerate(zip(source['children'], children)))
 
 
-def convert(kcd1, kcd2, quest, work, with_quests=()):
+def convert(kcd1, kcd2, quest, work, with_quests=(), level=None):
     from campaign_ai_registration import MailboxAdapter, NativeAIRegistry
     from campaign_ai_types import AIEnumAdapter, AIStructureAdapter, AITypeSource
     from campaign_behavior import convert_behaviors, native_catalog
@@ -116,9 +117,17 @@ def convert(kcd1, kcd2, quest, work, with_quests=()):
         importer = DependencyImporter(dict(
             ai_types=AIStructureAdapter(types, catalog['variable_types']), ai_enums=AIEnumAdapter(types),
             mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')), link_types=links))
+        # With a level, the daycycle requests the lease adapter accepts are bound to its actors.
+        lease, schedule = None, None
+        if level:
+            import campaign_controller_schedule
+            lease, schedule = campaign_controller_schedule.adapter(
+                models[0], campaign_controller_schedule.level_bindings(kcd1, level, models[0]), 'C2')
         behaviors, bridges, conversion = convert_behaviors(models, 'C2', catalog, importer=importer,
-                                                           profile_streaming=read(scripts, STREAMING_SOURCE))
-    return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion)
+                                                           profile_streaming=read(scripts, STREAMING_SOURCE),
+                                                           schedule_adapter=lease)
+    return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
+                schedule=schedule)
 
 
 def ledger(run):
@@ -186,6 +195,7 @@ def ledger(run):
                               implicit_links=len(run['prepared'].get('implicit_links', ())),
                               value_renames=len(run['prepared'].get('value_renames', ())), verbatim_lua=verbatim,
                               completed_branches=len(run['prepared'].get('completed_branches', ()))),
+                schedule=run.get('schedule'),
                 lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
                             for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
@@ -217,6 +227,16 @@ def markdown(led, main_path=()):
     lines += ['', '## Blockers', '', '| Reason | Family | Sites | Trees | Status |', '|---|---|---:|---:|---|']
     lines += ['| %s | %s | %d | %d | %s |' % (r['reason'].replace('|', '/')[:110], r['family'], r['sites'], len(r['trees']), r['status'])
               for r in led['blockers']]
+    if led.get('schedule'):
+        plan = led['schedule']
+        lines += ['', '## Daycycle requests and the lease adapter', '',
+                  'Level `%s`, controller `%s`. %d requests in %d trees; the lease adapter accepts %d, in: %s. '
+                  'Lowered requests are not publishable until the world side is assembled '
+                  '(`ScheduleAdapter.install`).' % (plan['level'], plan['controller'], plan['requests'],
+                      plan['trees_with_requests'], plan['accepted_requests'],
+                      ', '.join('`%s`' % t for t in plan['accepted_trees']) or 'none'), '',
+                  '| Capability a rejected request needs | Requests |', '|---|---:|']
+        lines += ['| %s | %d |' % item for item in sorted(plan['rejected'].items(), key=lambda p: (-p[1], p[0]))]
     if led.get('lua_shapes'):
         lines += ['', '## Lua residue by call shape', '',
                   'Blocked Lua sites grouped by the calls they make (`campaign_controller_contracts.lua_shape`; '
@@ -232,7 +252,8 @@ def golden(led):
                 emitted=sorted(t['tree'] for t in led['tree_status'] if t['status'] == 'emitted'),
                 blockers=[dict(reason=r['reason'], sites=r['sites'], trees=len(r['trees'])) for r in led['blockers']],
                 prepared=led['prepared'], source_equivalence=led['layers']['source_equivalence']['summary'],
-                lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])])
+                lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])],
+                schedule=led.get('schedule'))
 
 
 def main():
@@ -241,10 +262,11 @@ def main():
     p.add_argument('--quest', required=True); p.add_argument('--work', type=Path, required=True)
     p.add_argument('--with', dest='with_quests', nargs='*', default=[])
     p.add_argument('--main-path', nargs='*', default=[], help='Trees to list first in the blocker file')
+    p.add_argument('--level', help='Source level that binds the controller actors, e.g. rataje')
     p.add_argument('--blockers', type=Path); p.add_argument('--golden', type=Path)
     p.add_argument('--write-golden', action='store_true')
     a = p.parse_args()
-    led = ledger(convert(a.kcd1, a.kcd2, a.quest, a.work, a.with_quests))
+    led = ledger(convert(a.kcd1, a.kcd2, a.quest, a.work, a.with_quests, a.level))
     print(json.dumps(dict(quest=led['quest'], trees=led['trees'], families=led['families'],
                           layer1=led['layers']['source_equivalence']['summary'])))
     failed = led['layers']['source_equivalence']['verdict'] != 'PASS'
