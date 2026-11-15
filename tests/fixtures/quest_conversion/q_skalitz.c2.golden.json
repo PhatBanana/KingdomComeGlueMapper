@@ -51,11 +51,6 @@
       "trees": 3
     },
     {
-      "reason": "Inexpressible as one native operation: MakeMeIdle (no idle-reset operation)",
-      "sites": 4,
-      "trees": 4
-    },
-    {
       "reason": "Referenced enum conversion did not complete: gameVersion",
       "sites": 4,
       "trees": 1
@@ -86,7 +81,7 @@
       "trees": 3
     },
     {
-      "reason": "Inexpressible as one native operation: InstantDrawWeapon (DrawAction always animates)",
+      "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
       "sites": 2,
       "trees": 1
     },
@@ -141,32 +136,12 @@
       "trees": 1
     },
     {
-      "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
-      "sites": 1,
-      "trees": 1
-    },
-    {
       "reason": "Graph edge type did not convert: combat_attacker",
       "sites": 1,
       "trees": 1
     },
     {
       "reason": "Graph edge type did not convert: combat_threat",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Inexpressible as one native operation: Detail (branch of an unconverted LOD operation)",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Inexpressible as one native operation: LOD (branch of an unconverted LOD operation)",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Inexpressible as one native operation: LODCheck (no one-shot LOD test)",
       "sites": 1,
       "trees": 1
     },
@@ -182,21 +157,6 @@
     },
     {
       "reason": "Job item class conversion did not complete: ea98e001-9d40-4eb8-a198-ccf5cb548747",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Native operation has no shipped example: AnimationEventCatch (name in WHGame.dll only)",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Native operation has no shipped example: OnEvent (branch of AnimationEventCatch)",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Native operation lacks source fields: DrawWeapon (DrawAction has no ToCombatGuard, noAnimation, who)",
       "sites": 1,
       "trees": 1
     },
@@ -291,11 +251,6 @@
       "trees": 1
     },
     {
-      "reason": "Unknown legacy work animation parameters",
-      "sites": 1,
-      "trees": 1
-    },
-    {
       "reason": "Unregistered or dynamic objective: q_skalitz.meetInFrontOfKunes",
       "sites": 1,
       "trees": 1
@@ -337,6 +292,7 @@
     "friends_patch",
     "friends_work",
     "guard_goesToTheGate",
+    "johanka_goingToSkinner",
     "matej_waitsInfrontOfPub",
     "matus_runAway",
     "mother_goingShopping",
@@ -345,7 +301,7 @@
   ],
   "families": {
     "animation": {
-      "reasons": 5,
+      "reasons": 4,
       "sites": 5,
       "trees": 3
     },
@@ -390,14 +346,14 @@
       "trees": 5
     },
     "op_inexpressible": {
-      "reasons": 6,
-      "sites": 16,
-      "trees": 8
+      "reasons": 1,
+      "sites": 7,
+      "trees": 4
     },
     "op_partial": {
-      "reasons": 4,
-      "sites": 5,
-      "trees": 2
+      "reasons": 1,
+      "sites": 2,
+      "trees": 1
     },
     "other": {
       "reasons": 1,
@@ -482,7 +438,7 @@
     "completed_branches": 15,
     "implicit_links": 23,
     "initialisers": 24,
-    "rename_blocked": 321,
+    "rename_blocked": 618,
     "renamed": {
       "AreaPresence->AreaPresenceGate": 34,
       "AreaPresence->AreaPresenceListener": 7,
@@ -491,26 +447,34 @@
       "LODGuardian->Sequence": 2,
       "StateMachineGate->ActorStateBarrier": 16,
       "StreamingInstallGate->IfGate": 2,
-      "Teleport->TeleportAction": 36,
+      "Teleport->TeleportAction": 30,
       "TurnBody->Turn": 63
     },
     "scope_resolutions": 274,
+    "stand_ins": {
+      "DrawWeapon->DrawAction": 1,
+      "InstantDrawWeapon->DrawAction": 2,
+      "LODCheck->SuppressFailure": 1,
+      "MakeMeIdle->StopMovement": 4,
+      "PlayAnimation->Sequence": 1
+    },
     "value_renames": 21
   },
   "quest": "q_skalitz",
   "schema": 1,
   "source_equivalence": {
-    "checked": 14,
+    "checked": 15,
     "failed": 0,
-    "nodes_compared": 188,
-    "passed": 14,
-    "residue": 59,
-    "rewritten_nodes": 1
+    "nodes_compared": 201,
+    "passed": 15,
+    "residue": 58,
+    "rewritten_nodes": 2,
+    "stand_in_nodes": 1
   },
   "trees": {
-    "blocked": 46,
+    "blocked": 45,
     "blocked_by_include": 13,
-    "emitted": 14,
+    "emitted": 15,
     "total": 73
   }
 }

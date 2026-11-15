@@ -132,7 +132,7 @@ def ledger(run):
             emitted.setdefault(tree.get('name'), []).append(tree)
     trees, blockers = [], defaultdict(lambda: dict(sites=0, trees=set()))
     lua = defaultdict(lambda: dict(sites=0, trees=set()))
-    checked = passed = nodes = rewritten = 0
+    checked = passed = nodes = rewritten = stand_ins = 0
     failures = []
     for name, source in model['behavior_documents'][own]['trees'].items():
         record = records[(own, name)]
@@ -158,6 +158,7 @@ def ledger(run):
             else:
                 nodes += shape(source['root'], candidates[0].find('Root'), 'Root', problems)
                 rewritten += sum('source_op' in node for node in walk(source['root']))
+                stand_ins += sum('stand_in' in node for node in walk(source['root']))
                 declared = [v.get('name') for v in candidates[0].findall('./Variables/*')]
                 if declared != [v['name'] for v in source['variables']]:
                     problems.append('variable declarations differ from the source')
@@ -178,6 +179,8 @@ def ledger(run):
                 prepared=dict(scope_resolutions=len(run['prepared']['scope_resolutions']),
                               renamed=dict(Counter(r['source'] + '->' + r['target'] for r in run['prepared']['renamed'])),
                               rename_blocked=len(run['prepared']['rename_blocked']),
+                              stand_ins=dict(Counter(r['source'] + '->' + r['target'] for r in run['prepared'].get('stand_ins', ())
+                                                     if r['quest'] == model['quest'] and r['document'] == own)),
                               initialisers=len(run['prepared'].get('initialisers', ())),
                               implicit_links=len(run['prepared'].get('implicit_links', ())),
                               value_renames=len(run['prepared'].get('value_renames', ())),
@@ -187,7 +190,7 @@ def ledger(run):
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
                     summary=dict(checked=checked, passed=passed, failed=len(failures),
                                  residue=len(trees) - checked, nodes_compared=nodes,
-                                 rewritten_nodes=rewritten), failures=failures)),
+                                 rewritten_nodes=rewritten, stand_in_nodes=stand_ins), failures=failures)),
                 runtime_verified=False)
 
 
@@ -199,8 +202,10 @@ def markdown(led, main_path=()):
                  led['trees']['total'], led['trees'].get('emitted', 0), led['trees'].get('blocked', 0),
                  led['trees'].get('blocked_by_include', 0)),
              '**Layer 1 (emitted trees vs source shape):** checked %(checked)d, passed %(passed)d, failed %(failed)d; '
-             '%(residue)d trees not emitted; %(rewritten_nodes)d nodes of the emitted trees are rewritten operations.'
-             % led['layers']['source_equivalence']['summary'], '',
+             '%(residue)d trees not emitted; %(rewritten_nodes)d nodes of the emitted trees are rewritten operations, '
+             '%(stand_in_nodes)d of them stand-ins.' % led['layers']['source_equivalence']['summary'], '',
+             '**Stand-ins (not faithful; approved replacements) in this controller:** '
+             + (', '.join('`%s` x%d' % item for item in sorted(led['prepared'].get('stand_ins', {}).items())) or 'none') + '.', '',
              '## By family', '', '| Family | Reasons | Sites | Trees |', '|---|---:|---:|---:|']
     lines += ['| %s | %d | %d | %d |' % (k, v['reasons'], v['sites'], v['trees']) for k, v in led['families'].items()]
     if main_path:

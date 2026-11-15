@@ -326,19 +326,60 @@ class ContractTests(unittest.TestCase):
     def test_an_operation_without_a_native_equivalent_gets_a_typed_reason(self):
         for op, kind, status in (('FinishPatch', 'daycycle_lifecycle', 'open'),
                                  ('AddOpponent', 'op_inexpressible', 'inexpressible'),
-                                 ('MakeMeIdle', 'op_inexpressible', 'inexpressible'), ('SetOwner', 'op_partial', 'open'),
-                                 ('DrawWeapon', 'op_partial', 'open'), ('NeverHeardOf', 'op_no_contract', 'open')):
+                                 ('SetOwner', 'op_partial', 'open'), ('NeverHeardOf', 'op_no_contract', 'open')):
             reasons, _ = self.blocked(node(op))
             self.assertEqual(reasons, [contracts.RESIDUE.get(op, 'Behavior operation needs an adapter: ' + op)])
             self.assertEqual((c2.family(reasons[0]), c2.STATUS.get(c2.family(reasons[0]), 'open')), (kind, status))
         self.assertEqual({c2.family(reason) for reason in contracts.RESIDUE.values()},
                          {'daycycle_lifecycle', 'op_inexpressible', 'op_partial'})
 
+    def stand_in(self, source, **kwargs):
+        emitted, reasons, report = self.lower(source, **kwargs)
+        self.assertEqual((reasons, [r['source'] for r in report['stand_ins']], report['renamed']), ([], [source['op']], []))
+        return E.tostring(emitted, encoding='unicode')
+
+    def test_stand_ins_are_reported_as_stand_ins_and_keep_a_node(self):
+        idle = node('MakeMeIdle', WaitForFinish=q('true'), KeepStance=q('true'), AbortAnimation=q('false'), Target=q(''))
+        self.assertEqual(self.stand_in(idle), '<StopMovement waitUntilStopped="true" />')
+        self.assertEqual(self.blocked(dict(idle, attributes=dict(idle['attributes'], Target=q('__player'))))[0],
+                         [contracts.RESIDUE['MakeMeIdle']])
+        draw = '<DrawAction WeaponSet="Primary" fullBody="false" tags="" useSelectedWeaponSet="false" />'
+        self.assertEqual(self.stand_in(node('InstantDrawWeapon', who=q(''), WeaponSet=q('Primary'))), draw)
+        self.assertEqual(self.stand_in(node('DrawWeapon', ToCombatGuard=q('true'), tags=q('$actorName'), who=q(''),
+                                            WeaponSet=q('Primary'), noAnimation=q('false'))), draw)
+        self.assertEqual(self.blocked(node('InstantDrawWeapon', who=q('other'), WeaponSet=q('Primary')))[0],
+                         [contracts.RESIDUE['InstantDrawWeapon']])
+        self.assertEqual(self.blocked(node('DrawWeapon', who=q(''), WeaponSet=q('$set')))[1]['rename_blocked'][0]['reason'],
+                         'weapon set has no native example: $set')
+        check = node('LODCheck', [node('LOD', [node('Success')], canSkip='1'), node('Detail', [node('Fail')], canSkip='1')],
+                     saveVersion='2')
+        self.assertEqual(self.stand_in(check), '<Fail />')
+        self.assertEqual(self.blocked(dict(check, children=check['children'][:1]))[1]['rename_blocked'][0]['reason'],
+                         'expected one Detail branch with one child')
+
+    def test_an_end_event_continues_after_the_animation(self):
+        def play(event='End', captured='', body=(node('Success'), node('Fail'))):
+            catch = node('AnimationEventCatch', [node('OnEvent', list(body), canSkip='1')], EventName=q(event),
+                         InterruptSafe=q('KEEP'), CapturedVariablesByValue=q(captured), saveVersion='2')
+            return node('PlayAnimation', [catch], animation=q('ToCombat'))
+        prepared, report = contracts.prepare([model(play(), [])])
+        rewritten = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+        self.assertEqual((rewritten['op'], [(c['op'], len(c['children'])) for c in rewritten['children']]),
+                         ('Sequence', [('PlayAnimation', 0), ('Success', 0), ('Fail', 0)]))
+        self.assertEqual((rewritten['children'][0]['attributes'], [r['source'] for r in report['stand_ins']]),
+                         (dict(animation=q('ToCombat')), ['PlayAnimation']))
+        for changed in (play(event='Hit'), play(captured='x'), play(body=())):
+            prepared, report = contracts.prepare([model(changed, [])])
+            self.assertEqual((report['stand_ins'], len(report['rename_blocked'])), ([], 1))
+        plain, report = contracts.prepare([model(node('PlayAnimation', animation=q('Idle')), [])])
+        self.assertEqual((report['stand_ins'], report['rename_blocked']), ([], []))
+
     def test_every_rewrite_target_and_hook_has_a_contract(self):
         import campaign_behavior
         contracts.register()
         for target in ('TeleportAction', 'ActorStateBarrier', 'IfGate', 'AreaPresenceGate', 'AreaPresenceListener',
-                       'DetailBehaviorBarrier', 'Synchronize', 'Turn', 'AtomicDecorator', 'Sequence', 'Fail'):
+                       'DetailBehaviorBarrier', 'Synchronize', 'Turn', 'AtomicDecorator', 'Sequence', 'Fail',
+                       'StopMovement', 'DrawAction'):
             self.assertIn(target, campaign_behavior.CONTRACTS)
         self.assertEqual(set(contracts.POST) - set(contracts.CONTRACTS), set())
         self.assertEqual(set(contracts.RESIDUE) & set(contracts.CONTRACTS), set())
@@ -358,7 +399,7 @@ class LedgerTests(unittest.TestCase):
         good = E.Element('Root'); E.SubElement(good, 'Success')
         led = c2.ledger(self.run_([], good))
         self.assertEqual(led['layers']['source_equivalence']['summary'],
-                         dict(checked=1, passed=1, failed=0, residue=0, nodes_compared=2, rewritten_nodes=0))
+                         dict(checked=1, passed=1, failed=0, residue=0, nodes_compared=2, rewritten_nodes=0, stand_in_nodes=0))
         for broken in (E.Element('Root'), E.fromstring('<Root><Fail/></Root>')):
             self.assertEqual(c2.ledger(self.run_([], broken))['layers']['source_equivalence']['verdict'], 'FAIL')
 

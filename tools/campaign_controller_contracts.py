@@ -98,6 +98,10 @@ CONTRACTS = {
     'AreaPresenceListener': dict(aiObjects='reference', area='reference', trackIn='value', trackOut='value',
                                  reportInitialState='value'),
     'DetailBehaviorBarrier': dict(RunLogic='value'),
+    # Targets of the approved stand-ins: StopMovement waitUntilStopped="false",
+    # DrawAction WeaponSet="Primary" fullBody="false" tags="" useSelectedWeaponSet="false".
+    'StopMovement': dict(waitUntilStopped='value'),
+    'DrawAction': dict(WeaponSet='value', fullBody='value', tags='string_expression', useSelectedWeaponSet='value'),
 }
 # Engine-owned records: absent from KCD1 TypeDefinitions, declared as variable
 # types in retail KCD2 trees (the compiler still requires the type in the
@@ -282,6 +286,89 @@ def _lod_guardian(node):
     if _text(node, 'StatProp') == 'FailAlways':
         return _node('Sequence', [barrier, _node('Fail')])
     return barrier
+
+
+class NotApplicable(ValueError):
+    """The node is not what the rule is about; it is left alone, unreported."""
+
+
+SELF = ('', 'this.id', '$this.id')
+
+
+def _stop_movement(node):
+    """MakeMeIdle -> StopMovement(waitUntilStopped = WaitForFinish), for the acting NPC.
+
+    KCD2 has no idle-reset operation; its animations and stances end with
+    their node. StopMovement (30 uses) keeps a node at the site and covers
+    the visible half. KeepStance, KeepAnimContext and AbortAnimation have no
+    counterpart and are dropped.
+    """
+    _only(node, ('WaitForFinish', 'KeepStance', 'KeepAnimContext', 'AbortAnimation', 'Target'), 0)
+    if _text(node, 'Target') not in SELF:
+        raise Blocked('idle reset of another entity has no native action')
+    if _text(node, 'WaitForFinish', 'false') not in ('true', 'false'):
+        raise Blocked('WaitForFinish is not a literal boolean')
+    return _node('StopMovement', waitUntilStopped=_text(node, 'WaitForFinish', 'false'))
+
+
+def _draw_action(node):
+    """DrawWeapon / InstantDrawWeapon -> DrawAction(WeaponSet), for the acting NPC.
+
+    DrawAction (136 uses) is the only native draw: animated, generic, without
+    a guard flag. The KCD1 animation tag, ToCombatGuard and noAnimation are
+    dropped; an instant draw becomes an animated one.
+    """
+    _only(node, ('ToCombatGuard', 'tags', 'who', 'WeaponSet', 'noAnimation'), 0)
+    if _text(node, 'who') not in SELF:
+        raise Blocked('draw by another entity has no native action')
+    if _text(node, 'WeaponSet') not in ('Primary', 'Secondary', 'Oversized'):
+        raise Blocked('weapon set has no native example: ' + _text(node, 'WeaponSet'))
+    return _node('DrawAction', WeaponSet=_text(node, 'WeaponSet'), fullBody='false', tags='',
+                 useSelectedWeaponSet='false')
+
+
+def _detail_branch(node):
+    """LODCheck{LOD{..}, Detail{X}} -> X: the NPC is treated as simulated in detail.
+
+    KCD2 has no one-shot LOD test. Near the player the result is the same;
+    far away the detailed branch runs off-screen.
+    """
+    _only(node, ('saveVersion', 'nodeLabel'))
+    detail = [child for child in node['children'] if child['op'] == 'Detail']
+    if len(detail) != 1 or len(detail[0]['children']) != 1 or any(c['op'] not in ('LOD', 'Detail') for c in node['children']):
+        raise Blocked('expected one Detail branch with one child')
+    return dict(detail[0]['children'][0])
+
+
+def _after_animation(node):
+    """PlayAnimation{AnimationEventCatch End{OnEvent{Y}}} -> Sequence{PlayAnimation, Y}.
+
+    For the End event, "when the animation ends" and "after the animation" are
+    the same moment. Native AnimationEventCatch has no shipped example. Any
+    other event name, or captured variables, stays blocked.
+    """
+    catches = [child for child in node['children'] if child['op'] == 'AnimationEventCatch']
+    if not catches:
+        raise NotApplicable()
+    catch = catches[0]
+    _only(catch, ('EventName', 'InterruptSafe', 'CapturedVariablesByValue', 'saveVersion'), 1)
+    if len(node['children']) != 1 or _text(catch, 'EventName') != 'End' or _text(catch, 'CapturedVariablesByValue'):
+        raise Blocked('only a single End event without captured variables continues after the animation')
+    event = catch['children'][0]
+    if event['op'] != 'OnEvent' or not event['children']:
+        raise Blocked('expected one OnEvent branch with content')
+    return _node('Sequence', [dict(node, children=[])] + event['children'])
+
+
+# Stand-ins: KCD1 operations with no faithful KCD2 form, replaced by the
+# closest native one by decision. Each use is reported as `stand_in`, never as
+# a faithful conversion. source op -> (native shape, rule, approval).
+APPROVED = 'Sean, 2026-11-14 (relayed by the coordinator)'
+STAND_INS = {'MakeMeIdle': ('StopMovement', _stop_movement, APPROVED),
+             'InstantDrawWeapon': ('DrawAction', _draw_action, APPROVED),
+             'DrawWeapon': ('DrawAction', _draw_action, APPROVED),
+             'LODCheck': ('the Detail branch', _detail_branch, APPROVED),
+             'PlayAnimation': ('Sequence after the animation', _after_animation, APPROVED)}
 
 
 # source op -> (native shape, rule). The rule's docstring is its evidence.
@@ -482,7 +569,7 @@ def _walk(node, path='Root'):
 def prepare(models):
     """Return (models, report). Inputs are not modified."""
     models = copy.deepcopy(models)
-    report = dict(scope_resolutions=[], renamed=[], rename_blocked=[], initialisers=[], value_renames=[],
+    report = dict(scope_resolutions=[], renamed=[], stand_ins=[], rename_blocked=[], initialisers=[], value_renames=[],
                   completed_branches=[],
                   implicit_links=implicit_link_types(models), runtime_verified=False)
     for model in models:
@@ -530,21 +617,29 @@ def prepare(models):
                             node['children'] = sorted(node['children'] + [missing], key=lambda c: c['op'] != 'Then')
                             report['completed_branches'].append(dict(site, path=path, operation=source_op,
                                                                      added=missing['op']))
-                    rule = REWRITES[source_op][1] if source_op in REWRITES else (
+                    stand_in = source_op in STAND_INS
+                    rule = STAND_INS[source_op][1] if stand_in else REWRITES[source_op][1] if source_op in REWRITES else (
                         _rename(source_op) if source_op in RENAMES else None)
                     if rule is None:
                         continue
                     try:
                         rewritten = rule(node)
+                    except NotApplicable:
+                        continue
                     except Blocked as error:
                         unmapped = sorted(set(node['attributes']) - set(RENAMES[source_op][1])) \
                             if source_op in RENAMES else []
                         report['rename_blocked'].append(dict(site, path=path, operation=source_op, unmapped=unmapped,
                                                              reason=str(error)))
                         continue
-                    report['renamed'].append(dict(site, path=path, source=source_op, target=rewritten['op']))
+                    report['stand_ins' if stand_in else 'renamed'].append(
+                        dict(site, path=path, source=source_op, target=rewritten['op']))
                     node.clear()
                     node.update(rewritten, source_op=source_op)
+                    if stand_in:
+                        node['stand_in'] = STAND_INS[source_op][0]
     report['rename_evidence'] = dict({source: entry[2] for source, entry in RENAMES.items()},
                                      **{source: ' '.join(entry[1].__doc__.split()) for source, entry in REWRITES.items()})
+    report['stand_in_rules'] = {source: dict(target=entry[0], approved=entry[2], rule=' '.join(entry[1].__doc__.split()))
+                                for source, entry in STAND_INS.items()}
     return models, report
