@@ -1,6 +1,48 @@
 {
   "callbacks": [
     {
+      "alias": "stribrna_skalice",
+      "deferred_operations": 11,
+      "lowered": {},
+      "source_operations": 11,
+      "tree": "cutscene_stribrna_skalice"
+    },
+    {
+      "alias": "nemec_hospodska_hadka",
+      "deferred_operations": 0,
+      "lowered": {
+        "objective": 3
+      },
+      "source_operations": 3,
+      "tree": "cutscene_nemec_hospodska_hadka"
+    },
+    {
+      "alias": "dialogAfterSarka",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogAfterSarka"
+    },
+    {
+      "alias": "nemec_hazeni_hnoje",
+      "deferred_operations": 4,
+      "lowered": {
+        "objective": 1,
+        "profile": 1
+      },
+      "source_operations": 6,
+      "tree": "cutscene_nemec_hazeni_hnoje"
+    },
+    {
+      "alias": "manure_throw_nohenry",
+      "deferred_operations": 2,
+      "lowered": {
+        "profile": 1
+      },
+      "source_operations": 3,
+      "tree": "cutscene_manure_throw_nohenry"
+    },
+    {
       "alias": "navsteva_racka",
       "deferred_operations": 21,
       "lowered": {
@@ -28,13 +70,64 @@
       },
       "source_operations": 2,
       "tree": "cutscene_forging_father_insert"
+    },
+    {
+      "alias": "dialogWithGuards",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogWithGuards"
+    },
+    {
+      "alias": "dialogBeforeKunes",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogBeforeKunes"
+    },
+    {
+      "alias": "dialogBeforePainting",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogBeforePainting"
+    },
+    {
+      "alias": "blankaGivesBeer",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_blankaGivesBeer"
+    },
+    {
+      "alias": "dialogAfterKunesBeaten",
+      "deferred_operations": 7,
+      "lowered": {},
+      "source_operations": 7,
+      "tree": "cutscene_dialogAfterKunesBeaten"
+    },
+    {
+      "alias": "dialogAfterKunesWon",
+      "deferred_operations": 1,
+      "lowered": {
+        "objective": 4
+      },
+      "source_operations": 5,
+      "tree": "cutscene_dialogAfterKunesWon"
+    },
+    {
+      "alias": "game_over",
+      "deferred_operations": 4,
+      "lowered": {},
+      "source_operations": 4,
+      "tree": "cutscene_game_over"
     }
   ],
   "converter": "C5",
   "lowered": {
     "await": 2,
-    "objective": 4,
-    "profile": 2
+    "objective": 12,
+    "profile": 4
   },
   "module": {
     "name": "gm_q_skalitz_scenes",
@@ -62,6 +155,26 @@
     },
     "wiring": [
       {
+        "input": "start_letsGoPainting",
+        "port": "start_letsGoPainting",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_henryHearsSkinnerTalk",
+        "port": "start_henryHearsSkinnerTalk",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_pubQuarrelEnds",
+        "port": "start_pubQuarrelEnds",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_henryWasPainting",
+        "port": "start_henryWasPainting",
+        "quest": "q_skalitz"
+      },
+      {
         "input": "start_unloadNormalSkalitz",
         "port": "start_unloadNormalSkalitz",
         "quest": "q_skalitz"
@@ -74,6 +187,26 @@
       {
         "input": "complete_fatherAndHenryMakeSword",
         "port": "complete_fatherAndHenryMakeSword",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "cancel_getDebtMoney",
+        "port": "cancel_getDebtMoney",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_getDebtMoneyDifferently",
+        "port": "start_getDebtMoneyDifferently",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_kunesBeatsHenry",
+        "port": "start_kunesBeatsHenry",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "cancel_kunesIsUpset",
+        "port": "cancel_kunesIsUpset",
         "quest": "q_skalitz"
       }
     ],
@@ -95,7 +228,7 @@
       }
     ]
   },
-  "module_sha256": "c05ec4e8b01fe941eac4c444ea8d3e919a749b30ed3c78973d4724f33ed43808",
+  "module_sha256": "2f92831052eb629594db5d8c60786682eb2ddb33549f688af22c6d2417eb5f60",
   "movies": [
     {
       "file": "Videos/gluemapper/q_skalitz/navsteva_racka/cinematic.bk2",
@@ -1244,12 +1377,13 @@
   },
   "quest": "q_skalitz",
   "residue_by_kind": {
-    "callback_op_deferred": 18,
+    "callback_op_deferred": 44,
     "dialogue_scene": 6,
     "fader_scene": 1,
+    "playback_duty_deferred": 10,
     "profile_layer_unconverted": 70,
     "profile_nav_variant": 2,
-    "request_save_deferred": 2,
+    "request_save_deferred": 4,
     "scene_handoff": 3,
     "video_not_selected": 2
   },

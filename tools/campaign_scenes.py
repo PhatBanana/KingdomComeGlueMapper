@@ -53,6 +53,42 @@ OWNERS = {'ExecuteLua': 'C4'}
 STREAMING = 'streamprofileshandling'
 
 
+PLAYBACK_DUTIES = ('save lock while the scene runs', 'fader and sound mute', 'player-not-in-scene lock',
+                   'dropping a carried body', 'combat prevention and its two player buffs', 'player pre-teleport',
+                   'actor restrictions and scene clothes', 'time of day', 'scene subscriptions',
+                   'actor teleports with the readiness wait')
+
+
+def wire_bridge(entry_blob, bridge, wiring, module, module_blob):
+    """Connect the ports of a quest bridge to the scene module: the wiring rows whose `quest` is the module.
+
+    action rows: bridge signal -> module input. condition rows: module bool output -> bridge context.
+    """
+    root = ET.fromstring(entry_blob)
+    nodes = list(root.find('Skald'))[0].find('Nodes')
+    found = {n.get('Name'): n for n in nodes}
+    if bridge not in found or module not in found:
+        raise ValueError('Container has no instance of the bridge or the scene module')
+    declared = {p.get('Name'): (p.get('Direction'), p.get('Type'))
+                for p in ET.fromstring(module_blob).iterfind('./Skald/Module/Ports/Port')}
+    count = 0
+    for row in wiring:
+        if row['quest'] != module:
+            continue
+        if row['direction'] == 'action':
+            if declared.get(row['quest_port']) != ('In', 'trigger'):
+                raise ValueError('Scene module has no trigger input ' + row['quest_port'])
+            edge(found[module], bridge + '.' + row['bridge_port'], row['quest_port'])
+        elif row['direction'] == 'condition':
+            if declared.get(row['quest_port']) != ('Out', 'bool'):
+                raise ValueError('Scene module has no bool output ' + row['quest_port'])
+            edge(found[bridge], module + '.' + row['quest_port'], row['bridge_port'])
+        else:
+            raise ValueError('Unknown bridge wiring direction: ' + str(row['direction']))
+        count += 1
+    return xml(root), count
+
+
 class Unsupported(ValueError):
     pass
 
@@ -332,33 +368,48 @@ def emit(model, records, programs, streaming_path):
                 chain = lower(step['steps'], chain, stem)
         return chain
 
-    emitted = []
+    emitted, passed = [], []
     for record in records:
-        if record['status'] != 'converted':
-            continue
         alias = identifier(record['alias'])
         stem = 'scene_' + alias
+        owned = record.get('callback_owner') == 'C2'
         port('play_' + alias, 'In')
+        if record['status'] == 'converted':
+            requested = ET.SubElement(nodes, 'State', Name=stem + '_requested', TypeT='bool')
+            constant(requested, 'DefaultValue', 'false')
+            edge(requested, 'play_' + alias, 'SetTrue')
+            handler = ET.SubElement(nodes, 'CutsceneHandler', Name=stem + '_play')
+            ET.SubElement(handler, 'Asset', Name='CutsceneHolder', Alias=holder_alias(quest, alias))
+            ET.SubElement(assets, 'CutsceneHolderAsset', Name=holder_alias(quest, alias))
+            edge(handler, 'play_' + alias, 'EnqueueCutscene')
+            # A cutscene ends once, played through or skipped: the callback follows the end, not the picture.
+            ended = ET.SubElement(nodes, 'If', Name=stem + '_ended')
+            edge(ended, stem + '_play.OnFinished', 'Exec'); edge(ended, stem + '_requested.State', 'Condition')
+            chain = Chain(stem + '_callback', stem + '_ended.True')
+            edge(requested, chain.next(), 'SetFalse')
+            world.append(dict(kind='CutsceneHolder', alias=holder_alias(quest, alias), cutscene=cutscene_name(quest, alias)))
+            emitted.append(record['alias'])
+        else:
+            # No picture is converted for this scene (typed residue): the request ends at once, so its
+            # callback still runs exactly once per request.
+            chain = Chain(stem + '_callback', 'play_' + alias)
+            passed.append(record['alias'])
+        # For the dispatcher of the controller converter: true from the end of the scene until `done_<alias>`.
         pending = ET.SubElement(nodes, 'State', Name=stem + '_pending', TypeT='bool')
         constant(pending, 'DefaultValue', 'false')
-        edge(pending, 'play_' + alias, 'SetTrue')
-        handler = ET.SubElement(nodes, 'CutsceneHandler', Name=stem + '_play')
-        ET.SubElement(handler, 'Asset', Name='CutsceneHolder', Alias=holder_alias(quest, alias))
-        ET.SubElement(assets, 'CutsceneHolderAsset', Name=holder_alias(quest, alias))
-        edge(handler, 'play_' + alias, 'EnqueueCutscene')
-        # A cutscene ends once, played through or skipped: the callback follows the end, not the picture.
-        ended = ET.SubElement(nodes, 'If', Name=stem + '_ended')
-        edge(ended, stem + '_play.OnFinished', 'Exec'); edge(ended, stem + '_pending.State', 'Condition')
-        chain = Chain(stem + '_callback', stem + '_ended.True')
-        edge(pending, chain.next(), 'SetFalse')
+        edge(pending, chain.next(), 'SetTrue')
+        ET.SubElement(ports, 'Port', Name='pending_' + alias, Direction='Out', Type='bool')
+        edge(output, stem + '_pending.State', 'pending_' + alias)
+        port('done_' + alias, 'In')
+        edge(pending, 'done_' + alias, 'SetFalse')
         port('callback_' + alias, 'Out', chain.next())
         found = by_alias.get(record['alias'])
         if found is not None:
             chain = lower(found['steps'], chain, stem)
+        if not owned:
+            edge(pending, chain.next(), 'SetFalse')          # nobody else acknowledges a callback C5 runs itself
         port('finished_' + alias, 'Out', chain.next())
-        world.append(dict(kind='CutsceneHolder', alias=holder_alias(quest, alias), cutscene=cutscene_name(quest, alias)))
-        emitted.append(record['alias'])
-    report = dict(module=name, scenes=emitted, wiring=wiring, world_requirements=world,
+    report = dict(module=name, scenes=emitted, passed_through=passed, wiring=wiring, world_requirements=world,
                   profiles={source: dict(instance=instance, asset=instance + '_asset', native=profile_name(source))
                             for source, instance in profiles.items()},
                   runtime_verified=False)
@@ -567,9 +618,12 @@ def ledger(model, records, programs, plan, emitted, rows):
                                 requests=len(record['requests'])))
         for request in record['requests']:
             for field in ('saveGameQuest', 'saveGameObjective'):
-                if field in request['fields'] and record['status'] == 'converted':
+                if field in request['fields'] and record.get('callback_owner') != 'C2':
                     residue.append(dict(kind='request_save_deferred', alias=record['alias'], field=field,
                                         value=request['fields'][field], owner='C2'))
+    # What the KCD1 cutsceneAutomaton does around playback (read from Libs/AI/final/questUtils.xml by the
+    # controller converter); declared to be C5 work, none built.
+    residue.extend(dict(kind='playback_duty_deferred', duty=duty) for duty in PLAYBACK_DUTIES)
     for record in records:
         if record.get('callback_owner') == 'C2' and record['callback']:
             residue.append(dict(kind='callback_handed_to_controller', alias=record['alias'], tree=record['callback'], owner='C2'))
@@ -637,8 +691,6 @@ def equivalence(model, result, quest_ports, media=None):
               and (record['status'] == 'converted') != ('residue' in record), 'category or status of ' + alias)
     programs = {p['alias']: p for p in result['programs']}
     for alias, record in records.items():
-        if record['status'] != 'converted':
-            continue
         if record.get('callback_owner') == 'C2':
             check('callbacks', alias not in programs, 'C5 lowered a callback the controller converter owns: ' + alias)
             continue
@@ -714,13 +766,12 @@ def convert(model, video_names, whdata, layer_entities, level_guids, native_guid
     profiles = source_profiles(whdata)
     records = scenes(model, videos, profiles, selection)
     owned = set(controller_owned)
-    unknown = sorted(owned - {r['alias'] for r in records if r['status'] == 'converted'})
+    unknown = sorted(owned - {r['alias'] for r in records})
     if unknown:
-        raise Unsupported('Controller-owned scenes are not converted scenes: ' + ', '.join(unknown))
+        raise Unsupported('Controller-owned scenes are not requested scenes: ' + ', '.join(unknown))
     for record in records:
-        record['callback_owner'] = 'C2' if record['alias'] in owned else 'C5' if record['status'] == 'converted' else None
-    programs = [p for p in (program(model, r['alias']) for r in records
-                            if r['status'] == 'converted' and r['alias'] not in owned) if p is not None]
+        record['callback_owner'] = 'C2' if record['alias'] in owned else 'C5'
+    programs = [p for p in (program(model, r['alias']) for r in records if r['alias'] not in owned) if p is not None]
     switches = [(s.get('enable'), s.get('disable')) for p in programs for s in _flat(p['steps']) if s['kind'] == 'profile']
     plan = profile_plan(switches, profiles, layer_entities, level_guids, native_guid)
     awaited = {s['profile'] for p in programs for s in _flat(p['steps']) if s['kind'] == 'await'}

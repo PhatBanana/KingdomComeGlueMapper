@@ -160,23 +160,56 @@ class ControllerSeamTests(unittest.TestCase):
                                 controller_owned=('visit',))
         module = E.fromstring(result['module']).find('./Skald/Module')
         ports = [p.get('Name') for p in module.find('Ports')]
-        self.assertEqual(ports, ['play_forge', 'callback_forge', 'complete_intro', 'finished_forge',
-                                 'play_visit', 'callback_visit', 'finished_visit'])
-        self.assertEqual([p['alias'] for p in result['programs']], ['forge'])
+        self.assertEqual([p for p in ports if p.endswith('_visit')],
+                         ['play_visit', 'pending_visit', 'done_visit', 'callback_visit', 'finished_visit'])
+        self.assertNotIn('start_first', ports)
+        self.assertNotIn('complete_second', ports)
+        self.assertEqual([p['alias'] for p in result['programs']], ['forge', 'quarrel'])
+        # Only the dispatcher acknowledges an owned scene: nothing in the module clears its pending flag.
+        nodes = {n.get('Name'): n for n in module.find('Nodes')}
+        clears = lambda alias: [e.get('From') for e in nodes['scene_' + alias + '_pending'].findall('Edge') if e.get('To') == 'SetFalse']
+        self.assertEqual(clears('visit'), ['done_visit'])
+        self.assertEqual(len(clears('forge')), 2)
         self.assertEqual(result['plan'], {})                                  # its profiles are the controller's now
         self.assertFalse(module.findall('Nodes/streamprofileshandling'))
-        self.assertEqual(result['report']['wiring'], [dict(port='complete_intro', quest=QUEST, input='complete_intro')])
+        self.assertEqual([w['port'] for w in result['report']['wiring']], ['complete_intro', 'complete_first'])
         ledger = result['ledger']
         self.assertEqual([r for r in ledger['residue'] if r['kind'] == 'callback_handed_to_controller'],
                          [dict(kind='callback_handed_to_controller', alias='visit', tree='cutscene_visit', owner='C2')])
         self.assertEqual(ledger['residue_by_kind']['callback_op_deferred'], 1)
+        self.assertNotIn('request_save_deferred', ledger['residue_by_kind'])     # the controller runs the save objective
         files, _ = emit_project([source()], 'Example')
         quest = E.fromstring(files['Example/' + QUEST + '.xml']).find('./Skald/Quest')
         quest_ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in quest.find('Ports')}
         self.assertEqual(scenes.equivalence(source(), result, quest_ports)['verdict'], 'PASS')
-        with self.assertRaisesRegex(scenes.Unsupported, 'not converted scenes: quarrel'):
-            converted_owned = scenes.convert(source(), VIDEOS, whdata(), layers(), LEVEL, native, CUTSCENES, ('forge',), 'helper.xml',
-                                             controller_owned=('quarrel',))
+        with self.assertRaisesRegex(scenes.Unsupported, 'not requested scenes: nowhere'):
+            scenes.convert(source(), VIDEOS, whdata(), layers(), LEVEL, native, CUTSCENES, ('forge',), 'helper.xml',
+                           controller_owned=('nowhere',))
+
+    def test_the_bridge_is_wired_to_the_module_by_the_controller_report(self):
+        result = scenes.convert(source(), VIDEOS, whdata(), layers(), LEVEL, native, CUTSCENES, ('forge', 'visit'), 'helper.xml',
+                                controller_owned=('visit',))
+        module = result['report']['module']
+        entry = ('<Database><Skald><Level Name="l"><Definitions/><Nodes><bridge Name="bridge"/><%s Name="%s"/>'
+                 '<q Name="q"/></Nodes></Level></Skald></Database>' % (module, module)).encode()
+        wiring = [dict(direction='action', bridge_port='sig_play', quest=module, quest_port='play_visit'),
+                  dict(direction='condition', bridge_port='ctx_pending', quest=module, quest_port='pending_visit'),
+                  dict(direction='action', bridge_port='sig_done', quest=module, quest_port='done_visit'),
+                  dict(direction='action', bridge_port='other', quest='q', quest_port='start')]
+        wired, count = scenes.wire_bridge(entry, 'bridge', wiring, module, result['module'])
+        nodes = {n.get('Name'): n for n in E.fromstring(wired).find('./Skald/Level/Nodes')}
+        self.assertEqual(count, 3)
+        self.assertEqual([(e.get('From'), e.get('To')) for e in nodes[module].findall('Edge')],
+                         [('bridge.sig_play', 'play_visit'), ('bridge.sig_done', 'done_visit')])
+        self.assertEqual([(e.get('From'), e.get('To')) for e in nodes['bridge'].findall('Edge')],
+                         [(module + '.pending_visit', 'ctx_pending')])
+        self.assertEqual(nodes['q'].findall('Edge'), [])
+        for bad in (dict(wiring[0], quest_port='pending_visit'), dict(wiring[1], quest_port='play_visit'),
+                    dict(wiring[0], quest_port='nowhere'), dict(wiring[0], direction='sideways')):
+            with self.assertRaises(ValueError):
+                scenes.wire_bridge(entry, 'bridge', [bad], module, result['module'])
+        with self.assertRaisesRegex(ValueError, 'no instance'):
+            scenes.wire_bridge(entry, 'absent', wiring, module, result['module'])
 
 
 class ModuleTests(unittest.TestCase):
@@ -189,25 +222,37 @@ class ModuleTests(unittest.TestCase):
         return [(e.get('From'), e.get('To')) for e in self.nodes[name].findall('Edge')]
 
     def test_ports_and_objective_actions_go_through_the_quest(self):
-        ports = [(p.get('Name'), p.get('Direction'), p.get('Type')) for p in self.module.find('Ports')]
-        self.assertEqual(ports, [(n, d, 'trigger') for n, d in (
-            ('play_forge', 'In'), ('callback_forge', 'Out'), ('complete_intro', 'Out'), ('finished_forge', 'Out'),
-            ('play_visit', 'In'), ('callback_visit', 'Out'), ('start_first', 'Out'), ('complete_second', 'Out'),
-            ('finished_visit', 'Out'))])
-        self.assertEqual(self.result['report']['wiring'], [dict(port=p, quest=QUEST, input=p)
-                                                           for p in ('complete_intro', 'start_first', 'complete_second')])
+        ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in self.module.find('Ports')}
+        for alias in ('forge', 'visit', 'quarrel', 'talk', 'fade', 'spare'):
+            self.assertEqual([ports[k + '_' + alias] for k in ('play', 'pending', 'done', 'callback', 'finished')],
+                             [('In', 'trigger'), ('Out', 'bool'), ('In', 'trigger'), ('Out', 'trigger'), ('Out', 'trigger')])
+        actions = [n for n in ports if n.split('_')[0] in ('start', 'complete', 'cancel', 'fail')]
+        self.assertEqual(actions, ['complete_intro', 'start_first', 'complete_second', 'complete_first'])
+        self.assertEqual(self.result['report']['wiring'], [dict(port=p, quest=QUEST, input=p) for p in actions])
+        self.assertEqual(self.result['report']['passed_through'], ['quarrel', 'talk', 'fade', 'spare'])
         # No node of the module sets an objective or quest state by itself.
         self.assertFalse([n for n in self.nodes.values() if n.get('TypeT', 'bool') != 'bool'])
+
+    def test_a_scene_without_a_converted_picture_ends_at_once(self):
+        self.assertNotIn('scene_talk_play', self.nodes)
+        self.assertEqual(self.edges('scene_talk_callback_0'), [('play_talk', 'Exec')])
+        self.assertEqual(self.edges('scene_talk_pending'), [('scene_talk_callback_0.A', 'SetTrue'), ('done_talk', 'SetFalse'),
+                                                            ('scene_talk_callback_0.C', 'SetFalse')])
+        self.assertIn(('scene_quarrel_callback_0.C', 'complete_first'), self.edges('Output'))
 
     def test_the_callback_follows_the_end_of_the_cutscene_once(self):
         self.assertEqual(self.nodes['scene_forge_play'].tag, 'CutsceneHandler')
         self.assertEqual(self.nodes['scene_forge_play'].find('Asset').attrib, dict(Name='CutsceneHolder', Alias='gm_arbitrary_quest_scene_forge'))
         self.assertEqual(self.edges('scene_forge_play'), [('play_forge', 'EnqueueCutscene')])
-        self.assertEqual(self.edges('scene_forge_ended'), [('scene_forge_play.OnFinished', 'Exec'), ('scene_forge_pending.State', 'Condition')])
-        self.assertEqual(self.edges('scene_forge_pending'), [('play_forge', 'SetTrue'), ('scene_forge_callback_0.A', 'SetFalse')])
-        self.assertEqual(self.edges('Output')[:3], [('scene_forge_callback_0.B', 'callback_forge'),
-                                                    ('scene_forge_callback_0.C', 'complete_intro'),
-                                                    ('scene_forge_callback_0.D', 'finished_forge')])
+        self.assertEqual(self.edges('scene_forge_ended'), [('scene_forge_play.OnFinished', 'Exec'), ('scene_forge_requested.State', 'Condition')])
+        self.assertEqual(self.edges('scene_forge_requested'), [('play_forge', 'SetTrue'), ('scene_forge_callback_0.A', 'SetFalse')])
+        # Pending from the end of the scene until it is acknowledged; a callback C5 runs itself acknowledges at its end.
+        self.assertEqual(self.edges('scene_forge_pending'), [('scene_forge_callback_0.B', 'SetTrue'), ('done_forge', 'SetFalse'),
+                                                             ('scene_forge_callback_0.E', 'SetFalse')])
+        self.assertEqual(self.edges('Output')[:4], [('scene_forge_pending.State', 'pending_forge'),
+                                                    ('scene_forge_callback_0.C', 'callback_forge'),
+                                                    ('scene_forge_callback_0.D', 'complete_intro'),
+                                                    ('scene_forge_callback_0.F', 'finished_forge')])
         self.assertEqual(self.result['report']['world_requirements'][0],
                          dict(kind='CutsceneHolder', alias='gm_arbitrary_quest_scene_forge', cutscene='gm_arbitrary_quest_forge'))
 
@@ -215,12 +260,12 @@ class ModuleTests(unittest.TestCase):
         self.assertEqual({a.get('Name'): a.get('AssetProfiles') for a in self.module.findall('Assets/ProfileAsset')},
                          {'profile_%s_asset' % n: 'gm_' + n for n in ('attack', 'normal', 'horses', 'house')})
         self.assertEqual(self.module.find('Definitions/Definition').get('File'), 'helper.xml')
-        self.assertEqual(self.edges('profile_attack'), [('scene_visit_callback_0.D', 'streamprofiles')])
-        self.assertEqual(self.edges('profile_normal'), [('scene_visit_callback_0.E', 'unstreamprofiles')])
+        self.assertEqual(self.edges('profile_attack'), [('scene_visit_callback_0.E', 'streamprofiles')])
+        self.assertEqual(self.edges('profile_normal'), [('scene_visit_callback_0.F', 'unstreamprofiles')])
         self.assertEqual(self.edges('profile_attack_loaded'), [('profile_attack.onloaded', 'SetTrue'), ('profile_attack.onunloaded', 'SetFalse')])
         waits = sorted(n for n in self.nodes if n.startswith('scene_visit_wait_') and self.nodes[n].tag == 'State')
         first, second = waits
-        self.assertEqual(self.edges(first + '_now'), [('scene_visit_callback_0.G', 'Exec'), ('profile_attack_loaded.State', 'Condition')])
+        self.assertEqual(self.edges(first + '_now'), [('scene_visit_callback_0.H', 'Exec'), ('profile_attack_loaded.State', 'Condition')])
         self.assertEqual(self.edges(first + '_later'), [('profile_attack.onloaded', 'Exec'), (first + '.State', 'Condition')])
         self.assertEqual(self.edges(first + '_then_0'), [(first + '_now.True', 'Exec'), (first + '_later.True', 'Exec')])
         self.assertEqual(self.edges('profile_horses'), [(first + '_then_0.B', 'streamprofiles')])
@@ -235,7 +280,7 @@ class ModuleTests(unittest.TestCase):
         entry = scenes.attach(files['Example.xml'], self.result['module'], 'scenes.xml', self.result['report'], ports)
         quest_node = E.fromstring(entry).find('./Skald/Project/Nodes/' + QUEST)
         self.assertEqual([(e.get('From'), e.get('To')) for e in quest_node.findall('Edge')],
-                         [('gm_arbitrary_quest_scenes.' + p, p) for p in ('complete_intro', 'start_first', 'complete_second')])
+                         [('gm_arbitrary_quest_scenes.' + p, p) for p in ('complete_intro', 'start_first', 'complete_second', 'complete_first')])
         with self.assertRaisesRegex(ValueError, 'already registered'):
             scenes.attach(entry, self.result['module'], 'other.xml', self.result['report'], ports)
         with self.assertRaisesRegex(ValueError, 'does not take the scene action'):
@@ -303,6 +348,17 @@ class LabTests(unittest.TestCase):
             dict(action='assert', events={self.MODULE + '.callback_forge': 1}),
             self.fire('play_forge'), self.end('forge'),
             dict(action='assert', events={self.MODULE + '.callback_forge': 2})])
+        self.assertEqual(result['status'], 'PASS', result['error'])
+
+    def test_the_pending_flag_serves_the_dispatcher(self):
+        pending = lambda alias, value: dict(action='assert', values={self.MODULE + '.pending_' + alias: value})
+        # A callback C5 runs itself is acknowledged when it is done; done_<alias> is then a no-op.
+        result = self.run_steps([pending('forge', False), self.fire('play_forge'), pending('forge', False), self.end('forge'),
+                                 pending('forge', False), self.state(intro_Completed=True)])
+        self.assertEqual(result['status'], 'PASS', result['error'])
+        # While a callback waits for a profile, the scene is still pending.
+        result = self.run_steps([self.fire('play_visit'), self.end('visit'), pending('visit', True), self.ack('attack'),
+                                 pending('visit', True), self.ack('horses'), pending('visit', False)])
         self.assertEqual(result['status'], 'PASS', result['error'])
 
     def test_an_end_without_a_request_is_ignored(self):
@@ -445,9 +501,9 @@ class LedgerTests(unittest.TestCase):
     def test_every_record_is_converted_or_typed_residue(self):
         ledger = converted()['ledger']
         self.assertEqual(ledger['residue_by_kind'], dict(callback_op_deferred=7, dialogue_scene=1, fader_scene=1,
-            profile_group_conflict=1, profile_layer_unconverted=5, profile_nav_variant=2, request_save_deferred=2,
+            playback_duty_deferred=10, profile_group_conflict=1, profile_layer_unconverted=5, profile_nav_variant=2, request_save_deferred=2,
             scene_handoff=1, video_not_selected=1))
-        self.assertEqual(ledger['lowered'], dict(objective=3, profile=2, **{'await': 2}))
+        self.assertEqual(ledger['lowered'], dict(objective=4, profile=2, **{'await': 2}))
         for callback in ledger['callbacks']:
             self.assertEqual(sum(callback['lowered'].values()) + callback['deferred_operations'], callback['source_operations'])
         self.assertEqual(len(ledger['scenes']['records']), ledger['scenes']['aliases'])
@@ -473,11 +529,21 @@ class RetailTests(unittest.TestCase):
         self.assertEqual(ledger['scenes']['converted'], ['navsteva_racka', 'kovani_otcem', 'forging_father_insert'])
         self.assertEqual((ledger['scenes']['requests'], ledger['scenes']['aliases']), (21, 15))
         self.assertEqual(ledger['scenes']['categories'], dict(dialogue=6, fader=1, in_engine=3, video=5))
-        racek = ledger['callbacks'][0]
+        racek = next(c for c in ledger['callbacks'] if c['alias'] == 'navsteva_racka')
         self.assertEqual((racek['source_operations'], racek['lowered'], racek['deferred_operations']),
                          (27, dict(objective=2, profile=2, **{'await': 2}), 21))
-        self.assertEqual([w['port'] for w in ledger['module']['wiring']],
-                         ['start_unloadNormalSkalitz', 'complete_henryGetsTheSword', 'complete_fatherAndHenryMakeSword'])
+        for port in ('start_unloadNormalSkalitz', 'complete_henryGetsTheSword', 'complete_fatherAndHenryMakeSword'):
+            self.assertIn(port, [w['port'] for w in ledger['module']['wiring']])
+        self.assertEqual(len(self.result['report']['passed_through']), 12)
+
+    def test_with_the_controller_owning_the_three_videos_c5_only_plays_them(self):
+        owned = scenes.convert_retail(KCD1, KCD2, 'q_skalitz', model=self.result['model'], controller_owned=scenes.MAIN_PATH['q_skalitz'])
+        self.assertEqual({p['alias'] for p in owned['programs']} & set(scenes.MAIN_PATH['q_skalitz']), set())
+        self.assertNotIn('q_skalitz_attack', owned['plan'])            # the attack switch is in a tree the controller runs
+        self.assertEqual(owned['ledger']['residue_by_kind']['callback_handed_to_controller'], 3)
+        ports = [p.get('Name') for p in E.fromstring(owned['module']).find('./Skald/Module/Ports')]
+        self.assertEqual(sum(p.startswith('pending_') for p in ports), 15)
+        self.assertNotIn('complete_henryGetsTheSword', ports)
 
     def test_every_source_operation_and_profile_entity_is_counted_once(self):
         ledger = self.result['ledger']
@@ -512,7 +578,7 @@ class RetailTests(unittest.TestCase):
         quest = E.fromstring(files['Example/q_skalitz.xml']).find('./Skald/Quest')
         ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in quest.find('Ports')}
         entry = scenes.attach(files['Example.xml'], self.result['module'], 'scenes.xml', self.result['report'], ports)
-        self.assertEqual(len(E.fromstring(entry).findall('./Skald/Project/Nodes/q_skalitz/Edge')), 3)
+        self.assertEqual(len(E.fromstring(entry).findall('./Skald/Project/Nodes/q_skalitz/Edge')), len(self.result['report']['wiring']))
 
 
 if __name__ == '__main__':
