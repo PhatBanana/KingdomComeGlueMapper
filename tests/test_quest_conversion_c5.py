@@ -356,6 +356,23 @@ class MovieTests(unittest.TestCase):
             source=dict(archive='a.pak', entry='Videos/arbitrary_quest/cin_11_forge.usm', id='11')))
         with self.assertRaisesRegex(ValueError, 'already registered'):
             scenes.movie_rows(result['table'], result['records'], QUEST)
+        table, _ = scenes.movie_rows(CUTSCENES, result['records'], QUEST, subtitled=('visit',))
+        self.assertEqual([r.get('Subtitles') for r in E.fromstring(table).find('Cutscenes')], [None, None, 'cinematic'])
+
+    def test_package_media_needs_the_movie_its_receipt_describes(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temporary:
+            folder = Path(temporary) / 'forge'; folder.mkdir()
+            (folder / 'cinematic.bk2').write_bytes(b'BIKi' + b'0' * 40)
+            (folder / 'cinematic.srt').write_bytes(b'1'); (folder / 'localization.xml').write_bytes(b'<Table/>')
+            receipt = dict(alias='forge', bytes=44, subtitles=dict(cues=2, rows=2))
+            files, strings, subtitled = scenes.package_media(QUEST, [receipt], temporary)
+            self.assertEqual(sorted(files), ['Videos/gluemapper/arbitrary_quest/forge/cinematic.bk2',
+                                             'Videos/gluemapper/arbitrary_quest/forge/cinematic.srt'])
+            self.assertEqual((strings, subtitled), ([b'<Table/>'], ['forge']))
+            self.assertEqual(scenes.bink_header(folder / 'cinematic.bk2')['signature'], 'BIKi')
+            with self.assertRaisesRegex(ValueError, 'differs from its receipt'):
+                scenes.package_media(QUEST, [dict(receipt, bytes=45)], temporary)
         streams = [dict(codec_type='audio'), dict(codec_type='video', width=1920, height=1080, r_frame_rate='30/1')]
         self.assertEqual(scenes.media_expectation(streams, 451), dict(width=1920, height=1080, r_frame_rate='30/1', nb_frames='451'))
 
@@ -472,6 +489,23 @@ class RetailTests(unittest.TestCase):
         self.assertEqual((totals['q_skalitz_normal']['layers'], totals['q_skalitz_normal']['shared']), (73, 7))
         pursuit = next(l for l in ledger['profiles']['q_skalitz_attack']['layers'] if l['layer'].startswith('pursuit'))
         self.assertEqual((pursuit['kinds']['NPC'], pursuit['kinds']['NPC_Female'], pursuit['kinds']['Horse']), (46, 16, 11))
+
+    def test_the_encoded_videos_equal_their_sources(self):
+        receipts = json.loads((GOLDEN.parent / 'q_skalitz.c5.media.json').read_text(encoding='utf-8'))['receipts']
+        self.assertEqual(sorted(r['alias'] for r in receipts), sorted(self.result['ledger']['scenes']['converted']))
+        files, _ = emit_project([self.result['model']], 'Example')
+        quest = E.fromstring(files['Example/q_skalitz.xml']).find('./Skald/Quest')
+        ports = {p.get('Name'): (p.get('Direction'), p.get('Type')) for p in quest.find('Ports')}
+        check = scenes.equivalence(self.result['model'], self.result, ports, scenes.media_from_receipts(receipts))
+        self.assertEqual((check['verdict'], check['categories']['media'], check['media_not_run']), ('PASS', 3, 0))
+        for receipt in receipts:
+            self.assertEqual((receipt['encoded']['width'], receipt['encoded']['height'], receipt['encoded']['r_frame_rate']),
+                             (1920, 1080, '30/1'))
+            self.assertIn(receipt['frames_short'], (0, 1))
+            self.assertEqual(receipt['subtitles']['cues'], receipt['subtitles']['rows'])
+            self.assertTrue(receipt['encoder']['known'])
+        rows = {r['name']: r for r in self.result['rows']}
+        self.assertEqual(set(rows), {r['cutscene'] for r in receipts})
 
     def test_objective_actions_are_real_inputs_of_the_emitted_quest(self):
         files, _ = emit_project([self.result['model']], 'Example')

@@ -30,6 +30,7 @@ Nothing here is runtime-verified. Developer tooling; never imported by Setup.
 from collections import Counter
 import copy
 import hashlib
+import json
 import re
 import xml.etree.ElementTree as ET
 
@@ -389,8 +390,11 @@ def attach(entry_blob, module_blob, definition_path, report, quest_ports):
 
 # ---------------------------------------------------------------- movies
 
-def movie_rows(native_xml, records, quest):
-    """KCD2 cutscene table with one RenderedCutscene row per converted video; returns (blob, rows)."""
+def movie_rows(native_xml, records, quest, subtitled=()):
+    """KCD2 cutscene table with one RenderedCutscene row per converted video; returns (blob, rows).
+
+    subtitled names the aliases that ship a `cinematic.srt` beside the movie.
+    """
     root = ET.fromstring(native_xml)
     table = root.find('./Cutscenes')
     if table is None:
@@ -405,6 +409,8 @@ def movie_rows(native_xml, records, quest):
             raise ValueError('Cutscene already registered: ' + name)
         row = ET.SubElement(table, 'RenderedCutscene', Name=name, Root=ROOT + quest + '/' + record['alias'])
         ET.SubElement(ET.SubElement(row, 'Profiles'), 'Profile', Type='Default', FileName='cinematic')
+        if record['alias'] in subtitled:
+            row.set('Subtitles', 'cinematic')
         rows.append(dict(name=name, root=row.get('Root'), file=row.get('Root') + '/cinematic.bk2',
                          source=record['video']))
     return ET.tostring(root, encoding='utf-8', xml_declaration=True), rows
@@ -672,7 +678,8 @@ def equivalence(model, result, quest_ports, media=None):
             not_run += 1
             continue
         expected, encoded = media[alias]
-        check('media', all(str(encoded.get(k)) == str(expected.get(k)) for k in ('width', 'height', 'r_frame_rate', 'nb_frames'))
+        check('media', all(str(encoded.get(k)) == str(expected.get(k)) for k in ('width', 'height', 'r_frame_rate'))
+              and 0 <= int(expected['nb_frames']) - int(encoded['nb_frames']) <= 1
               and encoded.get('audio_streams', 0) >= 1, 'encoded picture of ' + alias + ' differs from the source')
     for name, record in result['plan'].items():
         for layer in record['layers']:
@@ -807,3 +814,150 @@ def main(argv=None):
 
 if __name__ == '__main__':
     raise SystemExit(main())
+
+
+# ---------------------------------------------------------------- encoding (developer machine only)
+
+# Encoders this route was run with: sha256 of radvideo64.exe -> product version. The free RAD Video Tools
+# encode Bink 1 only ("the Bink 2 encoders require a license"); the file is packaged under the .bk2 name
+# the cutscene table expects, as the shipped opening movie is.
+ENCODERS = {'ee6aaf85c20aeb265826b272b63e805ba5accf6896d2f16e5d17d70a417dd7d1': '2026.10'}
+AUDIO_TABLE = 'Libs/Tables/ui/video_language2audio_track.xml'
+
+
+def bink_header(path):
+    """Container facts read from the file itself (Bink 1 'BIK?' or Bink 2 'KB2?')."""
+    import struct
+    with open(path, 'rb') as stream:
+        head = stream.read(44)
+    size, frames, largest, _, width, height, rate, scale, flags, tracks = struct.unpack('<10I', head[4:44])
+    return dict(signature=head[:4].decode('latin1'), frames=frames, width=width, height=height,
+                rate=rate, scale=scale, audio_tracks=tracks)
+
+
+def encode_video(kcd1, quest, record, encoder, work, run, keep=False):
+    """One source video through the repo's route: demux, ffmpeg to AVI, RAD to Bink, validate, subtitles.
+
+    run(command, log) runs one child process to completion. Returns the receipt; the movie is
+    `<work>/cinematic.bk2` and the subtitles `<work>/cinematic.srt` with `<work>/localization.xml`.
+    Intermediates are deleted once the movie validates, unless keep is set.
+    """
+    import hashlib
+    import shutil
+    import zipfile
+    from pathlib import Path
+    from campaign_sources import RetailSourceReader
+    from cinematic_media import demux, probe
+    kcd1, work, encoder = Path(kcd1), Path(work), Path(encoder)
+    work.mkdir(parents=True, exist_ok=False)
+    digest = hashlib.sha256(encoder.read_bytes()).hexdigest()
+    video = record['video']
+    with RetailSourceReader(kcd1) as reader:
+        movie = reader(kcd1, {'movie': (video['archive'], video['entry'])})['movie']
+        mapping = reader(kcd1, {'mapping': ('Tables.pak', AUDIO_TABLE)})['mapping']['data']
+    rows = [r for r in ET.fromstring(mapping).iter() if r.get('language_id') == '1']
+    if len(rows) != 1:
+        raise ValueError('Missing source English movie audio mapping')
+    counts = demux(movie['data'], work, int(rows[0].get('audio_track_id')))
+    source_size, source_sha = len(movie['data']), hashlib.sha256(movie['data']).hexdigest()
+    original = work / 'source.usm'
+    original.write_bytes(movie['data'])
+    del movie
+    expected = next(s for s in probe(original) if s['codec_type'] == 'video')
+    original.unlink()
+    decoded = next(s for s in probe(work / 'source.m1v', count_frames=True) if s['codec_type'] == 'video')
+    frames = int(decoded['nb_read_frames'])
+    expected['nb_frames'] = str(frames)
+    avi, encoded = work / 'cinematic.avi', work / 'cinematic.bik'
+    rate = expected['r_frame_rate']
+    # setup_cutscenes.build (the shipped opening) pads one frame and cuts it again with /E, and passes /U8 and
+    # frame-range switches; RAD Video Tools 2026.10 answers each of those with a message box and never encodes.
+    # It keeps every frame of the AVI, so the AVI carries exactly the source frames. /V1 is Bink 1.
+    run([shutil.which('ffmpeg'), '-v', 'error', '-y', '-r', rate, '-i', str(work / 'source.m1v'), '-i', str(work / 'source.adx'),
+         '-map', '0:v:0', '-map', '1:a:0', '-r', rate, '-fps_mode', 'cfr',
+         '-frames:v', str(frames), '-c:v', 'mjpeg', '-q:v', '2', '-c:a', 'pcm_s16le', str(avi)], work / 'ffmpeg.log')
+    for name in ('source.m1v', 'source.adx'):
+        if not keep: (work / name).unlink()
+    run([str(encoder), 'binkc', str(avi.resolve()), str(encoded.resolve()), '/V1', '/D3000000', '/O', '/T10', '/#'],
+        work / 'rad.log')
+    if not encoded.is_file():
+        raise ValueError('The encoder wrote no movie (it may be waiting on a message box): ' + str(encoded))
+    if not keep: avi.unlink()
+    return finish_video(kcd1, quest, record, work, encoder, frames, expected['width'], expected['height'], rate,
+                        source_size, source_sha, counts)
+
+
+def finish_video(kcd1, quest, record, work, encoder, frames, width, height, rate, source_size, source_sha, counts):
+    """Check an encoded movie against its source and write subtitles and the receipt.
+
+    Dimensions and frame rate must be equal and an audio track present. The frame count may be one short:
+    this encoder version drops the last frame of some inputs, and the receipt records the difference.
+    """
+    import hashlib
+    from fractions import Fraction
+    from pathlib import Path
+    from cinematic_media import probe
+    from cinematic_subtitles import convert as convert_subtitles
+    kcd1, work, encoder = Path(kcd1), Path(work), Path(encoder)
+    encoded = work / 'cinematic.bik'
+    digest = hashlib.sha256(encoder.read_bytes()).hexdigest()
+    video = record['video']
+    streams = probe(encoded)
+    header = bink_header(encoded)
+    source_rate = Fraction(rate)
+    if (header['signature'][:3] not in ('BIK', 'KB2') or (header['width'], header['height']) != (width, height)
+            or Fraction(header['rate'], header['scale']) != source_rate or not 0 <= frames - header['frames'] <= 1
+            or not any(s['codec_type'] == 'audio' for s in streams)):
+        raise ValueError('Encoded cinematic does not match the source dimensions, timing and audio contract')
+    movie_path = work / 'cinematic.bk2'
+    encoded.replace(movie_path)
+    cues = json.loads((work / 'source-subtitles.json').read_text(encoding='utf-8'))
+    subtitles = dict(cues=len(cues), rows=0)
+    if cues:
+        srt, strings, _ = convert_subtitles(cues, kcd1 / 'Localization/English_xml.pak')
+        (work / 'cinematic.srt').write_bytes(srt if isinstance(srt, bytes) else srt.encode('utf-8'))
+        (work / 'localization.xml').write_bytes(strings)
+        subtitles['rows'] = len(ET.fromstring(strings).findall('Row'))
+    encoded_facts = dict(width=header['width'], height=header['height'], nb_frames=str(header['frames']),
+                         r_frame_rate=str(Fraction(header['rate'], header['scale']).numerator) + '/'
+                                      + str(Fraction(header['rate'], header['scale']).denominator),
+                         audio_streams=sum(s['codec_type'] == 'audio' for s in streams), signature=header['signature'],
+                         audio_tracks=header['audio_tracks'])
+    receipt = dict(alias=record['alias'], cutscene=cutscene_name(quest, record['alias']), source=video,
+                   source_bytes=source_size, source_sha256=source_sha, demux=counts,
+                   expected=dict(width=width, height=height, nb_frames=str(frames),
+                                 r_frame_rate=str(source_rate.numerator) + '/' + str(source_rate.denominator)),
+                   encoded=encoded_facts, frames_short=frames - header['frames'], seconds=float(frames / source_rate), bytes=movie_path.stat().st_size,
+                   sha256=hashlib.sha256(movie_path.read_bytes()).hexdigest(), subtitles=subtitles,
+                   encoder=dict(sha256=digest, version=ENCODERS.get(digest), known=digest in ENCODERS,
+                                container='Bink 1 under the .bk2 name'), runtime_verified=False)
+    (work / 'receipt.json').write_text(json.dumps(receipt, indent=2, sort_keys=True) + '\n', encoding='utf-8', newline='\n')
+    return receipt
+
+
+def package_media(quest, receipts, directory):
+    """What the encoded scenes add to a package: ({archive path: file}, [localization row tables], subtitled aliases).
+
+    directory holds one folder per alias as `encode_video` leaves it. Each movie must still be the file its
+    receipt describes.
+    """
+    import hashlib
+    from pathlib import Path
+    files, strings, subtitled = {}, [], []
+    for receipt in receipts:
+        folder = Path(directory) / receipt['alias']
+        movie = folder / 'cinematic.bk2'
+        if not movie.is_file() or movie.stat().st_size != receipt['bytes']:
+            raise ValueError('Encoded movie is missing or differs from its receipt: ' + receipt['alias'])
+        root = ROOT + quest + '/' + receipt['alias']
+        files[root + '/cinematic.bk2'] = movie
+        if receipt['subtitles']['cues']:
+            files[root + '/cinematic.srt'] = folder / 'cinematic.srt'
+            strings.append((folder / 'localization.xml').read_bytes())
+            subtitled.append(receipt['alias'])
+    return files, strings, subtitled
+
+
+def media_from_receipts(receipts):
+    """`equivalence(..., media=)` input from encode receipts."""
+    return {r['alias']: (r['expected'], r['encoded']) for r in receipts}
