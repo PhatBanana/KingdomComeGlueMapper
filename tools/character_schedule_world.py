@@ -67,6 +67,11 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None, t
         if market_supports(entry):
             result.append(market_resolve(entry, archive))
             continue
+        import character_work_adapters
+        registered = character_work_adapters.resolve(entry, archive, source, reader)
+        if registered is not None:
+            result.append(registered)
+            continue
         if entry.get('target_kind') == 'quest_controller':
             if source is None or reader is None:
                 raise ValueError('Controller work requires its effective source behavior')
