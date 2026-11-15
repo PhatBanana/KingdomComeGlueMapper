@@ -81,6 +81,12 @@ def plan(person, tables):
                     target_kind='quest_controller', controller=definition,
                     target_links=[dict(l.attrib) for l in entity.findall('EntityLinks/Link')], runtime_verified=False))
                 continue
+            if entity.get('EntityClass') == 'SmartObjectHolder':
+                # Lords at a hall table (Talmberg's so_talmberk_castle_lords):
+                # the work is a smart object's behaviour, not a smart area's.
+                # No native adapter yet; the person waits at their KCD1 spot.
+                pending.append(dict(interval, link=link['label'], parsed_link=tag,
+                                    reason='Smart object holder work has no native adapter')); continue
             if template not in areas: raise ValueError('Unresolved source activity area template')
             candidates = [(b, behaviors[b['sa_behaviour_tag_id']]) for b in bindings
                           if b['sa_smart_area_id'] == template and

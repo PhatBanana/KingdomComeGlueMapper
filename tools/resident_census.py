@@ -162,7 +162,8 @@ def plan_people(source, names, tables, progress_path, native=None):
                 row['keeper'] = row['keeper'] or record['soul_id'] in keeper_ids
                 person = dict(name=name, soul=soul, actor=by_guid[record['entity_guid']],
                               instance=instances[record['instance_id']], source_level='rataje')
-                person['ai'] = capture_person_ai(tables, soul, person['actor'], person['instance'], entities, links)
+                person['ai'] = capture_person_ai(tables, soul, person['actor'], person['instance'], entities, links,
+                                                 init_links=True)
                 if native is not None:
                     try:
                         native_brain_and_class(person['ai'], *native)
