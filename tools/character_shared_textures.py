@@ -168,6 +168,8 @@ class Sharing:
         # A family without its base here, and cube/volume textures, keep the
         # writer's own handling: they stay at their original path.
         if resident is None or (len(resident) >= 128 and struct.unpack_from('<I', resident, 112)[0] & 0xFE00):
+            # Materials keep referencing it there (e.g. a cube map, *_cm.dds).
+            self.wanted.discard(base)
             return entries
         try: validate_family(resident, {k: v for k, v in members.items() if k})
         except ValueError as error: raise ValueError(base + ': ' + str(error)) from error

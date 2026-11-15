@@ -152,6 +152,18 @@ class SharedTextureTests(unittest.TestCase):
         self.assertIn('objects/gluecampaign/gm_person_a_weapons/sword_diff.dds.1', entries)
         self.assertNotIn(folder('gm_person_a') + 'worn_diff.dds', entries)
 
+    def test_a_cube_map_stays_at_its_path_and_its_material_still_packs(self):
+        # A KCD1 flask's environment map: one small unsplit cube DDS (DDSCAPS2 faces at byte 112).
+        from character_shared_textures import Sharing
+        cube = bytearray(128); cube[112:116] = (0xFE00).to_bytes(4, 'little')
+        cube_path = folder('gm_person_a') + 'flask_cm.dds'
+        mtl_path = folder('gm_person_a') + 'body.mtl'
+        mtl = material(cube_path)
+        sharing = Sharing(Store(shared_texture_stage(self.root)), 'gm_person_a', {mtl_path: mtl}, [cube_path, mtl_path])
+        self.assertEqual(sharing.names, [cube_path, mtl_path])
+        packed = sharing.route(cube_path, bytes(cube)) + sharing.route(mtl_path, mtl) + sharing.finish()
+        self.assertEqual(packed, [(cube_path, bytes(cube)), (mtl_path, mtl)])   # both stay as they were
+
     def test_a_broken_family_is_refused_and_never_staged(self):
         family = split_generated(baked(1)); del family['.1']
         appearance = person(self.root, 'gm_person_a', {}, {
