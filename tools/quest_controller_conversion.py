@@ -95,6 +95,8 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
     from campaign_ai_registration import MailboxAdapter, NativeAIRegistry
     from campaign_ai_types import AIEnumAdapter, AIStructureAdapter, AITypeSource
     from campaign_behavior import convert_behaviors, native_catalog
+    from campaign_buffs import BuffAdapter, native_contract as native_buff_contract
+    from campaign_dependency_adapters import ItemTextAdapter, LazyAdapter
     from campaign_dependencies import DependencyImporter
     from campaign_link_types import LinkTypeAdapter
     from campaign_profiles import STREAMING_SOURCE
@@ -117,7 +119,11 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
         links.source.update({identity: dict(row) for identity, row in prepared['implicit_links'].items()})
         importer = DependencyImporter(dict(
             ai_types=AIStructureAdapter(types, catalog['variable_types']), ai_enums=AIEnumAdapter(types),
-            mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')), link_types=links))
+            mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')), link_types=links,
+            # The campaign compiler's own buff conversion: table data only, no world.
+            buffs=LazyAdapter(lambda: BuffAdapter(tables, native_buff_contract(kcd2), 'C2')),
+            strings=LazyAdapter(lambda: ItemTextAdapter(kcd1, 'C2', 'English')),
+            buff_strings=LazyAdapter(lambda: ItemTextAdapter(kcd1, 'C2', 'English', 'text_ui_soul.xml'))))
         # The scene converter's aliases: requests fire its module, a generated dispatcher runs the callbacks.
         import campaign_controller_scenes
         scene_seam = campaign_controller_scenes.apply(models[0], set(scenes))
@@ -130,7 +136,10 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
         behaviors, bridges, conversion = convert_behaviors(models, 'C2', catalog, importer=importer,
                                                            profile_streaming=read(scripts, STREAMING_SOURCE),
                                                            schedule_adapter=lease)
+    failed = Counter((group, job.get('error', '')) for (group, _), job in importer.jobs.items()
+                     if job.get('status') == 'conversion_failed' and group == 'buffs')
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
+                buff_failures=[dict(reason=reason, buffs=count) for (_, reason), count in failed.most_common()],
                 schedule=schedule, scenes=scene_seam)
 
 

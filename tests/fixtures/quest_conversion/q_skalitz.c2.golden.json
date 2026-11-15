@@ -21,16 +21,6 @@
       "trees": 11
     },
     {
-      "reason": "Referenced buff conversion did not complete: 360e7fef-1051-446a-b133-7f5970af00f7",
-      "sites": 9,
-      "trees": 4
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: c7c79394-cd16-4d86-a029-f8a5f6623f9d",
-      "sites": 9,
-      "trees": 5
-    },
-    {
       "reason": "Source Lua requires a semantic adapter",
       "sites": 9,
       "trees": 5
@@ -54,11 +44,6 @@
       "reason": "Custom combat dispatch requires a native behavior-consumer adapter",
       "sites": 6,
       "trees": 5
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: 7524aadc-7819-4c55-a3cf-8caec0d0f437",
-      "sites": 5,
-      "trees": 3
     },
     {
       "reason": "Unconverted custom behavior request fields",
@@ -107,16 +92,6 @@
     },
     {
       "reason": "Referenced AI link type conversion did not complete: rapeDoor",
-      "sites": 2,
-      "trees": 2
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: d5996d8b-611d-4cc8-bfbd-7ab2c8884cf6",
-      "sites": 2,
-      "trees": 2
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: f29ee947-a131-4597-8ed7-6f06aca0a4a2",
       "sites": 2,
       "trees": 2
     },
@@ -192,26 +167,6 @@
     },
     {
       "reason": "Referenced AI link type conversion did not complete: testDoorAnim",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: 46683e3b-e261-412f-b402-99ee17dda62a",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: 8e9cb93a-eb5f-4846-be2c-2c7010872704",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: bd22f98a-e61f-4d83-b39c-79d1d85b6b91",
-      "sites": 1,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced buff conversion did not complete: e860a7b2-dce1-4a77-a746-971ed8f537cf",
       "sites": 1,
       "trees": 1
     },
@@ -302,11 +257,6 @@
       "reasons": 4,
       "sites": 5,
       "trees": 3
-    },
-    "buff": {
-      "reasons": 9,
-      "sites": 31,
-      "trees": 6
     },
     "combat_dispatch": {
       "reasons": 4,
