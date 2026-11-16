@@ -145,7 +145,10 @@ def level_bindings(kcd1, level, model):
         if len(assets) == 1 and by_name[assets[0]]['registration']['kind'] in ('entity', 'placed_soul'):
             references[expression] = by_name[assets[0]]['registration']['guid']
     controller = native_guid(int(world['entities'][plan['controller']]['attributes']['EntityGuid'].replace('-', ''), 16))
-    return dict(level=level, controller=controller, references=references,
+    # Every reference bound to exactly one object, with its quest asset (alias and class).
+    assets = {expression: dict(alias=names[0], asset_type=by_name[names[0]]['asset_type'])
+              for expression, names in plan['references'].items() if len(names) == 1}
+    return dict(level=level, controller=controller, references=references, assets=assets,
                 ambiguous=sorted(e for e, assets in plan['references'].items() if len(assets) != 1))
 
 

@@ -27,7 +27,7 @@
     },
     {
       "reason": "Source Lua requires a semantic adapter",
-      "sites": 9,
+      "sites": 8,
       "trees": 5
     },
     {
@@ -81,11 +81,6 @@
       "trees": 1
     },
     {
-      "reason": "Native operation lives in the quest graph: SetOwner (Skald Effect What/Who; needs a signal bridge)",
-      "sites": 2,
-      "trees": 1
-    },
-    {
       "reason": "Objective condition needs an adapter: IsObjectiveTrackedCompleted",
       "sites": 2,
       "trees": 1
@@ -112,6 +107,11 @@
     },
     {
       "reason": "Graph edge type did not convert: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Native operation lives in the quest graph: SetOwner (Skald Effect What/Who take level assets; this object is found at run time)",
       "sites": 1,
       "trees": 1
     },
@@ -255,7 +255,7 @@
     },
     "lua": {
       "reasons": 1,
-      "sites": 9,
+      "sites": 8,
       "trees": 5
     },
     "message_type": {
@@ -270,7 +270,7 @@
     },
     "op_partial": {
       "reasons": 1,
-      "sites": 2,
+      "sites": 1,
       "trees": 1
     },
     "profile": {
@@ -293,10 +293,6 @@
     {
       "calls": "Contexts.ClearOption XGenAIModule.GetEntityByWUID",
       "sites": 2
-    },
-    {
-      "calls": "<call>:SetLootLegal XGenAIModule.GetEntityByWUID",
-      "sites": 1
     },
     {
       "calls": "<entity>:DoPlayAnimation XGenAIModule.GetEntityByWUID",
@@ -327,6 +323,46 @@
       "sites": 1
     }
   ],
+  "ownership": {
+    "left": [
+      {
+        "operation": "SetOwner",
+        "path": "Root/0/0/0/0/6/0/0/3/0/1/0",
+        "reason": "object is found at run time",
+        "tree": "onUpdate"
+      },
+      {
+        "operation": "LuaWrapper",
+        "path": "Root/1/0/0/0",
+        "reason": "loot legality of an object found at run time",
+        "tree": "enemies_battle_fight"
+      }
+    ],
+    "owned": [
+      {
+        "alias": "q_skalitz_entity_QuestItem__kunes_chest___580ea511_6786_4168_7f71d56bdb86",
+        "asset_type": "StashAsset",
+        "operation": "ExecuteLua",
+        "path": "Root/0/0/0/0/6/0/0/3/0/3",
+        "port": "own_kunes_chest",
+        "reference": "t_qItems['kunes_chest']",
+        "stand_in": true,
+        "tree": "onUpdate"
+      },
+      {
+        "alias": "q_skalitz_entity_QuestPlace__henrysHome___b781d1d0_f368_4437_ce5bec8e9da0",
+        "asset_type": "SmartAreaAsset",
+        "operation": "SetOwner",
+        "path": "Root/0/0/0/0/6/0/1/6/0/0/0/0/12",
+        "port": "own_henrysHome",
+        "reference": "t_places['henrysHome']",
+        "stand_in": false,
+        "tree": "onUpdate"
+      }
+    ],
+    "quest": "q_skalitz",
+    "runtime_verified": false
+  },
   "prepared": {
     "completed_branches": 15,
     "implicit_links": 23,
@@ -350,7 +386,8 @@
       "InstantDrawWeapon->DrawAction": 2,
       "LODCheck->SuppressFailure": 1,
       "MakeMeIdle->StopMovement": 4,
-      "PlayAnimation->Sequence": 1
+      "PlayAnimation->Sequence": 1,
+      "SetLootLegal->SetOwner": 1
     },
     "value_renames": 21,
     "verbatim_lua": 7

@@ -22,6 +22,8 @@ Bindings (all optional; a missing one leaves the rows that need it pending):
     soul_assets         {source soul id: SoulAsset alias declared by the project}
     place_assets        {source entity name: dict(alias=TriggerAreaAsset alias,
                          entity_class=source EntityClass)}
+    owned_assets        {quest: [dict(port, alias, asset_type)]} from
+                        campaign_controller_ownership.quest_assets
     condition_functions {source dialogue_functions name: expression}
     factions            {source faction_id: target faction name}
     money_changes, reputation_changes, exp_changes   {source id: target row name}
@@ -36,6 +38,7 @@ import hashlib
 
 from campaign_quest_graph import objective_identifier
 import campaign_quest_conditions
+import campaign_quest_ownership
 import campaign_quest_policy
 import campaign_quest_rewards
 import campaign_quest_tracking
@@ -107,10 +110,12 @@ def lower(files, report, models, bindings):
         blob, conditions = campaign_quest_conditions.bind(blob, model, bindings)
         blob, policy = campaign_quest_policy.bind(blob, model)
         blob, rewards = campaign_quest_rewards.bind(blob, model, bindings)
+        blob, ownership = campaign_quest_ownership.bind(blob, model, bindings)
         files[path] = blob
         before = quest['unsupported']
         quest['unsupported'], resolved = reconcile(before, tracking, policy, rewards, conditions)
         quest['lowerings'] = dict(tracking=tracking, policy=policy, rewards=rewards, conditions=conditions,
+                                  ownership=ownership,
                                   resolved=resolved,
                                   unsupported_before=len(before), unsupported_after=len(quest['unsupported']),
                                   runtime_verified=False)

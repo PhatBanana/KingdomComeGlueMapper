@@ -147,7 +147,7 @@ RESIDUE = {
     'DrawWeapon': 'Native operation lacks source fields: DrawWeapon (DrawAction has no ToCombatGuard, noAnimation, who)',
     'AnimationEventCatch': 'Native operation has no shipped example: AnimationEventCatch (name in WHGame.dll only)',
     'OnEvent': 'Native operation has no shipped example: OnEvent (branch of AnimationEventCatch)',
-    'SetOwner': 'Native operation lives in the quest graph: SetOwner (Skald Effect What/Who; needs a signal bridge)',
+    'SetOwner': 'Native operation lives in the quest graph: SetOwner (Skald Effect What/Who take level assets; this object is found at run time)',
 }
 
 
@@ -526,6 +526,8 @@ def register():
     import campaign_behavior
     import campaign_controller_scenes
     LOWERINGS.update(campaign_controller_scenes.LOWERINGS)
+    import campaign_controller_ownership
+    LOWERINGS.update(campaign_controller_ownership.LOWERINGS)
     for source, target in ENGINE_TYPES.items():
         campaign_ai_types.ENGINE_TYPE_ADAPTERS.setdefault(source, target)
     added = [op for op in CONTRACTS if op not in campaign_behavior.CONTRACTS]

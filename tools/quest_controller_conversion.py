@@ -136,13 +136,20 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
         import campaign_controller_scenes
         scene_seam = campaign_controller_scenes.apply(models[0], set(scenes))
         # With a level, the daycycle requests the lease adapter accepts are bound to its actors.
-        lease, schedule = None, None
+        lease, schedule, ownership = None, None, None
+        import campaign_controller_ownership
         import campaign_controller_schedule
         # Requests are first reduced to the fields KCD1's own daycycle consumer acts on.
         requests = campaign_controller_schedule.normalise(models[0])
         if level:
-            lease, schedule = campaign_controller_schedule.adapter(
-                models[0], campaign_controller_schedule.level_bindings(kcd1, level, models[0]), 'C2', requests['windows'])
+            bound = campaign_controller_schedule.level_bindings(kcd1, level, models[0])
+            # Ownership the controller grants becomes a signal to the quest, which holds the effect.
+            ownership = campaign_controller_ownership.apply(models[0], bound['assets'])
+            prepared.setdefault('stand_ins', []).extend(
+                dict(quest=models[0]['quest'], document='libs/ai/quests/' + models[0]['quest'].lower() + '.xml',
+                     tree=site['tree'], path=site['path'], source='SetLootLegal', target='SetOwner')
+                for site in ownership['owned'] if site['stand_in'])
+            lease, schedule = campaign_controller_schedule.adapter(models[0], bound, 'C2', requests['windows'])
             schedule['normalised'] = dict(requests=len(requests['rewritten']), rules=requests['rules'],
                                           windows=len(requests['windows']), left=len(requests['left']))
         behaviors, bridges, conversion = convert_behaviors(models, 'C2', catalog, importer=importer,
@@ -152,7 +159,7 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
                      if job.get('status') == 'conversion_failed' and group in ('buffs', 'items'))
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
                 import_failures=[dict(group=group, reason=reason, count=count) for (group, reason), count in failed.most_common()],
-                schedule=schedule, scenes=scene_seam)
+                schedule=schedule, scenes=scene_seam, ownership=ownership)
 
 
 def static_assets(stack, kcd1, kcd2, work):
@@ -259,7 +266,7 @@ def ledger(run):
                               implicit_links=len(run['prepared'].get('implicit_links', ())),
                               value_renames=len(run['prepared'].get('value_renames', ())), verbatim_lua=verbatim,
                               completed_branches=len(run['prepared'].get('completed_branches', ()))),
-                schedule=run.get('schedule'), scenes=run.get('scenes'),
+                schedule=run.get('schedule'), scenes=run.get('scenes'), ownership=run.get('ownership'),
                 lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
                             for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
@@ -313,6 +320,14 @@ def markdown(led, main_path=()):
                       ', '.join('`%s`' % t for t in plan['accepted_trees']) or 'none'), '',
                   '| Capability a rejected request needs | Requests |', '|---|---:|']
         lines += ['| %s | %d |' % item for item in sorted(plan['rejected'].items(), key=lambda p: (-p[1], p[0]))]
+    if led.get('ownership'):
+        grant = led['ownership']
+        lines += ['', '## Ownership the controller grants', '',
+                  'Each converted site fires the quest port; the quest holds `SetOwner(What, Who = player)` '
+                  '(`campaign_quest_ownership`).', '', '| Tree | Source | Object | Result |', '|---|---|---|---|']
+        lines += ['| %s | %s | `%s` (%s) | port `%s`%s |' % (s['tree'], s['operation'], s['reference'], s['asset_type'], s['port'],
+                                                         ', stand-in' if s['stand_in'] else '') for s in grant['owned']]
+        lines += ['| %s | %s | | left: %s |' % (s['tree'], s['operation'], s['reason']) for s in grant['left']]
     if led.get('lua_shapes'):
         lines += ['', '## Lua residue by call shape', '',
                   'Blocked Lua sites grouped by the calls they make (`campaign_controller_contracts.lua_shape`; '
@@ -330,7 +345,7 @@ def golden(led):
                 prepared=led['prepared'], source_equivalence=led['layers']['source_equivalence']['summary'],
                 lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])],
                 schedule={k: v for k, v in (led.get('schedule') or {}).items() if k != 'sites'} or None,
-                scenes=led.get('scenes'))
+                scenes=led.get('scenes'), ownership=led.get('ownership'))
 
 
 def main():
