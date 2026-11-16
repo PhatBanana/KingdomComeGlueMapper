@@ -1,0 +1,140 @@
+{
+ "files": {
+  "Libs/Tables/rpg/money_change__gm_kcd1_quest.xml": "9c0686047c5deaed051a361d35acd61c1051084c9b7f4fe5d1bf1abf7c9258fe",
+  "Libs/Tables/rpg/reputation_change__gm_kcd1_quest.xml": "35415c5c9177bbbabf7e7de846ffeca9502fbd8ad9d869b73429bc5fd1486ca3",
+  "Quests/GlueTravel/GlueTravel_kcd1.xml": "c2453eb8f38eab394a872bd67542e3d7462de9b93b62ca923f56f7161528324a",
+  "Quests/GlueTravel/entry/kcd1_travel.xml": "6d4bfd9dadfd908ff1de73190f5ed817e90e5e212cd2a74f42a343765798df38",
+  "Quests/GlueTravel/entry/kcd1_travel/gm_kcd1_quest_a_huntsman_butcher_27388.xml": "c4b7d0540b21cd2ba2fade86efafe9761a4f86d2357118d960f1b0ff1528fcfa",
+  "Quests/GlueTravel/entry/kcd1_travel/gm_kcd1_quest_a_huntsman_butcher_27396.xml": "84a261d440e879a4ccbc2696e03f60ce4cfe94ef32874070c2332596d2897dd7",
+  "Quests/GlueTravel/gm_kcd1_quests/a_huntsman_butcher.xml": "66cbca48bde2486971b6c2f7a3fb206091edb3ea9c8b29cce99b8b3197d05cd5"
+ },
+ "inputs": "b88c904a00060514a189493f339d19b42bc39cfdcf7d7370da11f0c69bd18bcc",
+ "quest": "a_huntsman_butcher",
+ "schema": 1,
+ "summary": {
+  "counts": {
+   "delivery_groups": 5,
+   "delivery_sites": 3,
+   "files": 8,
+   "lifecycle_sites": 2,
+   "pending": 10,
+   "people": "sas_butcher",
+   "quest": "a_huntsman_butcher",
+   "unsupported_after": 1,
+   "unsupported_before": 11
+  },
+  "delivery": [
+   {
+    "accept": null,
+    "decision": null,
+    "dialogue": "gm_kcd1_quest_a_huntsman_butcher_27388",
+    "groups": [],
+    "reject": null,
+    "sites": []
+   },
+   {
+    "accept": "seq_56813",
+    "decision": "topic_27398",
+    "dialogue": "gm_kcd1_quest_a_huntsman_butcher_27396",
+    "groups": [
+     {
+      "name": "boar",
+      "objectives": [
+       "boar"
+      ]
+     },
+     {
+      "aggregate": "feast",
+      "name": "hareFeast_deerFeast_boarFeast",
+      "objectives": [
+       "hareFeast",
+       "deerFeast",
+       "boarFeast"
+      ],
+      "parts": [
+       "hareFeast_deerFeast_boarFeast",
+       "hareFeast_deerFeast",
+       "hareFeast_boarFeast",
+       "deerFeast_boarFeast",
+       "hareFeast",
+       "deerFeast",
+       "boarFeast"
+      ]
+     },
+     {
+      "name": "kidney",
+      "objectives": [
+       "kidney"
+      ]
+     },
+     {
+      "name": "liver",
+      "objectives": [
+       "liver"
+      ]
+     },
+     {
+      "name": "offal",
+      "objectives": [
+       "offal"
+      ]
+     }
+    ],
+    "reject": "seq_56815",
+    "sites": [
+     "seq_56812",
+     "seq_56887",
+     "seq_56888"
+    ]
+   }
+  ],
+  "lifecycle": [
+   {
+    "dialogue": "gm_kcd1_quest_a_huntsman_butcher_27388",
+    "sites": [
+     [
+      "ActivateQuest",
+      "seq_56805",
+      "lifecycle_a_huntsman_butcher_activate"
+     ],
+     [
+      "StartQuest",
+      "seq_56905",
+      "lifecycle_a_huntsman_butcher_start"
+     ]
+    ]
+   },
+   {
+    "dialogue": "gm_kcd1_quest_a_huntsman_butcher_27396",
+    "sites": []
+   }
+  ],
+  "pending": [
+   "quest_reward_reputation:boarMoney:faction_81",
+   "quest_reward_reputation:boarMoney:sas_bailiff",
+   "quest_reward_reputation:endOfFun:faction_81",
+   "quest_reward_reputation:endOfFun:sas_bailiff",
+   "quest_reward_reputation:kidneyMoney:faction_81",
+   "quest_reward_reputation:kidneyMoney:sas_bailiff",
+   "quest_reward_reputation:liverMoney:faction_81",
+   "quest_reward_reputation:liverMoney:sas_bailiff",
+   "quest_reward_reputation:offalMoney:faction_81",
+   "quest_reward_reputation:offalMoney:sas_bailiff"
+  ],
+  "remaining": [
+   {
+    "kind": "rewards",
+    "objective": null,
+    "rows": 10,
+    "table": "quest_reward_reputation"
+   }
+  ],
+  "unsupported": {
+   "after": 1,
+   "before": 11
+  }
+ },
+ "written_by_the_stage": [
+  "Libs/GlueMapper/kcd1_quests.json"
+ ]
+}

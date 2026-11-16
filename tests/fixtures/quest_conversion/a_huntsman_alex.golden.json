@@ -1,0 +1,137 @@
+{
+ "files": {
+  "Libs/Tables/rpg/money_change__gm_kcd1_quest.xml": "e49e769a31b289515e544c576e1e1bab8f276ffe3d3d738f40dcc1146d8a4713",
+  "Libs/Tables/rpg/reputation_change__gm_kcd1_quest.xml": "35415c5c9177bbbabf7e7de846ffeca9502fbd8ad9d869b73429bc5fd1486ca3",
+  "Quests/GlueTravel/GlueTravel_kcd1.xml": "600cef1c8127375c72650589a936550df25c680aca2978c64baad440f36ca79b",
+  "Quests/GlueTravel/entry/kcd1_travel.xml": "274b23dc31bd6af10f7626bb6c8666ca08aa0f02cb18d9a9873d15a046b8d252",
+  "Quests/GlueTravel/entry/kcd1_travel/gm_kcd1_quest_a_huntsman_alex_27371.xml": "b4bb69f8c1be43b801ad1ff42b4c27e45778e8d50d7a6a9cb6f8249352fdf113",
+  "Quests/GlueTravel/entry/kcd1_travel/gm_kcd1_quest_a_huntsman_alex_27375.xml": "7d780d0235c7c09c41eeea856866adfd8effe3c392002f2ef12d069a02062864",
+  "Quests/GlueTravel/gm_kcd1_quests/a_huntsman_alex.xml": "bc5fb18f45d4750206db1af55940fa7f91f9e1d88550b83b383600db10e25225",
+  "Quests/GlueTravel/gm_kcd1_quests/gm_kcd1_quest_host.xml": "758356757a2c4ef93e1da8e2bce6f15bf95ff3bbbf10aaa7598c33f0f1981af0",
+  "Quests/GlueTravel/gm_kcd1_quests/gm_kcd1_quest_premise.xml": "f58a575f717931c7823fe11d36c75719050a70778eb7cf330b4463fac4ed0168",
+  "Quests/GlueTravel/gm_kcd1_quests/gm_kcd1_story_premise.xml": "6bcc4b7ecd4b410d81cfbbd44af8157717dc417d768f1c759b677df957d78a54"
+ },
+ "inputs": null,
+ "quest": "a_huntsman_alex",
+ "schema": 1,
+ "summary": {
+  "counts": {
+   "delivery_groups": 5,
+   "delivery_sites": 3,
+   "files": 11,
+   "lifecycle_sites": 2,
+   "pending": 15,
+   "people": "rat_refugee_ales",
+   "quest": "a_huntsman_alex",
+   "unsupported_after": 1,
+   "unsupported_before": 10
+  },
+  "delivery": [
+   {
+    "accept": null,
+    "decision": null,
+    "dialogue": "gm_kcd1_quest_a_huntsman_alex_27371",
+    "groups": [],
+    "reject": null,
+    "sites": []
+   },
+   {
+    "accept": "seq_56761",
+    "decision": "topic_27377",
+    "dialogue": "gm_kcd1_quest_a_huntsman_alex_27375",
+    "groups": [
+     {
+      "name": "mushrooms_boarM",
+      "objectives": [
+       "mushrooms",
+       "boarM"
+      ]
+     },
+     {
+      "name": "hare",
+      "objectives": [
+       "hare"
+      ]
+     },
+     {
+      "name": "deer",
+      "objectives": [
+       "deer"
+      ]
+     },
+     {
+      "name": "doe",
+      "objectives": [
+       "doe"
+      ]
+     },
+     {
+      "name": "boar",
+      "objectives": [
+       "boar"
+      ]
+     }
+    ],
+    "reject": "seq_56766",
+    "sites": [
+     "seq_56758",
+     "seq_56767",
+     "seq_56768"
+    ]
+   }
+  ],
+  "lifecycle": [
+   {
+    "dialogue": "gm_kcd1_quest_a_huntsman_alex_27371",
+    "sites": [
+     [
+      "ActivateQuest",
+      "seq_56751",
+      "lifecycle_a_huntsman_alex_activate"
+     ],
+     [
+      "StartQuest",
+      "seq_56903",
+      "lifecycle_a_huntsman_alex_start"
+     ]
+    ]
+   },
+   {
+    "dialogue": "gm_kcd1_quest_a_huntsman_alex_27375",
+    "sites": []
+   }
+  ],
+  "pending": [
+   "quest_reward_reputation:boar:rat_bailiff",
+   "quest_reward_reputation:boar:rat_berthold",
+   "quest_reward_reputation:boar:rat_hanus",
+   "quest_reward_reputation:deer:rat_bailiff",
+   "quest_reward_reputation:deer:rat_berthold",
+   "quest_reward_reputation:deer:rat_hanus",
+   "quest_reward_reputation:doe:rat_bailiff",
+   "quest_reward_reputation:doe:rat_berthold",
+   "quest_reward_reputation:doe:rat_hanus",
+   "quest_reward_reputation:hare:rat_bailiff",
+   "quest_reward_reputation:hare:rat_berthold",
+   "quest_reward_reputation:hare:rat_hanus",
+   "quest_reward_reputation:mushrooms:rat_bailiff",
+   "quest_reward_reputation:mushrooms:rat_berthold",
+   "quest_reward_reputation:mushrooms:rat_hanus"
+  ],
+  "remaining": [
+   {
+    "kind": "rewards",
+    "objective": null,
+    "rows": 15,
+    "table": "quest_reward_reputation"
+   }
+  ],
+  "unsupported": {
+   "after": 1,
+   "before": 10
+  }
+ },
+ "written_by_the_stage": [
+  "Libs/GlueMapper/kcd1_quests.json"
+ ]
+}

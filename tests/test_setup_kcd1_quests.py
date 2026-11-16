@@ -24,8 +24,16 @@ ROW = quests.QUESTS[0]
 BUTCHER = 'a_huntsman_butcher'
 BUTCHER_ROW = quests.QUESTS[1]
 # A built package that has the shop imports: two of the butcher's item classes exist only there.
-PACKAGE = Path(os.environ.get('GLUEMAPPER_KCD1_QUEST_PACKAGE', 'D:/KCD/Builds/glue/jobs-unified-cold-20261102/'
-                              '20261111-170855-7144498-unified-11-shops2/package/map'))
+# The shops-2 build is the one the butcher was planned against; where it is gone, the first later build
+# that has them stands in (the golden fixture records which package inputs it was frozen on).
+_BUILDS = Path('D:/KCD/Builds/glue/jobs-unified-cold-20261102')
+PACKAGE = next((Path(p) for p in (os.environ.get('GLUEMAPPER_KCD1_QUEST_PACKAGE'),
+                                  _BUILDS / '20261111-170855-7144498-unified-11-shops2/package/map',
+                                  _BUILDS / '20261111-190418-03a9927-unified-12c/package/map')
+                if p and (Path(p) / 'Data/gluemappertravel.pak').is_file()),
+               _BUILDS / '20261111-170855-7144498-unified-11-shops2/package/map')
+GOLDEN = Path(__file__).resolve().parent / 'fixtures' / 'quest_conversion'
+GOLDEN_SCHEMA = 1
 
 
 def contract_model():
@@ -1033,6 +1041,128 @@ def shutil_copy(source, destination):
     shutil.copyfile(source, destination)
 
 
+# ---------------------------------------------------------------- golden fixtures
+
+# tests/fixtures/quest_conversion/<quest>.golden.json freezes what `plan` emits for one quest: a SHA-256 per
+# emitted file (quest XML, dialogues, Level entry and Project stubs, premise modules, money and reputation
+# value tables) and the plan summary (lifecycle sites, delivery sites and groups, pending set, unsupported
+# before/after). Nothing in it depends on time or on a temp path: the plan reads retail data (and, for the
+# butcher, a package) and only bytes are digested. What the stage writes outside the plan (the marker) is
+# listed by name only.
+#
+# To regenerate after an intended converter change, review the fixture diff and commit it. From the
+# repository root, with both retail games installed (the butcher also needs a package with the shop imports,
+# GLUEMAPPER_KCD1_QUEST_PACKAGE if it is not the default one):
+#   GLUEMAPPER_REGENERATE_QUEST_GOLDENS=1 python -m unittest \
+#     tests.test_setup_kcd1_quests.RetailPlanTests.test_golden_output_matches_the_fixture \
+#     tests.test_setup_kcd1_quests.PackagePlanTests.test_golden_output_matches_the_fixture
+# The butcher plans on the package's own Level entry, so its fixture records a digest of the package
+# inputs. A package rebuilt with different inputs skips that test until the fixture is regenerated; a
+# converter change on the same inputs fails it.
+REGENERATE = 'GLUEMAPPER_REGENERATE_QUEST_GOLDENS'
+
+
+def sha256(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def package_inputs(package):
+    """One digest of what a plan reads from the package: its Quests/FactionTree files, level souls and item tables."""
+    package = Path(package)
+    base = quests.read_travel(package / quests.TRAVEL, ('Quests/', 'Libs/Tables/rpg/FactionTree'))
+    parts = dict(base={p: sha256(b) for p, b in sorted(base.items())},
+                 souls=sorted(quests.level_souls(package / quests.LEVEL_PAK)),
+                 items=sorted(sha256(b if isinstance(b, bytes) else b.encode())
+                              for b in quests.package_item_patches(package)))
+    return sha256(json.dumps(parts, sort_keys=True).encode())
+
+
+def golden_of(row, resources, report, tables, inputs):
+    files = {p: sha256(resources[p]) for p in report['files'] if p in resources}
+    files.update({p: sha256(b) for p, b in tables.items()})
+    deliveries = [dict(dialogue=d['dialogue'], sites=d['sites'], decision=d['decision'], accept=d['accept'],
+                       reject=d['reject'],
+                       groups=[dict({k: g[k] for k in ('name', 'objectives', 'aggregate') if k in g},
+                                    **({'parts': [x['name'] for x in g['parts']]} if 'parts' in g else {}))
+                               for g in d['groups']]) for d in report['delivery']]
+    summary = dict(
+        counts=quests.summary(dict(quests={row['quest']: report}))[0],
+        unsupported=dict(before=report['unsupported_before'], after=report['unsupported_after']),
+        lifecycle=[dict(dialogue=d['dialogue'], sites=[(s['function'], s['sequence'], s['port']) for s in d['sites']])
+                   for d in report['lifecycle']],
+        delivery=deliveries, pending=sorted(report['pending']),
+        remaining=[dict(kind=r['kind'], table=r.get('table'), objective=r.get('objective'), rows=r.get('rows'))
+                   for r in report['remaining']])
+    return json.loads(json.dumps(dict(schema=GOLDEN_SCHEMA, quest=row['quest'], inputs=inputs, files=files,
+                                      written_by_the_stage=sorted(set(report['files']) - set(files)), summary=summary)))
+
+
+def golden_path(quest):
+    return GOLDEN / (quest + '.golden.json')
+
+
+def check_golden(test, produced):
+    path = golden_path(produced['quest'])
+    if os.environ.get(REGENERATE) == '1':
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(produced, indent=1, sort_keys=True) + '\n', encoding='utf-8', newline='\n')
+        return
+    test.assertTrue(path.is_file(), 'no fixture; set ' + REGENERATE + '=1 to write it: ' + str(path))
+    frozen = json.loads(path.read_text(encoding='utf-8'))
+    test.assertEqual(frozen['summary'], produced['summary'], path.name + ' plan summary')
+    test.assertEqual(frozen['files'], produced['files'], path.name + ' emitted file digests')
+    test.assertEqual(frozen, produced)
+
+
+class GoldenFixtureSchemaTests(unittest.TestCase):
+    """Asset-free: the committed fixtures have the shape the regenerating tests write."""
+
+    def fixture(self, quest):
+        return json.loads(golden_path(quest).read_text(encoding='utf-8'))
+
+    def test_each_selected_quest_has_a_well_formed_fixture(self):
+        for row in quests.QUESTS:
+            with self.subTest(quest=row['quest']):
+                g = self.fixture(row['quest'])
+                self.assertEqual(sorted(g), ['files', 'inputs', 'quest', 'schema', 'summary', 'written_by_the_stage'])
+                self.assertEqual((g['schema'], g['quest']), (GOLDEN_SCHEMA, row['quest']))
+                self.assertEqual(bool(g['inputs']), bool(row.get('needs_package')))
+                if g['inputs']:
+                    self.assertRegex(g['inputs'], r'^[0-9a-f]{64}$')
+                self.assertTrue(g['files'])
+                for path, digest in g['files'].items():
+                    self.assertRegex(digest, r'^[0-9a-f]{64}$', path)
+                self.assertEqual(list(g['files']), sorted(g['files']))
+                for path in (quests.FOLDER + row['quest'] + '.xml', quests.ENTRY,
+                             *(quests.DIALOGUE_FOLDER + row['namespace'] + '_' + t + '.xml' for _, t in row['branches'])):
+                    self.assertIn(path, g['files'])
+                self.assertEqual(g['written_by_the_stage'], [quests.MARKER])
+                s = g['summary']
+                self.assertEqual(sorted(s), ['counts', 'delivery', 'lifecycle', 'pending', 'remaining', 'unsupported'])
+                self.assertEqual(s['pending'], sorted(row['accepted_pending']))
+                self.assertGreater(s['unsupported']['before'], s['unsupported']['after'])
+                self.assertEqual([d['dialogue'] for d in s['lifecycle']], [d['dialogue'] for d in s['delivery']])
+                counts = s['counts']
+                self.assertEqual(counts['quest'], row['quest'])
+                self.assertEqual((counts['unsupported_before'], counts['unsupported_after']),
+                                 (s['unsupported']['before'], s['unsupported']['after']))
+                self.assertEqual(counts['lifecycle_sites'], sum(len(d['sites']) for d in s['lifecycle']))
+                self.assertEqual(counts['delivery_sites'], sum(len(d['sites']) for d in s['delivery']))
+                self.assertEqual(counts['delivery_groups'], sum(len(d['groups']) for d in s['delivery']))
+                self.assertEqual(counts['pending'], len(s['pending']))
+                self.assertEqual(counts['files'], len(g['files']) + len(g['written_by_the_stage']))
+                self.assertEqual([x['kind'] for x in s['remaining']], ['rewards'])
+
+    def test_the_fixtures_pin_the_hand_in_shape_of_each_quest(self):
+        alex = self.fixture(QUEST)['summary']
+        self.assertEqual([x for d in alex['delivery'] for x in d['sites']], ['seq_56758', 'seq_56767', 'seq_56768'])
+        hand_in = self.fixture(BUTCHER)['summary']['delivery'][1]
+        self.assertEqual([g['name'] for g in hand_in['groups']],
+                         ['boar', 'hareFeast_deerFeast_boarFeast', 'kidney', 'liver', 'offal'])
+        self.assertEqual(len(hand_in['groups'][1]['parts']), 7)
+        self.assertEqual(hand_in['groups'][1]['aggregate'], 'feast')
+
+
 # ---------------------------------------------------------------- retail
 
 @unittest.skipUnless((KCD1 / 'Data/Tables.pak').exists() and (KCD2 / 'Data/Tables.pak').exists(),
@@ -1114,6 +1244,10 @@ class RetailPlanTests(unittest.TestCase):
         summary, = quests.summary(dict(quests={QUEST: self.report}))
         self.assertEqual((summary['lifecycle_sites'], summary['delivery_sites'], summary['delivery_groups'],
                           summary['pending']), (2, 3, 5, 15))
+
+    def test_golden_output_matches_the_fixture(self):
+        tables = quests.value_tables(KCD1, self.report)
+        check_golden(self, golden_of(ROW, self.resources, self.report, tables, None))
 
     def test_the_lowered_graph_passes_the_package_audit(self):
         resources = self.resources
@@ -1220,8 +1354,19 @@ class PackagePlanTests(unittest.TestCase):
             self.assertNotIn(quests.FOLDER + name + '.xml', self.report['files'])
         self.assertFalse([p for p in self.resources if p.startswith(quests.FOLDER + 'q_')])
 
+    def test_golden_output_matches_the_fixture(self):
+        inputs = package_inputs(PACKAGE)
+        frozen = golden_path(BUTCHER)
+        if os.environ.get(REGENERATE) != '1' and frozen.is_file():
+            if json.loads(frozen.read_text(encoding='utf-8'))['inputs'] != inputs:
+                self.skipTest('the package inputs differ from those the fixture was frozen on; regenerate it with '
+                              + REGENERATE + '=1')
+        marker = dict(quests={QUEST: dict(report=dict(value_names=self.first_report['value_names']))})
+        tables = quests.value_tables(KCD1, self.report, marker)
+        check_golden(self, golden_of(BUTCHER_ROW, self.resources, self.report, tables, inputs))
+
     def test_the_lowered_graph_passes_the_package_audit(self):
-        with zipfile.ZipFile(KCD2 / 'Data/IPL_GameData.pak') as archive:
+        with zipfile.ZipFile(KCD2/ 'Data/IPL_GameData.pak') as archive:
             definitions = quests.Definitions(archive.read(quests.DEFINITIONS))
         dialogues = [BUTCHER_ROW['namespace'] + '_' + t for _, t in BUTCHER_ROW['branches']]
         owned = {BUTCHER, quests.HOST, quests.SWITCH, *quests.PREMISES, *dialogues}
