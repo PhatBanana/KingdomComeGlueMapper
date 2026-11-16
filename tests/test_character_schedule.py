@@ -63,3 +63,13 @@ class ScheduleTests(unittest.TestCase):
         report = plan(person, Tables())
         self.assertFalse(report['resolved'])
         self.assertEqual(report['pending'][0]['parsed_link']['named'], {'event':'questChanged','work':'sell'})
+
+    def test_smart_object_holder_work_is_pending_not_a_failure(self):
+        # Talmberg's lords: Work[('stepanka')] -> so_talmberk_castle_lords (a SmartObjectHolder).
+        class Tables:
+            def get(self, name): return dict(rows=[])
+        person = dict(name='arbitrary', ai=dict(schedule=[dict(activity='work',start_minute=0)],links=[
+            dict(label="Work[('stepanka')]",source_xml='<Entity Name="lords" EntityClass="SmartObjectHolder"/>')]))
+        report = plan(person, Tables())
+        self.assertFalse(report['resolved'])
+        self.assertEqual(report['pending'][0]['reason'], 'Smart object holder work has no native adapter')

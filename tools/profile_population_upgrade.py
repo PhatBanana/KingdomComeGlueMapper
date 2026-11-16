@@ -50,7 +50,8 @@ def discover(source, source_level, profiles, tables, names=()):
         soul = tables.row('rpg/soul', 'soul_id', record['soul_id'])
         person = dict(name=record['name'], soul=soul, actor=by_guid[record['entity_guid']],
                       instance=instances[record['instance_id']], source_level=source_level)
-        person['ai'] = capture_person_ai(tables, soul, person['actor'], person['instance'], entities, links)
+        person['ai'] = capture_person_ai(tables, soul, person['actor'], person['instance'], entities, links,
+                                         init_links=bool(names))
         people[record['name']] = person
     shops = shops_for_people(roster, tables.get('shop/shopkeeper')['rows'], tables.get('shop/shop')['rows'])
     return roster, people, shops

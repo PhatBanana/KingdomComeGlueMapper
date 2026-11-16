@@ -234,7 +234,16 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
         # deterministic job-based sleep windows. Native beds remain shared.
         from character_sleep_work import upgrade as upgrade_sleep
         notify('Assigning source beds and sleeping schedules')
-        files, sleeping = upgrade_sleep(files, people, archive, target, tables, reader, source, notify=notify)
+        unreachable = frozenset()
+        if home_time:
+            # Residents only: their pools are new. Re-running the profile route on a package whose
+            # pools already list such a bed would (rightly) refuse the changed pool.
+            from audit_bed_navigation import measure
+            notify('Checking public beds against the navmesh')
+            unreachable = frozenset(r['name'] for r in measure(package/('Data/Levels/'+level), scheduled_only=False)
+                                    if r['has_pose'] and r['best'] is None)
+        files, sleeping = upgrade_sleep(files, people, archive, target, tables, reader, source, notify=notify,
+                                        unreachable=unreachable)
         converted.extend(sleeping)
         from character_pub_cleaning import extend_people as extend_pub_cleaning
         notify('Binding pub cleaning and rest activities')

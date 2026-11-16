@@ -27,8 +27,10 @@ def register_factions(files, ai):
     return register(files, ai['faction_graph'])
 
 
-def capture_person_ai(tables, soul, actor, instance, entities, link_index=None):
+def capture_person_ai(tables, soul, actor, instance, entities, link_index=None, init_links=False):
     links = capture_person_links(actor, entities, link_index)
+    if init_links:
+        links += init_migration_links(links)
     brain = tables.row('ai/brain', 'brain_id', soul['brain_id'])
     social = tables.row('rpg/social_class', 'social_class_id', soul['social_class_id'])
     from character_factions import capture
@@ -76,6 +78,41 @@ def capture_person_links(actor, entities, link_index=None):
         links.append(dict(label=link.get('Name'), target=dict(target.attrib),
                           source_xml=ET.tostring(target, encoding='unicode'), status='pending'))
     return links
+
+
+def init_migration_links(links):
+    """Home and Work links KCD1 derives from future links when the NPC starts.
+
+    KCD1's sb_switch_init runs utils.xml initDynamicHome: a futureHome link with
+    no event becomes Home (the NPC owns it), and a futureWork[work(X)] link with
+    no event becomes Work[X], each only if the NPC has no such link yet. Event
+    links (futureHome[event('tal_siege')]) migrate later, when a quest raises the
+    event, and are left alone. Most Talmberg people are authored this way. A
+    derived link keeps the future link's target and records it in migrated_from.
+    """
+    from campaign_bindings import parse_link_labels
+
+    def tags(link):
+        try:
+            return parse_link_labels(link['label']) if (link['label'] or '').strip() else []
+        except ValueError:
+            return []
+
+    parsed = [(link, tags(link)) for link in links]
+    present = {t['tag'] for _, ts in parsed for t in ts}
+    derived = []
+    for live, future in (('Home', 'futureHome'), ('Work', 'futureWork')):
+        if live in present:
+            continue
+        candidates = [(link, t) for link, ts in parsed for t in ts
+                      if t['tag'] == future and not t['named'].get('event') and not t['positional']
+                      and (live == 'Home' or isinstance(t['named'].get('work'), str))]
+        if len({link['target'].get('EntityId') for link, _ in candidates}) != 1:
+            continue   # none, or several distinct defaults: KCD1's pick would be arbitrary
+        link, tag = candidates[0]
+        label = 'Home' if live == 'Home' else f"Work[({tag['named']['work']!r})]"
+        derived.append(dict(link, label=label, migrated_from=link['label']))
+    return derived
 
 
 def native_brain_and_class(ai, brains, classes):
