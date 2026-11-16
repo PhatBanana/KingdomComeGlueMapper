@@ -18,10 +18,10 @@ def world(aliases, npc):
         npc: {SOUL: {'properties': {'Inventory': NPC_BAG}}}, NPC_BAG: Walk.bag({})})
 
 
-def waived_rewards(accepted_pending):
-    """'quest_reward_reputation:<objective>:<target>' rows the selection declares the package cannot pay."""
+def waived_rewards(pending):
+    """'quest_reward_reputation:<objective>:<target>' rows the plan found the package cannot pay."""
     found = {}
-    for entry in accepted_pending:
+    for entry in pending:
         table_name, objective, target = entry.split(':', 2)
         if table_name != 'quest_reward_reputation':
             raise ValueError('Unknown accepted pending row: ' + entry)
@@ -30,7 +30,7 @@ def waived_rewards(accepted_pending):
     return found
 
 
-def walk_planned(row, resources, report, model, source_dialogues, money=None, **options):
+def walk_planned(row, resources, report, model, source_dialogues, money=None, reputation=None, **options):
     """One quest on its planned resources ({archive path: bytes})."""
     import setup_kcd1_quests as stage
     from campaign_quest_graph import objective_identifier
@@ -49,11 +49,14 @@ def walk_planned(row, resources, report, model, source_dialogues, money=None, **
              else {name: 'Completed' for name in wanted})
     source = Source.blobs(blobs)
     result = Walk(source, stage.CONTAINER, quest, dialogues, model, source_dialogues, npc, aliases, other_quests=other,
-                  waived=waived_rewards(row['accepted_pending']), money=money, identifier=objective_identifier, contracts=contracts,
+                  waived=waived_rewards(report['pending']), money=money, identifier=objective_identifier, contracts=contracts,
+                  reputation=reputation, targets=dict(souls=report['soul_assets'], factions=report['factions']),
                   **options).run()
     result['container_nodes'] = len(kept)
     result['external_quests'] = {n: 'Unchanged' for n in externals}
     result['accepted_pending'] = list(row['accepted_pending'])
+    result['pending'] = list(report['pending'])
+    result['resolved_since_selection'] = list(report.get('resolved_since_selection', ()))
     # The stage's own scenarios, on the lowered quest instead of the unlowered emission.
     import inspect
     accepted = inspect.signature(stage.lab_scenarios).parameters
@@ -80,6 +83,9 @@ def run(kcd1, kcd2, package=None, only=(), output=None, progress=lambda *a: None
     with RetailSourceReader(kcd1) as reader:
         money_rows = lowering.source_rows(reader, kcd1, 'quest/money_change')
     money = {r['money_change_id']: 'kcd1_' + r['name'] for r in money_rows}
+    with RetailSourceReader(kcd1) as reader:
+        reputation_rows = lowering.source_rows(reader, kcd1, 'rpg/reputation_change')
+    reputation = {r['reputation_change_id']: 'kcd1_' + r['name'] for r in reputation_rows}
     results, skipped, resources = [], {}, None
     for row in stage.QUESTS:
         if package is None and row.get('needs_package'):
@@ -93,7 +99,7 @@ def run(kcd1, kcd2, package=None, only=(), output=None, progress=lambda *a: None
             model = stage.source_model(kcd1, row['quest'], reader)
         source_dialogues = load_many(kcd1, [(None, topic) for _, topic in row['branches']])
         progress('walk', row['quest'])
-        result = walk_planned(row, planned, report, model, source_dialogues, money=money, **options)
+        result = walk_planned(row, planned, report, model, source_dialogues, money=money, reputation=reputation, **options)
         result['controller_pending'] = report.get('controller_pending')
         results.append(result)
     summary = dict(schema=1, quests=results, skipped=skipped, native_runtime_verified=False,

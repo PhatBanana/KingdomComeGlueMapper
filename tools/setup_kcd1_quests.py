@@ -469,10 +469,15 @@ def pending_set(quest_report, model, souls):
 
 
 def check_pending(found, accepted):
-    extra, missing = sorted(set(found) - set(accepted)), sorted(set(accepted) - set(found))
-    if extra or missing:
-        raise ValueError('Pending quest records differ from the accepted set; unexpected: ' + ', '.join(extra)
-                         + '; no longer pending: ' + ', '.join(missing))
+    """Refuse a pending row outside the accepted set; return the accepted rows that resolved since selection.
+
+    A package that registers a soul or faction the selection declared missing (the NPC resident stage
+    registers the bailiff and Hanus) pays those rows, so they are no longer pending.
+    """
+    extra = sorted(set(found) - set(accepted))
+    if extra:
+        raise ValueError('Pending quest records outside the accepted set: ' + ', '.join(extra))
+    return sorted(set(accepted) - set(found))
 
 
 @contextlib.contextmanager
@@ -649,7 +654,7 @@ def stage_quest(row, model, resources, context, souls, factions, text, chain=())
     """Emit, lower and register one quest in `resources` (archive path -> bytes).
 
     chain is the story the quest's givers wait for (`story_chain`). Returns (resources, bindings, report,
-    journal strings). Refuses a pending set other than row['accepted_pending'].
+    journal strings). Refuses a pending row outside row['accepted_pending'].
     """
     import campaign_quest_prerequisites as prerequisites
     import campaign_quest_registration as registration
@@ -665,7 +670,7 @@ def stage_quest(row, model, resources, context, souls, factions, text, chain=())
     files, emitted = lower(files, emitted, [model], bindings)
     quest_report = emitted['quests'][0]
     pending = pending_set(quest_report, model, names)
-    check_pending(pending, row['accepted_pending'])
+    resolved = check_pending(pending, row['accepted_pending'])
     path = PROJECT_NAME + '/' + name + '.xml'
     aliases = {s: bindings['soul_assets'][s.lower()] for s in sorted(souls) if s.lower() in bindings['soul_assets']}
     group = model['tables']['quest']['rows'][0].get('group')
@@ -690,7 +695,8 @@ def stage_quest(row, model, resources, context, souls, factions, text, chain=())
     report = dict(quest=name, unsupported_before=before, unsupported_after=len(quest_report['unsupported']),
                   remaining=[dict(kind=r['kind'], table=r.get('table'), objective=r.get('objective'),
                                   rows=len(r.get('rows', ()))) for r in quest_report['unsupported']],
-                  pending=sorted(pending), tracking=[dict(objective=r['objective'], mode=r['mode'],
+                  pending=sorted(pending), resolved_since_selection=resolved,
+                  tracking=[dict(objective=r['objective'], mode=r['mode'],
                       requirements=r['requirements']) for r in quest_report['lowerings']['tracking']['converted']],
                   rewards=[dict(objective=g['objective'], timing=g['timing'], rows=len(g['rewards']))
                            for g in quest_report['lowerings']['rewards']['converted']],
@@ -736,7 +742,7 @@ def emit_dialogues(row, model, prerequisites, resources, source):
     topics = [t for _, t in row['branches']]
     for topic, loaded in zip(topics, load_many(source, [(None, t) for t in topics])):
         blob, report = emit(loaded, row['namespace'] + '_' + topic, quests, kind='FaderDialog',
-                            participant_assets={'Dude': DIALOGUE_PLAYER}, area_assets={})
+                            participant_assets={'Dude': DIALOGUE_PLAYER}, area_assets={}, engine_picked_topics=True)
         files = attach_dialogue(files, CONTAINER, blob, report, HOST + '.active', ENTRY.removeprefix('Quests/'))
     out = dict(resources)
     out.update({'Quests/' + n: b for n, b in files.items()})
@@ -1576,8 +1582,9 @@ def quest_checks(package, kcd1, kcd2):
         used, found = reward_audit(resources[quest_path], rewards, aliases_of(resources), amounts)
         result['rewards'] = dict(elements=len(used), pending=entry['report']['pending'])
         problems.extend(found)
-        if sorted(entry['report']['pending']) != sorted(row['accepted_pending']):
-            problems.append('pending rewards %r differ from the accepted set' % (entry['report']['pending'],))
+        unexpected = sorted(set(entry['report']['pending']) - set(row['accepted_pending']))
+        if unexpected:
+            problems.append('pending rewards %r are outside the accepted set' % (unexpected,))
         lines = 0
         for path, d in zip(dialogue_paths, dialogues):
             count, found = dialogue_media_audit(resources[path], d, text['text_ui_dialog.xml'], recordings, dubbing,

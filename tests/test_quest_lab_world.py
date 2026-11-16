@@ -378,6 +378,21 @@ class WalkTests(unittest.TestCase):
                 if field: self.assertIn(field, fields)
                 self.assertTrue(all(m['path'] for m in result['mismatches']))
 
+    def test_reputation_rows_are_compared_by_name_and_target(self):
+        rows = dict(reputation={'4': 'kcd1_up'}, targets=dict(souls={GIVER.upper(): 'giver'}))
+        result, _, _ = walk(**rows)
+        self.assertEqual((result['status'], result['mismatch_count']), ('PASS', 0), table([result]))
+        for label, (old, new) in {'the row': ('ReputationChange="kcd1_up"', 'ReputationChange="kcd1_down"'),
+                                  'the target': ('Target="giver"', 'Target="hero"')}.items():
+            with self.subTest(label):
+                files = {k: v.decode().replace(old, new).encode() for k, v in FILES.items()}
+                self.assertNotEqual(files, FILES)
+                result, _, _ = walk(files, **rows)
+                self.assertEqual(result['status'], 'FAIL')
+                self.assertIn('reputation rows', {d['field'] for m in result['mismatches'] for d in m['differences']})
+        unmapped, _, _ = walk(reputation={'4': 'kcd1_up'}, targets=dict(souls={}))
+        self.assertEqual(unmapped['status'], 'FAIL')           # the source pays a soul the port has no target for
+
     def test_another_quest_in_the_closure_must_have_a_declared_state(self):
         from quest_lab.walk import external_contracts
         level = LEVEL.replace('<offer Name="offer"/>', '<offer Name="offer"/><q_story Name="q_story"><Edge From="x.y" To="start"/></q_story>') \

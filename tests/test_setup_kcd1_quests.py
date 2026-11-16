@@ -151,12 +151,16 @@ class PendingPolicyTests(unittest.TestCase):
         self.assertEqual(found, {'quest_reward_reputation:hare:rat_hanus', 'quest_reward_reputation:hare:faction_9',
                                  'tracking:hare', 'policy:hare', 'unsupported:tracked_completion:boar'})
 
-    def test_only_the_accepted_pending_set_passes(self):
-        quests.check_pending({'a', 'b'}, ('a', 'b'))
-        with self.assertRaisesRegex(ValueError, 'unexpected: c'):
+    def test_only_rows_outside_the_accepted_set_are_refused(self):
+        self.assertEqual(quests.check_pending({'a', 'b'}, ('a', 'b')), [])
+        with self.assertRaisesRegex(ValueError, 'outside the accepted set: c'):
             quests.check_pending({'a', 'b', 'c'}, ('a', 'b'))
-        with self.assertRaisesRegex(ValueError, 'no longer pending: b'):
-            quests.check_pending({'a'}, ('a', 'b'))
+        with self.assertRaisesRegex(ValueError, 'outside the accepted set: c, d'):
+            quests.check_pending({'a', 'd', 'c'}, ('a', 'b'))
+
+    def test_accepted_rows_that_resolved_are_reported_not_refused(self):
+        self.assertEqual(quests.check_pending({'a'}, ('a', 'b', 'c')), ['b', 'c'])
+        self.assertEqual(quests.check_pending(set(), ('b', 'a')), ['a', 'b'])
 
     def test_tracked_predicate_is_removed_again(self):
         from campaign_dialogue_conditions import OBJECTIVE
@@ -1055,7 +1059,9 @@ def shutil_copy(source, destination):
 # GLUEMAPPER_KCD1_QUEST_PACKAGE if it is not the default one):
 #   GLUEMAPPER_REGENERATE_QUEST_GOLDENS=1 python -m unittest \
 #     tests.test_setup_kcd1_quests.RetailPlanTests.test_golden_output_matches_the_fixture \
-#     tests.test_setup_kcd1_quests.PackagePlanTests.test_golden_output_matches_the_fixture
+#     tests.test_setup_kcd1_quests.PackagePlanTests.test_golden_output_matches_the_fixture #     tests.test_setup_kcd1_quests.ResidentPlanTests.test_golden_output_matches_the_fixture
+# a_huntsman_alex.residents.golden.json is Aleš planned on the package with the bailiff and Hanuš registered
+# as the NPC resident stage registers them (the combined build): their reputation rows are paid, not pending.
 # The butcher plans on the package's own Level entry, so its fixture records a digest of the package
 # inputs. A package rebuilt with different inputs skips that test until the fixture is regenerated; a
 # converter change on the same inputs fails it.
@@ -1097,12 +1103,12 @@ def golden_of(row, resources, report, tables, inputs):
                                       written_by_the_stage=sorted(set(report['files']) - set(files)), summary=summary)))
 
 
-def golden_path(quest):
-    return GOLDEN / (quest + '.golden.json')
+def golden_path(quest, variant=''):
+    return GOLDEN / (quest + variant + '.golden.json')
 
 
-def check_golden(test, produced):
-    path = golden_path(produced['quest'])
+def check_golden(test, produced, variant=''):
+    path = golden_path(produced['quest'], variant)
     if os.environ.get(REGENERATE) == '1':
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(produced, indent=1, sort_keys=True) + '\n', encoding='utf-8', newline='\n')
@@ -1112,6 +1118,30 @@ def check_golden(test, produced):
     test.assertEqual(frozen['summary'], produced['summary'], path.name + ' plan summary')
     test.assertEqual(frozen['files'], produced['files'], path.name + ' emitted file digests')
     test.assertEqual(frozen, produced)
+
+
+class EnginePickedTopicTests(unittest.TestCase):
+    """KCD1 role-owned topics that would show identical choices are resolved by the engine (inferred, QUESTS-1-DESIGN.md)."""
+
+    @staticmethod
+    def topic(role='585', prompts=('p1', 'p2', 'p3'), conditions=('', '', '')):
+        return dict(source=dict(role_id=role), sequences=[
+            dict(source=dict(ui_prompt=p), entry=dict(entry_condition=c)) for p, c in zip(prompts, conditions)])
+
+    STRINGS = {'p1': 'Hand over game.', 'p2': 'Hand over game.', 'p3': 'Hand over game.', 'q': 'Something else.'}
+
+    def test_a_role_topic_whose_unconditional_sequences_share_one_prompt_text_is_engine_picked(self):
+        from campaign_dialogue import engine_picked
+        self.assertTrue(engine_picked(self.topic(), self.STRINGS))
+
+    def test_every_other_shape_keeps_its_menu(self):
+        from campaign_dialogue import engine_picked
+        for name, topic in dict(
+                no_role=self.topic(role=''), single=self.topic(prompts=('p1',), conditions=('',)),
+                different_text=self.topic(prompts=('p1', 'q', 'p3')), unprompted=self.topic(prompts=('p1', '', 'p3')),
+                conditional=self.topic(conditions=('', "IsQuestStarted('x')", ''))).items():
+            with self.subTest(name):
+                self.assertFalse(engine_picked(topic, self.STRINGS))
 
 
 class GoldenFixtureSchemaTests(unittest.TestCase):
@@ -1152,6 +1182,19 @@ class GoldenFixtureSchemaTests(unittest.TestCase):
                 self.assertEqual(counts['pending'], len(s['pending']))
                 self.assertEqual(counts['files'], len(g['files']) + len(g['written_by_the_stage']))
                 self.assertEqual([x['kind'] for x in s['remaining']], ['rewards'])
+
+    def test_the_residents_fixture_differs_from_the_plain_one_only_where_the_resolved_rows_are_paid(self):
+        plain = self.fixture(QUEST)
+        residents = json.loads(golden_path(QUEST, '.residents').read_text(encoding='utf-8'))
+        self.assertEqual(residents['summary']['pending'],
+                         sorted(p for p in ROW['accepted_pending'] if p.endswith(':rat_berthold')))
+        self.assertRegex(residents['inputs'], r'^[0-9a-f]{64}$')
+        self.assertEqual(sorted(residents['files']), sorted(plain['files']))
+        changed = sorted(p for p in plain['files'] if plain['files'][p] != residents['files'][p])
+        self.assertIn(quests.FOLDER + QUEST + '.xml', changed)
+        self.assertIn('Libs/Tables/rpg/reputation_change__gm_kcd1_quest.xml', changed)
+        self.assertEqual(residents['summary']['delivery'], plain['summary']['delivery'])
+        self.assertEqual(residents['summary']['unsupported'], plain['summary']['unsupported'])
 
     def test_the_fixtures_pin_the_hand_in_shape_of_each_quest(self):
         alex = self.fixture(QUEST)['summary']
@@ -1216,6 +1259,23 @@ class RetailPlanTests(unittest.TestCase):
         self.assertEqual((ports['cancel'], ports['canceled']), (('In', 'trigger'), ('Out', 'bool')))
         self.assertFalse(r['runtime_verified'])
 
+    def test_the_role_owned_hand_over_topic_is_engine_picked_and_nothing_else_is(self):
+        picked = {}
+        for _, topic in ROW['branches']:
+            host = quests.host_of_blob(self.resources[quests.DIALOGUE_FOLDER + ROW['namespace'] + '_' + topic + '.xml'])
+            for decision in host.iter('Decision'):
+                if decision.get('Autoselect'):
+                    picked[decision.get('Name')] = [(s.get('Name'), s.find('UiPrompt')) for s in decision.findall('Sequences/Sequence')]
+        self.assertEqual(sorted(picked), ['topic_27450'])
+        self.assertEqual([n for n, _ in picked['topic_27450']], ['seq_56997', 'seq_56759', 'seq_56760'])
+        self.assertEqual([p for _, p in picked['topic_27450']], [None, None, None])
+        blob = self.resources[quests.DIALOGUE_FOLDER + ROW['namespace'] + '_27375.xml']
+        host = quests.host_of_blob(blob)
+        self.assertEqual(host.find(".//Decision[@Name='topic_27450']").get('Autoselect'), 'true')
+        self.assertEqual(len([d for d in host.iter('Decision') if d.get('Autoselect')]), 1)
+        # The sequence that leads into the topic keeps its one prompt.
+        self.assertIsNotNone(host.find(".//Sequence[@Name='seq_56757']/UiPrompt"))
+
     def test_no_quest_system_call_remains_and_the_shared_predicate_map_is_clean(self):
         from campaign_dialogue_conditions import OBJECTIVE
         self.assertNotIn('IsObjectiveTrackedCompleted', OBJECTIVE)
@@ -1266,6 +1326,155 @@ class RetailPlanTests(unittest.TestCase):
         self.assertGreater(audit['nodes'], 100)
 
 
+RESIDENTS = ('rat_bailiff', 'rat_hanus')
+
+
+def walk_of(row, resources, report):
+    """The exhaustive walk on one planned quest, with the money and reputation names a port must use."""
+    from campaign_dialogue import load_many
+    from campaign_sources import RetailSourceReader
+    import quest_lowering_report as lowering
+    from quest_lab import ported
+    with RetailSourceReader(KCD1) as reader:
+        money = {r['money_change_id']: 'kcd1_' + r['name'] for r in lowering.source_rows(reader, KCD1, 'quest/money_change')}
+        reputation = {r['reputation_change_id']: 'kcd1_' + r['name'] for r in lowering.source_rows(reader, KCD1, 'rpg/reputation_change')}
+        model = quests.source_model(KCD1, row['quest'], reader)
+    dialogues = load_many(KCD1, [(None, t) for _, t in row['branches']])
+    return ported.walk_planned(row, resources, report, model, dialogues, money=money, reputation=reputation)
+
+
+def replaced(resources, path, old, new, count=1):
+    text = resources[path].decode('utf-8')
+    assert old in text, old
+    return dict(resources, **{path: text.replace(old, new, count).encode('utf-8')})
+
+
+@unittest.skipUnless((KCD1 / 'Data/Tables.pak').exists() and (KCD2 / 'Data/Tables.pak').exists()
+                     and (PACKAGE / quests.TRAVEL).is_file(),
+                     'requires installed KCD1 and KCD2 data and a built package with the shop imports')
+class ResidentPlanTests(unittest.TestCase):
+    """The combined build: the NPC resident stage registers the bailiff and Hanus before this stage runs."""
+
+    @classmethod
+    def setUpClass(cls):
+        import quest_lowering_report as lowering
+        cls.context = lowering.load_context(KCD1, KCD2, PACKAGE)
+        by_name = {name: soul for soul, name in cls.context[0]['souls'].items()}
+        cls.residents = {by_name[n] for n in RESIDENTS}
+        registered = quests.level_souls(PACKAGE / quests.LEVEL_PAK) | cls.residents
+        with mock.patch.object(quests, 'level_souls', return_value=registered):
+            cls.resources, cls.report = quests.plan_quest(ROW, KCD1, KCD2, PACKAGE, context=cls.context)
+
+    def test_the_rows_of_the_registered_souls_are_resolved_and_the_rest_stay_pending(self):
+        r = self.report
+        self.assertEqual(r['pending'], sorted('quest_reward_reputation:%s:rat_berthold' % o
+                                              for o in ('boar', 'deer', 'doe', 'hare', 'mushrooms')))
+        self.assertEqual(r['resolved_since_selection'], sorted(
+            'quest_reward_reputation:%s:%s' % (o, n) for o in ('boar', 'deer', 'doe', 'hare', 'mushrooms') for n in RESIDENTS))
+        self.assertEqual(sorted(r['pending'] + r['resolved_since_selection']), sorted(ROW['accepted_pending']))
+        self.assertEqual(r['remaining'][0]['rows'], 5)
+
+    def test_the_resolved_rows_are_bound_to_their_souls_on_every_hunt(self):
+        host = quests.host_of_blob(self.resources[quests.FOLDER + QUEST + '.xml'])
+        hunts = [n for n in host.iterfind('Nodes/AddReward')]
+        self.assertEqual(len(hunts), 5)
+        for node in hunts:
+            targets = sorted(r.get('Target') for r in node.iterfind('Rewards/SoulReputationReward'))
+            self.assertEqual(targets, ['gm_soul_rat_bailiff', 'gm_soul_rat_hanus', 'gm_soul_rat_refugee_ales'], node.get('Name'))
+            self.assertEqual({r.get('ReputationChange') for r in node.iterfind('Rewards/SoulReputationReward')
+                              if r.get('Target') != 'gm_soul_rat_refugee_ales'}, {'kcd1_quest_decrease_1_micro'})
+        self.assertIn('quest_decrease_1_micro', self.report['value_names']['reputation'])
+
+    def test_the_walk_waives_what_is_still_pending_and_nothing_else(self):
+        from quest_lab import ported
+        self.assertEqual(ported.waived_rewards(self.report['pending']),
+                         {(o, 'soul_reputation'): 1 for o in ('boar', 'deer', 'doe', 'hare', 'mushrooms')})
+        self.assertEqual(ported.waived_rewards(self.report['pending'] + self.report['resolved_since_selection']),
+                         {(o, 'soul_reputation'): 3 for o in ('boar', 'deer', 'doe', 'hare', 'mushrooms')})
+
+    def test_the_walk_pays_the_resolved_rows_and_finds_no_difference(self):
+        result = walk_of(ROW, self.resources, self.report)
+        self.assertEqual((result['status'], result['mismatch_count'], result['structure']), ('PASS', 0, []))
+        self.assertEqual(result['pending'], self.report['pending'])
+        self.assertEqual(len(result['resolved_since_selection']), 10)
+
+    def test_a_pending_row_the_selection_did_not_accept_still_fails(self):
+        narrowed = dict(ROW, accepted_pending=tuple(p for p in ROW['accepted_pending'] if not p.endswith(':rat_berthold')))
+        with mock.patch.object(quests, 'level_souls', return_value=quests.level_souls(PACKAGE / quests.LEVEL_PAK) | self.residents):
+            with self.assertRaisesRegex(ValueError, 'outside the accepted set: .*rat_berthold'):
+                quests.plan_quest(narrowed, KCD1, KCD2, PACKAGE, context=self.context)
+
+    def test_golden_output_matches_the_fixture(self):
+        inputs = sha256((package_inputs(PACKAGE) + ':residents:' + ','.join(RESIDENTS)).encode())
+        variant = '.residents'
+        frozen = golden_path(QUEST, variant)
+        if os.environ.get(REGENERATE) != '1' and frozen.is_file():
+            if json.loads(frozen.read_text(encoding='utf-8'))['inputs'] != inputs:
+                self.skipTest('the package inputs differ from those the fixture was frozen on; regenerate it with '
+                              + REGENERATE + '=1')
+        tables = quests.value_tables(KCD1, self.report)
+        check_golden(self, golden_of(ROW, self.resources, self.report, tables, inputs), variant)
+
+
+@unittest.skipUnless((KCD1 / 'Data/Tables.pak').exists() and (KCD2 / 'Data/Tables.pak').exists()
+                     and (PACKAGE / quests.TRAVEL).is_file(),
+                     'requires installed KCD1 and KCD2 data and a built package with the shop imports')
+class WalkMutationTests(unittest.TestCase):
+    """The walk must see a changed reward row or target, prompt key, response key or amount in the emitted files."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.resources, cls.report = quests.plan_quest(ROW, KCD1, KCD2, PACKAGE)
+        cls.quest = quests.FOLDER + QUEST + '.xml'
+        cls.alex = quests.DIALOGUE_FOLDER + ROW['namespace'] + '_27375.xml'
+        cls.first = quests.DIALOGUE_FOLDER + ROW['namespace'] + '_27371.xml'
+
+    def fields(self, resources):
+        result = walk_of(ROW, resources, self.report)
+        found = {d['field'] for m in result['mismatches'] for d in m['differences']} | {s['field'] for s in result['structure']}
+        return result['status'], found
+
+    def test_the_unmutated_port_passes(self):
+        result = walk_of(ROW, self.resources, self.report)
+        self.assertEqual((result['status'], result['mismatch_count'], result['structure'], result['blocked']), ('PASS', 0, [], []))
+        self.assertEqual(result['resolved_since_selection'], [])
+
+    def test_reputation_rows_and_targets_are_compared(self):
+        soul = 'ReputationChange="kcd1_quest_reward_4_normal" Target="gm_soul_rat_refugee_ales"'
+        cases = dict(
+            faction_sign_flip=('ReputationChange="kcd1_quest_decreaseFaction_1_small" Target="gluemapper_kcd1_faction_46"',
+                               'ReputationChange="kcd1_quest_rewardFaction_1_small" Target="gluemapper_kcd1_faction_46"'),
+            soul_row=(soul, 'ReputationChange="kcd1_quest_decrease_1_micro" Target="gm_soul_rat_refugee_ales"'),
+            faction_target=('Target="gluemapper_kcd1_faction_31"', 'Target="gluemapper_kcd1_faction_27"'),
+            soul_target=(soul, 'ReputationChange="kcd1_quest_reward_4_normal" Target="gm_soul_rat_hanus"'))
+        for name, (old, new) in cases.items():
+            with self.subTest(name):
+                status, found = self.fields(replaced(self.resources, self.quest, old, new))
+                self.assertEqual(status, 'FAIL')
+                self.assertIn('reputation rows', found)
+
+    def test_money_amount_and_reward_objective_are_compared(self):
+        status, found = self.fields(replaced(self.resources, self.quest, '<MoneyReward Amount="kcd1_2-minor" />',
+                                             '<MoneyReward Amount="kcd1_5-notable" />'))
+        self.assertEqual((status, 'money rows' in found), ('FAIL', True))
+        status, found = self.fields(replaced(self.resources, self.quest, '<Edge From="objective_5.OnCompleted" To="AddReward" />',
+                                             '<Edge From="objective_32.OnCompleted" To="AddReward" />'))
+        self.assertEqual(status, 'FAIL')
+
+    def test_prompt_and_response_keys_are_compared_with_the_source_rows(self):
+        status, found = self.fields(replaced(self.resources, self.first, 't27374_s56754_0_ui', 't27374_s56755_1_ui'))
+        self.assertEqual((status, found), ('FAIL', {'prompt text of 56754'}))
+        status, found = self.fields(replaced(self.resources, self.alex, 't27377_s56761_0_ales_vudce_kQJK',
+                                             't27377_s56766_1_ales_vudce_FW2S'))
+        self.assertEqual((status, found), ('FAIL', {'lines of 56761'}))
+
+    def test_the_text_of_a_line_is_compared_too(self):
+        text = [l for l in self.resources[self.alex].decode('utf-8').splitlines() if 't27377_s56761_0_ales_vudce_kQJK' in l][0]
+        shown = text.split('Text="')[-1].split('"')[0]
+        status, found = self.fields(replaced(self.resources, self.alex, 'Text="' + shown + '"', 'Text="Not what he said."'))
+        self.assertEqual((status, found), ('FAIL', {'lines of 56761'}))
+
+
 @unittest.skipUnless((KCD1 / 'Data/Tables.pak').exists() and (KCD2 / 'Data/Tables.pak').exists()
                      and (PACKAGE / quests.TRAVEL).is_file(),
                      'requires installed KCD1 and KCD2 data and a built package with the shop imports')
@@ -1283,6 +1492,15 @@ class PackagePlanTests(unittest.TestCase):
         self.assertEqual(sorted(t['objective'] for t in r['tracking'] if t['mode'] == 'manual'),
                          ['boar', 'boarFeast', 'deerFeast', 'hareFeast', 'kidney', 'liver', 'offal'])
         self.assertEqual(self.first_report['pending'], sorted(ROW['accepted_pending']))
+
+    def test_the_role_owned_hand_over_topic_is_engine_picked_and_nothing_else_is(self):
+        host = quests.host_of_blob(self.resources[quests.DIALOGUE_FOLDER + BUTCHER_ROW['namespace'] + '_27396.xml'])
+        picked = [d for d in host.iter('Decision') if d.get('Autoselect')]
+        self.assertEqual([d.get('Name') for d in picked], ['topic_28155'])
+        self.assertEqual([s.get('Name') for s in picked[0].findall('Sequences/Sequence')], ['seq_58412', 'seq_56816', 'seq_56817'])
+        self.assertEqual(picked[0].findall('Sequences/Sequence/UiPrompt'), [])
+        other = quests.host_of_blob(self.resources[quests.DIALOGUE_FOLDER + BUTCHER_ROW['namespace'] + '_27388.xml'])
+        self.assertEqual([d for d in other.iter('Decision') if d.get('Autoselect')], [])
 
     def test_one_window_for_whichever_group_is_started(self):
         r = self.report

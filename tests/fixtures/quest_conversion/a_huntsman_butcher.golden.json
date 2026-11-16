@@ -5,7 +5,7 @@
   "Quests/GlueTravel/GlueTravel_kcd1.xml": "c2453eb8f38eab394a872bd67542e3d7462de9b93b62ca923f56f7161528324a",
   "Quests/GlueTravel/entry/kcd1_travel.xml": "6d4bfd9dadfd908ff1de73190f5ed817e90e5e212cd2a74f42a343765798df38",
   "Quests/GlueTravel/entry/kcd1_travel/gm_kcd1_quest_a_huntsman_butcher_27388.xml": "c4b7d0540b21cd2ba2fade86efafe9761a4f86d2357118d960f1b0ff1528fcfa",
-  "Quests/GlueTravel/entry/kcd1_travel/gm_kcd1_quest_a_huntsman_butcher_27396.xml": "84a261d440e879a4ccbc2696e03f60ce4cfe94ef32874070c2332596d2897dd7",
+  "Quests/GlueTravel/entry/kcd1_travel/gm_kcd1_quest_a_huntsman_butcher_27396.xml": "99ea94cff9530c849ed694c6db041d4dd89107b3f1660eabc54d2ad2609845dc",
   "Quests/GlueTravel/gm_kcd1_quests/a_huntsman_butcher.xml": "66cbca48bde2486971b6c2f7a3fb206091edb3ea9c8b29cce99b8b3197d05cd5"
  },
  "inputs": "b88c904a00060514a189493f339d19b42bc39cfdcf7d7370da11f0c69bd18bcc",

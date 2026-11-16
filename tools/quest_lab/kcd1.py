@@ -27,6 +27,7 @@ RULES = {
     'once': 'a sequence with timeout -1 can be used once',
     'ending': "a sequence goes to its next topic; without one it ends the topic when its flags are 0, otherwise the dialogue",
     'unprompted': 'a topic plays its first eligible sequence without a ui_prompt; prompted sequences are the player choices',
+    'role_topic': 'INFERRED: a topic owned by a role whose several unconditional sequences all show the same prompt text is resolved by the engine, not offered as a menu',
     'controller': 'the quest controller reacts to an objective state message in the same step',
     'cancel_quest': 'CancelQuest ends the quest as Canceled; its objectives are left as they are',
     'dead': 'a dead character cannot be talked to',
@@ -165,6 +166,11 @@ class Reference:
             for tid, topic in dialogue['topics'].items():
                 if tid in self.topics: raise Unsupported('KCD1 topic appears in two conversations: ' + tid)
                 self.topics[tid] = [r['source']['sequence_id'] for r in topic['sequences']]
+                strings = dialogue.get('strings') or {}
+                prompts = [r['source'].get('ui_prompt') for r in topic['sequences']]
+                resolved = (bool((topic.get('source') or {}).get('role_id')) and len(prompts) > 1 and all(prompts)
+                            and len({strings.get(p, p) for p in prompts}) == 1
+                            and not any(r['entry'].get('entry_condition') for r in topic['sequences']))
                 for record in topic['sequences']:
                     source, sid = record['source'], record['source']['sequence_id']
                     if source.get('timeout', '0') not in ('0', '-1', ''):
@@ -178,8 +184,13 @@ class Reference:
                     for effect in effects:
                         if effect['action'] not in ACTIONS or effect['quest_id'] != model['quest_id']:
                             raise Unsupported('KCD1 sequence effect is not modeled: ' + sid)
+                    prompted = bool(source.get('ui_prompt')) and not resolved
+                    spoken = [(r['response']['string_name'], strings.get(r['response']['string_name']))
+                              for r in record.get('lines') or [] if r['source'].get('sequence_line_type') == '1']
+                    prompt = (source['ui_prompt'], strings.get(source['ui_prompt'])) if prompted else None
                     self.sequences[sid] = dict(topic=tid, dialogue=index, once=source.get('timeout') == '-1',
-                        prompted=bool(source.get('ui_prompt')), next=source.get('next', '0'), flags=source.get('flags', '0'),
+                        spoken=spoken, prompt=prompt,
+                        prompted=prompted, next=source.get('next', '0'), flags=source.get('flags', '0'),
                         condition=record['entry'].get('entry_condition') or '', script=script, effects=effects)
         self.state = dict(activated=False, quest='Unchanged', objectives={n: 'Unchanged' for n in self.rows},
                           used=[], dead=[], items={}, ledger=[], events=[], talk=None)

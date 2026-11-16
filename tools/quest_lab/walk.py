@@ -53,6 +53,12 @@ REWARD_KINDS = {'MoneyReward': 'money', 'SoulReputationReward': 'soul_reputation
 PLAYER, BAG, NPC_BAG = 'player', 'player-bag', 'giver-bag'
 
 
+def same_text(lowered, kcd1):
+    """A (string key, text) pair the port emits against the source's; the text is compared when the source has it."""
+    if lowered is None or kcd1 is None: return lowered is kcd1
+    return lowered[0] == kcd1[0] and (kcd1[1] is None or lowered[1] == kcd1[1])
+
+
 def canonical(path):
     return posixpath.normpath(path.replace('\\', '/')).lower()
 
@@ -174,16 +180,22 @@ def stock_options(reference):
 class Walk:
     def __init__(self, source, container, quest, dialogues, model, source_dialogues, npc, aliases, other_quests=None,
                  waived=None, money=None, assumptions=None, limit=120, kill=True, identifier=lambda name: name,
-                 contracts=None):
+                 contracts=None, reputation=None, targets=None):
         """dialogues: instance names in the order of source_dialogues. aliases: {asset alias: 'player' or the npc soul}.
 
         waived: {(objective, reward kind): rows per completion the port is declared not to pay}.
         money: {KCD1 money_change_id: the Amount name the port must use}.
+        reputation: {KCD1 reputation_change_id: the ReputationChange name the port must use}; with targets
+        ({'souls': {soul id: alias}, 'factions': {faction id: name}}) the paid reputation rows are compared by
+        name and target. A source row whose target is not registered is not compared (it is what `waived` drops).
         """
         self.quest, self.dialogues, self.npc = quest, list(dialogues), npc.lower()
         self.reference = Reference(model, source_dialogues, other_quests)
         self.assumptions = dict(ASSUMED, **(assumptions or {}), **{'delivery.player_inventory': BAG})
         self.waived, self.money, self.limit, self.allow_kill = dict(waived or {}), money, limit, kill
+        self.reputation = reputation
+        self.targets = {kind: {str(k).lower(): v for k, v in (found or {}).items()}
+                        for kind, found in (targets or {}).items()}
         self.identifier = identifier
         objects = {PLAYER: {SOUL: {'properties': {'Inventory': BAG}}}, BAG: self.bag({}),
                    self.npc: {SOUL: {'properties': {'Inventory': NPC_BAG}}}, NPC_BAG: self.bag({})}
@@ -225,6 +237,16 @@ class Walk:
                     if dialogue.prompted('seq_' + sid) != r.sequences[sid]['prompted']:
                         found.append(dict(dialogue=name, field='prompt of ' + sid, kcd1=r.sequences[sid]['prompted'],
                                           lowered=dialogue.prompted('seq_' + sid)))
+                    element = dialogue.sequences['seq_' + sid]
+                    prompt = element.find('UiPrompt')
+                    keys = (None if prompt is None else (prompt.get('StringName'), prompt.get('Text')))
+                    if not same_text(keys, r.sequences[sid]['prompt']):
+                        found.append(dict(dialogue=name, field='prompt text of ' + sid, kcd1=r.sequences[sid]['prompt'], lowered=keys))
+                    spoken = [(x.find('Text').get('StringName'), x.find('Text').get('Text'))
+                              for x in element.findall('Elements/Response')]
+                    if len(spoken) != len(r.sequences[sid]['spoken']) or not all(
+                            same_text(a, b) for a, b in zip(spoken, r.sequences[sid]['spoken'])):
+                        found.append(dict(dialogue=name, field='lines of ' + sid, kcd1=r.sequences[sid]['spoken'], lowered=spoken))
         return found
 
     # -- the lowered side
@@ -242,13 +264,15 @@ class Walk:
         for name in self.reference.rows:
             states = [s for s in STATES if g.value(q + '.' + self.identifier(name) + '_' + s)]
             objectives[name] = states[0] if len(states) == 1 else states
-        ledger = Counter()
+        ledger, rows = Counter(), Counter()
         amounts = set()
         for entry in g.world.state['ledger']:
             oid = entry['node'].rpartition('lowered_reward_')[2].removesuffix('_deferred')
             objective = self.reference.names.get(oid, entry['node'])
             for reward in entry['rewards']:
                 ledger[(objective, REWARD_KINDS.get(reward['kind'], reward['kind']))] += 1
+                if self.reputation is not None and reward['kind'] in ('SoulReputationReward', 'FactionReputationReward'):
+                    rows[(objective, REWARD_KINDS[reward['kind']], reward.get('ReputationChange'), reward.get('Target'))] += 1
                 if reward['kind'] == 'MoneyReward': amounts.add(reward.get('Amount'))
         active = [d for d in self.dialogues if g.dialogues[d].state['active']]
         talk = None
@@ -261,7 +285,7 @@ class Walk:
         # A quest lowered without the cancel outcome has no such output: it then reads as never canceled.
         canceled = bool(g.value(q + '.canceled')) if q + '.canceled' in g.output_ports else False
         return dict(objectives=objectives, activated=g.value(q + '.available'), started=g.value(q + '.started'),
-                    completed=g.value(q + '.completed'), canceled=canceled, ledger=ledger, amounts=amounts, talk=talk,
+                    completed=g.value(q + '.completed'), canceled=canceled, ledger=ledger, rows=rows, amounts=amounts, talk=talk,
                     items={k: sorted((s['amount'], s['health']) for s in v) for k, v in items.items()})
 
     def expected(self):
@@ -272,9 +296,17 @@ class Walk:
             ledger[(objective, kind)] -= rows * completions[objective]
         amounts = ({self.money[e['row']['money_change_id']] for e in s['ledger'] if e['kind'] == 'money'}
                    if self.money is not None else None)
+        rows = Counter()
+        for e in s['ledger']:
+            if self.reputation is None or e['kind'] not in ('soul_reputation', 'faction_reputation'): continue
+            row = e['row']
+            target = (self.targets.get('souls', {}).get(row['soul_id'].lower()) if e['kind'] == 'soul_reputation'
+                      else self.targets.get('factions', {}).get(row['faction_id']))
+            if target is not None:
+                rows[(e['objective'], e['kind'], self.reputation[row['reputation_change_id']], target)] += 1
         talk = s['talk'] and dict(dialogue=s['talk']['dialogue'], topic=s['talk']['topic'], window=s['talk']['window'] is not None)
         return dict(objectives=dict(s['objectives']), activated=s['activated'], started=s['quest'] == 'Started',
-                    completed=s['quest'] == 'Completed', canceled=s['quest'] == 'Canceled', ledger=+ledger,
+                    completed=s['quest'] == 'Completed', canceled=s['quest'] == 'Canceled', ledger=+ledger, rows=rows,
                     amounts=amounts, talk=talk,
                     items={k: sorted((x['amount'], x['health']) for x in v) for k, v in s['items'].items()})
 
@@ -282,7 +314,7 @@ class Walk:
         want, got, found = self.expected(), self.lowered(), []
         moves = self.moves()
         if len(moves) == 1 and moves[0][0] == 'plays':      # not an observation point: see RULES['observation']
-            for field in ('objectives', 'activated', 'started', 'completed', 'canceled', 'items', 'ledger', 'amounts'):
+            for field in ('objectives', 'activated', 'started', 'completed', 'canceled', 'items', 'ledger', 'rows', 'amounts'):
                 got[field] = want[field]
         for name in want['objectives']:
             if want['objectives'][name] != got['objectives'][name]:
@@ -296,6 +328,10 @@ class Walk:
             keys = sorted(set(want['ledger']) | set(got['ledger']))
             found.append(dict(field='rewards paid', kcd1={' '.join(k): want['ledger'][k] for k in keys if want['ledger'][k] != got['ledger'][k]},
                               lowered={' '.join(k): got['ledger'][k] for k in keys if want['ledger'][k] != got['ledger'][k]}))
+        if want['rows'] != got['rows']:
+            keys = sorted(set(want['rows']) | set(got['rows']), key=str)
+            found.append(dict(field='reputation rows', kcd1={' '.join(map(str, k)): want['rows'][k] for k in keys if want['rows'][k] != got['rows'][k]},
+                              lowered={' '.join(map(str, k)): got['rows'][k] for k in keys if want['rows'][k] != got['rows'][k]}))
         if want['amounts'] is not None and want['amounts'] != got['amounts']:
             found.append(dict(field='money rows', kcd1=sorted(want['amounts']), lowered=sorted(map(str, got['amounts']))))
         if not found and want['talk'] and want['talk']['topic'] and not want['talk']['window']:
