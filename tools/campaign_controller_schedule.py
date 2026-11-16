@@ -238,3 +238,43 @@ def adapter(model, level, namespace, windows=None):
                              behavior=lease['policy']['behavior'], priority=lease['policy']['priority'],
                              once=lease['policy']['once']) for lease in prepared['leases']]
     return ScheduleAdapter(prepared, level['controller'], namespace), report
+
+
+def native_policies(prepared):
+    """{(actor, handle): priority, urgency, evidence} for `campaign_schedule_routes.assemble`.
+
+    The same mapping the maintainer's callers use (`campaign_behavior_schedule.source_policy`):
+    the source priority as written, and the halt speed, whose KCD1 default is slow. An
+    addition that names another halt speed is not accepted by the request parser.
+    """
+    return {(lease['actor'], lease['handle']): dict(
+        priority=lease['policy']['priority'], urgency='Slow',
+        evidence='KCD1 priority as written; immediateDaycycleHaltSpeed defaults to slow (TypeDefinitions.xml), '
+                 'mapped as campaign_behavior_schedule.source_policy does') for lease in prepared['leases']}
+
+
+def apply_windows(scheduler, routes, windows):
+    """Write each lease's time window onto its assembled activity link; return the count.
+
+    `scheduler` and `routes` are `assemble`'s (the scheduler table copy and its report rows);
+    `windows` is `normalise`'s. Retail links carry `TimeOfDayStart`/`TimeOfDayEnd` in minutes.
+    """
+    changed = 0
+    for route in routes:
+        found = {windows[(site['tree'], site['path'])] for site in route['lease']['sites']
+                 if site['add'] and (site['tree'], site['path']) in windows}
+        if not found:
+            continue
+        if len(found) != 1:
+            raise ValueError('Schedule lease has two time windows: ' + route['lease']['handle'])
+        links = [link for link in scheduler.iter('S_ActivityLink') if link.find('Parameters') is not None
+                 and link.find('Parameters').get('BehaviorName') == route['behavior']]
+        if len(links) != 1:
+            raise ValueError('Schedule lease has no unique activity link: ' + route['behavior'])
+        start, end = next(iter(found))
+        parameters = links[0].find('Parameters')
+        if 'TimeOfDayStart' not in parameters.attrib or 'TimeOfDayEnd' not in parameters.attrib:
+            raise ValueError('Activity link template has no time window fields')
+        parameters.set('TimeOfDayStart', str(start)); parameters.set('TimeOfDayEnd', str(end))
+        changed += 1
+    return changed

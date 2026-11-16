@@ -51,19 +51,9 @@
       "trees": 1
     },
     {
-      "reason": "Referenced world profile conversion did not complete: q_skalitz_attack",
-      "sites": 3,
-      "trees": 2
-    },
-    {
       "reason": "Referenced world profile conversion did not complete: q_skalitz_mother_dialog_cameras",
       "sites": 3,
       "trees": 2
-    },
-    {
-      "reason": "Referenced world profile conversion did not complete: q_skalitz_skinnerhouse",
-      "sites": 3,
-      "trees": 3
     },
     {
       "reason": "Daycycle request needs a lease capability: lease_policy",
@@ -89,16 +79,6 @@
       "reason": "Referenced AI link type conversion did not complete: rapeDoor",
       "sites": 2,
       "trees": 2
-    },
-    {
-      "reason": "Referenced world profile conversion did not complete: q_skalitz_givenhorse",
-      "sites": 2,
-      "trees": 1
-    },
-    {
-      "reason": "Referenced world profile conversion did not complete: q_skalitz_normal",
-      "sites": 2,
-      "trees": 1
     },
     {
       "reason": "Graph edge type did not convert: combat_attacker",
@@ -274,9 +254,9 @@
       "trees": 1
     },
     "profile": {
-      "reasons": 6,
-      "sites": 14,
-      "trees": 5
+      "reasons": 2,
+      "sites": 4,
+      "trees": 2
     },
     "quest_state": {
       "reasons": 3,
@@ -391,6 +371,54 @@
     },
     "value_renames": 21,
     "verbatim_lua": 7
+  },
+  "profiles": {
+    "registered": [
+      "q_skalitz_attack",
+      "q_skalitz_givenhorse",
+      "q_skalitz_normal",
+      "q_skalitz_skinnerhouse"
+    ],
+    "runtime_verified": false,
+    "to_register": {
+      "q_escapetotalmberk_afternightmare": 2,
+      "q_escapetotalmberk_morningalarm": 4,
+      "q_escapetotalmberk_riders": 3,
+      "q_escapetotalmberk_seek": 4,
+      "q_escapetotalmberk_shelter": 4,
+      "q_escapetotalmberk_sound": 3,
+      "q_escapetotalmberk_stephdialog_props": 3,
+      "q_escapetotalmberk_talkers": 3,
+      "q_escapetotalmberk_talmberkbarrier": 1,
+      "q_sazavamonastery_guards1": 12,
+      "q_sazavamonastery_guards2": 12,
+      "q_skalitz_barriertutorial": 2,
+      "q_skalitz_burned": 1,
+      "q_skalitz_mother_dialog_cameras": 3,
+      "q_skalitz_wanderer": 1,
+      "rovne_original": 1,
+      "tal_castle_gn_wn_closed": 2,
+      "tal_castle_gn_wn_open": 1,
+      "tal_fort_normal": 1
+    },
+    "used": {
+      "q_skalitz_attack": {
+        "native": "gm_q_skalitz_attack",
+        "sites": 4
+      },
+      "q_skalitz_givenhorse": {
+        "native": "gm_q_skalitz_givenhorse",
+        "sites": 2
+      },
+      "q_skalitz_normal": {
+        "native": "gm_q_skalitz_normal",
+        "sites": 4
+      },
+      "q_skalitz_skinnerhouse": {
+        "native": "gm_q_skalitz_skinnerhouse",
+        "sites": 4
+      }
+    }
   },
   "quest": "q_skalitz",
   "scenes": {
@@ -662,8 +690,8 @@
     "stand_in_nodes": 1
   },
   "trees": {
-    "blocked": 34,
-    "blocked_by_include": 22,
+    "blocked": 33,
+    "blocked_by_include": 23,
     "emitted": 18,
     "total": 74
   }

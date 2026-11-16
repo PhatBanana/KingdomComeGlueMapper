@@ -18,7 +18,8 @@ An operation with no native equivalent is marked `inexpressible`. The
 hand-written notes of an existing blocker file are kept on regeneration.
 
   python tools/quest_controller_conversion.py --kcd1 <dir> --kcd2 <dir> --quest q_skalitz
-      --work <fresh dir> [--with q_other ...] [--level rataje] [--scenes alias ...] [--blockers <file.md>]
+      --work <fresh dir> [--with q_other ...] [--level rataje] [--scenes alias ...] [--profiles name ...]
+      [--blockers <file.md>]
       [--golden <file>]
       [--write-golden]
 """
@@ -42,7 +43,7 @@ FAMILIES = (
     (r'combat|faction', 'combat_dispatch'), (r'item', 'items'), (r'[Qq]uest|[Oo]bjective|Missing-branch', 'quest_state'),
     (r'animation', 'animation'), (r'enum', 'enum'),
 )
-STATUS = dict(buff='needs_importer', items='needs_importer', profile='needs_importer',
+STATUS = dict(buff='needs_importer', items='needs_importer', profile='needs_scene_converter',
               op_inexpressible='inexpressible')
 # Source operations the compiler replaces with another native shape.
 LOWERED = {'SetQuest', 'SetQuestObjective', 'QuestCondition', 'QuestObjectiveCondition', 'QuestObjectiveGate',
@@ -93,11 +94,12 @@ def shape(source, emitted, path, problems):
     return 1 + sum(shape(s, e, path + '/' + str(i), problems) for i, (s, e) in enumerate(zip(source['children'], children)))
 
 
-def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
+def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), profiles=()):
     from campaign_ai_registration import MailboxAdapter, NativeAIRegistry
     from campaign_ai_types import AIEnumAdapter, AIStructureAdapter, AITypeSource
     from campaign_behavior import convert_behaviors, native_catalog
     from campaign_buffs import BuffAdapter, native_contract as native_buff_contract
+    from campaign_controller_profiles import OwnedProfiles, report as profile_report
     from campaign_dependency_adapters import ItemTextAdapter, LazyAdapter
     from world_item_definitions import native_items, native_item_registry
     from campaign_dependencies import DependencyImporter
@@ -121,7 +123,10 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
                                       if identity not in links.source}
         links.source.update({identity: dict(row) for identity, row in prepared['implicit_links'].items()})
         native_item_definitions = native_items(kcd2)
+        owned_profiles = OwnedProfiles(profiles)
         importer = DependencyImporter(dict(
+            # Profiles the scene converter registers on the converted level keep its names.
+            world_profiles=owned_profiles,
             ai_types=AIStructureAdapter(types, catalog['variable_types']), ai_enums=AIEnumAdapter(types),
             mailboxes=MailboxAdapter(tables, NativeAIRegistry.load(kcd2, 'C2')), link_types=links,
             # The campaign compiler's own buff conversion: table data only, no world.
@@ -159,7 +164,8 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=()):
                      if job.get('status') == 'conversion_failed' and group in ('buffs', 'items'))
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
                 import_failures=[dict(group=group, reason=reason, count=count) for (group, reason), count in failed.most_common()],
-                schedule=schedule, scenes=scene_seam, ownership=ownership)
+                schedule=schedule, scenes=scene_seam, ownership=ownership,
+                profiles=profile_report(importer, owned_profiles))
 
 
 def static_assets(stack, kcd1, kcd2, work):
@@ -267,6 +273,7 @@ def ledger(run):
                               value_renames=len(run['prepared'].get('value_renames', ())), verbatim_lua=verbatim,
                               completed_branches=len(run['prepared'].get('completed_branches', ()))),
                 schedule=run.get('schedule'), scenes=run.get('scenes'), ownership=run.get('ownership'),
+                profiles=run.get('profiles'),
                 lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
                             for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
@@ -320,6 +327,13 @@ def markdown(led, main_path=()):
                       ', '.join('`%s`' % t for t in plan['accepted_trees']) or 'none'), '',
                   '| Capability a rejected request needs | Requests |', '|---|---:|']
         lines += ['| %s | %d |' % item for item in sorted(plan['rejected'].items(), key=lambda p: (-p[1], p[0]))]
+    if led.get('profiles'):
+        seam = led['profiles']
+        lines += ['', '## World profiles and the scene converter', '',
+                  'A profile the scene converter registers (`register_profiles`, native name `gm_<source>`) is used under that '
+                  'name; one it does not register stays unconverted.', '', '| Profile | Sites | State |', '|---|---:|---|']
+        lines += ['| %s | %d | `%s` |' % (name, use['sites'], use['native']) for name, use in seam['used'].items()]
+        lines += ['| %s | %d | to be registered by the scene converter |' % item for item in seam['to_register'].items()]
     if led.get('ownership'):
         grant = led['ownership']
         lines += ['', '## Ownership the controller grants', '',
@@ -345,7 +359,7 @@ def golden(led):
                 prepared=led['prepared'], source_equivalence=led['layers']['source_equivalence']['summary'],
                 lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])],
                 schedule={k: v for k, v in (led.get('schedule') or {}).items() if k != 'sites'} or None,
-                scenes=led.get('scenes'), ownership=led.get('ownership'))
+                scenes=led.get('scenes'), ownership=led.get('ownership'), profiles=led.get('profiles'))
 
 
 def main():
@@ -356,10 +370,11 @@ def main():
     p.add_argument('--main-path', nargs='*', default=[], help='Trees to list first in the blocker file')
     p.add_argument('--level', help='Source level that binds the controller actors, e.g. rataje')
     p.add_argument('--scenes', nargs='*', default=[], help='Scene aliases the scene converter (C5) owns')
+    p.add_argument('--profiles', nargs='*', default=[], help='World profiles the scene converter (C5) registers on the level')
     p.add_argument('--blockers', type=Path); p.add_argument('--golden', type=Path)
     p.add_argument('--write-golden', action='store_true')
     a = p.parse_args()
-    led = ledger(convert(a.kcd1, a.kcd2, a.quest, a.work, a.with_quests, a.level, a.scenes))
+    led = ledger(convert(a.kcd1, a.kcd2, a.quest, a.work, a.with_quests, a.level, a.scenes, a.profiles))
     print(json.dumps(dict(quest=led['quest'], trees=led['trees'], families=led['families'],
                           layer1=led['layers']['source_equivalence']['summary'])))
     failed = led['layers']['source_equivalence']['verdict'] != 'PASS'

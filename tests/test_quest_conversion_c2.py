@@ -479,7 +479,9 @@ class RetailTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             led = c2.ledger(c2.convert(KCD1, KCD2, 'q_skalitz', Path(tmp) / 'work',
                                        ['q_tutorials', 'q_tutorial_swordOne', 'q_escapeToTalmberk'], 'rataje',
-                                       ['kovani_otcem', 'forging_father_insert', 'navsteva_racka']))
+                                       ['kovani_otcem', 'forging_father_insert', 'navsteva_racka'],
+                                       # the profiles the scene converter registers (q_skalitz.c5.golden.json)
+                                       ['q_skalitz_attack', 'q_skalitz_givenhorse', 'q_skalitz_normal', 'q_skalitz_skinnerhouse']))
         self.assertEqual(led['layers']['source_equivalence']['failures'], [])
         self.assertEqual(json.loads(json.dumps(c2.golden(led), sort_keys=True)),
                          json.loads((FIXTURES / 'q_skalitz.c2.golden.json').read_text(encoding='utf-8')))

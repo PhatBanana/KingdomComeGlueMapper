@@ -160,4 +160,40 @@ class NormaliseTests(unittest.TestCase):
         self.assertEqual((selected, report['rejected']), (set(), dict(lease_policy=2)))
 
 
+class WorldSideTests(unittest.TestCase):
+    """What the converter hands `campaign_schedule_routes.assemble`, and adds to its result."""
+    def scheduler(self, *behaviors, fields='TimeOfDayStart="0" TimeOfDayEnd="1440"'):
+        import xml.etree.ElementTree as ET
+        links = ''.join('<S_ActivityLink><Parameters BehaviorName="%s" %s /></S_ActivityLink>' % (b, fields) for b in behaviors)
+        return ET.fromstring('<Root><Schedulers><C_SmartHub><Links>%s</Links></C_SmartHub></Schedulers></Root>' % links)
+
+    def route(self, behavior, *sites):
+        return dict(behavior=behavior, lease=dict(handle='h_' + behavior, sites=[
+            dict(tree=tree, path=path, add=add) for tree, path, add in sites]))
+
+    def test_a_lease_keeps_its_source_priority_and_the_default_halt_speed(self):
+        prepared_ = dict(leases=[dict(actor='1', handle='h', policy=dict(priority=95))])
+        policies = schedule.native_policies(prepared_)
+        self.assertEqual((set(policies), policies[('1', 'h')]['priority'], policies[('1', 'h')]['urgency']),
+                         ({('1', 'h')}, 95, 'Slow'))
+        self.assertTrue(policies[('1', 'h')]['evidence'].strip())
+        self.assertEqual(set(policies[('1', 'h')]), {'priority', 'urgency', 'evidence'})
+
+    def test_a_window_is_written_on_the_leases_own_link_only(self):
+        table = self.scheduler('lease_a', 'lease_b')
+        routes = [self.route('lease_a', ('t', 'Root/0', True), ('t', 'Root/1', False)), self.route('lease_b', ('u', 'Root/0', True))]
+        self.assertEqual(schedule.apply_windows(table, routes, {('t', 'Root/0'): (600, 1200), ('t', 'Root/1'): (1, 2)}), 1)
+        self.assertEqual([(p.get('BehaviorName'), p.get('TimeOfDayStart'), p.get('TimeOfDayEnd')) for p in table.iter('Parameters')],
+                         [('lease_a', '600', '1200'), ('lease_b', '0', '1440')])
+
+    def test_an_ambiguous_window_or_link_is_refused(self):
+        windows = {('t', 'Root/0'): (600, 1200), ('t', 'Root/1'): (0, 1200)}
+        with self.assertRaises(ValueError):
+            schedule.apply_windows(self.scheduler('lease_a'), [self.route('lease_a', ('t', 'Root/0', True), ('t', 'Root/1', True))], windows)
+        one = [self.route('lease_a', ('t', 'Root/0', True))]
+        for table in (self.scheduler(), self.scheduler('lease_a', 'lease_a'), self.scheduler('lease_a', fields='')):
+            with self.assertRaises(ValueError):
+                schedule.apply_windows(table, one, windows)
+
+
 if __name__ == '__main__': unittest.main()
