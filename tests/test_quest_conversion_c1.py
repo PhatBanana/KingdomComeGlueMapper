@@ -210,6 +210,49 @@ class EquivalenceTests(unittest.TestCase):
             E.SubElement(n.find("State[@Name='objective_4']"), 'Edge', From='nothing.Out', To='SetFailed')
         self.assertEqual(failed(self.result(dangling)), ['references'])
 
+    def test_a_wrong_tracked_amount_class_or_health_fails(self):
+        def descriptor(name, value):
+            def change(q, n):
+                node = n.find("Function[@Name='lowered_track_4_0_descriptor']")
+                next(c for c in node.findall('Constant') if c.get('Name') == name).set('Value', value)
+            return change
+        for name, value in (('Amount', '7'), ('MinimumHealth', '0.05'),
+                            ('ItemClass', '00000000-0000-0000-0000-000000000001')):
+            with self.subTest(name=name):
+                self.assertIn('completion', failed(self.result(descriptor(name, value))))
+
+        def no_health(q, n):
+            node = n.find("Function[@Name='lowered_track_4_0_descriptor']")
+            node.remove(next(c for c in node.findall('Constant') if c.get('Name') == 'MinimumHealth'))
+        self.assertEqual(failed(self.result(no_health)), ['completion'])
+
+    def test_a_wrong_reward_row_target_or_objective_fails(self):
+        def reward(tag, **changes):
+            def change(q, n):
+                element = n.find("AddReward[@Name='lowered_reward_4']/Rewards/" + tag)
+                element.attrib.update(changes)
+            return change
+        cases = dict(money_row=reward('MoneyReward', Amount='kcd1_5-notable'),
+                     reputation_row=reward('SoulReputationReward', ReputationChange='quest_decrease_4_normal'),
+                     faction_row=reward('FactionReputationReward', ReputationChange='quest_decreaseFaction_2_normal'),
+                     soul_target=reward('SoulReputationReward', Target='gm_soul_other'),
+                     faction_target=reward('FactionReputationReward', Target='gluemapper_kcd1_faction_27'))
+        for name, change in cases.items():
+            with self.subTest(name=name):
+                self.assertEqual(failed(self.result(change)), ['rewards'])
+
+        def other_objective(q, n):
+            next(e for e in n.find("AddReward[@Name='lowered_reward_4']").findall('Edge')
+                 if e.get('To') == 'AddReward').set('From', 'objective_5.OnCompleted')
+        self.assertEqual(failed(self.result(other_objective)), ['rewards'])
+
+        def swapped(q, n):
+            rewards = n.find("AddReward[@Name='lowered_reward_4']/Rewards")
+            rewards.find('MoneyReward').set('Amount', 'kcd1_2-minor')
+            rewards.append(E.Element('MoneyReward', Amount='kcd1_2-minor'))
+            rewards.remove(rewards.find('SoulReputationReward'))
+        self.assertEqual(failed(self.result(swapped)), ['rewards'])
+
     def test_the_source_side_is_derived_from_the_tables_not_the_report(self):
         changed = copy.deepcopy(self.m)
         changed['tables']['quest_objective']['rows'][3]['autocomplete_timeout_str'] = '5h #WT'

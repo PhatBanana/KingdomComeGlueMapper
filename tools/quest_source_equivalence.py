@@ -32,7 +32,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from campaign_objective_conditions import counted_asset
-from campaign_quest_graph import objective_identifier
+from campaign_quest_graph import identifier, objective_identifier
 
 UNSET = ('', '-1', None)
 TIMEOUT = re.compile(r'\s*(\d+(?:\.\d+)?)\s*(ms|s|m|h|d)\s*(?:#(GT|WT))?\s*')
@@ -118,6 +118,51 @@ def expected(model):
                                  exclusive=r['is_exclusive'] == 'True',
                                  completion=completion_class(r, tracked[r['objective_id']])) for r in rows],
                 joins=joins, rewards={k: v for k, v in rewards.items()})
+
+
+def _bound(bindings, name, key):
+    return {str(k).lower(): v for k, v in bindings.get(name, {}).items()}.get(str(key).lower())
+
+
+def expected_reward(table, row, bindings):
+    """(tag, sorted attributes) the source row must become, from the table row and the named bindings alone.
+
+    None where the bindings do not name its row or target, or for tables this check does not map
+    (those stay covered by the per-objective count).
+    """
+    if table == 'quest_reward_money':
+        name = _bound(bindings, 'money_changes', row.get('money_change_id'))
+        return None if name is None else ('MoneyReward', (('Amount', name),))
+    if table == 'quest_reward_reputation':
+        name = _bound(bindings, 'reputation_changes', row.get('reputation_change_id'))
+        soul, faction = row.get('soul_id'), row.get('faction_id')
+        if name is None or bool(soul) == bool(faction):
+            return None
+        if soul:
+            alias = _bound(bindings, 'soul_assets', soul)
+            return None if alias is None else \
+                ('SoulReputationReward', (('ReputationChange', name), ('Target', identifier(alias))))
+        target = _bound(bindings, 'factions', faction)
+        return None if target is None else \
+            ('FactionReputationReward', (('ReputationChange', name), ('Target', target)))
+    return None
+
+
+def expected_descriptors(model, objective, bindings):
+    """[(item class, amount, minimum health)] KCD1 asks the objective to track, in row order; None if a class is unmapped."""
+    tables = model['tables']
+    items = {r['quest_asset_id']: r for r in tables.get('quest_item', {}).get('rows', [])}
+    found = []
+    for row in tables.get('quest_tracked_asset', {}).get('rows', []):
+        if row['objective_id'] != objective or not counted_asset(row) or row['quest_asset_id'] not in items:
+            continue
+        item = items[row['quest_asset_id']]
+        target = _bound(bindings, 'item_map', (item.get('item_id') or '').lower())
+        if target is None:
+            return None
+        health = item.get('min_health')
+        found.append((target.lower(), int(row['count']), 0.0 if health in ('', None) else float(health)))
+    return found
 
 
 class Checker:
@@ -317,8 +362,24 @@ class Checker:
                            if re.fullmatch(r'lowered_track_' + row['id'] + r'_\d+_\w+', n.get('Name', ''))}
                 if len(watched) != completion['counted']:
                     problems.append('source tracks %d counted assets, target watches %d' % (completion['counted'], len(watched)))
+                problems += self.descriptor_problems(row)
             self.verdict('completion', row['name'] + ' [' + kind + (', inert constant-false gate' if inert else '') + ']',
                          problems, residue)
+
+    def descriptor_problems(self, row):
+        """Each tracked item descriptor says KCD1's class, amount and minimum health (none stated: no filter)."""
+        want = expected_descriptors(self.model, row['id'], self.bindings)
+        if want is None:
+            return []
+        found = {}
+        for node in self.nodes:
+            match = re.fullmatch(r'lowered_track_' + row['id'] + r'_(\d+)_descriptor', node.get('Name', ''))
+            if match:
+                values = {c.get('Name'): c.get('Value') for c in node.findall('Constant')}
+                found[int(match[1])] = (values.get('ItemClass', '').lower(), int(values.get('Amount', '0')),
+                                        float(values.get('MinimumHealth', '0')))
+        have = [found[i] for i in sorted(found)]
+        return [] if have == want else ['tracked item descriptors %r differ from the source rows %r' % (have, want)]
 
     def timer_problems(self, row, completion, found):
         name = 'complete_%s_queued' if 'emitter_timer' in found else 'lowered_policy_%s_timer'
@@ -336,23 +397,52 @@ class Checker:
         for record in self.report.get('unsupported', []):
             if record['kind'] == 'rewards':
                 for row in record['rows']: residue[(record['table'], json.dumps(row, sort_keys=True))] += 1
-        native = defaultdict(int)
+        native, elements, wiring = defaultdict(int), defaultdict(Counter), defaultdict(list)
         for node in self.nodes:
-            match = re.fullmatch(r'lowered_reward_(\d+)(?:_deferred)?', node.get('Name', ''))
+            match = re.fullmatch(r'lowered_reward_(\d+)(_deferred)?', node.get('Name', ''))
             if match and node.tag == 'AddReward':
-                native[match[1]] += len(node.find('Rewards') if node.find('Rewards') is not None else [])
+                rewards = node.find('Rewards') if node.find('Rewards') is not None else []
+                native[match[1]] += len(rewards)
+                for reward in rewards:
+                    elements[match[1]][(reward.tag, tuple(sorted(reward.attrib.items())))] += 1
+                wiring[match[1]].append(node)
+        key = lambda r: (r['table'], json.dumps(r['row'], sort_keys=True))
         for oid, rows in sorted(self.expected['rewards'].items(), key=lambda p: str(p[0])):
-            left = sum(1 for r in rows if residue[(r['table'], json.dumps(r['row'], sort_keys=True))])
-            skipped = sum(1 for r in rows if omitted[(r['table'], json.dumps(r['row'], sort_keys=True))])
+            left = sum(1 for r in rows if residue[key(r)])
+            skipped = sum(1 for r in rows if omitted[key(r)])
             want = len(rows) - left - skipped
             label = 'objective ' + str(oid) + ' (%d rows)' % len(rows)
             problems = [] if native.get(oid, 0) == want else \
                 ['%d source rows, %d residue, %d omitted by policy, but %d native rewards' % (len(rows), left, skipped, native.get(oid, 0))]
+            if not problems:
+                problems += self.reward_problems(oid, [r for r in rows if not residue[key(r)] and not omitted[key(r)]],
+                                                 elements[oid], wiring[oid])
             self.verdict('rewards', label, problems,
                          ('%d of %d rows are residue' % (left, len(rows))) if left else
                          ('%d rows omitted by policy' % skipped if skipped and not want else None))
         for oid in sorted(set(native) - {str(k) for k in self.expected['rewards']}):
             self.add('rewards', 'objective ' + oid, 'FAIL', 'native reward without a source row')
+
+    def reward_problems(self, oid, rows, actual, nodes):
+        """Each paid source row is one native element with the mapped row name and bound target, on its own objective."""
+        wanted = [expected_reward(r['table'], r['row'], self.bindings) for r in rows]
+        expected = Counter(w for w in wanted if w is not None)
+        problems = []
+        missing = expected - actual
+        if missing:
+            problems.append('source rows without their native element: ' + '; '.join(sorted(map(str, missing))))
+        if None not in wanted and actual - expected:
+            problems.append('native rewards the source rows do not name: ' + '; '.join(sorted(map(str, actual - expected))))
+        for node in nodes:
+            sources = self.sources(node, 'AddReward')
+            if node.get('Name').endswith('_deferred'):
+                gate = self.node(node.get('Name') + '_if_completed')
+                condition = self.sources(gate, 'Condition') if gate is not None else None
+                if sources != [node.get('Name') + '_if_completed.True'] or condition != ['objective_' + oid + '.Completed']:
+                    problems.append('deferred reward is not gated on objective ' + oid)
+            elif sources != ['objective_' + oid + '.OnCompleted']:
+                problems.append('reward is paid on %s, not on the completion of objective %s' % (sources, oid))
+        return problems
 
     def check_references(self):
         b = self.bindings
