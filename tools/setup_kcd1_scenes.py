@@ -3,8 +3,10 @@
 Order, each step reading what the one before staged:
 
     people     the NPCs of the quest's state profiles through the person route
-               (`build_quest_people_test.build --source-profile`), so they are
-               mission placements of the staged level
+               (`build_quest_people_test.build`), so they are mission placements
+               of the staged level. The route converts one source brain; actors
+               with another are refused and listed, or staged with a declared
+               native stand-in brain (`--brain-stand-in`)
     horses     the horses of those profiles through `animal_population.place_horses`,
                standing where the source placed them (stand-in: their quest links
                belong to the controller that drives them)
@@ -25,6 +27,7 @@ controller that switches them. Nothing here is runtime-verified.
     python tools/setup_kcd1_scenes.py --package <map> --media <dir> --output <fresh dir> [--people <stage dir>]
 """
 import argparse
+from collections import Counter
 import hashlib
 import json
 from pathlib import Path
@@ -49,22 +52,81 @@ PEOPLE_PROFILES = {'q_skalitz': ('q_skalitz_attack',)}
 LEVEL_FILES = ('objects_mission0.xml', 'leveldata.xml', 'whdata_0', 'whdata_1', 'tables/ai/scheduler.xml', 'waitinglinks.xml')
 
 
-def stage_people(package, source, target, profiles, output, notify=print):
-    """The NPCs of the source profiles as people of a staged level. Returns the person route's report."""
+def profile_actors(source, profiles):
+    """The NPC placements of the source profiles, each with the name of its source brain."""
+    from campaign_dependency_adapters import SourceTables
+    from campaign_profile_actors import collect
+    from campaign_sources import RetailSourceReader
+    from upgrade_map import read
+    source = Path(source)
+    with RetailSourceReader(source) as reader:
+        brains = {r['brain_id']: r['brain_name'] for r in SourceTables(source, reader).get('ai/brain')['rows']}
+    with zipfile.ZipFile(source / 'Data/Levels' / SOURCE_LEVEL / 'level.pak') as archive:
+        documents = {n: read(archive, n) for n in archive.namelist()
+                     if n.replace(chr(92), '/').lower().startswith('layers/') and n.lower().endswith('.xml')}
+        registry = ET.fromstring(read(archive, 'whdata_0'))
+        actors = collect(ET.fromstring(read(archive, 'whdata_1')), registry, documents, profiles)
+    brain = {s.findtext('Name'): s.findtext('StaticData/InitialAIData/BrainId') for s in registry.findall('./SoulList/Souls/Soul')}
+    return [dict(actor, brain=brains.get(brain.get(actor['name']), brain.get(actor['name']))) for actor in actors]
+
+
+def split_actors(actors, adapters, stand_ins=None):
+    """(staged, refused): an actor is staged when its source brain has an adapter or a declared stand-in.
+
+    One soul is staged once; a second placement of it is refused, as the person route does.
+    """
+    staged, refused, souls = [], [], set()
+    for actor in actors:
+        if actor['brain'] not in adapters and actor['brain'] not in (stand_ins or {}):
+            refused.append(dict(person=actor['name'], reason='No native person brain adapter for ' + str(actor['brain'])))
+        elif actor['soul_id'] in souls:
+            refused.append(dict(person=actor['name'], reason='one source instance per soul'))
+        else:
+            souls.add(actor['soul_id'])
+            staged.append(dict(actor, brain_stand_in=(stand_ins or {}).get(actor['brain']) if actor['brain'] not in adapters else None))
+    return staged, refused
+
+
+def stage_people(package, source, target, profiles, output, notify=print, brain_stand_ins=None):
+    """The NPCs of the source profiles as people of a staged level. Returns the summary (`people.json`).
+
+    The person route converts one source brain (`character_person_ai.BRAIN_ADAPTERS`). An actor with another
+    brain is refused and listed, unless brain_stand_ins maps its brain to a native one: then it is staged
+    with that brain and listed as a stand-in. Nothing here converts the source brain's behaviour.
+    """
+    import character_person_ai
     from build_quest_people_test import build
-    build(SimpleNamespace(source=Path(source), target=Path(target), mod=Path(package), output=Path(output), model=None,
-                          person=[], source_level=SOURCE_LEVEL, level=LEVEL, source_profile=list(profiles),
-                          dialogue_profile=[], dialogue_model=[], quest_path=None, project_path=PROJECT, notify=notify))
-    return json.loads((Path(output) / 'report.json').read_text(encoding='utf-8'))
+    output = Path(output)
+    actors = profile_actors(source, profiles)
+    staged, refused = split_actors(actors, character_person_ai.BRAIN_ADAPTERS, brain_stand_ins)
+    adapters = dict(character_person_ai.BRAIN_ADAPTERS)
+    character_person_ai.BRAIN_ADAPTERS.update(brain_stand_ins or {})
+    try:
+        build(SimpleNamespace(source=Path(source), target=Path(target), mod=Path(package), output=output, model=None,
+                              person=[a['name'] for a in staged], source_level=SOURCE_LEVEL, level=LEVEL, source_profile=[],
+                              dialogue_profile=[], dialogue_model=[], quest_path=None, project_path=PROJECT, notify=notify))
+    finally:
+        character_person_ai.BRAIN_ADAPTERS.clear(); character_person_ai.BRAIN_ADAPTERS.update(adapters)
+    summary = people_summary(json.loads((output / 'report.json').read_text(encoding='utf-8')), profiles, staged, refused)
+    (output / 'people.json').write_text(json.dumps(summary, indent=1, sort_keys=True) + '\n', encoding='utf-8', newline='\n')
+    return summary
 
 
-def people_summary(report, profiles):
-    """Counts of a person-route report against the actors the profiles place."""
-    actors = report['source_profile_actors']
-    done = {r['soul_id'] for r in report['converted']} | {r['soul_id'] for r in report['existing']}
-    missing = sorted(a['name'] for a in actors if a['soul_id'] not in done)
-    return dict(profiles=list(profiles), actors=len(actors), converted=len(report['converted']), existing=len(report['existing']),
-                failed=[dict(person=p.get('person'), reason=p.get('reason')) for p in report['pending']], missing=missing)
+def people_summary(report, profiles, staged, refused):
+    """Counts of a person-route report against the actors the profiles place: every actor is counted once."""
+    converted = {r['soul_id']: r for r in report['converted']}
+    existing = {r['soul_id'] for r in report['existing']}
+    failed = list(refused)
+    failed += [dict(person=p.get('person'), reason=p.get('reason')) for p in report['pending']]
+    known = {f['person'] for f in failed}
+    failed += [dict(person=a['name'], reason='not in the person route report') for a in staged
+               if a['soul_id'] not in converted and a['soul_id'] not in existing and a['name'] not in known]
+    return dict(profiles=list(profiles), actors=len(staged) + len(refused),
+                converted=sum(a['soul_id'] in converted for a in staged), existing=sum(a['soul_id'] in existing for a in staged),
+                failed=failed, brains=dict(sorted(Counter(str(a['brain']) for a in staged).items())),
+                brain_stand_ins=[dict(person=a['name'], source_brain=a['brain'], native_brain=a['brain_stand_in']) for a in staged
+                                 if a['brain_stand_in'] and a['soul_id'] in converted],
+                archives=sorted(r['namespace'] for r in converted.values()), baseline=report['baseline'])
 
 
 def profile_horses(source, profiles):
@@ -192,12 +254,43 @@ def merge_subtitles(native, tables):
     return merge_localization(native, ET.tostring(table, encoding='utf-8')), dict(added=added, shared=shared)
 
 
+def seam(report):
+    """What the controller converter (C2) needs of this stage, as one small document (`seam.json`).
+
+    C2 fires `play_<alias>`, reads `pending_<alias>` and fires `done_<alias>` on the module; it runs the
+    callback tree of every scene listed with callback_owner C2. Profiles are used under their native names.
+    """
+    ledger = report['ledger']
+    ports = {p['Name']: (p['Direction'], p['Type']) for p in report['module']['ports']}
+    rows = []
+    for record in ledger['scenes']['records']:
+        alias = scenes.identifier(record['alias'])
+        rows.append(dict(alias=record['alias'], category=record['category'], requests=record['requests'],
+                         picture='converted' if record['status'] == 'converted' else 'none: the request ends at once',
+                         residue=next((r['kind'] for r in ledger['residue'] if r.get('alias') == record['alias']
+                                       and r['kind'] in ('video_not_selected', 'scene_handoff', 'dialogue_scene', 'fader_scene')), None),
+                         callback=record['callback'], callback_owner=record.get('callback_owner', 'C5'),
+                         ports={kind: kind + '_' + alias for kind in ('play', 'pending', 'done', 'callback', 'finished')
+                                if kind + '_' + alias in ports}))
+    duties = {kind: sorted(r['duty'] for r in ledger['residue'] if r['kind'] == kind)
+              for kind in ('playback_duty_native_player', 'playback_duty_deferred')}
+    return dict(schema=1, quest=report['quest'], module=report['module']['name'], definition=report['module']['path'],
+                port_types=dict(play='In trigger', pending='Out bool', done='In trigger', callback='Out trigger', finished='Out trigger'),
+                bridge_wires=report['module']['bridge_wires'], scenes=rows,
+                playback_duties=dict(native_player_for_converted_videos=duties['playback_duty_native_player'],
+                                     nobody_yet=duties['playback_duty_deferred'], basis='inference; not runtime-verified'),
+                profiles=[dict(source=r['source_profile'], native=r['profile'], layer=r['layer'], entities_in_layer=r['moved'],
+                               source_entities=ledger['profiles'][r['source_profile']]['totals']['entities'])
+                          for r in report['profiles']],
+                requires_controller=report['requires_controller'], runtime_verified=False)
+
+
 def movie_archive(quest, alias):
     return 'Data/gluemapper_scene_' + scenes.identifier(quest + '_' + alias) + '.pak'
 
 
 def stage(package, source, target, quest, media, output, people=None, controller_owned=None, wiring=None, bridge=None,
-          horses=True, write_movies=True, notify=print):
+          horses=True, write_movies=True, notify=print, brain_stand_ins=None):
     """Stage the quest's scenes as an overlay of `package` under `output/overlay`. Returns the report.
 
     media: folder of `campaign_scenes.encode_video` results, one per converted alias.
@@ -216,9 +309,9 @@ def stage(package, source, target, quest, media, output, people=None, controller
     # 1. People.
     if people is None:
         people = output / 'people'
-        stage_people(package, source, target, profiles, people, notify)
+        stage_people(package, source, target, profiles, people, notify, brain_stand_ins)
     people = Path(people)
-    people_report = json.loads((people / 'report.json').read_text(encoding='utf-8'))
+    people_report = json.loads((people / 'people.json').read_text(encoding='utf-8'))
     baseline = {name: hashlib.sha256((package / name).read_bytes()).hexdigest() for name in (TRAVEL, ENGLISH_XML)}
     if any(people_report['baseline'].get(str(Path(name))) != digest for name, digest in baseline.items()):
         raise ValueError('The people were staged on another package')
@@ -294,7 +387,7 @@ def stage(package, source, target, quest, media, output, people=None, controller
     check = scenes.equivalence(model, result, {}, scenes.media_from_receipts(receipts))
     unregistered = sorted({n for pair in scenes.controller_switches(model) for n in pair if n} - set(result['plan']))
     report = dict(schema=1, converter=scenes.CONVERTER, quest=quest, package_baseline=baseline, requires_controller=True,
-                  people=people_summary(people_report, profiles), horses=horse_records, profiles=registered,
+                  people={k: v for k, v in people_report.items() if k != 'baseline'}, horses=horse_records, profiles=registered,
                   unregistered_profiles=unregistered, holders=holders, movies=movie_records, subtitles=subtitle_rows,
                   module=dict(name=result['report']['module'], path=module_path, bridge_wires=wired,
                               controller_owned=sorted(r['alias'] for r in result['records'] if r.get('callback_owner') == 'C2'),
@@ -303,6 +396,7 @@ def stage(package, source, target, quest, media, output, people=None, controller
                   equivalence={k: check[k] for k in ('verdict', 'checked', 'passed', 'failed', 'residue', 'categories', 'media_not_run', 'failures')},
                   ledger=result['ledger'], runtime_verified=False)
     (output / 'report.json').write_text(json.dumps(report, indent=1, sort_keys=True, default=str) + '\n', encoding='utf-8', newline='\n')
+    (output / 'seam.json').write_text(json.dumps(seam(report), indent=1, sort_keys=True) + '\n', encoding='utf-8', newline='\n')
     return report
 
 
@@ -318,13 +412,16 @@ def main(argv=None):
     parser.add_argument('--people-only', action='store_true', help='stage the profile people and stop')
     parser.add_argument('--no-movies', action='store_true', help='record the movie and person archives without writing them')
     parser.add_argument('--no-horses', action='store_true')
+    parser.add_argument('--brain-stand-in', action='append', default=[], metavar='SOURCE=NATIVE',
+                        help='stage people of this source brain with that native brain (a stand-in; listed in the report)')
     args = parser.parse_args(argv)
+    stand_ins = dict(pair.split('=', 1) for pair in args.brain_stand_in)
     if args.people_only:
-        report = stage_people(args.package, args.kcd1, args.kcd2, PEOPLE_PROFILES[args.quest], args.output)
-        print(json.dumps(people_summary(report, PEOPLE_PROFILES[args.quest]), indent=1))
+        summary = stage_people(args.package, args.kcd1, args.kcd2, PEOPLE_PROFILES[args.quest], args.output, brain_stand_ins=stand_ins)
+        print(json.dumps({k: summary[k] for k in ('actors', 'converted', 'existing', 'brains')}, indent=1), len(summary['failed']), 'failed')
         return 0
     report = stage(args.package, args.kcd1, args.kcd2, args.quest, args.media, args.output, people=args.people,
-                   horses=not args.no_horses, write_movies=not args.no_movies)
+                   horses=not args.no_horses, write_movies=not args.no_movies, brain_stand_ins=stand_ins)
     print(json.dumps({k: report[k] for k in ('people', 'profiles', 'unregistered_profiles', 'subtitles', 'equivalence')}, indent=1, default=str))
     return 0
 

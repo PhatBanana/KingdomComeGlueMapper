@@ -543,6 +543,12 @@ class ControllerProfileTests(unittest.TestCase):
         run = lambda **more: scenes.convert(m, VIDEOS, profiles, layers(), LEVEL | {'native-50'}, native, CUTSCENES, ('forge', 'visit'),
                                              'helper.xml', controller_owned=('forge', 'visit'), **more)
         self.assertEqual(run()['plan'], {})                             # C5 lowers nothing, so it plans nothing by itself
+        every = scenes.convert(m, VIDEOS, profiles, layers(), LEVEL, native, CUTSCENES, ('forge', 'visit'), 'helper.xml',
+                               controller_owned=scenes.EVERY)
+        self.assertEqual((every['programs'], every['report']['wiring']), ([], []))
+        self.assertEqual({r['callback_owner'] for r in every['records']}, {'C2'})
+        self.assertEqual(every['ledger']['residue_by_kind']['callback_handed_to_controller'], 3)     # the scenes that have a tree
+        self.assertNotIn('request_save_deferred', every['ledger']['residue_by_kind'])
         plan = run(extra_switches=scenes.controller_switches(m))['plan']
         self.assertEqual(list(plan), ['cameras', 'attack', 'normal', 'horses', 'house'])
         self.assertEqual(plan['cameras']['totals'], dict(layers=1, shared=0, entities=1, in_level=1, unconverted=0))
@@ -604,14 +610,27 @@ class StageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'project holder'):
             stage.place_holders(dict(self.level(), **{'objects_mission0.xml': b'<Objects><Entity EntityId="1"/></Objects>'}), self.PROJECT, wanted)
 
-    def test_the_people_summary_names_every_actor_that_is_not_in_the_level(self):
-        actor = lambda name, soul: dict(name=name, soul_id=soul)
-        report = dict(source_profile_actors=[actor('a', '1'), actor('b', '2'), actor('c', '3'), actor('d', '4')],
-                      converted=[dict(person='a', soul_id='1')], existing=[dict(person='b', soul_id='2')],
-                      pending=[dict(asset='profile_actor_x', person='c', reason='no head')])
-        self.assertEqual(stage.people_summary(report, ('attack',)),
-                         dict(profiles=['attack'], actors=4, converted=1, existing=1, failed=[dict(person='c', reason='no head')],
-                              missing=['c', 'd']))
+    def test_an_actor_is_staged_only_with_a_brain_the_route_converts_or_a_declared_stand_in(self):
+        actor = lambda name, soul, brain: dict(name=name, soul_id=soul, brain=brain)
+        actors = [actor('a', '1', 'day'), actor('b', '2', 'pursuit'), actor('c', '3', 'pursuit'), actor('d', '1', 'day'), actor('e', '5', None)]
+        staged, refused = stage.split_actors(actors, {'day': 'basic'})
+        self.assertEqual([a['name'] for a in staged], ['a'])
+        self.assertEqual([(r['person'], r['reason']) for r in refused],
+                         [('b', 'No native person brain adapter for pursuit'), ('c', 'No native person brain adapter for pursuit'),
+                          ('d', 'one source instance per soul'), ('e', 'No native person brain adapter for None')])
+        staged, refused = stage.split_actors(actors, {'day': 'basic'}, {'pursuit': 'basic'})
+        self.assertEqual([(a['name'], a['brain_stand_in']) for a in staged], [('a', None), ('b', 'basic'), ('c', 'basic')])
+        self.assertEqual(len(staged) + len(refused), len(actors))
+        report = dict(converted=[dict(person='a', soul_id='1', namespace='gm_person_1'), dict(person='b', soul_id='2', namespace='gm_person_2')],
+                      existing=[], pending=[dict(asset='selected_actor_c', person='c', reason='no head')], baseline={})
+        summary = stage.people_summary(report, ('attack',), staged, refused)
+        self.assertEqual((summary['actors'], summary['converted'], summary['existing'], summary['brains']), (5, 2, 0, dict(day=1, pursuit=2)))
+        self.assertEqual([f['person'] for f in summary['failed']], ['d', 'e', 'c'])
+        self.assertEqual(summary['failed'][-1], dict(person='c', reason='no head'))
+        self.assertEqual(summary['brain_stand_ins'], [dict(person='b', source_brain='pursuit', native_brain='basic')])
+        self.assertEqual(summary['converted'] + summary['existing'] + len(summary['failed']), summary['actors'])
+        silent = stage.people_summary(dict(report, pending=[]), ('attack',), staged, refused)
+        self.assertEqual(silent['failed'][-1], dict(person='c', reason='not in the person route report'))
 
     def test_a_stage_folder_is_never_reused(self):
         import tempfile
