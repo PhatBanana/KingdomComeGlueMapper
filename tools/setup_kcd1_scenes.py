@@ -400,6 +400,114 @@ def stage(package, source, target, quest, media, output, people=None, controller
     return report
 
 
+def check_overlay(package, source, quest, output):
+    """Layer 1 for the stage: compare a staged overlay with KCD1 and with the package it was staged on.
+
+    Reads the archives again and derives every expectation from the source level, not from the report.
+    """
+    from animal_population_sources import transform, world
+    from campaign_entity_links import native_guid
+    from upgrade_map import read
+    package, source, output = Path(package), Path(source), Path(output)
+    overlay = output / 'overlay'
+    failures, checked = [], Counter()
+
+    def check(category, condition, message):
+        checked[category] += 1
+        if not condition:
+            failures.append(dict(category=category, message=message))
+
+    with zipfile.ZipFile(package / LEVEL_PAK) as archive:
+        before = {e.get('EntityGuid'): e for e in ET.fromstring(read(archive, 'objects_mission0.xml'))}
+    with zipfile.ZipFile(overlay / LEVEL_PAK) as archive:
+        names = set(archive.namelist())
+        mission = ET.fromstring(read(archive, 'objects_mission0.xml'))
+        flat = {e.get('EntityGuid'): e for e in mission}
+        manager = ET.fromstring(read(archive, 'whdata_1'))
+        souls = {s.findtext('EntityGuid') for s in ET.fromstring(read(archive, 'whdata_0')).findall('./SoulList/Souls/Soul')}
+        declared = {l.get('Name') for l in ET.fromstring(read(archive, 'leveldata.xml')).find('Layers')}
+        registered = {p.findtext('Name'): p.findtext('GameLayers/GameLayer') for p in manager.iter('GameProfile')}
+        layers = {name: ET.fromstring(read(archive, 'layers/' + layer + '.xml')) for name, layer in registered.items()
+                  if 'layers/' + layer + '.xml' in names and name.startswith('gm_' + quest)}
+    with zipfile.ZipFile(source / 'Data/Levels' / SOURCE_LEVEL / 'level.pak') as archive:
+        index = {n.replace(chr(92), '/').lower(): n for n in archive.namelist()}
+        profiles = scenes.source_profiles(read(archive, index['whdata_1']))
+        entities, _ = world(archive, PEOPLE_PROFILES.get(quest, ()))
+        own = {}
+        for name in PEOPLE_PROFILES.get(quest, ()):
+            partners = {layer for other, record in profiles.items() if other != name for layer in record['layers']}
+            for layer in profiles[name]['layers']:
+                if layer in partners:
+                    continue
+                for entity in ET.fromstring(read(archive, index['layers/' + layer.lower() + '.xml'])).iter('Entity'):
+                    if entity.get('EntityClass') in ('NPC', 'NPC_Female', 'Horse'):
+                        own.setdefault(name, []).append(entity)
+    moved = set()
+    for name, layer in layers.items():
+        check('profiles', registered[name] in declared, 'layer of ' + name + ' is not declared in the level')
+        for entity in layer:
+            guid = entity.get('EntityGuid')
+            check('moved', guid not in flat and guid not in moved and entity.get('Layer') == registered[name],
+                  'entity is in two places or has the wrong layer: ' + str(entity.get('Name')))
+            moved.add(guid)
+            if guid in before:
+                was = dict(before[guid].attrib)
+                now = {k: v for k, v in entity.attrib.items() if k != 'Layer'}
+                check('moved', now == {k: v for k, v in was.items() if k != 'Layer'}, 'a moved entity changed: ' + str(entity.get('Name')))
+    for name, placed in own.items():
+        layer = {e.get('EntityGuid'): e for e in layers.get(scenes.profile_name(name), ())}
+        for original in placed:
+            actor = transform(original, entities) if original.get('ParentId') else original     # world placement
+            found = layer.get(native_guid(int(actor.get('EntityGuid'), 16)))
+            label = name + ': ' + str(actor.get('Name'))
+            check('actors', found is not None, 'source actor is not in the profile layer: ' + label)
+            if found is None:
+                continue
+            numbers = lambda entity, field: [round(float(v), 3) for v in entity.get(field).split(',')] if entity.get(field) else None
+            same = lambda field: numbers(found, field) == numbers(actor, field)
+            check('actors', found.get('Name') == actor.get('Name') and found.get('EntityClass') == actor.get('EntityClass')
+                  and same('Pos') and (actor.get('Rotate') is None or same('Rotate')), 'name, class or placement differs: ' + label)
+            check('actors', found.get('EntityGuid') in souls, 'actor has no soul record: ' + label)
+        check('actors', len(layer) == len(placed), 'layer of ' + name + ' holds ' + str(len(layer)) + ' entities for ' + str(len(placed)) + ' source actors')
+    check('level', set(before) - set(flat) <= moved, 'an entity left the flat level without entering a profile layer')
+    added = Counter(e.get('EntityClass') for guid, e in flat.items() if guid not in before)
+    with zipfile.ZipFile(overlay / 'Data/gluemapper_scenes.pak') as archive:
+        table = ET.fromstring(archive.read(TABLE))
+        packed = set(archive.namelist())
+    with zipfile.ZipFile(overlay / ENGLISH_XML) as archive:
+        strings = {r.findtext('Cell') for r in ET.fromstring(read(archive, 'text_ui_dialog.xml')).findall('Row')}
+    with zipfile.ZipFile(package / ENGLISH_XML) as archive:
+        old_strings = [r.findtext('Cell') for r in ET.fromstring(read(archive, 'text_ui_dialog.xml')).findall('Row')]
+    check('subtitles', set(old_strings) <= strings, 'a localization row of the package was lost')
+    with zipfile.ZipFile(overlay / TRAVEL) as archive:
+        entry = ET.fromstring(read(archive, ENTRY))
+        project = ET.fromstring(read(archive, PROJECT))
+        module_name = scenes.identifier('gm_' + quest + '_scenes')
+        module = ET.fromstring(read(archive, ENTRY.rsplit('/', 1)[0] + '/' + module_name + '.xml'))
+        helper = ENTRY.rsplit('/', 1)[0] + '/' + next(d.get('File') for d in module.iterfind('./Skald/Module/Definitions/Definition'))
+        check('module', helper in archive.namelist(), 'the module names a helper definition the package does not hold')
+    check('module', len(entry.findall("./Skald/Level/Nodes/" + module_name)) == 1
+          and len(entry.findall("./Skald/Level/Definitions/Definition[@File='" + module_name + ".xml']")) == 1, 'module is not registered once')
+    for alias in scenes.MAIN_PATH[quest]:
+        holder, row = scenes.holder_alias(quest, alias), scenes.cutscene_name(quest, alias)
+        found = [e for e in mission if e.get('Name') == holder and e.get('EntityClass') == 'CutsceneHolder']
+        check('pictures', len(found) == 1 and found[0].find("Properties[@esCutsceneName='" + row + "']") is not None, 'holder of ' + alias)
+        check('pictures', len(project.findall(".//Assets/CutsceneHolderAsset[@Name='" + holder + "']")) == 1
+              and len(module.findall(".//CutsceneHandler/Asset[@Alias='" + holder + "']")) == 1, 'holder alias of ' + alias)
+        rows = table.findall("./Cutscenes/RenderedCutscene[@Name='" + row + "']")
+        root = scenes.ROOT + quest + '/' + alias
+        check('pictures', len(rows) == 1 and rows[0].get('Root') == root and rows[0].get('Subtitles') == 'cinematic'
+              and rows[0].find('Profiles/Profile').get('FileName') == 'cinematic', 'cutscene row of ' + alias)
+        check('subtitles', root + '/cinematic.srt' in packed, 'subtitle file of ' + alias)
+        if root + '/cinematic.srt' in packed:
+            with zipfile.ZipFile(overlay / 'Data/gluemapper_scenes.pak') as archive:
+                keys = [l.strip() for l in archive.read(root + '/cinematic.srt').decode('utf-8-sig').splitlines() if l.startswith('gm_cin_')]
+            check('subtitles', keys and set(keys) <= strings, 'a subtitle cue of ' + alias + ' has no localization row')
+    return dict(verdict='PASS' if not failures else 'FAIL', checked=sum(checked.values()), failed=len(failures),
+                categories=dict(sorted(checked.items())), added_to_the_flat_level=dict(sorted(added.items())),
+                in_profile_layers={name: len(layer) for name, layer in sorted(layers.items())}, failures=failures[:40])
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--kcd1', type=Path, default=Path('D:/SteamLibrary/steamapps/common/KingdomComeDeliverance'))
@@ -412,10 +520,16 @@ def main(argv=None):
     parser.add_argument('--people-only', action='store_true', help='stage the profile people and stop')
     parser.add_argument('--no-movies', action='store_true', help='record the movie and person archives without writing them')
     parser.add_argument('--no-horses', action='store_true')
+    parser.add_argument('--check', action='store_true', help='compare an existing stage output with KCD1 and the package, and stop')
     parser.add_argument('--brain-stand-in', action='append', default=[], metavar='SOURCE=NATIVE',
                         help='stage people of this source brain with that native brain (a stand-in; listed in the report)')
     args = parser.parse_args(argv)
     stand_ins = dict(pair.split('=', 1) for pair in args.brain_stand_in)
+    if args.check:
+        result = check_overlay(args.package, args.kcd1, args.quest, args.output)
+        (args.output / 'overlay-check.json').write_text(json.dumps(result, indent=1, sort_keys=True) + '\n', encoding='utf-8', newline='\n')
+        print(json.dumps(result, indent=1))
+        return 0 if result['verdict'] == 'PASS' else 1
     if args.people_only:
         summary = stage_people(args.package, args.kcd1, args.kcd2, PEOPLE_PROFILES[args.quest], args.output, brain_stand_ins=stand_ins)
         print(json.dumps({k: summary[k] for k in ('actors', 'converted', 'existing', 'brains')}, indent=1), len(summary['failed']), 'failed')
