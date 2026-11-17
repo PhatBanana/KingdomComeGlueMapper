@@ -209,7 +209,22 @@ def clock_signature(element):
     return signature(normalized)
 
 
-def upgrade(files, people, archive, target, tables, reader, source, *, notify=lambda message: None):
+def reachable_fallbacks(selected, unreachable):
+    """Drop public fallback beds whose lie-down pose has no walkable polygon.
+
+    A fallback is inferred (any public bed in range), not authored, so a bed the
+    sleeper cannot path to only adds a stuck choice. Home beds stay: they are the
+    person's KCD1 bed, and a navmesh gap there is the world's to fix.
+    """
+    kept, dropped = [], []
+    for choice in selected:
+        name = choice.get('entity_name', 'gm_world_bed_' + choice['source_id'] + '_bed')
+        (dropped if choice['kind'] == 'public_fallback' and name in unreachable else kept).append(choice)
+    return kept, [c['source_id'] for c in dropped]
+
+
+def upgrade(files, people, archive, target, tables, reader, source, *, notify=lambda message: None,
+            unreachable=frozenset()):
     source_contract(E.fromstring(reader(source, {'home': ('Scripts.pak', 'Libs/AI/final/sa_home.xml')})['home']['data']))
     brains = {r['brain_id'] for r in tables.get('ai/brain')['rows'] if r['brain_name'] == 'npc_daycycle'}
     groups = statistics(tables.get('rpg/soul')['rows'], brains)
@@ -228,10 +243,11 @@ def upgrade(files, people, archive, target, tables, reader, source, *, notify=la
         selected = candidates(people[name], records, position=tuple(float(v) for v in actor.get('Pos').split(',')))
         from home_bed_assignment import choices as assigned_beds
         selected.extend(assigned_beds(mission, actor))
+        selected, off_mesh = reachable_fallbacks(selected, unreachable)
         beds, links, modified = bind(mission, scheduler, name, clock, selected, template, activity)
         graph.extend(links); changed |= modified
         reports.append(dict(person=name, job='native_sleep', extension_only=True, clock=clock,
-            beds=beds or [], runtime_verified=False,
+            beds=beds or [], runtime_verified=False, unreachable_fallbacks=off_mesh,
             pending=[] if beds else ['No compatible sleep place, or an authored bed schedule is already present']))
     validate_scheduler_targets(scheduler)
     changed |= bool(restrict_work_to_waking_hours(mission, scheduler))

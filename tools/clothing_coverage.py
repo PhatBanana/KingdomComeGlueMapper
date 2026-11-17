@@ -71,6 +71,17 @@ def native_alpha_surfaces(output, material_path, *, cache=None):
             evidence.append(dict(shader='Nodraw', opaque=False))
             surfaces.append((0., [np.zeros((1,1))]))
             continue
+        if material.get('Shader', '').lower() == 'humanskin':
+            # Bare skin modelled into the garment (KCD1 karolina_dress and
+            # hanus_civil; retail KCD2 coat13_arms pairs its cloth with a
+            # HumanSkin sub-material the same way). Skin has no cutout, so
+            # it covers the body below it like opaque cloth.
+            if (float(material.get('Opacity', '1')) != 1 or float(material.get('AlphaTest', '0')) != 0
+                    or material.find('SubMaterials') is not None):
+                raise ValueError('Unsupported generated clothing skin material')
+            evidence.append(dict(shader='HumanSkin', opaque=True))
+            surfaces.append((0., [np.ones((1,1))]))
+            continue
         flags = set(filter(None, material.get('StringGenMask', '').split('%')))
         threshold = float(material.get('AlphaTest', '0'))
         if (material.get('Shader') != 'Illum' or 'CLOTHING_SYSTEM' not in flags or flags - allowed

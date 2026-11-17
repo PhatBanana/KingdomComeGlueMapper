@@ -39,6 +39,30 @@ class PersonAITests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'Missing'):
             capture_person_links(actor,[first])
 
+    def test_init_migration_turns_eventless_future_links_into_home_and_work(self):
+        # KCD1 utils.xml initDynamicHome, as authored for tal_farmer1.
+        from character_person_ai import init_migration_links
+        from character_schedule import has_home
+        actor = E.fromstring('<Entity><EntityLinks>'
+            '<Link Name="futureWork[work(\'Farmer\')]" TargetId="1"/><Link Name="futureHome,owner" TargetId="2"/>'
+            '<Link Name="futureHome[event(\'tal_siege\')]" TargetId="3"/>'
+            '<Link Name="futureWork[event(\'tal_siege\'),work(\'carpenter\')]" TargetId="3"/>'
+            '<Link Name="cryofreeze" TargetId="4"/></EntityLinks></Entity>')
+        world = [E.fromstring(f'<Entity EntityId="{i}" Name="t{i}"/>') for i in range(1, 5)]
+        links = capture_person_links(actor, world)
+        derived = init_migration_links(links)
+        self.assertEqual([(l['label'], l['target']['Name'], l['migrated_from']) for l in derived],
+                         [('Home', 't2', 'futureHome,owner'), ("Work[('Farmer')]", 't1', "futureWork[work('Farmer')]")])
+        self.assertTrue(has_home(dict(ai=dict(links=links + derived))))
+        # Authored Home/Work win; event links alone never migrate at start.
+        live = E.fromstring('<Entity><EntityLinks><Link Name="Home" TargetId="1"/>'
+            '<Link Name="futureHome,owner" TargetId="2"/><Link Name="futureHome[event(\'x\')]" TargetId="3"/>'
+            '</EntityLinks></Entity>')
+        self.assertEqual(init_migration_links(capture_person_links(live, world)), [])
+        siege = E.fromstring('<Entity><EntityLinks><Link Name="futureHome[event(\'x\')]" TargetId="3"/>'
+            '</EntityLinks></Entity>')
+        self.assertEqual(init_migration_links(capture_person_links(siege, world)), [])
+
     def test_core_stats_preserve_values_and_do_not_guess_incompatible_combat_scale(self):
         ops = stat_operations(dict(str='8', hearing='4', combat_level='20', inventory_id='legacy'))
         self.assertEqual(ops, [('setAttribute', {'stat': 'strength', 'value': '8'}),

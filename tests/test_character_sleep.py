@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]/'tools'))
 from campaign_entity_links import native_guid, guid_value
 from character_sleep_clock import plan_clocks, statistics, summarize, source_entries
 from character_sleep_beds import candidates, inside
-from character_sleep_work import bind, identity
+from character_sleep_work import bind, identity, reachable_fallbacks
 from character_city_benches import signature
 from campaign_trigger_areas import TriggerArea
 from character_person_activity import validate_scheduler_targets
@@ -223,5 +223,16 @@ class SleepBindingTests(unittest.TestCase):
         before=(E.tostring(m),E.tostring(s));self.assertEqual(bind(m,s,'worker',clock,c,'bed',a),(None,[],False))
         self.assertEqual(before,(E.tostring(m),E.tostring(s)))
 
+
+class ReachableFallbackTests(unittest.TestCase):
+    def test_only_unreachable_public_fallbacks_are_dropped(self):
+        # Talmberg: the castle bench bed 107132 has no walkable polygon under its lie-down pose.
+        home = dict(source_id='1', kind='home'); off_home = dict(source_id='2', kind='home')
+        public = dict(source_id='3', kind='public_fallback'); stuck = dict(source_id='4', kind='public_fallback')
+        unreachable = {'gm_world_bed_2_bed', 'gm_world_bed_4_bed'}
+        kept, dropped = reachable_fallbacks([home, off_home, public, stuck], unreachable)
+        self.assertEqual(kept, [home, off_home, public])   # a home bed is the KCD1 bed; the world owns its navmesh
+        self.assertEqual(dropped, ['4'])
+        self.assertEqual(reachable_fallbacks([stuck], frozenset()), ([stuck], []))
 
 if __name__=='__main__':unittest.main()

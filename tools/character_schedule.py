@@ -25,6 +25,30 @@ def day_intervals(entries):
     return sorted(result, key=lambda r: r['start_minute'])
 
 
+# KCD1 town residents link only their work and their home. Their sleep, eat,
+# morning and fun intervals have no activity link: KCD1 runs them in the home
+# smart area (Sleeper, Eater, BreakfastEater) or the city area. Nothing is bound
+# for them here; sleep comes from the sleep adapter and the rest falls back to
+# the native wait baseline.
+HOME_TIME = frozenset({'sleep', 'eat', 'morning', 'fun'})
+
+
+def has_home(person):
+    return any((l['label'] or '').split(',')[0].strip() == 'Home' for l in person['ai']['links'])
+
+
+def blocking_pending(schedule, person, home_time=False):
+    """Pending intervals that block job binding.
+
+    With home_time, an unlinked HOME_TIME interval of a person with a source
+    home does not block; every other pending interval still does.
+    """
+    if not home_time or not has_home(person):
+        return list(schedule['pending'])
+    return [p for p in schedule['pending'] if p.get('reason') != 'No source activity link'
+            or p.get('activity', '').casefold() not in HOME_TIME]
+
+
 def plan(person, tables):
     areas = {r['sa_smart_area_id']: r for r in tables.get('ai/sa_smart_area')['rows']}
     bindings = tables.get('ai/sa_smart_area2sa_behaviour_tag')['rows']
@@ -57,6 +81,12 @@ def plan(person, tables):
                     target_kind='quest_controller', controller=definition,
                     target_links=[dict(l.attrib) for l in entity.findall('EntityLinks/Link')], runtime_verified=False))
                 continue
+            if entity.get('EntityClass') == 'SmartObjectHolder':
+                # Lords at a hall table (Talmberg's so_talmberk_castle_lords):
+                # the work is a smart object's behaviour, not a smart area's.
+                # No native adapter yet; the person waits at their KCD1 spot.
+                pending.append(dict(interval, link=link['label'], parsed_link=tag,
+                                    reason='Smart object holder work has no native adapter')); continue
             if template not in areas: raise ValueError('Unresolved source activity area template')
             candidates = [(b, behaviors[b['sa_behaviour_tag_id']]) for b in bindings
                           if b['sa_smart_area_id'] == template and

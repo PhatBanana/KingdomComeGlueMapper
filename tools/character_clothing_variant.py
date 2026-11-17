@@ -7,6 +7,13 @@ def resolve_variant(part, morphs, clothing_rows):
     evidence = dict(requested=requested, applied=requested, status='present' if requested else 'base')
     if not requested or requested in morphs:
         return requested, evidence
+    # KCD1 names morphs case-insensitively: rat_bailiff_wife's clothing asks
+    # for #V_003 on a mesh that spells it #v_003. Use the mesh's own name when
+    # exactly one morph matches regardless of case.
+    folded = [name for name in morphs if name.casefold() == requested.casefold()]
+    if len(folded) == 1:
+        evidence.update(applied=folded[0], status='case_folded')
+        return folded[0], evidence
     # Dedicated garment meshes can retain a stale variant selector in the RPG
     # table. Accept their base shape only when another source clothing record
     # explicitly uses that SAME mesh/archetype/gender with no selector, and the

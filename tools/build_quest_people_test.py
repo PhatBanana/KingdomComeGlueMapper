@@ -60,8 +60,13 @@ def route_equipment_files(files, appearance, item_tables):
             dest.write_bytes(payload)
 
 
-def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
-    """Pack and validate streamed assets, including families crossing ZIP32 shards."""
+def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT, textures=None):
+    """Pack and validate streamed assets, including families crossing ZIP32 shards.
+
+    textures is a character_shared_textures.Store: the texture families this
+    person's materials use are staged there by content, for pack_shared_textures
+    to archive once, and the materials are packed pointing at them.
+    """
     from texture_streaming import checked_entries, generated_entries
     from setup_progress import work_progress
     libs, paks, pak = {}, [], None
@@ -69,6 +74,14 @@ def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
     paths = sorted(p for p in appearance.rglob('*') if p.is_file())
     from character_asset_selection import runtime_paths
     paths = runtime_paths(appearance, paths, namespace)
+    sharing = None
+    if textures is not None:
+        from character_shared_textures import Sharing
+        files = {p.relative_to(appearance).as_posix(): p for p in paths}
+        sharing = Sharing(textures, namespace, {n: p.read_bytes() for n, p in files.items()
+            if n.startswith('objects/') and n.lower().endswith('.mtl')}, [n for n in files if n.startswith('objects/')])
+        # Whole families first, so every material is packed knowing where its textures went.
+        paths = [files[n] for n in sharing.names] + [p for n, p in files.items() if not n.startswith('objects/')]
     asset_count = sum(p.relative_to(appearance).as_posix().startswith('objects/') for p in paths)
     work_progress('Pack character assets', 0, asset_count)
     # Characters pack in parallel into the shared Data folder, where other
@@ -91,7 +104,14 @@ def write_actor_paks(appearance, data_dir, namespace, limit=ACTOR_PAK_LIMIT):
         # Appearance conversion emits complete RGBA16F macro textures and
         # byte-channel masks. They need the same native streaming layout as
         # world assets, even when an actor is added after the main world build.
-        for name, blob in checked_entries(generated_entries(entries())):
+        def routed():
+            if sharing is None:
+                yield from checked_entries(generated_entries(entries()))
+                return
+            for name, blob in checked_entries(generated_entries(entries())):
+                yield from sharing.route(name, blob)
+            yield from sharing.finish()
+        for name, blob in routed():
             size = len(blob) + 2 * len(name.encode('utf-8')) + 76
             if size + 22 > limit: raise ValueError('Actor asset exceeds ZIP32 shard limit: ' + name)
             if pak is not None and (used + size > limit or count >= 50000):
@@ -131,15 +151,34 @@ def convert_character(source, target, mod, person, name, sid, source_level, name
         notify('Reusing converted character: ' + name)
         payload, _ = hit
         copy_payload(payload/'Data', data_dir)
+        if (payload/'Textures').is_dir():
+            from character_shared_textures import Store
+            Store(shared_texture_stage(output)).adopt(payload/'Textures')
         result = pickle.loads((payload/'result.pickle').read_bytes())
         return dict(result, elapsed=time.perf_counter() - started)
     result = _convert_character_files(source, target, mod, person, name, sid, source_level, namespace, output, data_dir, notify)
-    paks = result.pop('paks', [])
+    paks, textures = result.pop('paks', []), result.pop('textures', {})
     if cache is not None and 'error' not in result:
         record = output/'people'/namespace/'cached-result.pickle'
         record.write_bytes(pickle.dumps({k: v for k, v in result.items() if k != 'elapsed'}))
-        cache.publish(key, {'result.pickle': record, **{'Data/' + p.name: p for p in paks}}, {})
+        cache.publish(key, {'result.pickle': record, **{'Data/' + p.name: p for p in paks},
+                            **{'Textures/' + rel: p for rel, p in textures.items()}}, {})
     return result
+
+
+def shared_texture_stage(output):
+    """Where the characters of one build stage their shared texture families."""
+    return Path(output) / 'shared-textures'
+
+
+def pack_shared_textures(output, data_dir, existing=()):
+    """Archive the staged families that no archive in data_dir or existing holds, then drop the stage."""
+    import shutil
+    from character_shared_textures import pack
+    stage = shared_texture_stage(output)
+    paks = pack(stage, data_dir, existing=existing)
+    shutil.rmtree(stage, ignore_errors=True)
+    return paks
 
 
 def character_cache(source, target, mod, person, name, sid, source_level, namespace):
@@ -181,11 +220,13 @@ def _convert_character_files(source, target, mod, person, name, sid, source_leve
     # Keep each actor's geometry in its own ZIP32 archive. The shared world
     # archive is already large and must not grow past the engine's limit.
     notify(person['name'] + ': Packing and validating character assets')
-    paks, libs = write_actor_paks(appearance, data_dir, namespace)
+    from character_shared_textures import Store
+    textures = Store(shared_texture_stage(output))
+    paks, libs = write_actor_paks(appearance, data_dir, namespace, textures=textures)
     strings = appearance / 'Localization/English/text_ui_items.xml'
     if strings.exists(): item_tables.append(strings.read_bytes())
     return dict(person=person, character=character, libs=libs, item_tables=item_tables, paks=paks,
-                elapsed=time.perf_counter() - started)
+                textures=textures.files(), elapsed=time.perf_counter() - started)
 
 
 # Measured: a 14-part guard peaks below 1 GB with one texture bake worker.
@@ -383,6 +424,9 @@ def _build(a):
     from bake_pool import release
     from static_assets import release_library_index
     release(); release_library_index()  # the people are converted; free the bake workers and archives
+    # Every worker has finished: one process writes the textures they share.
+    # Families the installed mod already holds are reused from its archives.
+    pack_shared_textures(a.output, package / 'Data', existing=(a.mod / 'Data',))
     if getattr(a, 'progress', None) is not None:
         a.progress('Bind source characters to the world', 0, 0, 'Writing schedules, world placements and shared archives')
     files['objects_mission0.xml'], files['whdata_0'] = xml(mission), xml(wh)
