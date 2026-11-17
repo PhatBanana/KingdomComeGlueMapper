@@ -159,7 +159,16 @@ class PersonAITests(unittest.TestCase):
                 reused, _ = register_person_world(shared, people, directory, None)
                 self.assertEqual(len(E.fromstring(reused['objects_mission0.xml']).findall(
                     "Entity[@EntityClass='SmartAreaShape']")), 1)
-                self.assertEqual(len(read_areas(reused['triggerareas.fubar'])['areas']), 1)
+                # The smart area keeps its inline polygon; finalize refuses it in FUBAR too.
+                self.assertEqual(read_areas(reused['triggerareas.fubar'])['areas'], [])
+                from area_geometry_contract import normalize
+                normalize(reused['triggerareas.fubar'], reused['objects_mission0.xml'], validate_only=True)
+                point = area.find('Area/Points/Point')
+                point.set('Pos', '0,0,1')
+                shared['objects_mission0.xml'] = E.tostring(existing)
+                with self.assertRaisesRegex(ValueError, 'smart-area home polygon differs'):
+                    register_person_world(shared, people, directory, None)
+                point.set('Pos', '0,0,0')
                 area.set('Pos', '11,20,30')
                 shared['objects_mission0.xml'] = E.tostring(existing)
                 with self.assertRaisesRegex(ValueError, 'transform differs'):
