@@ -269,11 +269,13 @@ def upgrade_work(source, target, package, source_level, level, people, new_peopl
 def build(source,target,baseline,output,profiles, *, source_level='rataje',level='kcd1_travel',
           entry='Quests/GlueTravel/entry/kcd1_travel.xml',actor_stage=None,
           update_receipt=True, notify=print, cancelled=lambda: False, progress=None,
-          names=(), marker='profile_population'):
+          names=(), marker='profile_population', prepare=None):
     """Convert static-profile actors, or with names the selected placed town residents.
 
     Residents keep their own marker (Libs/GlueMapper/<marker>.json), never keep
     shops (keepers go through setup_merchant_upgrade) and use the home-time policy.
+    prepare(people) runs once on the captured people before any conversion (the
+    guard stage adds each guard's KCD1 garrison post); its rows go in the report.
     """
     from build_quest_people_test import build as build_actors
     from source_merchant_upgrade import build as build_service
@@ -301,6 +303,7 @@ def build(source,target,baseline,output,profiles, *, source_level='rataje',level
         if names and shops:
             raise ValueError('Named residents keep source shops; port them through setup_merchant_upgrade: '
                              + ', '.join(s['person'] for s in shops))
+        prepared=prepare(people) if prepare is not None else None
         if actor_stage is None:
             actor_stage=output/'actors'
             build_actors(SimpleNamespace(source=source,target=target,mod=baseline,output=actor_stage,model=None,
@@ -373,6 +376,9 @@ def build(source,target,baseline,output,profiles, *, source_level='rataje',level
         static_profile_policy='Only explicitly selected initial-world profiles; later campaign activation unchanged',
         source_weekday_policy='Daily stock is preserved; weekday masks use the installed KCD2 common_merchant replenishment period',
         baseline=actors['baseline'])
+    if prepared is not None:
+        failed={r['person'] for r in residue}
+        report['prepared']=[r for r in prepared if r.get('person') not in failed]
     if names:
         from character_schedule import has_home
         report['residents']=[dict(person=n,source_home=has_home(people[n])) for n in names]

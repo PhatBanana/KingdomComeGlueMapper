@@ -385,6 +385,12 @@ def finalize(package, *, source=None, target=None, repair_roots=(), notify=lambd
     resident_files, resident_report = upgrade_residents(package, source, target, notify, cancelled)
     receipt['files'].update(resident_files)
     receipt['resident_population'] = resident_report
+    # KCD1 garrison guards, with the posts KCD1's allocator gives them, after
+    # the residents (the stage refuses anyone the residents selected).
+    from setup_garrison_population import upgrade as upgrade_garrisons
+    garrison_files, garrison_report = upgrade_garrisons(package, source, target, notify, cancelled)
+    receipt['files'].update(garrison_files)
+    receipt['garrison_population'] = garrison_report
     from setup_pub_cleaning import upgrade as upgrade_pub_work
     pub_files, pub_report = upgrade_pub_work(package, source, target)
     receipt['files'].update(pub_files); receipt['source_pub_work'] = pub_report

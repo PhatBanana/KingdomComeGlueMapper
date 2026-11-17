@@ -45,24 +45,27 @@ def check_selection(residents=RESIDENTS):
     return list(residents)
 
 
-def upgrade(package, source, target, notify=lambda *a: None, cancelled=lambda: False, residents=RESIDENTS):
+def upgrade(package, source, target, notify=lambda *a: None, cancelled=lambda: False, residents=RESIDENTS, *,
+            marker=MARKER, mode=MODE, prepare=None, title='Import KCD1 town residents'):
+    """Import the selected residents. marker, mode, prepare and title let another
+    selected group (setup_garrison_population) reuse the same build and publication."""
     from build_profile_population_upgrade import build
     from build_recipe import apply_overlay
     from setup_gameplay import ENTRY, LEVEL
 
     names = check_selection(residents)
     if not names:
-        return {}, dict(version=VERSION, mode=MODE, residents=[], people=0, runtime_verified=False)
+        return {}, dict(version=VERSION, mode=mode, residents=[], people=0, runtime_verified=False)
     if source is None or target is None:
         raise ValueError('Both source games are required for resident population conversion')
     if cancelled(): raise InterruptedError('Cancelled before resident population conversion')
     package = filesystem_path(package)
-    notify('Import KCD1 town residents', 0, 0, f'{len(names)} selected residents')
-    with tempfile.TemporaryDirectory(prefix='resident-population-', dir=package.parent) as temporary:
+    notify(title, 0, 0, f'{len(names)} selected people')
+    with tempfile.TemporaryDirectory(prefix=marker.replace('_', '-') + '-', dir=package.parent) as temporary:
         work = Path(temporary)
         report = build(source, target, package, work/'build', [], level=LEVEL, entry=ENTRY,
-            update_receipt=False, cancelled=cancelled, progress=notify, names=names, marker=MARKER,
-            notify=lambda message: notify('Import KCD1 town residents', 0, 0, message))
+            update_receipt=False, cancelled=cancelled, progress=notify, names=names, marker=marker,
+            prepare=prepare, notify=lambda message: notify(title, 0, 0, message))
         placed = [r['person'] for r in report.get('residents', [])]
         failed = {r['person'] for r in report.get('residue', [])}
         if (report.get('version') != 1 or report.get('level') != LEVEL or report.get('people') != len(placed)
@@ -86,7 +89,10 @@ def upgrade(package, source, target, notify=lambda *a: None, cancelled=lambda: F
             destination.parent.mkdir(parents=True, exist_ok=True)
             path.replace(destination)
         changed = apply_overlay(package, overlay, consume=True) if overlay.exists() else {}
-    notify('Import KCD1 town residents', 1, 1, 'Residents, homes, work and sleep validated')
-    return changed, dict(version=VERSION, mode=MODE, residents=report['residents'], residue=report['residue'],
+    notify(title, 1, 1, 'Homes, work and sleep validated')
+    result = dict(version=VERSION, mode=mode, residents=report['residents'], residue=report['residue'],
         people=report['people'],
         added=len(report['added']), scheduler_validation=True, runtime_verified=False, work=report['work'])
+    if 'prepared' in report:
+        result['prepared'] = report['prepared']
+    return changed, result
