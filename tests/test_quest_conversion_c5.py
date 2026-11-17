@@ -610,27 +610,51 @@ class StageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'project holder'):
             stage.place_holders(dict(self.level(), **{'objects_mission0.xml': b'<Objects><Entity EntityId="1"/></Objects>'}), self.PROJECT, wanted)
 
-    def test_an_actor_is_staged_only_with_a_brain_the_route_converts_or_a_declared_stand_in(self):
-        actor = lambda name, soul, brain: dict(name=name, soul_id=soul, brain=brain)
-        actors = [actor('a', '1', 'day'), actor('b', '2', 'pursuit'), actor('c', '3', 'pursuit'), actor('d', '1', 'day'), actor('e', '5', None)]
-        staged, refused = stage.split_actors(actors, {'day': 'basic'})
-        self.assertEqual([a['name'] for a in staged], ['a'])
-        self.assertEqual([(r['person'], r['reason']) for r in refused],
-                         [('b', 'No native person brain adapter for pursuit'), ('c', 'No native person brain adapter for pursuit'),
-                          ('d', 'one source instance per soul'), ('e', 'No native person brain adapter for None')])
-        staged, refused = stage.split_actors(actors, {'day': 'basic'}, {'pursuit': 'basic'})
-        self.assertEqual([(a['name'], a['brain_stand_in']) for a in staged], [('a', None), ('b', 'basic'), ('c', 'basic')])
-        self.assertEqual(len(staged) + len(refused), len(actors))
-        report = dict(converted=[dict(person='a', soul_id='1', namespace='gm_person_1'), dict(person='b', soul_id='2', namespace='gm_person_2')],
-                      existing=[], pending=[dict(asset='selected_actor_c', person='c', reason='no head')], baseline={})
-        summary = stage.people_summary(report, ('attack',), staged, refused)
-        self.assertEqual((summary['actors'], summary['converted'], summary['existing'], summary['brains']), (5, 2, 0, dict(day=1, pursuit=2)))
-        self.assertEqual([f['person'] for f in summary['failed']], ['d', 'e', 'c'])
-        self.assertEqual(summary['failed'][-1], dict(person='c', reason='no head'))
-        self.assertEqual(summary['brain_stand_ins'], [dict(person='b', source_brain='pursuit', native_brain='basic')])
-        self.assertEqual(summary['converted'] + summary['existing'] + len(summary['failed']), summary['actors'])
-        silent = stage.people_summary(dict(report, pending=[]), ('attack',), staged, refused)
-        self.assertEqual(silent['failed'][-1], dict(person='c', reason='not in the person route report'))
+    def test_an_actor_with_an_unconverted_brain_is_deferred_and_listed_never_staged(self):
+        actor = lambda name, soul, brain: dict(name=name, soul_id=soul, brain=brain, entity_guid='A' + soul, layer='raiders')
+        actors = [actor('a', '1', 'day'), actor('b', '2', 'npc_fake_pursuit'), actor('c', '3', 'npc_fake_pursuit'), actor('d', '1', 'day'),
+                  actor('e', '5', None), actor('f', '6', 'day')]
+        staged, deferred = stage.split_actors(actors, {'day': 'basic'})
+        self.assertEqual([a['name'] for a in staged], ['a', 'f'])
+        self.assertEqual([(r['person'], r['kind'], r['soul_id'], r['entity_guid']) for r in deferred],
+                         [('b', 'brain_npc_fake_pursuit', '2', 'A2'), ('c', 'brain_npc_fake_pursuit', '3', 'A3'),
+                          ('d', 'soul_placed_twice', '1', 'A1'), ('e', 'brain_None', '5', 'A5')])
+        self.assertIn('2026-11-16', deferred[0]['decision'])
+        self.assertIsNone(deferred[3]['decision'])                      # deferred all the same, with no decision to cite
+        self.assertEqual(len(staged) + len(deferred), len(actors))
+        self.assertNotIn('brain_stand_ins', stage.stage_people.__code__.co_varnames)
+        report = dict(converted=[dict(person='a', soul_id='1', namespace='gm_person_1')], existing=[],
+                      pending=[dict(asset='selected_actor_f', person='f', reason='no head')], baseline={})
+        summary = stage.people_summary(report, ('attack',), staged, deferred)
+        self.assertEqual((summary['actors'], summary['converted'], summary['existing'], summary['brains']), (6, 1, 0, dict(day=2)))
+        self.assertEqual(summary['failed'], [dict(person='f', reason='no head')])
+        self.assertEqual(summary['deferred_by_kind'], dict(brain_None=1, brain_npc_fake_pursuit=2, soul_placed_twice=1))
+        self.assertEqual([d['person'] for d in summary['deferred']], ['b', 'c', 'd', 'e'])
+        self.assertEqual(summary['converted'] + summary['existing'] + len(summary['failed']) + len(summary['deferred']), summary['actors'])
+        silent = stage.people_summary(dict(report, pending=[]), ('attack',), staged, deferred)
+        self.assertEqual(silent['failed'], [dict(person='f', reason='not in the person route report')])
+
+    def test_a_horse_the_source_drives_is_deferred_and_an_idle_one_is_kept(self):
+        horse = lambda name, guid: {'Name': name, 'EntityGuid': guid}
+        entities = {'7': {'Name': 'controller', 'EntityClass': 'SmartObjectHolder'}, '8': {'Name': 'path', 'EntityClass': 'PredefinedNavigationPath'},
+                    '9': {'Name': 'stall', 'EntityClass': 'TagPoint'}}
+        horses = [(horse('free', 'B1'), 'attack', [], []), (horse('stabled', 'B2'), 'attack', [dict(Name='horseHome', TargetId='9')], []),
+                  (horse('led', 'B3'), 'attack', [dict(Name='civilian', TargetId='7')], []),
+                  (horse('pathed', 'B4'), 'attack', [dict(Name='', TargetId='8')], []), (horse('ridden', 'B5'), 'attack', [], ['rider'])]
+        idle, deferred = stage.split_horses(horses, entities)
+        self.assertEqual([h[0]['Name'] for h in idle], ['free', 'stabled'])
+        self.assertEqual([(d['horse'], d['kind'], d['entity_guid']) for d in deferred],
+                         [('led', 'horse_driven_by_source_ai', 'B3'), ('pathed', 'horse_driven_by_source_ai', 'B4'),
+                          ('ridden', 'horse_driven_by_source_ai', 'B5')])
+        self.assertEqual(deferred[0]['links'], [dict(link='civilian', target='controller', target_class='SmartObjectHolder')])
+        self.assertEqual(deferred[2]['riders'], ['rider'])
+        self.assertEqual(len(idle) + len(deferred), len(horses))
+
+    def test_a_deferred_actor_found_in_the_level_is_named(self):
+        from campaign_entity_links import native_guid
+        rows = [dict(person='b', entity_guid='A2'), dict(horse='led', entity_guid='B3'), dict(person='c', entity_guid='A3')]
+        self.assertEqual(stage.deferred_in_level(rows, {native_guid(0xA2), native_guid(0xB3), 'other'}), ['b', 'led'])
+        self.assertEqual(stage.deferred_in_level(rows, {'other'}), [])
 
     def test_a_stage_folder_is_never_reused(self):
         import tempfile
