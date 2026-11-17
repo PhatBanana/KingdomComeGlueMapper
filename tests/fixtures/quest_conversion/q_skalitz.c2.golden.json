@@ -91,11 +91,6 @@
       "trees": 1
     },
     {
-      "reason": "Native operation lives in the quest graph: SetOwner (Skald Effect What/Who take level assets; this object is found at run time)",
-      "sites": 1,
-      "trees": 1
-    },
-    {
       "reason": "Quest lifecycle policy needs an adapter: CancelQuest",
       "sites": 1,
       "trees": 1
@@ -248,11 +243,6 @@
       "sites": 7,
       "trees": 4
     },
-    "op_partial": {
-      "reasons": 1,
-      "sites": 1,
-      "trees": 1
-    },
     "profile": {
       "reasons": 2,
       "sites": 4,
@@ -283,7 +273,7 @@
       "sites": 1
     },
     {
-      "calls": "Contexts.ClearOption Contexts.SetNonpersistentOption entity.SetLootLegal",
+      "calls": "Contexts.ClearOption Contexts.SetNonpersistentOption",
       "sites": 1
     },
     {
@@ -304,20 +294,7 @@
     }
   ],
   "ownership": {
-    "left": [
-      {
-        "operation": "SetOwner",
-        "path": "Root/0/0/0/0/6/0/0/3/0/1/0",
-        "reason": "object is found at run time",
-        "tree": "onUpdate"
-      },
-      {
-        "operation": "LuaWrapper",
-        "path": "Root/1/0/0/0",
-        "reason": "loot legality of an object found at run time",
-        "tree": "enemies_battle_fight"
-      }
-    ],
+    "left": [],
     "owned": [
       {
         "alias": "q_skalitz_entity_QuestItem__kunes_chest___580ea511_6786_4168_7f71d56bdb86",
@@ -341,7 +318,31 @@
       }
     ],
     "quest": "q_skalitz",
-    "runtime_verified": false
+    "runtime_verified": false,
+    "stand_ins": [
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build)",
+        "decision": "9a",
+        "effect": "the owner stays as the level has it",
+        "operation": "SetOwner",
+        "path": "Root/0/0/0/0/6/0/0/3/0/1/0",
+        "target": "Success",
+        "tree": "onUpdate"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build)",
+        "decision": "10a",
+        "effect": "looting the NPC who runs the tree stays theft",
+        "fields": [
+          "onEnter",
+          "onExit"
+        ],
+        "operation": "SetLootLegal",
+        "path": "Root/1/0/0/0",
+        "target": "removed statement",
+        "tree": "enemies_battle_fight"
+      }
+    ]
   },
   "prepared": {
     "completed_branches": 15,
@@ -367,7 +368,9 @@
       "LODCheck->SuppressFailure": 1,
       "MakeMeIdle->StopMovement": 4,
       "PlayAnimation->Sequence": 1,
-      "SetLootLegal->SetOwner": 1
+      "SetLootLegal->SetOwner": 1,
+      "SetLootLegal->removed statement": 1,
+      "SetOwner->Success": 1
     },
     "value_renames": 21,
     "verbatim_lua": 7

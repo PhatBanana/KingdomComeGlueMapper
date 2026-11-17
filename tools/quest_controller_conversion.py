@@ -154,6 +154,10 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
                 dict(quest=models[0]['quest'], document='libs/ai/quests/' + models[0]['quest'].lower() + '.xml',
                      tree=site['tree'], path=site['path'], source='SetLootLegal', target='SetOwner')
                 for site in ownership['owned'] if site['stand_in'])
+            prepared['stand_ins'].extend(
+                dict(quest=models[0]['quest'], document='libs/ai/quests/' + models[0]['quest'].lower() + '.xml',
+                     tree=site['tree'], path=site['path'], source=site['operation'], target=site['target'])
+                for site in ownership['stand_ins'])
             lease, schedule = campaign_controller_schedule.adapter(models[0], bound, 'C2', requests['windows'])
             schedule['normalised'] = dict(requests=len(requests['rewritten']), rules=requests['rules'],
                                           windows=len(requests['windows']), left=len(requests['left']))
@@ -293,7 +297,7 @@ def markdown(led, main_path=()):
              '**Layer 1 (emitted trees vs source shape):** checked %(checked)d, passed %(passed)d, failed %(failed)d; '
              '%(residue)d trees not emitted; %(rewritten_nodes)d nodes of the emitted trees are rewritten operations, '
              '%(stand_in_nodes)d of them stand-ins.' % led['layers']['source_equivalence']['summary'], '',
-             '**Stand-ins (not faithful; approved replacements, the save-version check `IfCondition` is unconfirmed) in this controller:** '
+             '**Stand-ins (not faithful; approved replacements) in this controller:** '
              + (', '.join('`%s` x%d' % item for item in sorted(led['prepared'].get('stand_ins', {}).items())) or 'none') + '.', '',
              '## By family', '', '| Family | Reasons | Sites | Trees |', '|---|---:|---:|---:|']
     lines += ['| %s | %d | %d | %d |' % (k, v['reasons'], v['sites'], v['trees']) for k, v in led['families'].items()]
@@ -341,6 +345,8 @@ def markdown(led, main_path=()):
                   '(`campaign_quest_ownership`).', '', '| Tree | Source | Object | Result |', '|---|---|---|---|']
         lines += ['| %s | %s | `%s` (%s) | port `%s`%s |' % (s['tree'], s['operation'], s['reference'], s['asset_type'], s['port'],
                                                          ', stand-in' if s['stand_in'] else '') for s in grant['owned']]
+        lines += ['| %s | %s | | stand-in (decision %s): %s |' % (s['tree'], s['operation'], s['decision'], s['effect'])
+                  for s in grant.get('stand_ins', ())]
         lines += ['| %s | %s | | left: %s |' % (s['tree'], s['operation'], s['reason']) for s in grant['left']]
     if led.get('lua_shapes'):
         lines += ['', '## Lua residue by call shape', '',

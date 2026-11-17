@@ -48,8 +48,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(ownership.quest_assets(report), [dict(port='own_home', alias='q_home', asset_type='SmartAreaAsset')])
 
     def test_anything_the_effect_cannot_express_is_left_as_written(self):
-        cases = [(owner('things[$i]'), 'object is found at run time'),
-                 (owner(Owner='"t_actors[\'kunes\']"'), 'owner is not the player, or the object is marked stolen'),
+        cases = [(owner(Owner='"t_actors[\'kunes\']"'), 'owner is not the player, or the object is marked stolen'),
                  (owner(MarkAsStolen='"true"'), 'owner is not the player, or the object is marked stolen'),
                  (owner(Extra='"1"'), 'fields outside Objects, Owner, MarkAsStolen'),
                  (owner("t_places['elsewhere']"), 'the level does not bind the object to one entity'),
@@ -81,6 +80,45 @@ class ControllerTests(unittest.TestCase):
         # Assigned a second time elsewhere in the tree: not one object.
         steps, report = run(node('Sequence', [assign('$chest = $found')]), assign(), loot())
         self.assertEqual(report['owned'], [])
+
+    def test_an_object_found_at_run_time_keeps_its_level_owner_as_a_flagged_stand_in(self):
+        # Decision 9a: the three things in Kunes's inventory.
+        steps, report = run(node('For', [owner('things[$i]')], array='"things"'))
+        site = steps[0]['children'][0]
+        self.assertEqual((site['op'], site['attributes'], site['source_op'], site['stand_in']),
+                         ('Success', {}, 'SetOwner', 'the owner the level gives'))
+        self.assertEqual((report['owned'], report['left']), ([], []))
+        self.assertEqual([(r['operation'], r['target'], r['decision'], r['path']) for r in report['stand_ins']],
+                         [('SetOwner', 'Success', '9a', 'Root/0/0/0')])
+        # Another owner, a stolen mark or an unknown field is not that decision.
+        for other in (owner('things[$i]', Owner='"$kunes"'), owner('things[$i]', MarkAsStolen='"true"'),
+                      owner('things[$i]', Extra='"1"')):
+            steps, report = run(other)
+            self.assertEqual((steps[0]['op'], report['stand_ins'], len(report['left'])), ('SetOwner', [], 1))
+
+    def test_loot_legality_of_the_acting_npc_is_removed_from_a_wrapper_that_keeps_its_other_statements(self):
+        # Decision 10a: the boys' fight wrapper.
+        enter = "Contexts.SetNonpersistentOption(entity, 'keep', 'q') \n \nentity.SetLootLegal(true)"
+        leave = "Contexts.ClearOption(entity, 'keep', 'q') \nentity.SetLootLegal(false)"
+        steps, report = run(node('LuaWrapper', [node('Success')], onEnter='"%s"' % enter, onExit='"%s"' % leave))
+        self.assertEqual((steps[0]['op'], steps[0]['attributes'], len(steps[0]['children']), steps[0]['stand_in']),
+                         ('LuaWrapper', dict(onEnter='"Contexts.SetNonpersistentOption(entity, \'keep\', \'q\')"',
+                                             onExit='"Contexts.ClearOption(entity, \'keep\', \'q\')"'), 1,
+                          'no loot legality for the acting NPC'))
+        self.assertEqual([(r['operation'], r['decision'], r['fields']) for r in report['stand_ins']],
+                         [('SetLootLegal', '10a', ['onEnter', 'onExit'])])
+        self.assertEqual(report['left'], [])
+        # One field only; the other is untouched.
+        steps, report = run(node('LuaWrapper', [node('Success')], onEnter='"%s"' % enter, onExit='"Dump(1)"'))
+        self.assertEqual((steps[0]['attributes']['onExit'], report['stand_ins'][0]['fields']), ('"Dump(1)"', ['onEnter']))
+        # Loot of another entity, a call inside a statement, or an unknown field stays as written.
+        for scripts in (dict(onEnter='"Dump(1)\nother.SetLootLegal(true)"', onExit='"Dump(2)"'),
+                        dict(onEnter='"Dump(1)\nentity.SetLootLegal(true)\nother.SetLootLegal(true)"', onExit='"Dump(2)"'),
+                        dict(onEnter='"Dump(1)\nlocal ok = entity.SetLootLegal(true)"', onExit='"Dump(2)"'),
+                        dict(onEnter='"if x then entity.SetLootLegal(true) end"', onExit='"Dump(2)"'),
+                        dict(onEnter='"%s"' % enter, onExit='"Dump(2)"', onUpdate='"Dump(3)"')):
+            steps, report = run(node('LuaWrapper', [node('Success')], **scripts))
+            self.assertEqual((steps[0]['attributes'], report['stand_ins'], len(report['left'])), (scripts, [], 1))
 
     def test_two_objects_cannot_share_a_port(self):
         assets = dict(ASSETS, **{"t_other['home']": dict(alias='q_other', asset_type='StashAsset')})

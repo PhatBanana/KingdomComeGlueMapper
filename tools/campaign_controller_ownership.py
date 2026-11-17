@@ -16,7 +16,17 @@ holds the effect (campaign_quest_ownership):
            reported as a stand-in, since owning is more than lootable)
 
 An object found at run time (an item in an inventory, the NPC running the
-tree) has no asset and is left as written. Not runtime-verified.
+tree) has no asset. Two such shapes are stand-ins by decision (Sean,
+2026-11-16, relayed by Build); any other is left as written:
+
+    SetOwner Objects="<found at run time>" Owner="__player" MarkAsStolen="false"
+        -> Success (decision 9a: the owner stays as the level has it)
+    entity.SetLootLegal(true|false) as a statement of a wrapper script
+        -> the statement is removed, the rest of the script stays
+           (decision 10a: looting the NPC who runs the tree is theft, as for
+           any NPC in KCD2)
+
+Not runtime-verified.
 """
 import re
 import xml.etree.ElementTree as ET
@@ -27,6 +37,10 @@ REFERENCE = re.compile(r"\$?(t_\w+\['(\w+)'\])")
 LOOT = re.compile(r"XGenAIModule\.GetEntityByWUID\(data\.(\w+)\):SetLootLegal\(true\)")
 ASSIGN = re.compile(r"\$(\w+)\s*=\s*(\S+)")
 APPROVED = 'Sean, 2026-11-14 (relayed by the coordinator), stand-in 8'
+DECIDED = 'Sean, 2026-11-16 (relayed by Build)'
+RUN_TIME_OBJECT = 'object is found at run time'
+SELF_LOOT = re.compile(r'^[ \t]*entity\.SetLootLegal\((?:true|false)\)[ \t\r]*(?:\n|$)', re.M)
+WRAPPER_FIELDS = ('onEnter', 'onExit')
 
 
 def _text(node, name):
@@ -53,7 +67,7 @@ def _target(node, parent, root):
         if _text(node, 'Owner') not in PLAYER or _text(node, 'MarkAsStolen') != 'false':
             return 'owner is not the player, or the object is marked stolen'
         match = REFERENCE.fullmatch(_text(node, 'Objects'))
-        return (match[1], False) if match else 'object is found at run time'
+        return (match[1], False) if match else RUN_TIME_OBJECT
     code = LOOT.fullmatch(_text(node, 'code').strip()) if node['op'] == 'ExecuteLua' else None
     if not code or set(node['attributes']) - {'code', 'saveVersion'}:
         return 'loot legality of an object found at run time'
@@ -67,6 +81,25 @@ def _target(node, parent, root):
     return (match[1], True) if match else 'loot legality of an object found at run time'
 
 
+def _without_self_loot(node):
+    """{field: script} with every `entity.SetLootLegal(..)` statement removed, or None.
+
+    Only a wrapper whose scripts keep another statement qualifies: a node is
+    never emptied.
+    """
+    if node['op'] != 'LuaWrapper' or set(node['attributes']) - {*WRAPPER_FIELDS, 'saveVersion'}:
+        return None
+    changed = {}
+    for field in WRAPPER_FIELDS:
+        script = _text(node, field)
+        kept = SELF_LOOT.sub('', script)
+        if 'SetLootLegal' in kept or (kept != script and not kept.strip()):
+            return None
+        if kept != script:
+            changed[field] = kept.rstrip()
+    return changed or None
+
+
 def apply(model, assets):
     """Rewrite the ownership sites the level binds; return the report.
 
@@ -74,7 +107,7 @@ def apply(model, assets):
     {reference: dict(alias, asset_type)} for references bound to one object.
     """
     own = model['behavior_documents'].get('libs/ai/quests/' + model['quest'].lower() + '.xml', dict(trees={}))
-    report = dict(quest=model['quest'], owned=[], left=[], runtime_verified=False)
+    report = dict(quest=model['quest'], owned=[], stand_ins=[], left=[], runtime_verified=False)
     ports = {}
     for tree, body in own['trees'].items():
         for node, path, parent in list(_walk(body['root'])):
@@ -86,6 +119,19 @@ def apply(model, assets):
                 target = 'the level does not bind the object to one entity'
             elif isinstance(target, tuple) and assets[target[0]]['asset_type'] not in WHAT:
                 target = 'no retail SetOwner takes this class: ' + assets[target[0]]['asset_type']
+            if target == RUN_TIME_OBJECT:
+                node.update(op='Success', attributes={}, source_op='SetOwner', stand_in='the owner the level gives')
+                report['stand_ins'].append(dict(tree=tree, path=path, operation='SetOwner', target='Success', decision='9a',
+                                                approved=DECIDED, effect='the owner stays as the level has it'))
+                continue
+            scripts = _without_self_loot(node) if not isinstance(target, tuple) else None
+            if scripts:
+                node['attributes'].update({field: '"' + script + '"' for field, script in scripts.items()})
+                node['stand_in'] = 'no loot legality for the acting NPC'
+                report['stand_ins'].append(dict(tree=tree, path=path, operation='SetLootLegal', target='removed statement',
+                                                decision='10a', approved=DECIDED, fields=sorted(scripts),
+                                                effect='looting the NPC who runs the tree stays theft'))
+                continue
             if not isinstance(target, tuple):
                 report['left'].append(dict(tree=tree, path=path, operation=node['op'], reason=target))
                 continue

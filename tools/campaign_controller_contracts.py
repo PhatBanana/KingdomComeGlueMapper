@@ -390,7 +390,7 @@ STAND_INS = {'MakeMeIdle': ('StopMovement', _stop_movement, APPROVED),
              'LODCheck': ('the Detail branch', _detail_branch, APPROVED),
              'PlayAnimation': ('Sequence after the animation', _after_animation, APPROVED),
              'IfCondition': ('IfCondition false', _no_old_save,
-                             'recommended 2026-11-14, not confirmed by Sean; flagged in the ledger')}
+                             'Sean, 2026-11-16 (relayed by Build): told of the stand-in, did not object')}
 
 
 # source op -> (native shape, rule). The rule's docstring is its evidence.

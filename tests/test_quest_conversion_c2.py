@@ -420,7 +420,7 @@ class ContractTests(unittest.TestCase):
             _, _, report = self.lower(dict(check, attributes=dict(check['attributes'], condition=q(other))),
                                       [dict(name='ready', type='_bool', form='single'), dict(name='count', type='_int', form='single')])
             self.assertEqual((report['stand_ins'], report['rename_blocked']), ([], []))
-        self.assertIn('not confirmed', contracts.STAND_INS['IfCondition'][2])
+        self.assertIn('2026-11-16', contracts.STAND_INS['IfCondition'][2])
 
     def test_every_rewrite_target_and_hook_has_a_contract(self):
         import campaign_behavior
