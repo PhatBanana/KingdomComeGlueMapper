@@ -25,5 +25,21 @@ class SoulVoiceTests(unittest.TestCase):
             soul_voice([])
 
 
+class MarketJobTests(unittest.TestCase):
+    def test_a_keeper_never_takes_the_job_of_a_keeper_whose_name_extends_it(self):
+        # unified-13: sas_merchant took gm_schedule_sas_merchant_grocery_11682.
+        import xml.etree.ElementTree as E
+        from setup_work_speech import market_jobs
+        mission = E.fromstring('<Objects>'
+            '<Entity Name="gm_schedule_sas_merchant_11664"><Properties guidSmartObjectType="m"/></Entity>'
+            '<Entity Name="gm_schedule_sas_merchant_grocery_11682"><Properties guidSmartObjectType="m"/></Entity>'
+            '<Entity Name="gm_schedule_sas_merchant_11665"><Properties guidSmartObjectType="other"/></Entity>'
+            '</Objects>')
+        self.assertEqual([e.get('Name') for e in market_jobs(mission, 'sas_merchant', 'm')],
+                         ['gm_schedule_sas_merchant_11664'])
+        self.assertEqual([e.get('Name') for e in market_jobs(mission, 'sas_merchant_grocery', 'm')],
+                         ['gm_schedule_sas_merchant_grocery_11682'])
+
+
 if __name__ == '__main__':
     unittest.main()

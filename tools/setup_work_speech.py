@@ -1,5 +1,5 @@
 """Upgrade native market workers with source actor-bound advertising speech."""
-import hashlib,json,copy
+import hashlib,json,copy,re
 from pathlib import Path
 import xml.etree.ElementTree as E
 import zipfile
@@ -15,6 +15,12 @@ def soul_voice(reports):
  if not voices or any(v['voice_technical_name']!=voices[0]['voice_technical_name'] for v in voices):
   raise ValueError('Work speech branches disagree on the speaker voice')
  return voices[0]
+
+def market_jobs(mission,name,template):
+ """A person's market jobs, gm_schedule_<name>_<EntityId>: never another person whose name extends it (sas_merchant_grocery)."""
+ pattern=re.compile('gm_schedule_'+re.escape(name)+r'_\d+')
+ return [e for e in mission if pattern.fullmatch(e.get('Name','')) and e.find('Properties') is not None
+         and e.find('Properties').get('guidSmartObjectType')==template]
 
 def upgrade(package,source,target):
  from campaign_dependency_adapters import SourceTables
@@ -46,7 +52,7 @@ def upgrade(package,source,target):
   mission=E.fromstring(read(z,'objects_mission0.xml')); scheduler=E.fromstring(read(z,'tables/ai/scheduler.xml'))
  soul_names={r.get('soul_id'):r.get('soul_name') for n,b in resources.items() if n.startswith('Libs/Tables/rpg/soul__') for r in E.fromstring(b).iter('soul')}
  template=contract(target).get('DatabaseId')
- jobs={s:[e for e in mission if e.get('Name','').startswith('gm_schedule_'+name+'_') and e.find('Properties') is not None and e.find('Properties').get('guidSmartObjectType')==template] for s,name in soul_names.items()}
+ jobs={s:market_jobs(mission,name,template) for s,name in soul_names.items()}
  soul_names={s:n for s,n in soul_names.items() if jobs[s]}
  from campaign_entity_links import guid_value
  for soul,name in soul_names.items():
