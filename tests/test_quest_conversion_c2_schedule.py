@@ -60,9 +60,11 @@ class ScheduleTests(unittest.TestCase):
         trees, bindings, report = schedule.select(models[0], REFERENCES)
         self.assertEqual(trees, {(DOCUMENT, 'cutscene_ok')})
         self.assertEqual(bindings, {(DOCUMENT, 'cutscene_ok', "t_actors['worker']"): ACTOR})
-        self.assertEqual(report['rejected'], dict(actor_not_in_level=1, addition_fields=1, lease_policy=1,
+        self.assertEqual(report['rejected'], dict(actor_not_in_level=1, addition_fields=1, removal_without_addition=1,
                                                   next_activity_boundary=1, removal_fields=1, runtime_actor=1,
                                                   synchronous_request=1))
+        self.assertEqual(report['sites']['cutscene_removal'], {'Root/0': 'removal_without_addition'})
+        self.assertEqual(report['sites']['cutscene_mixed'], {'Root/0/0': 'tree', 'Root/0/1': 'removal_fields'})
         self.assertEqual((report['requests'], report['accepted_requests'], report['accepted_shape_in_a_rejected_tree']), (9, 1, 1))
 
     def test_a_lease_shared_by_two_trees_needs_one_policy(self):
@@ -72,6 +74,24 @@ class ScheduleTests(unittest.TestCase):
         differing = dict(same, cutscene_b=send(ADD.replace('priority(60)', 'priority(70)')))
         trees, _, report = schedule.select(prepared(differing)[0][0], REFERENCES)
         self.assertEqual((trees, report['rejected']), (set(), dict(lease_policy=3)))
+        self.assertEqual(report['sites'], dict(cutscene_a={'Root/0': 'lease_policy'}, cutscene_b={'Root/0': 'lease_policy'},
+                                               cutscene_c={'Root/0': 'lease_policy'}))
+        # The controller under its two names is one policy to KCD1 and two to the lease adapter.
+        scopes = dict(cutscene_b=send(), cutscene_c=node('Sequence', [send("add(false),handle('h_wait')"),
+                                                                                    send(ADD.replace('h_wait', 'h_c').replace('$this.id', '$__object.id'))]))
+        models_ = prepared(scopes, automaton=False)[0]
+        models_[0]['behavior_documents'][DOCUMENT]['trees']['entry']['root']['children'] = [send()]
+        models_[0]['behavior_documents'][DOCUMENT]['trees']['cutscene_b']['root']['children'][0]['attributes']['values'] = \
+            ADD.replace('$this.id', '$__object.id')
+        trees, _, report = schedule.select(models_[0], REFERENCES)
+        self.assertEqual((trees, report['rejected']), (set(), dict(lease_from_two_scopes=3)))
+        self.assertEqual(report['sites']['cutscene_c'], {'Root/0/0': 'lease_from_two_scopes', 'Root/0/1': 'tree'})
+        # A removal whose addition sits in a tree that waits for another reason waits with it.
+        waiting = dict(cutscene_a=node('Sequence', [send(), send(ADD.replace('h_wait', 'h_r'), target='this.id')]),
+                       cutscene_c=send("add(false),handle('h_wait')"))
+        trees, _, report = schedule.select(prepared(waiting)[0][0], REFERENCES)
+        self.assertEqual((trees, report['rejected'], report['sites']['cutscene_c']),
+                         (set(), dict(runtime_actor=1, lease_in_a_waiting_tree=1), {'Root/0': 'lease_in_a_waiting_tree'}))
         other_actor = dict(same, cutscene_b=send(ADD.replace('priority(60)', 'priority(70)'), target="t_actors['other']"))
         self.assertEqual(len(schedule.select(prepared(other_actor)[0][0], REFERENCES)[0]), 3)
 
@@ -142,6 +162,25 @@ class NormaliseTests(unittest.TestCase):
             values, report = self.run_one(self.BASE + ',' + whole)
             self.assertEqual((values, report['windows']), (self.BASE + ',immediate(false)', {}))
 
+    def test_a_request_that_waits_is_an_immediate_lease_by_decision_and_says_so(self):
+        # Decision 11a. Off unless asked for; its window survives; an immediate request is not touched.
+        subject = model(dict(a=send(self.BASE + ',startTime(10),endTime(20)'), b=send(self.BASE + ',immediate(true)'),
+                             c=send(self.BASE + ',immediate(false)'), d=send(self.BASE + ',startTime(22),endTime(6)'),
+                             e=send("add(false),handle('h')")))
+        report = schedule.normalise(subject, boundary=True)
+        trees = subject['behavior_documents'][DOCUMENT]['trees']
+        site = lambda name: trees[name]['root']['children'][0]
+        self.assertEqual([site(name)['attributes']['values'] for name in 'abc'], [self.BASE + ',immediate(true)'] * 3)
+        self.assertEqual(([site(name).get('stand_in') for name in 'abcde'], report['boundaries'], report['windows']),
+                         (['immediate lease, urgency Slow', None, 'immediate lease, urgency Slow', None, None],
+                          [dict(tree='a', path='Root/0'), dict(tree='c', path='Root/0')], {('a', 'Root/0'): (600, 1200)}))
+        self.assertEqual((report['rules']['boundary'], [r['rules'] for r in report['rewritten'] if r['tree'] == 'a']),
+                         (2, [['immediate:default', 'window:kept', 'boundary:slow']]))
+        # A window with no level form keeps the whole request as written.
+        self.assertIn('immediate(false)', site('d')['attributes']['values'])
+        self.assertIn('decision 11a', schedule.BOUNDARY)
+        self.assertEqual(schedule.normalise(model(dict(a=send(self.BASE))))['boundaries'], [])
+
     def test_a_window_without_a_level_form_is_left_as_written(self):
         for window in ('startTime(-1),endTime(2)', 'startTime(22),endTime(6)', 'startTime($hour),endTime(24)',
                        'startTime(10.001),endTime(20)', 'startTime(10),endTime(25)'):
@@ -178,6 +217,44 @@ class WorldSideTests(unittest.TestCase):
                          ({('1', 'h')}, 95, 'Slow'))
         self.assertTrue(policies[('1', 'h')]['evidence'].strip())
         self.assertEqual(set(policies[('1', 'h')]), {'priority', 'urgency', 'evidence'})
+        self.assertNotIn('decision 11a', policies[('1', 'h')]['evidence'])
+        prepared_['leases'][0]['sites'] = [dict(tree='t', path='Root/0'), dict(tree='t', path='Root/1')]
+        self.assertIn('decision 11a', schedule.native_policies(prepared_, [dict(tree='t', path='Root/1')])[('1', 'h')]['evidence'])
+        self.assertNotIn('decision 11a', schedule.native_policies(prepared_, [dict(tree='u', path='Root/1')])[('1', 'h')]['evidence'])
+
+    def test_the_preflight_lists_everything_the_converted_world_lacks(self):
+        import xml.etree.ElementTree as ET
+        plan = dict(owner='q_example', leases=[
+            dict(actor='1', handle='h', policy=dict(behavior='work', callback=dict(document=DOCUMENT, tree='work'))),
+            dict(actor='2', handle='g', policy=dict(behavior='rest', callback=dict(document=DOCUMENT, tree='rest')))])
+        conversion = dict(trees=[dict(owner='q_example', document=DOCUMENT, tree='work', native_emitted=True),
+                                 dict(owner='q_example', document=DOCUMENT, tree='rest', native_emitted=False),
+                                 dict(owner='q_other', document=DOCUMENT, tree='rest', native_emitted=True)])
+        def world(*entities):
+            return ET.fromstring('<Objects>%s</Objects>' % ''.join('<Entity EntityGuid="%s" EntityClass="%s" />' % e for e in entities))
+        template = ET.fromstring('<SmartEntityTemplate><BehaviorTemplates><SmartBehaviorTemplate Name="work" />'
+                                 '</BehaviorTemplates></SmartEntityTemplate>')
+        guid = lambda number: '%08x-0000-0000' % number
+        empty = schedule.preflight(plan, guid(9), world(), None, conversion)
+        self.assertEqual((empty['controller_in_world'], empty['controller_is_holder'], empty['template'], empty['ready']),
+                         (False, False, False, False))
+        from campaign_entity_links import guid_value
+        plan['leases'][0]['actor'], plan['leases'][1]['actor'] = str(guid_value(guid(1))), str(guid_value(guid(2)))
+        part = schedule.preflight(plan, guid(9), world((guid(9), 'NPC'), (guid(1), 'NPC')), template, conversion)
+        self.assertEqual((part['controller_in_world'], part['controller_is_holder'], part['template'], part['ready']),
+                         (True, False, True, False))
+        self.assertEqual([(l['actor_in_world'], l['callback_emitted'], l['callback_registered']) for l in part['leases']],
+                         [(True, True, True), (False, False, False)])
+        one = dict(plan, leases=plan['leases'][:1])
+        self.assertTrue(schedule.preflight(one, guid(9), world((guid(9), 'SmartObjectHolder'), (guid(1), 'NPC')), template, conversion)['ready'])
+        self.assertFalse(schedule.preflight(one, guid(9), world((guid(9), 'SmartObjectHolder'), (guid(1), 'NPC')), None, conversion)['ready'])
+        holder = world((guid(9), 'SmartObjectHolder'), (guid(1), 'NPC'))
+        self.assertFalse(schedule.preflight(plan, guid(9), holder, template, conversion)['ready'])
+        self.assertFalse(schedule.preflight(dict(plan, leases=[]), guid(9), holder, None, conversion)['ready'])
+        self.assertTrue(schedule.preflight(dict(plan, leases=[]), guid(9), holder, template, conversion)['ready'])
+        class Lease: plan, controller = one, guid(9)
+        with self.assertRaisesRegex(ValueError, 'controller_in_world, controller_is_holder, template, 1 of 1 leases incomplete'):
+            schedule.install(Lease, world(), None, None, None, conversion, {}, 'C2', None, {})
 
     def test_a_window_is_written_on_the_leases_own_link_only(self):
         table = self.scheduler('lease_a', 'lease_b')

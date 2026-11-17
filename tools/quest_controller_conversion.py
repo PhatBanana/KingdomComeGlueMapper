@@ -152,7 +152,9 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
         import campaign_controller_ownership
         import campaign_controller_schedule
         # Requests are first reduced to the fields KCD1's own daycycle consumer acts on.
-        requests = campaign_controller_schedule.normalise(models[0])
+        requests = campaign_controller_schedule.normalise(models[0], boundary=True)
+        prepared['stand_ins'].extend(dict(site, quest=models[0]['quest'], document=own, source='daycycle:change waiting',
+                                          target='lease, urgency Slow') for site in requests['boundaries'])
         if level:
             bound = campaign_controller_schedule.level_bindings(kcd1, level, models[0])
             # Ownership the controller grants becomes a signal to the quest, which holds the effect.
@@ -167,7 +169,9 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
                 for site in ownership['stand_ins'])
             lease, schedule = campaign_controller_schedule.adapter(models[0], bound, 'C2', requests['windows'])
             schedule['normalised'] = dict(requests=len(requests['rewritten']), rules=requests['rules'],
-                                          windows=len(requests['windows']), left=len(requests['left']))
+                                          windows=len(requests['windows']), left=len(requests['left']),
+                                          boundaries=len(requests['boundaries']),
+                                          boundary_approved=campaign_controller_schedule.BOUNDARY)
         behaviors, bridges, conversion = convert_behaviors(models, 'C2', catalog, importer=importer,
                                                            profile_streaming=read(scripts, STREAMING_SOURCE),
                                                            schedule_adapter=lease)
@@ -177,6 +181,8 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
                 import_failures=[dict(group=group, reason=reason, count=count) for (group, reason), count in failed.most_common()],
                 schedule=schedule, scenes=scene_seam, ownership=ownership, combat=combat,
+                # For `campaign_controller_schedule.install` on the converted level; not part of the ledger.
+                lease=dict(adapter=lease, windows=requests['windows'], boundaries=requests['boundaries']),
                 profiles=profile_report(importer, owned_profiles))
 
 

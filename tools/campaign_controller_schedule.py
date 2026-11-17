@@ -53,7 +53,10 @@ def _fields(values):
     return fields
 
 
-def normalise(model):
+BOUNDARY = 'Sean, 2026-11-16 (relayed by Build), decision 11a: urgency Slow stands for the next activity boundary'
+
+
+def normalise(model, boundary=False):
     """Rewrite the controller's daycycle requests in place; return the report.
 
     removal      only `handle` is read (`RemovePatch handle`): `name` and
@@ -68,11 +71,16 @@ def normalise(model):
                  whole-day window is the default and is dropped. `startTime(-1)`
                  with an `endTime` below 24 is a duration from the moment of the
                  request and is left as written (no level-side form).
+    boundary     with `boundary` (decision 11a), an addition that is not immediate
+                 is presented to the lease adapter as immediate: KCD1 lets the
+                 running activity end first, and no level field says that; the
+                 lease's urgency Slow (`native_policies`) stands for it. A
+                 stand-in, listed in `boundaries`; its window is kept.
     A request with any other unlisted field, or a dynamic value in one of these,
     is left as written.
     """
     own = 'libs/ai/quests/' + model['quest'].lower() + '.xml'
-    report = dict(rewritten=[], windows={}, left=[])
+    report = dict(rewritten=[], windows={}, left=[], boundaries=[])
     for tree, body in model['behavior_documents'][own]['trees'].items():
         stack = [(body['root'], 'Root')]
         while stack:
@@ -115,6 +123,11 @@ def normalise(model):
                         window = False
                     if window is not False:
                         fields.pop('startTime', None); fields.pop('endTime', None)
+                if boundary and fields['immediate'] == 'false' and window is not False:
+                    fields['immediate'] = 'true'
+                    rules.append('boundary:slow')
+                    node['stand_in'] = 'immediate lease, urgency Slow'
+                    report['boundaries'].append(dict(tree=tree, path=path))
             if window:
                 report['windows'][(tree, path)] = window
             if rules:
@@ -193,31 +206,48 @@ def select(model, references, windows=None):
     accepted = {tree for tree, records in requests.items() if not any(r['missing'] for r in records)}
     for records in requests.values():
         rejected.update(r['missing'] for r in records if r['missing'])
+
+    def identity(r):
+        return references[r['actor'].lstrip('$')], r['handle']
+
+    def policy(tree, r):
+        return (r['behavior'], r['source'], r['priority'], r['immediate'], r['once'], r.get('callback', {}).get('tree'),
+                windows.get((tree, r['path'])))
+    # Every addition of the accepted shape, in whichever tree: a lease whose addition
+    # sits in a waiting tree waits with it; one with no such addition has none to bind.
+    known = {identity(r) for tree, records in requests.items() for r in records if not r['missing'] and r['add']}
     # A lease is one actor and handle. It needs an addition with one policy
     # among the accepted trees; otherwise every tree that touches it waits.
-    changed, by_policy = True, set()
+    changed, causes = True, {}
     while changed:
         changed = False
         leases = {}
         for tree in accepted:
             for r in requests[tree]:
-                lease = leases.setdefault((references[r['actor'].lstrip('$')], r['handle']), dict(trees=set(), policies=set()))
-                lease['trees'].add(tree)
+                lease = leases.setdefault(identity(r), dict(sites=[], policies=set()))
+                lease['sites'].append((tree, r['path']))
                 if r['add']:
-                    lease['policies'].add((r['behavior'], r['source'], r['priority'], r['immediate'], r['once'],
-                                           r.get('callback', {}).get('tree'), windows.get((tree, r['path']))))
-        for lease in leases.values():
-            if len(lease['policies']) != 1 or None in {p[5] for p in lease['policies']}:
-                rejected['lease_policy'] += sum(len(requests[t]) for t in lease['trees'] & accepted)
-                by_policy |= lease['trees'] & accepted
-                accepted -= lease['trees']
-                changed = True
+                    lease['policies'].add(policy(tree, r))
+        for key, lease in leases.items():
+            policies = lease['policies']
+            if len(policies) == 1 and None not in {p[5] for p in policies}:
+                continue
+            # The maintainer's lease holds its source as written, so the controller named
+            # `$this.id` in its entry tree and `$__object.id` in a tree it runs are two policies.
+            cause = ('lease_from_two_scopes' if len(policies) > 1 and len({p[:1] + p[2:] for p in policies}) == 1
+                     else 'lease_policy' if policies
+                     else 'lease_in_a_waiting_tree' if key in known else 'removal_without_addition')
+            for site in lease['sites']:
+                causes[site] = cause
+            accepted -= {tree for tree, _ in lease['sites']}
+            changed = True
+    rejected.update(causes.values())
     bindings = {(own, tree, r['actor']): references[r['actor'].lstrip('$')] for tree in accepted for r in requests[tree]}
     report = dict(requests=sum(map(len, requests.values())), trees_with_requests=len(requests),
                   accepted_requests=sum(len(requests[t]) for t in accepted), accepted_trees=sorted(accepted),
                   rejected=dict(sorted(rejected.items())), runtime_verified=False, publishable=False)
     # Why each request site outside the accepted trees waits: {tree: {path: capability}}.
-    report['sites'] = {tree: {r['path']: r['missing'] or ('lease_policy' if tree in by_policy else 'tree')
+    report['sites'] = {tree: {r['path']: r['missing'] or causes.get((tree, r['path']), 'tree')
                               for r in records} for tree, records in requests.items() if tree not in accepted}
     # Requests of the accepted shape that wait because their tree holds a rejected one.
     report['accepted_shape_in_a_rejected_tree'] = (report['requests'] - report['accepted_requests']
@@ -240,17 +270,23 @@ def adapter(model, level, namespace, windows=None):
     return ScheduleAdapter(prepared, level['controller'], namespace), report
 
 
-def native_policies(prepared):
+def native_policies(prepared, boundaries=()):
     """{(actor, handle): priority, urgency, evidence} for `campaign_schedule_routes.assemble`.
+
+    `boundaries` is `normalise`'s: a lease with such a site says so in its evidence.
 
     The same mapping the maintainer's callers use (`campaign_behavior_schedule.source_policy`):
     the source priority as written, and the halt speed, whose KCD1 default is slow. An
     addition that names another halt speed is not accepted by the request parser.
     """
+    waits = {(site['tree'], site['path']) for site in boundaries}
     return {(lease['actor'], lease['handle']): dict(
         priority=lease['policy']['priority'], urgency='Slow',
         evidence='KCD1 priority as written; immediateDaycycleHaltSpeed defaults to slow (TypeDefinitions.xml), '
-                 'mapped as campaign_behavior_schedule.source_policy does') for lease in prepared['leases']}
+                 'mapped as campaign_behavior_schedule.source_policy does'
+                 + ('; stand-in for a request that waits for the next activity (' + BOUNDARY + ')'
+                    if any((site['tree'], site['path']) in waits for site in lease.get('sites', ())) else ''))
+            for lease in prepared['leases']}
 
 
 def apply_windows(scheduler, routes, windows):
@@ -278,3 +314,52 @@ def apply_windows(scheduler, routes, windows):
         parameters.set('TimeOfDayStart', str(start)); parameters.set('TimeOfDayEnd', str(end))
         changed += 1
     return changed
+
+
+def preflight(prepared, controller, objects, template, conversion):
+    """What `campaign_schedule_routes.assemble` would need from this converted world, and has.
+
+    `objects` is the converted level's entity list, `template` the controller's
+    converted smart-object template or None, `conversion` the behaviour
+    compiler's report. Every lack is listed, not only the first one `assemble`
+    would raise on.
+    """
+    from campaign_entity_links import guid_value
+    entities = {str(guid_value(e.get('EntityGuid'))): e for e in objects if e.get('EntityGuid')}
+    host = entities.get(str(guid_value(controller)))
+    registered = {b.get('Name') for b in template.iter('SmartBehaviorTemplate')} if template is not None else set()
+    emitted = {(r['document'], r['tree']) for r in conversion['trees']
+               if r['owner'] == prepared['owner'] and r['native_emitted']}
+    leases = [dict(actor=lease['actor'], handle=lease['handle'], behavior=lease['policy']['behavior'],
+                   actor_in_world=lease['actor'] in entities,
+                   callback_emitted=(lease['policy']['callback']['document'], lease['policy']['callback']['tree']) in emitted,
+                   callback_registered=lease['policy']['behavior'] in registered) for lease in prepared['leases']]
+    report = dict(controller_in_world=host is not None,
+                  controller_is_holder=host is not None and host.get('EntityClass') == 'SmartObjectHolder',
+                  template=template is not None, leases=leases)
+    report['ready'] = (report['controller_is_holder'] and report['template']
+                       and all(l['actor_in_world'] and l['callback_emitted'] and l['callback_registered'] for l in leases))
+    return report
+
+
+def install(lease, objects, scheduler, template, activity_template, conversion, behaviors, namespace, native,
+            windows, boundaries=()):
+    """Assemble the world side of the accepted leases: the maintainer's `assemble`
+    (which calls `ScheduleAdapter.install`) with `native_policies`, then `apply_windows`.
+
+    `lease` is the adapter `adapter()` returned and the compiler used. Returns
+    `assemble`'s tuple with the windows written and counted in its report.
+    Not exercised on a real world yet: no converted level holds the controller.
+    """
+    from campaign_schedule_routes import assemble
+    check = preflight(lease.plan, lease.controller, objects, template, conversion)
+    if not check['ready']:
+        raise ValueError('Converted world cannot take the leases yet: ' + ', '.join(
+            sorted(k for k in ('controller_in_world', 'controller_is_holder', 'template') if not check[k])
+            + ['%d of %d leases incomplete' % (sum(not (l['actor_in_world'] and l['callback_emitted'] and l['callback_registered'])
+                                                   for l in check['leases']), len(check['leases']))]))
+    world, schedule, host_template, additions, report = assemble(
+        lease.plan, objects, scheduler, lease.controller, template, activity_template, conversion, behaviors,
+        native_policies(lease.plan, boundaries), namespace, lifecycle=lease, native=native)
+    report['windows_written'] = apply_windows(schedule, report['routes'], windows)
+    return world, schedule, host_template, additions, report

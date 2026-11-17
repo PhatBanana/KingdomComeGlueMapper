@@ -2,13 +2,8 @@
   "blockers": [
     {
       "reason": "Daycycle request fits the lease adapter; its tree holds one that does not",
-      "sites": 18,
-      "trees": 2
-    },
-    {
-      "reason": "Daycycle request needs a lease capability: next_activity_boundary",
-      "sites": 14,
-      "trees": 2
+      "sites": 23,
+      "trees": 1
     },
     {
       "reason": "Referenced message_type conversion did not complete: cutscene",
@@ -36,6 +31,11 @@
       "trees": 2
     },
     {
+      "reason": "Daycycle request needs a lease capability: removal_without_addition",
+      "sites": 3,
+      "trees": 1
+    },
+    {
       "reason": "Interrupt behaviour uses combat sub-brain state: t_exitCombatSubbrain",
       "sites": 3,
       "trees": 3
@@ -46,7 +46,12 @@
       "trees": 2
     },
     {
-      "reason": "Daycycle request needs a lease capability: lease_policy",
+      "reason": "Daycycle request needs a lease capability: lease_from_two_scopes",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: lease_in_a_waiting_tree",
       "sites": 2,
       "trees": 1
     },
@@ -459,9 +464,9 @@
       "trees": 5
     },
     "daycycle_lifecycle": {
-      "reasons": 7,
-      "sites": 67,
-      "trees": 20
+      "reasons": 8,
+      "sites": 63,
+      "trees": 21
     },
     "items": {
       "reasons": 1,
@@ -613,7 +618,8 @@
       "SetLootLegal->removed statement": 1,
       "SetOwner->Success": 1,
       "customBehaviorRequest->AddInterrupt_empty": 7,
-      "customBehaviorRequest->AddInterrupt_wuidData": 2
+      "customBehaviorRequest->AddInterrupt_wuidData": 2,
+      "daycycle:change waiting->lease, urgency Slow": 18
     },
     "value_renames": 21,
     "verbatim_lua": 7
@@ -802,13 +808,12 @@
     ]
   },
   "schedule": {
-    "accepted_requests": 12,
-    "accepted_shape_in_a_rejected_tree": 18,
+    "accepted_requests": 16,
+    "accepted_shape_in_a_rejected_tree": 23,
     "accepted_trees": [
       "cutscene_blankaGivesBeer",
       "cutscene_dialogAfterKunesBeaten",
       "cutscene_dialogAfterKunesWon",
-      "cutscene_dialogAfterSarka",
       "cutscene_dialogBeforeKunes",
       "cutscene_dialogBeforePainting",
       "cutscene_dialogWithGuards",
@@ -816,7 +821,8 @@
       "cutscene_janek_dialogAtTheGate",
       "cutscene_kovani_otcem",
       "cutscene_manure_throw_nohenry",
-      "cutscene_nemec_hazeni_hnoje"
+      "cutscene_nemec_hazeni_hnoje",
+      "cutscene_stribrna_skalice"
     ],
     "controller": "af5538b6-25f3-4be2",
     "leases": [
@@ -853,19 +859,43 @@
         "sites": 2
       },
       {
-        "actor": "5323406902383124631",
-        "behavior": "sarka_goToGerman",
-        "handle": "q_skalitz_sarka_goToGerman",
-        "once": true,
-        "priority": 60,
-        "sites": 1
-      },
-      {
         "actor": "5384355815172519055",
         "behavior": "blanka_givesBeer",
         "handle": "q_skalitz_blanka_givesBeer",
         "once": true,
         "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5454785426552837238",
+        "behavior": "idleUntilNextPatch",
+        "handle": "q_skalitz_idleUntilNextPatch",
+        "once": false,
+        "priority": 15,
+        "sites": 1
+      },
+      {
+        "actor": "5583684733691733578",
+        "behavior": "motherPatch",
+        "handle": "q_skalitz_motherPatch",
+        "once": false,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5588471628078498641",
+        "behavior": "fatherPatch",
+        "handle": "q_skalitz_fatherPatch",
+        "once": false,
+        "priority": 60,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunesPatch",
+        "handle": "q_skalitz_kunesPatch",
+        "once": false,
+        "priority": 60,
         "sites": 1
       },
       {
@@ -882,6 +912,14 @@
         "handle": "q_skalitz_kunes_winningOverHenry",
         "once": true,
         "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "idleUntilNextPatch",
+        "handle": "q_skalitz_idleUntilNextPatch",
+        "once": false,
+        "priority": 15,
         "sites": 1
       },
       {
@@ -903,9 +941,12 @@
     ],
     "level": "rataje",
     "normalised": {
+      "boundaries": 18,
+      "boundary_approved": "Sean, 2026-11-16 (relayed by Build), decision 11a: urgency Slow stands for the next activity boundary",
       "left": 0,
       "requests": 31,
       "rules": {
+        "boundary": 18,
         "critical": 8,
         "immediate": 18,
         "removal": 4,
@@ -917,8 +958,9 @@
     },
     "publishable": false,
     "rejected": {
-      "lease_policy": 2,
-      "next_activity_boundary": 14,
+      "lease_from_two_scopes": 2,
+      "lease_in_a_waiting_tree": 2,
+      "removal_without_addition": 3,
       "runtime_actor": 12
     },
     "requests": 58,
@@ -936,8 +978,8 @@
     "stand_in_nodes": 1
   },
   "trees": {
-    "blocked": 28,
-    "blocked_by_include": 26,
+    "blocked": 29,
+    "blocked_by_include": 25,
     "emitted": 18,
     "handed": 2,
     "total": 74
