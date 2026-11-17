@@ -227,7 +227,9 @@ def verify(package, source, target, out):
                                 f'inventory preset {preset}')
             homes = [t for label, t in level.links(npc) if label in ('home', '_!home') and t is not None]
             areas = [a for h in homes for label, a in level.links(h) if label == 'home_area' and a is not None]
-            polygons = all(guid_value(a.get('EntityGuid')) in level.areas for a in areas)
+            # A smart-area home owns its inline polygon; a trigger home has a compiled one.
+            polygons = all(a.findall('Area/Points/Point') if a.get('EntityClass') == 'SmartAreaShape'
+                           else guid_value(a.get('EntityGuid')) in level.areas for a in areas)
             r['home'] = check((bool(areas) and polygons) if home else True,
                               f'KCD1 home {home}, converted home hubs {len(homes)}, home areas {len(areas)}')
             places, work = day_places(level, npc)

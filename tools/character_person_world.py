@@ -32,6 +32,18 @@ def source_home_geometry(entity):
     return TriggerArea(int(entity.get('EntityGuid'),16), float(area.get('Height'))*scale[2], tuple(vertices))
 
 
+def same_inline_area(entity, source):
+    """The entity's inline Area and scale are the source home's, value for value."""
+    def shape(e):
+        area = e.find('Area')
+        if area is None or not area.findall('Points/Point'): return None
+        values = lambda text: tuple(float(v) for v in text.split(','))
+        return (values(e.get('Scale', '1,1,1')), float(area.get('Height')),
+                tuple(values(p.get('Pos')) for p in area.findall('Points/Point')))
+    mine = shape(entity)
+    return mine is not None and mine == shape(source)
+
+
 _WAIT_ACTIVITY = {}
 
 
@@ -148,19 +160,27 @@ def register_person_world(files, people, source, target):
             elif (area.get('Pos') != src.get('Pos') or
                   area.get('Rotate', '1,0,0,0') != src.get('Rotate', '1,0,0,0')):
                 raise ValueError('Existing home transform differs from source')
-            geometry = source_shapes[level].get(area_guid)
-            if geometry is None: geometry = source_home_geometry(src)
-            # FUBAR serializes float32, while XML arithmetic uses doubles.
-            # Shared homes (Theresa/Peshek) must compare in the stored format.
-            geometry = read_areas(write_areas([geometry], shapes['export_version']))['areas'][0]
-            if area_guid in areas and (areas[area_guid].points != geometry.points or areas[area_guid].height != geometry.height):
-                raise ValueError('Existing home polygon differs from source')
-            areas[area_guid] = geometry
+            if area.get('EntityClass') == 'SmartAreaShape':
+                # A smart area owns its inline polygon (native homes link these
+                # too); it must not also enter the compiled trigger registry.
+                if area_guid in areas or not same_inline_area(area, src):
+                    raise ValueError('Existing smart-area home polygon differs from source')
+                vertices = len(area.findall('Area/Points/Point'))
+            else:
+                geometry = source_shapes[level].get(area_guid)
+                if geometry is None: geometry = source_home_geometry(src)
+                # FUBAR serializes float32, while XML arithmetic uses doubles.
+                # Shared homes (Theresa/Peshek) must compare in the stored format.
+                geometry = read_areas(write_areas([geometry], shapes['export_version']))['areas'][0]
+                if area_guid in areas and (areas[area_guid].points != geometry.points or areas[area_guid].height != geometry.height):
+                    raise ValueError('Existing home polygon differs from source')
+                areas[area_guid] = geometry
+                vertices = len(geometry.points)
             hub_guid = native_guid(int.from_bytes(hashlib.sha256(('person-home/' + guid).encode()).digest()[:8], 'little'))
             hub = create('gm_person_home_' + person['name'], 'SchedulerHub', src.get('Pos'), hub_guid)
             ET.SubElement(rows, 'C_SmartHub', EntityGuid=str(guid_value(hub_guid)), IgnoreDeadEnds='false', StupidHub='false')
             connect(npc, hub, 'home');connect(hub, area, 'home_area')
-            home_report = dict(source=src.get('Name'), guid=area.get('EntityGuid'), vertices=len(geometry.points))
+            home_report = dict(source=src.get('Name'), guid=area.get('EntityGuid'), vertices=vertices)
         reports.append(dict(person=person['name'], home=home_report,
                             baseline='native schedulerWait' if baseline else 'existing authored activity preserved',
                             original_schedule=person['ai']['schedule'], runtime_verified=False))
