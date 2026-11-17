@@ -335,9 +335,25 @@ def camera_assets(model, level_archive):
     return xml(root), provenance
 
 
+def engine_picked(topic, strings):
+    """True for a topic KCD1's engine resolves by itself: its role owns it, and it offers several unconditional
+    sequences that all carry the same prompt text, so a player menu would show identical choices.
+
+    Inferred from the bytes, not from KCD1 footage: role-owned topics are unprompted in 689 of 776
+    multi-sequence cases, and these keep a parent's prompt keys (the sequences were moved out of it).
+    """
+    sequences = topic['sequences']
+    if not topic['source'].get('role_id') or len(sequences) < 2:
+        return False
+    prompts = [r['source']['ui_prompt'] for r in sequences]
+    return (all(prompts) and len({strings[p] for p in prompts}) == 1
+            and not any(r['entry']['entry_condition'] for r in sequences))
+
+
 def emit(model, name, quest_models, active_port='active', kind='FaderDialog', convert_presentation=False,
          selection_compiler=None, registered_items=(), participant_assets=None, area_assets=None,
-         context_entities=None, scene_bound=False, metarole_dispatch=None, sequence_cooldowns=False):
+         context_entities=None, scene_bound=False, metarole_dispatch=None, sequence_cooldowns=False,
+         engine_picked_topics=False):
     identifier(name); identifier(active_port)
     if kind not in ('FaderDialog', 'ForcedDialog', 'Dialog'): raise ValueError('Unsupported dialogue mode')
     root, host = definition(kind, name)
@@ -407,6 +423,8 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
         topic = model['topics'][tid]
         attrs = dict(Name='topic_' + tid)
         if topic['source']['label']: attrs['Alias'] = topic['source']['label']
+        picked = engine_picked_topics and engine_picked(topic, model['strings'])
+        if picked: attrs['Autoselect'] = 'true'
         d = ET.SubElement(parent, 'Decision', attrs)
         sequences = ET.SubElement(d, 'Sequences')
         for record in topic['sequences']:
@@ -458,7 +476,7 @@ def emit(model, name, quest_models, active_port='active', kind='FaderDialog', co
             if source['flags'] != '0':
                 presentation.append(dict(kind='sequence_flags', sequence=sid, value=source['flags']))
             s = ET.SubElement(sequences, 'Sequence', attrs)
-            if source['ui_prompt']:
+            if source['ui_prompt'] and not picked:
                 ET.SubElement(s, 'UiPrompt', StringName=source['ui_prompt'], Text=model['strings'][source['ui_prompt']])
             ordered_effects = any(effect['condition'] for effect in record['effects'])
             program = []

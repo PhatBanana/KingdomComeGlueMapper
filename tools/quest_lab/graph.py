@@ -17,6 +17,7 @@ from .dialogue import Dialogue, KINDS as DIALOGUES, INPUTS as DIALOGUE_INPUTS, O
 from .native import NativeCalls
 from . import collections as collection_nodes
 from .objects import Objects, describe as object_description
+from . import world as world_nodes
 
 
 FUNCTIONS = {
@@ -27,7 +28,7 @@ FUNCTIONS = {
 }
 BUILTINS = {'State', 'Function', 'IfFunction', 'If', 'TriggerSequence', 'Timer',
             'Trace', 'HasteTrigger', 'GameStart', 'InstantSendMessage', 'ItemDescriptorTrigger',
-            'AIConceptSignalTrigger', 'SetGameContext'} | collection_nodes.KINDS
+            'AIConceptSignalTrigger', 'SetGameContext'} | collection_nodes.KINDS | world_nodes.KINDS
 
 
 def qualified(scope, value):
@@ -35,7 +36,8 @@ def qualified(scope, value):
 
 
 class Graph:
-    def __init__(self, source, entry, contracts=None, budget=100000, entry_file=None, assets=None, objects=None):
+    def __init__(self, source, entry, contracts=None, budget=100000, entry_file=None, assets=None, objects=None,
+                 assumptions=None):
         self.source, self.entry = source, entry
         self.contracts = copy.deepcopy(contracts or {})
         self.budget = budget
@@ -59,6 +61,7 @@ class Graph:
         self.native_functions = set()
         self.native = NativeCalls(self)
         self.objects = Objects(self, objects)
+        self.world = world_nodes.World(self, assumptions)
         if entry_file and entry_file.replace('\\','/').lower() not in {p for p,_ in source.definitions.get(entry,[])}:
             raise Unsupported('Entry file does not define ' + entry)
         self._load(entry, '', (), {entry_file.replace('\\','/').lower()} if entry_file else None)
@@ -68,7 +71,9 @@ class Graph:
             if name in self.dialogues: raise ValueError('Cannot replace dialogue logic with a contract: ' + name)
         self.fingerprint = hashlib.sha256(json.dumps(dict(entry=entry,
             files={p: source.hashes[p] for p in sorted(self.used_files)},
-            contracts=self.contracts, assets=self.assets, objects=objects), sort_keys=True).encode()).hexdigest()
+            contracts=self.contracts, assets=self.assets, objects=objects,
+            **({'assumptions': self.world.assumptions} if self.world.assumptions else {})),
+            sort_keys=True).encode()).hexdigest()
 
     def record(self, kind, **values):
         self.trace.append(dict(time_us=self.now, kind=kind, **values))
@@ -295,6 +300,7 @@ class Graph:
         if kind == 'State':
             options = [('True' if v else 'False') if type(v) is bool else str(v) for v in self.enum_values.get(name, [])]
             return port in ('State','OnExec','OnChanged', *options, *('On'+v for v in options))
+        if kind in world_nodes.KINDS: return port in world_nodes.OUTPUTS[kind]
         return (kind == 'Function' and port == 'bool'
             or kind == 'AIConceptSignalTrigger' and port == 'OnNotification'
             or kind == 'ItemDescriptorTrigger' and port in ('OnAcquire', 'OnTargetAmountAcquire')
@@ -332,6 +338,9 @@ class Graph:
                     self.issue(name, 'AI signal listener requires IsActive only')
             if name in self.contracts or node['journal']: continue
             if name in self.native_functions: continue  # Interface remains explicitly unsupported without a contract.
+            if node['kind'] in world_nodes.KINDS:
+                self.world.audit(name, node)
+                continue
             if node['kind'] == 'InstantSendMessage':
                 ports = set(node['values']) | set(node['constants']) | {
                     a.get('Name') for a in node['element'].findall('Asset')}
@@ -368,6 +377,7 @@ class Graph:
         if name in self.native_functions: return port == 'Exec'
         if kind == 'State': return port == 'Exec' or port.startswith('Set')
         if kind == 'Timer': return port in ('SetRunning', 'SetStopped')
+        if kind in world_nodes.CONTROL: return port in world_nodes.CONTROL[kind]
         return kind in ('If', 'IfFunction', 'TriggerSequence', 'Trace', 'InstantSendMessage') and port == 'Exec'
 
     def _args(self, name, trail=()):
@@ -420,6 +430,8 @@ class Graph:
             options = self.enum_values.get(name, [])
             enum = {'True': True, 'False': False}.get(port, port)
             if enum in options: return self.states[name] == enum
+        if name in self.nodes and self.nodes[name]['kind'] == 'ItemDeliveryHandler' and port == 'DeliveryResult':
+            return self.world.result(name)
         if name in self.nodes and self.nodes[name]['kind'] == 'Function':
             node = self.nodes[name]
             method = node['element'].get('MethodName')
@@ -539,6 +551,8 @@ class Graph:
                 self.record('timer_start', node=name, deadline_us=deadline)
             else: self.record('timer_stop', node=name)
         elif kind == 'Trace': self.record('trace', node=name, inputs=self._args(name))
+        elif kind == 'AddReward': self.world.pay(name)
+        elif kind == 'ItemDeliveryHandler': self.world.deliver(name, port)
         elif kind == 'InstantSendMessage':
             values = self._args(name)
             typ, receiver = node['element'].get('MessageType'), values.get('Receiver')
@@ -610,7 +624,7 @@ class Graph:
             timers=self.timers, generations=self.generations,
             messages=self.messages, message_serial=self.message_serial,
             dialogues={n:d.snapshot() for n,d in self.dialogues.items()}, native=self.native.snapshot(),
-            objects=self.objects.records))
+            objects=self.objects.records, world=self.world.snapshot()))
 
     def restore(self, snapshot):
         if snapshot.get('fingerprint') != self.fingerprint: raise ValueError('Snapshot graph/contract mismatch')
@@ -620,6 +634,7 @@ class Graph:
         for name, state in snapshot['dialogues'].items(): self.dialogues[name].state = copy.deepcopy(state)
         self.native.restore(snapshot['native'])
         self.objects.records = copy.deepcopy(snapshot['objects'])
+        self.world.restore(snapshot['world'])
         self.record('restore', fingerprint=self.fingerprint)
 
     def report(self):
@@ -630,7 +645,7 @@ class Graph:
             unsupported=self.unsupported, external_contracts=self.contracts,
             states=self.states, time_us=self.now, pending_messages=self.messages,
             pending_native_calls=self.native.pending,
-            object_snapshots=self.objects.records,
+            object_snapshots=self.objects.records, world=self.world.report(),
             unresolved_native_bindings=[dict(node=name, port=port, sources=refs)
                 for name, node in self.nodes.items() for port, refs in node.get('unresolved', {}).items()],
             dialogues={n:d.snapshot() for n,d in self.dialogues.items()})

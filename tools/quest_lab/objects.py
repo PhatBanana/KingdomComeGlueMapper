@@ -50,9 +50,10 @@ def checked(value, typ):
         if value is not None and (not isinstance(value, str) or not value):
             raise Unsupported('Object reference must be an explicit identity or null')
     elif typ == 'items':
-        if not isinstance(value, dict) or any(not isinstance(k,str) or not k or type(v) is not int or v < 0
-                                              for k,v in value.items()):
-            raise Unsupported('Items snapshot requires item-class/nonnegative-count pairs')
+        from .pure import checked_items
+        try: checked_items(value)
+        except Unsupported as error:
+            raise Unsupported('Items snapshot requires item-class/nonnegative-count pairs or health stacks') from error
     else: validate(value, typ)
 
 

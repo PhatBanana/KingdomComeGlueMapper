@@ -1,0 +1,1168 @@
+{
+  "end": "Quest:End",
+  "end_join": {
+    "after": [
+      "endQuest"
+    ],
+    "join": "all"
+  },
+  "expected_end_states": [
+    "endQuest"
+  ],
+  "main_path": [
+    {
+      "completion": "expression",
+      "condition": "IsObjectiveCompleted('q_skalitz','allThingsStolen')",
+      "exclusive": true,
+      "hidden": false,
+      "id": "18",
+      "objective": "getDebtMoneyDifferently",
+      "started_by": "external"
+    },
+    {
+      "completion": "expression",
+      "condition": "IsObjectiveCompleted('q_skalitz','allThingsTaken')",
+      "exclusive": true,
+      "hidden": false,
+      "id": "24",
+      "objective": "takeAllFromKunes",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": true,
+      "hidden": false,
+      "id": "219",
+      "objective": "askFatherForMoney",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "694",
+      "objective": "objectiveStart",
+      "started_by": {
+        "after": [
+          "Quest:Begin"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_manual",
+      "exclusive": false,
+      "hidden": false,
+      "id": "5",
+      "objective": "speakWithFather",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": true,
+      "hidden": true,
+      "id": "19",
+      "objective": "henryHasRetreivedDebt",
+      "started_by": {
+        "after": [
+          "takeAllFromKunes"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "completion": "expression",
+      "condition": "IsQuestCompleted('q_tutorial_swordOne')",
+      "exclusive": false,
+      "hidden": false,
+      "id": "173",
+      "objective": "practiceFencing",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": false,
+      "id": "9",
+      "objective": "buyCharcoal",
+      "started_by": {
+        "after": [
+          "speakWithFather"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": false,
+      "id": "11",
+      "objective": "getCrossguard",
+      "started_by": {
+        "after": [
+          "speakWithFather"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": false,
+      "id": "12",
+      "objective": "collectBeer",
+      "started_by": {
+        "after": [
+          "speakWithFather"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "123",
+      "objective": "kunesSolved",
+      "started_by": {
+        "after": [
+          "getDebtMoneyDifferently",
+          "henryHasRetreivedDebt",
+          "askFatherForMoney"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "completion": "tracked_manual",
+      "exclusive": false,
+      "hidden": false,
+      "id": "122",
+      "objective": "returnToFather",
+      "started_by": {
+        "after": [
+          "buyCharcoal",
+          "getCrossguard",
+          "collectBeer",
+          "kunesSolved",
+          "practiceFencing"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "257",
+      "objective": "fatherAndHenryMakeSword",
+      "started_by": {
+        "after": [
+          "returnToFather"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "334",
+      "objective": "henryGetsTheSword",
+      "started_by": {
+        "after": [
+          "fatherAndHenryMakeSword"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "4",
+      "objective": "endQuest",
+      "started_by": {
+        "after": [
+          "henryGetsTheSword"
+        ],
+        "join": "all"
+      }
+    }
+  ],
+  "off_path": [
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "6",
+      "objective": "motherLeavesShopping",
+      "started_by": "external"
+    },
+    {
+      "clock": "GameTime",
+      "completion": "timed",
+      "duration": "4m",
+      "exclusive": false,
+      "hidden": true,
+      "id": "8",
+      "objective": "fatherIsUpset",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": false,
+      "id": "10",
+      "objective": "getDebtMoney",
+      "started_by": {
+        "after": [
+          "speakWithFather"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "15",
+      "objective": "havelLeavesToPub",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "16",
+      "objective": "kunesIsUpset",
+      "started_by": {
+        "after": [
+          "henryIsAlone",
+          "partyIsReadyToFightKunes"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": true,
+      "hidden": true,
+      "id": "17",
+      "objective": "henryIsAlone",
+      "started_by": {
+        "after": [
+          "speakWithFather"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "20",
+      "objective": "kunesBeatsHenry",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "21",
+      "objective": "kunesIsBeaten",
+      "started_by": {
+        "after": [
+          "kunesIsUpset"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": true,
+      "hidden": true,
+      "id": "22",
+      "objective": "fightIsOver",
+      "started_by": {
+        "after": [
+          "kunesIsBeaten"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "expression",
+      "condition": "q_skalitz_henryStoleSomething",
+      "exclusive": false,
+      "hidden": true,
+      "id": "23",
+      "objective": "henryIsStealing",
+      "started_by": {
+        "after": [
+          "getDebtMoney"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "31",
+      "objective": "stealHammer",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "32",
+      "objective": "stealNails",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "33",
+      "objective": "stealAxe",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "37",
+      "objective": "allThingsStolen",
+      "started_by": {
+        "after": [
+          "stealHammer",
+          "stealNails",
+          "stealAxe"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "47",
+      "objective": "letsGoPainting",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": false,
+      "id": "48",
+      "objective": "lureAwayWife",
+      "started_by": {
+        "after": [
+          "talkToFriendsAboutPainting"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": false,
+      "id": "50",
+      "objective": "isHenryThere",
+      "started_by": "external"
+    },
+    {
+      "completion": "expression",
+      "condition": "IsObjectiveStarted('q_skalitz','catchpollIdle')",
+      "exclusive": false,
+      "hidden": false,
+      "id": "55",
+      "objective": "runAway",
+      "started_by": {
+        "after": [
+          "paintAndFight"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "56",
+      "objective": "henryWasPainting",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "67",
+      "objective": "partyGoesThere",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "72",
+      "objective": "henrySaidHeIsNotGoing",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": false,
+      "id": "77",
+      "objective": "beerWasBad",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "84",
+      "objective": "itemsRemoved",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "90",
+      "objective": "payForBeer",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "96",
+      "objective": "beerIsBad",
+      "started_by": {
+        "after": [
+          "beerIsGettingBad"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "clock": "GameTime",
+      "completion": "timed",
+      "duration": "10s",
+      "exclusive": false,
+      "hidden": true,
+      "id": "102",
+      "objective": "fatherExpectsReturn",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "108",
+      "objective": "fatherIsSick",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": false,
+      "id": "114",
+      "objective": "giveNailsToTereza",
+      "started_by": {
+        "after": [
+          "takeNailsFromChest"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": true,
+      "hidden": true,
+      "id": "129",
+      "objective": "paintAndFight",
+      "started_by": {
+        "after": [
+          "returnToPainting"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": true,
+      "hidden": true,
+      "id": "148",
+      "objective": "henryGotCaught",
+      "started_by": {
+        "after": [
+          "paintAndFight"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "clock": "GameTime",
+      "completion": "timed",
+      "duration": "1m",
+      "exclusive": true,
+      "hidden": true,
+      "id": "149",
+      "objective": "henryEscaped",
+      "started_by": {
+        "after": [
+          "paintAndFight"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "150",
+      "objective": "henryGotPunished",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "165",
+      "objective": "henryAskedForHelpWithKunes",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "181",
+      "objective": "findHorse",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "182",
+      "objective": "rescueTereza",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "201",
+      "objective": "wifeIsGone",
+      "started_by": {
+        "after": [
+          "lureAwayWife"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "210",
+      "objective": "hernyFledFromFight",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": true,
+      "hidden": true,
+      "id": "228",
+      "objective": "partyIsReadyToFightKunes",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "247",
+      "objective": "henryHearsSkinnerTalk",
+      "started_by": "external"
+    },
+    {
+      "clock": "GameTime",
+      "completion": "timed",
+      "duration": "10m",
+      "exclusive": false,
+      "hidden": true,
+      "id": "267",
+      "objective": "beerIsGettingBad",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "277",
+      "objective": "pubQuarrelEnds",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "349",
+      "objective": "wifeIsComingBack",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "364",
+      "objective": "catchpollIdle",
+      "started_by": {
+        "after": [
+          "henryGotCaught",
+          "henryEscaped"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "379",
+      "objective": "partyWontHelpHenry",
+      "started_by": "external"
+    },
+    {
+      "completion": "never",
+      "exclusive": false,
+      "hidden": false,
+      "id": "404",
+      "objective": "getLockpick",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "421",
+      "objective": "crossGuardMultilog",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "435",
+      "objective": "paintingMultilog",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "436",
+      "objective": "beforeKunesMultilog",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "450",
+      "objective": "kunesWasQuestioned",
+      "started_by": "external"
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": false,
+      "id": "478",
+      "objective": "returnToPainting",
+      "started_by": {
+        "after": [
+          "wifeIsGone"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "493",
+      "objective": "fatherIsKutnaHora",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "525",
+      "objective": "showTutorialSave",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "526",
+      "objective": "showTutorialLockpicking",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "527",
+      "objective": "showTutorialStats",
+      "started_by": "external"
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "543",
+      "objective": "takeHammer",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "544",
+      "objective": "takeAxe",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "545",
+      "objective": "takeNails",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "546",
+      "objective": "allThingsTaken",
+      "started_by": {
+        "after": [
+          "takeHammer",
+          "takeAxe",
+          "takeNails"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": false,
+      "id": "565",
+      "objective": "talkToFriendsAboutPainting",
+      "started_by": {
+        "after": [
+          "isHenryThere",
+          "partyGoesThere"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "604",
+      "objective": "plusSpeech",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "605",
+      "objective": "plus2Speech",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "606",
+      "objective": "plus2Agility",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "607",
+      "objective": "plusAgility",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "608",
+      "objective": "plusStrength",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "609",
+      "objective": "plus2Strength",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "610",
+      "objective": "plusVitality",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "612",
+      "objective": "plus2Vitality",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "639",
+      "objective": "noDialogWithMother",
+      "started_by": "external"
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "721",
+      "objective": "isHenryThereInSecret",
+      "started_by": {
+        "after": [
+          "henrySaidHeIsNotGoing"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "749",
+      "objective": "wifeIsGoneWH",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": true,
+      "hidden": true,
+      "id": "777",
+      "objective": "paintAndFightWH",
+      "started_by": {
+        "after": [
+          "wifeIsGoneWH"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": false,
+      "id": "805",
+      "objective": "meetInfrontOfKunes",
+      "started_by": {
+        "after": [
+          "runAway"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "835",
+      "objective": "henryWillNotPaint",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "893",
+      "objective": "partyIsWaitingInfrontOfKunes",
+      "started_by": {
+        "after": [
+          "paintAndFight",
+          "paintAndFightWH"
+        ],
+        "join": "any"
+      }
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "924",
+      "objective": "showTutorialObjectives",
+      "started_by": "external"
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "955",
+      "objective": "kunesAxeStolen",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1021",
+      "objective": "kunesKeyStolen",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1087",
+      "objective": "talkedToParty",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1120",
+      "objective": "partyIsPreparingToFightKunes",
+      "started_by": "external"
+    },
+    {
+      "completion": "expression",
+      "condition": "IsObjectiveCompleted('q_skalitz','takeNailsFromChestTracking')",
+      "exclusive": false,
+      "hidden": false,
+      "id": "1153",
+      "objective": "takeNailsFromChest",
+      "started_by": {
+        "after": [
+          "fatherAndHenryMakeSword"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "tracked_auto",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1190",
+      "objective": "takeNailsFromChestTracking",
+      "started_by": {
+        "after": [
+          "fatherAndHenryMakeSword"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1227",
+      "objective": "partyIsNoLongerNeeded",
+      "started_by": "external"
+    },
+    {
+      "completion": "never",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1262",
+      "objective": "givingBeer",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1326",
+      "objective": "burnInJail",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1355",
+      "objective": "gameDownloaded",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1386",
+      "objective": "germanIsWaitingForWife",
+      "started_by": "external"
+    },
+    {
+      "completion": "never",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1432",
+      "objective": "gettingSavovice",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1477",
+      "objective": "unloadNormalSkalitz",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1522",
+      "objective": "quest_autosave",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1614",
+      "objective": "quest_autosaveFather",
+      "started_by": "external"
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1615",
+      "objective": "quest_autosaveGerman",
+      "started_by": "external"
+    },
+    {
+      "completion": "external",
+      "exclusive": false,
+      "hidden": false,
+      "id": "1661",
+      "objective": "motherHealPlayer",
+      "started_by": "external"
+    },
+    {
+      "completion": "never",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1709",
+      "objective": "passedIplCheckpoint",
+      "started_by": {
+        "after": [
+          "objectiveStart"
+        ],
+        "join": "all"
+      }
+    },
+    {
+      "completion": "constant",
+      "exclusive": false,
+      "hidden": true,
+      "id": "1756",
+      "objective": "johankaStartRunning",
+      "started_by": "external"
+    }
+  ],
+  "outcomes_the_walk_must_supply": [
+    "askFatherForMoney",
+    "fatherAndHenryMakeSword",
+    "henryGetsTheSword",
+    "objectiveStart",
+    "returnToFather",
+    "speakWithFather"
+  ],
+  "quest": "q_skalitz",
+  "schema": 1,
+  "source": "retail quest_objective, quest_transition and quest_tracked_asset tables",
+  "start": "Quest:Begin"
+}

@@ -98,7 +98,10 @@ def quest_audit(source, path, host):
             entry_path, _ = modules[0]
             result['logic_file'] = entry_path
     try:
-        graph = Graph(source, name, entry_file=entry_path)
+        # No object is observed here: a native object query is a modeled node, and a probe that
+        # actually reads one stops as UNSUPPORTED (missing snapshot) instead of being answered.
+        graph = Graph(source, name, entry_file=entry_path, objects={})
+        result['object_snapshots'] = 'none supplied; a probe that reads a native object is UNSUPPORTED'
         initial = graph.snapshot()
         ports = sorted(p for p in graph.event_ports if '.' not in p)
         result.update(unsupported=graph.unsupported, inputs=ports, nodes=len(graph.nodes),

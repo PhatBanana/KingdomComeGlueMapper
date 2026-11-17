@@ -38,6 +38,16 @@ def main():
     audit.add_argument('--kcd1', type=Path, help='Optional retail KCD1 directory for the complete source quest checklist')
     audit.add_argument('--source-graphs', action='store_true', help='Also dry-run conversion and local probes for all source quest graphs')
     audit.add_argument('--output', type=Path, required=True)
+    walk = sub.add_parser('walk', help='Walk every player path of the ported KCD1 quests against the KCD1 source model')
+    walk.add_argument('--kcd1', type=Path, required=True)
+    walk.add_argument('--kcd2', type=Path, required=True)
+    walk.add_argument('--package', type=Path, help='Built package map folder, for quests that need its items')
+    walk.add_argument('--quest', nargs='+', default=[], help='Only these quests (all are still planned in order)')
+    walk.add_argument('--depth', type=int, default=120, help='Longest path in moves; longer paths are reported as truncated')
+    walk.add_argument('--no-death', action='store_true', help='Leave out the death of the quest giver')
+    walk.add_argument('--result-resets', action='store_true',
+                      help="Assume a handler's DeliveryResult resets after accept/reject instead of persisting")
+    walk.add_argument('--output', type=Path, required=True)
     demo = sub.add_parser('demo', help='Generate runnable fixtures using the production converters')
     demo.add_argument('--output', type=Path, required=True)
     args = parser.parse_args()
@@ -87,6 +97,15 @@ def main():
                      or any(s['status'] != 'EXECUTED' or s.get('unsupported') for s in report['new_game'])
                      or any(r['status'] != 'LOCAL_STATE_PROBES_EXECUTED' for r in report.get('source_graphs', {}).get('quests', []))
                      or any(r['status'] == 'NOT_PRESENT_IN_PACKAGE' for r in report['source_inventory'])) else 0
+    if args.command == 'walk':
+        from .ported import run as walk_ported
+        from .walk import table
+        result = walk_ported(args.kcd1, args.kcd2, args.package, args.quest, args.output,
+            progress=lambda stage, name: print(stage + ' ' + name, flush=True), limit=args.depth, kill=not args.no_death,
+            assumptions={'delivery.result_after_close': 'resets'} if args.result_resets else None)
+        print(table(result['quests']))
+        for name, reason in result['skipped'].items(): print('skipped ' + name + ': ' + reason)
+        return 0 if result['quests'] and all(q['status'] == 'PASS' for q in result['quests']) else 1
     if args.command == 'run':
         reports = [run_file(p) for p in args.scenarios]
         write(reports, args.output)
