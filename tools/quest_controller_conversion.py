@@ -10,6 +10,9 @@ and reports, for the quest's own controller document:
     layer 1    shape equivalence of every emitted tree with its source tree as
                prepared; rewritten operations are counted, and each rewrite
                rule is checked against its source form by the unit tests
+    libraries  every tree of another document the controller includes and
+               that is not emitted: the blocked sites in everything it
+               includes in turn, and the controller trees it holds back
 
 A tree is emitted only when every site in it, and every tree it includes,
 converted. No branch is omitted. World, item, buff and profile dependencies
@@ -181,6 +184,7 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
                 import_failures=[dict(group=group, reason=reason, count=count) for (group, reason), count in failed.most_common()],
                 schedule=schedule, scenes=scene_seam, ownership=ownership, combat=combat,
+                native_nodes=set(catalog['nodes']),
                 # For `campaign_controller_schedule.install` on the converted level; not part of the ledger.
                 lease=dict(adapter=lease, windows=requests['windows'], boundaries=requests['boundaries']),
                 profiles=profile_report(importer, owned_profiles))
@@ -216,6 +220,64 @@ def item_adapter(kcd2, tables, native_item_definitions):
     return WorldItemAdapter(tables, 'C2', native_item_definitions, {r.get('id'): r.get('name') for r in weapons[0]},
                             components, native_tool_types=native_tool_types(kcd2),
                             native_reading=native_reading_contract(kcd2), native_buffs=native_buffs(kcd2))
+
+
+def libraries(model, conversion, native_nodes, handed=()):
+    '''Library trees the controller includes and that are not emitted.
+
+    One row per tree of another document that a controller tree includes
+    directly. `sites` are the blocked sites of the tree and of every tree it
+    includes in turn (its closure); `absent` counts those whose operation has
+    no node of that name in the native catalog, so no same-name contract can
+    clear them. `unblocks` are the controller trees that would be emitted if
+    that closure converted and nothing else changed.
+    '''
+    quest = model['quest']
+    own = 'libs/ai/quests/' + quest.lower() + '.xml'
+    records = {(t.get('owner', quest), t['document'], t['tree']): t for t in conversion['trees']}
+
+    def closure(start):
+        seen, stack = set(), [start]
+        while stack:
+            identity = stack.pop()
+            if identity in seen or identity not in records: continue
+            seen.add(identity)
+            stack.extend(tuple(ref) for ref in records[identity].get('includes', ()))
+        return seen
+
+    def emitted(converted=frozenset()):
+        blocked = {i for i, r in records.items() if r['unresolved'] and i not in converted}
+        changed = True
+        while changed:
+            changed = False
+            for identity, record in records.items():
+                if identity not in blocked and any(tuple(ref) not in records or tuple(ref) in blocked
+                                                   for ref in record.get('includes', ())):
+                    blocked.add(identity); changed = True
+        return {i[2] for i in records if i[:2] == (quest, own) and i not in blocked and i[2] not in handed}
+
+    callers = defaultdict(set)
+    for (owner, document, tree), record in records.items():
+        if (owner, document) != (quest, own): continue
+        for ref in map(tuple, record.get('includes', ())):
+            if ref[1] != own and ref in records: callers[ref].add(tree)
+    now, rows = emitted(), []
+    for identity, trees in callers.items():
+        if records[identity]['native_emitted']: continue
+        members = {i for i in closure(identity) if i[1] != own}
+        sites = [item for i in sorted(members) for item in records[i]['unresolved']]
+        operations = Counter((item.get('site') or {}).get('operation') for item in sites)
+        absent = {op: n for op, n in operations.items() if op and op not in native_nodes}
+        rows.append(dict(
+            document=identity[1], tree=identity[2], trees=len(members),
+            blocked_trees=sum(bool(records[i]['unresolved']) for i in members), sites=len(sites),
+            families=dict(sorted(Counter(family(item['reason']) for item in sites).items(), key=lambda p: (-p[1], p[0]))),
+            operations=len([op for op in operations if op]), absent=dict(operations=len(absent), sites=sum(absent.values())),
+            included_by=sorted(trees), handed=sorted(trees & set(handed)),
+            # Controller trees with no blocked site of their own that include it directly.
+            held=sorted(t for t in trees if not records[(quest, own, t)]['unresolved'] and t not in handed),
+            unblocks=sorted(emitted(frozenset(members)) - now)))
+    return sorted(rows, key=lambda r: (-len(r['included_by']), r['document'], r['tree']))
 
 
 def ledger(run):
@@ -299,6 +361,7 @@ def ledger(run):
                               completed_branches=len(run['prepared'].get('completed_branches', ()))),
                 schedule=run.get('schedule'), scenes=run.get('scenes'), ownership=run.get('ownership'),
                 profiles=run.get('profiles'), combat=run.get('combat'),
+                libraries=libraries(model, conversion, run.get('native_nodes', ()), handed),
                 lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
                             for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
@@ -400,6 +463,19 @@ def markdown(led, main_path=()):
         if fight['opponents']:
             lines += ['', '| Tree | `AddOpponent` of | Stand-in | Approval |', '|---|---|---|---|']
             lines += ['| %s | `%s` | `%s` | %s |' % (s['tree'], s['who'], s['target'], s['approved']) for s in fight['opponents']]
+    if led.get('libraries'):
+        lines += ['', '## Included library trees that are not emitted', '',
+                  'A tree of another document that a controller tree includes. Sites are counted over the tree and '
+                  'everything it includes in turn; "no native node" are the sites whose operation name does not exist '
+                  'in KCD2. "Would emit" are the controller trees that only wait on it.', '',
+                  '| Library tree | Trees in it (blocked) | Blocked sites | By family | Operations (no native node) '
+                  '| Included by | Would emit |', '|---|---:|---:|---|---:|---|---|']
+        lines += ['| `%s` (%s) | %d (%d) | %d | %s | %d (%d ops, %d sites) | %s | %s |' % (
+            r['tree'], r['document'].rsplit('/', 1)[-1], r['trees'], r['blocked_trees'], r['sites'],
+            ', '.join('%s %d' % item for item in r['families'].items()), r['operations'], r['absent']['operations'],
+            r['absent']['sites'], '%d: %s' % (len(r['included_by']), ', '.join(
+                t + (' (handed)' if t in r['handed'] else '') for t in r['included_by'])),
+            '%d: %s' % (len(r['unblocks']), ', '.join(r['unblocks'])) if r['unblocks'] else '0') for r in led['libraries']]
     if led.get('lua_shapes'):
         lines += ['', '## Lua residue by call shape', '',
                   'Blocked Lua sites grouped by the calls they make (`campaign_controller_contracts.lua_shape`; '
@@ -418,7 +494,7 @@ def golden(led):
                 lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])],
                 schedule={k: v for k, v in (led.get('schedule') or {}).items() if k != 'sites'} or None,
                 scenes=led.get('scenes'), ownership=led.get('ownership'), profiles=led.get('profiles'),
-                combat=led.get('combat'))
+                combat=led.get('combat'), libraries=led.get('libraries'))
 
 
 def main():

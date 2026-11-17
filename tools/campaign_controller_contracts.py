@@ -49,9 +49,12 @@ RENAMES = {
     'TurnBody': ('Turn', dict(destinationSpecification='target', alignWith='align', destinationType='destinationType',
                               stopWithinAngle='stopWithinAngle', randomMinAngle='randomMinAngle',
                               randomMaxAngle='randomMaxAngle', randomTurnRightChance='randomTurnRightChance',
-                              stopRunninganimation='stopRunninganimation'),
-                 'KCD2 Turn carries the six unrenamed TurnBody fields verbatim (AI/_lukas/test_lukas_helper.xml); '
-                 'target/align hold a variable and a boolean as destinationSpecification/alignWith do. Inference.'),
+                              stopRunninganimation='stopRunninganimation', allowInstantSuccess='allowInstantSuccess'),
+                 'KCD2 Turn carries the seven unrenamed TurnBody fields verbatim on six retail nodes '
+                 '(AI/quests/questUtils.xml, zranenylovci, lecenipecky, mlynarskyucen, pytlakptacek), each with one '
+                 'value (TURN_VALUES). target/align hold a variable and a boolean as destinationSpecification/alignWith '
+                 'do. Inference. WHGame.dll names destinationType and none of the other six, so KCD2 most likely '
+                 'does not read them: a value other than the one retail writes would be lost and blocks the node.'),
     'JoinedAnimationSynchronize': ('Synchronize', {name: name for name in (
         'SemaphoreCount', 'InsideTimerValue', 'InvalidateOnExpire', 'atomic', 'OutsideQueuePosVariable',
         'InsidePosVariable', 'TimerType', 'OutsideTimerValue', 'LockManagerType', 'SemaphoreName', 'RunLogic')},
@@ -60,6 +63,12 @@ RENAMES = {
         'animation phase alignment the KCD1 node added belongs to the animation adapter (native '
         'JoinedAnimationAction lockName/lockCount), not to this gate.'),
 }
+# The one value each legacy Turn field has on retail KCD2 nodes. KCD1 also writes stopWithinAngle 5 to 30,
+# random angles and stopRunninganimation true; those have no native example.
+TURN_VALUES = dict(stopWithinAngle='0.000000', randomMinAngle='0.000000', randomMaxAngle='0.000000',
+                   randomTurnRightChance='0.000000', stopRunninganimation='false', allowInstantSuccess='true')
+# source op -> {source attribute: the only value that converts}
+RENAME_VALUES = {'TurnBody': TURN_VALUES}
 # A plain rename is childless unless listed here.
 RENAMES_WITH_CHILDREN = {'JoinedAnimationSynchronize'}
 # Kinds follow native serialisation: GameOver Reason="DiedInCombat" (bare),
@@ -80,7 +89,9 @@ RENAMES_WITH_CHILDREN = {'JoinedAnimationSynchronize'}
 CONTRACTS = {
     'Turn': dict(target='reference', align='value', destinationType='value', stopWithinAngle='value',
                  randomMinAngle='value', randomMaxAngle='value', randomTurnRightChance='value',
-                 stopRunninganimation='value'),
+                 stopRunninganimation='value', allowInstantSuccess='value'),
+    # HasActiveThreatsGate Who="$__player" Negation="true" RunLogic="KeepRunning": the three KCD1 fields (8 uses).
+    'HasActiveThreatsGate': dict(Who='reference', Negation='value', RunLogic='value'),
     'GameOver': dict(Reason='value'),
     'ExecuteSoundTrigger': dict(entity='reference', triggerName='string_expression', stop='value'),
     'HasActiveThreats': dict(SoulWUID='reference', FailSubtMissing='value', saveVersion='value'),
@@ -147,6 +158,7 @@ RESIDUE = {
     'DrawWeapon': 'Native operation lacks source fields: DrawWeapon (DrawAction has no ToCombatGuard, noAnimation, who)',
     'AnimationEventCatch': 'Native operation has no shipped example: AnimationEventCatch (name in WHGame.dll only)',
     'OnEvent': 'Native operation has no shipped example: OnEvent (branch of AnimationEventCatch)',
+    'TurnBody': 'Native operation lacks source fields: TurnBody (Turn reads target, align and destinationType)',
     'SetOwner': 'Native operation lives in the quest graph: SetOwner (Skald Effect What/Who take level assets; this object is found at run time)',
 }
 
@@ -405,6 +417,9 @@ def _rename(source):
 
     def rewrite(node):
         _only(node, mapping, None if source in RENAMES_WITH_CHILDREN else 0)
+        for name, native in RENAME_VALUES.get(source, {}).items():
+            if name in node['attributes'] and _text(node, name) != native:
+                raise Blocked('value has no native example: %s %s' % (name, _text(node, name)))
         return dict(node, op=target, attributes={mapping[k]: v for k, v in node['attributes'].items()})
     return rewrite
 
@@ -468,15 +483,26 @@ def _link_expression(compiler, node, source, site, record):
 # and its diceMinimumBet field in SocialClass.lua; `data.x = ...`,
 # `data.x['key']` and `__null` in tree scripts. Inference: a call that kept
 # its name kept its meaning.
+# `entity.actor:SetDialogAnimationState(true)` is a retail tree script
+# (AI/player/scheduler/playeraction_setdialoganimationstate.xml; the name is
+# in WHGame.dll); `tostring` is the Lua built-in (5 retail tree scripts).
 VERBATIM_CALLS = {'XGenAIModule.GetEntityByWUID', '<entity>:Unlock', '<call>:Unlock', 'player.player:SetPlayerHorse',
                   'System.GetCVar', 'data=', 'DialogModule.SetAIInteractionState', 'entity.inventory:GetMoney',
-                  'SocialClass.GetEntitySocialClassData'}
+                  'SocialClass.GetEntitySocialClassData', 'entity.actor:SetDialogAnimationState', 'tostring'}
 VERBATIM_LITERALS = {'wh_sys_specVersion', 'expo'}
+# A script may only start a name path at a local, at one of these, or at the
+# root of a listed call. Anything else is a global KCD2 may not define, such
+# as the enum tables KCD1 generates (`enum_animationOverride.userControlled`).
+# `RPG.<parameter>` is read by 9 retail tree scripts (RPG.LowHealthThreshold).
+VERBATIM_ROOTS = {'data', 'entity', 'player', '__null', 'RPG'} | {
+    re.split(r'[.:]', call)[0] for call in VERBATIM_CALLS if call[0] != '<' and call != 'data='}
 LUA_FIELDS = {'ExecuteLua': ('code',), 'LuaGate': ('code',), 'LuaWrapper': ('onEnter', 'onExit')}
 # Numerical operations native trees use with the source's own operand form
 # (`In1VariableName="this.id" In2VariableName="t_horse"`), beyond the three
 # the compiler lists. The compiler still requires the name in the catalog.
-NUMERIC_OPERATIONS = {'distance2dSq_wuid': 'distance2dSq'}
+# normalize: `In1VariableName="vecTargetToMe" OutVariableName="$vecTargetToMe"`
+# (5 retail uses), one input and one output as round has.
+NUMERIC_OPERATIONS = {'distance2dSq_wuid': 'distance2dSq', 'normalize': 'round'}
 
 
 def verbatim_lua(script):
@@ -484,9 +510,14 @@ def verbatim_lua(script):
     program = tokens(script)
     if not program or not set(lua_shape(script)) <= VERBATIM_CALLS:
         return False
+    name = re.compile(r'[A-Za-z_]\w*')
+    local = {program[i + 1] for i in range(len(program) - 1) if program[i] == 'local'}
     for index, token in enumerate(program):
         if token[:1] in ('"', "'", '[') and len(token) > 1 and token[1:-1] not in VERBATIM_LITERALS \
                 and not (index and program[index - 1] == '['):
+            return False
+        if name.fullmatch(token) and token not in LUA_KEYWORDS and not (index and program[index - 1] in ('.', ':')) \
+                and token not in local and token not in VERBATIM_ROOTS:
             return False
     return True
 

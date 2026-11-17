@@ -154,6 +154,19 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual(report['rename_blocked'][0]['unmapped'], ['somethingNew'])
         self.assertEqual(prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]['op'], 'TurnBody')
 
+    def test_a_legacy_turn_field_converts_only_with_the_value_retail_writes(self):
+        def turn(**fields):
+            prepared, report = contracts.prepare([model(node('TurnBody', destinationSpecification='"t_opponent"', **fields), [])])
+            turned = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+            return turned['op'], turned['attributes'], [r['reason'] for r in report['rename_blocked']]
+        self.assertEqual(turn(allowInstantSuccess='true', stopWithinAngle='0.000000'),
+                         ('Turn', dict(target='"t_opponent"', allowInstantSuccess='true', stopWithinAngle='0.000000'), []))
+        self.assertEqual(turn(allowInstantSuccess='false')[::2], ('TurnBody', ['value has no native example: allowInstantSuccess false']))
+        self.assertEqual(turn(stopWithinAngle='10.000000')[::2], ('TurnBody', ['value has no native example: stopWithinAngle 10.000000']))
+        self.assertEqual(turn(stopRunninganimation='true')[0], 'TurnBody')
+        self.assertEqual(set(contracts.TURN_VALUES) | {'destinationSpecification', 'alignWith', 'destinationType'},
+                         set(contracts.RENAMES['TurnBody'][1]))
+
     def test_register_never_replaces_an_existing_contract(self):
         import campaign_behavior
         before = dict(campaign_behavior.CONTRACTS['Parallel'])
@@ -393,6 +406,54 @@ class ContractTests(unittest.TestCase):
             self.assertFalse(contracts.verbatim_lua(script), script)
         self.assertIsNone(self.lower(node('ExecuteLua', code=q("Shops.OpenShop(17)")))[0])
 
+    def test_a_script_naming_a_global_outside_the_list_is_not_verbatim(self):
+        contracts.register()
+        wrapper = node('LuaWrapper', [node('Success')], onEnter=q('entity.actor:SetDialogAnimationState(false)'),
+                       onExit=q('entity.actor:SetDialogAnimationState(true)'))
+        emitted, reasons, _ = self.lower(wrapper)
+        self.assertEqual((reasons, emitted.get('onEnter'), emitted.get('onExit')),
+                         ([], 'entity.actor:SetDialogAnimationState(false)', 'entity.actor:SetDialogAnimationState(true)'))
+        order = "local wuid1 = tostring(data.dialogReceiver) \nlocal wuid2 = tostring(entity.this.id) \n \nreturn wuid1 < wuid2"
+        self.assertTrue(contracts.verbatim_lua(order))
+        self.assertTrue(contracts.verbatim_lua('data.limit = RPG.LowHealthThreshold'))
+        for script in ("if data.p.defaultAnimState == enum_animationOverride.userControlled then entity.actor:SetDialogAnimationState(false) end",
+                       "data.modified.defaultAnimState = enum_animationOverride.userControlled",
+                       "local a = tostring(data.x) return a < other", "data.x = Game.Something",
+                       "player.human:InterruptDialog()", "for _, e in ipairs(data.list) do data.x = e end"):
+            self.assertFalse(contracts.verbatim_lua(script), script)
+        self.assertIsNone(self.lower(node('ExecuteLua', code=q("data.x = enum_animationOverride.userControlled")))[0])
+
+    def test_a_turn_with_a_value_retail_never_writes_is_typed_residue(self):
+        turn = node('TurnBody', destinationSpecification=q('t_opponent'), alignWith='false', allowInstantSuccess='true')
+        self.assertEqual(self.xml(turn), '<Turn target="$t_opponent" align="false" allowInstantSuccess="true" />')
+        emitted, reasons, _ = self.lower(dict(turn, attributes=dict(turn['attributes'], stopWithinAngle='10.000000')))
+        self.assertEqual((emitted, reasons),
+                         (None, ['Native operation lacks source fields: TurnBody (Turn reads target, align and destinationType)']))
+
+    def test_a_threat_gate_keeps_its_three_fields(self):
+        gate = node('HasActiveThreatsGate', [node('Success')], Who=q('__player'), Negation=q('true'), RunLogic=q('KeepRunning'))
+        self.assertEqual(self.xml(gate), '<HasActiveThreatsGate Who="$__player" Negation="true" RunLogic="KeepRunning"><Success /></HasActiveThreatsGate>')
+        emitted, reasons, _ = self.lower(dict(gate, attributes=dict(gate['attributes'], Other=q('1'))))
+        self.assertEqual((emitted, len(reasons)), (None, 1))
+
+    def test_normalize_keeps_its_operation_when_the_game_has_it(self):
+        import campaign_behavior
+        from campaign_dependencies import DependencyImporter
+        contracts.register()
+        source = node('NumericalOperation', In1VariableName='opponentOri', In2VariableName='', In3VariableName='',
+                      OutVariableName='opponentOri', Operation='normalize')
+        def lower(operations):
+            catalog = dict(nodes={op: dict(attributes=list(fields), children=[]) for op, fields in campaign_behavior.CONTRACTS.items()},
+                           variable_types=[], enum_types=[], numerical_operations=operations)
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', catalog, importer=DependencyImporter({}, {}))
+            record = dict(unresolved=[], buff_dependencies=[], item_dependencies=[], includes=[])
+            return compiler.lower_node(source, 'q', 'libs/ai/quests/q.xml', 't', 'Root', record), record['unresolved']
+        emitted, unresolved = lower(['round', 'normalize'])
+        self.assertEqual((unresolved, emitted.get('Operation'), emitted.get('In1VariableName'), emitted.get('OutVariableName')),
+                         ([], 'normalize', 'opponentOri', '$opponentOri'))
+        self.assertIsNone(lower(['round'])[0])
+        self.assertIsNone(lower(['normalize'])[0])
+
     def test_a_native_wuid_distance_keeps_its_operation(self):
         import campaign_behavior
         from campaign_dependencies import DependencyImporter
@@ -458,6 +519,39 @@ class LedgerTests(unittest.TestCase):
         self.assertEqual([(b['family'], b['sites'], b['status']) for b in led['blockers']],
                          [('op_no_contract', 2, 'open'), ('buff', 1, 'needs_importer')])
         self.assertIn('| Behavior operation needs an adapter: X | op_no_contract | 2 | 1 | open |', c2.markdown(led))
+
+    def test_a_blocked_library_tree_lists_its_sites_and_the_trees_it_holds(self):
+        own, lib = 'libs/ai/quests/q_example.xml', 'libs/ai/final/utils.xml'
+        tree = dict(variables=[], root=node('Root'))
+        source = dict(quest='q_example', behavior_documents={own: dict(trees=dict(clean=tree, busy=tree, both=tree, alone=tree, gone=tree))})
+        def record(document, name, includes=(), sites=()):
+            return dict(owner='q_example', document=document, tree=name, native_emitted=False,
+                        includes=[('q_example', *ref) for ref in includes],
+                        unresolved=[dict(reason='Behavior operation needs an adapter: ' + op, site=dict(operation=op)) for op in sites])
+        trees = [record(own, 'clean', [(lib, 'helper'), (lib, 'fine')]), record(own, 'busy', [(lib, 'helper')], ['Old']),
+                 record(own, 'both', [(lib, 'helper'), (lib, 'other')]), record(own, 'alone', [(own, 'clean')]),
+                 record(own, 'gone', [(lib, 'helper'), (lib, 'missing')]),
+                 record(lib, 'helper', [(lib, 'inner'), (lib, 'fine')], ['Known']), record(lib, 'inner', [], ['Old', 'Old']),
+                 record(lib, 'other', [], ['Lua']), dict(record(lib, 'fine'), native_emitted=True)]
+        led = c2.ledger(dict(model=source, prepared=dict(scope_resolutions=[], renamed=[], rename_blocked=[]), behaviors={},
+                             conversion=dict(trees=trees), native_nodes={'Known'}))
+        helper, other = led['libraries']
+        self.assertEqual(helper, dict(document=lib, tree='helper', trees=3, blocked_trees=2, sites=3,
+                                      families=dict(op_no_contract=3), operations=2, absent=dict(operations=1, sites=2),
+                                      included_by=['both', 'busy', 'clean', 'gone'], handed=[], held=['both', 'clean', 'gone'],
+                                      unblocks=['alone', 'clean']))
+        self.assertEqual((other['tree'], other['sites'], other['unblocks'], other['absent']),
+                         ('other', 1, [], dict(operations=1, sites=1)))
+        self.assertIn('| `helper` (utils.xml) | 3 (2) | 3 | op_no_contract 3 | 2 (1 ops, 2 sites) | 4: both, busy, clean, gone | 2: alone, clean |',
+                      c2.markdown(led))
+        self.assertEqual(c2.golden(led)['libraries'], led['libraries'])
+        # A tree that is emitted already is not something the library holds back.
+        source['behavior_documents'][own]['trees']['free'] = tree
+        emitted = E.Element('BehaviorTree', name='free'); E.SubElement(emitted, 'Variables'); E.SubElement(emitted, 'Root')
+        led = c2.ledger(dict(model=source, prepared=dict(scope_resolutions=[], renamed=[], rename_blocked=[]),
+                             behaviors={'AI/x.xml': E.tostring(emitted)}, native_nodes={'Known'},
+                             conversion=dict(trees=trees + [dict(record(own, 'free'), native_emitted=True)])))
+        self.assertEqual(led['libraries'][0]['unblocks'], ['alone', 'clean'])
 
     def test_a_refused_schedule_request_names_the_capability_it_waits_on(self):
         refusal = 'Schedule request differs from its resolved source site'

@@ -504,6 +504,237 @@
       "trees": 1
     }
   },
+  "libraries": [
+    {
+      "absent": {
+        "operations": 3,
+        "sites": 3
+      },
+      "blocked_trees": 4,
+      "document": "libs/ai/final/dialogutils.xml",
+      "families": {
+        "buff": 1,
+        "lua": 3,
+        "op_no_contract": 4
+      },
+      "handed": [],
+      "held": [
+        "blanka_givesBeer",
+        "janek_dialogAtTheGate",
+        "janek_waitsAtTheGate",
+        "kunes_sitting",
+        "kunes_winningOverHenry",
+        "matej_goingToSarka",
+        "matus_afterBattleWithKunes",
+        "matus_lureWifeHenry",
+        "matus_waitsInfrontOfPub",
+        "sarka_goBackHome"
+      ],
+      "included_by": [
+        "blanka_givesBeer",
+        "german_returnHome",
+        "janek_dialogAtTheGate",
+        "janek_waitsAtTheGate",
+        "kunes_readyForBattleWithFriends",
+        "kunes_sitting",
+        "kunes_winningOverHenry",
+        "matej_goingToSarka",
+        "matus_afterBattleWithKunes",
+        "matus_afterChase",
+        "matus_lureWifeHenry",
+        "matus_talkBeforeKunes",
+        "matus_waitsForHenry",
+        "matus_waitsInfrontOfPub",
+        "sarka_goBackHome",
+        "sarka_goToGerman",
+        "tereza_rape_fight",
+        "zbysek_runAway"
+      ],
+      "operations": 6,
+      "sites": 8,
+      "tree": "dialogInitiator",
+      "trees": 5,
+      "unblocks": [
+        "blanka_givesBeer",
+        "cutscene_blankaGivesBeer",
+        "cutscene_dialogAfterKunesBeaten",
+        "cutscene_dialogAfterKunesWon",
+        "cutscene_dialogBeforePainting",
+        "cutscene_dialogWithGuards",
+        "janek_dialogAtTheGate",
+        "janek_waitsAtTheGate",
+        "kunes_sitting",
+        "kunes_winningOverHenry",
+        "matej_goingToSarka",
+        "matus_afterBattleWithKunes",
+        "matus_lureWifeHenry",
+        "matus_waitsInfrontOfPub",
+        "sarka_goBackHome"
+      ]
+    },
+    {
+      "absent": {
+        "operations": 3,
+        "sites": 4
+      },
+      "blocked_trees": 2,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "op_attributes": 1,
+        "op_no_contract": 8,
+        "other": 1
+      },
+      "handed": [],
+      "held": [
+        "fricek_goingToSkinner",
+        "matej_goingToSkinner",
+        "matus_goingToSkinner"
+      ],
+      "included_by": [
+        "fricek_goingToSkinner",
+        "matej_goingToSkinner",
+        "matus_goingToSkinner"
+      ],
+      "operations": 8,
+      "sites": 10,
+      "tree": "followNPC_inFormation",
+      "trees": 3,
+      "unblocks": [
+        "fricek_goingToSkinner",
+        "matej_goingToSkinner",
+        "matus_goingToSkinner"
+      ]
+    },
+    {
+      "absent": {
+        "operations": 23,
+        "sites": 36
+      },
+      "blocked_trees": 16,
+      "document": "libs/ai/final/sb_combat_fight.xml",
+      "families": {
+        "buff": 1,
+        "combat_dispatch": 3,
+        "link_types": 3,
+        "lua": 3,
+        "op_attributes": 2,
+        "op_inexpressible": 5,
+        "op_no_contract": 72,
+        "other": 4
+      },
+      "handed": [
+        "friends_kunes_fight",
+        "kunes_battle_fight"
+      ],
+      "held": [],
+      "included_by": [
+        "enemies_battle_fight",
+        "friends_kunes_fight",
+        "kunes_battle_fight"
+      ],
+      "operations": 49,
+      "sites": 93,
+      "tree": "fight",
+      "trees": 17,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 0,
+        "sites": 0
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/dialogutils.xml",
+      "families": {
+        "op_no_contract": 1
+      },
+      "handed": [],
+      "held": [
+        "motherPatch"
+      ],
+      "included_by": [
+        "catchpoll_chasesHenry",
+        "motherPatch"
+      ],
+      "operations": 1,
+      "sites": 1,
+      "tree": "dialogInitiator_instant",
+      "trees": 1,
+      "unblocks": [
+        "motherPatch"
+      ]
+    },
+    {
+      "absent": {
+        "operations": 0,
+        "sites": 0
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "link_types": 5
+      },
+      "handed": [],
+      "held": [],
+      "included_by": [
+        "cutscene_navsteva_racka",
+        "onUpdate"
+      ],
+      "operations": 1,
+      "sites": 5,
+      "tree": "loadAllReferences",
+      "trees": 1,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 1,
+        "sites": 2
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "op_no_contract": 2
+      },
+      "handed": [
+        "kunes_battle_fight"
+      ],
+      "held": [],
+      "included_by": [
+        "kunes_battle_fight"
+      ],
+      "operations": 1,
+      "sites": 2,
+      "tree": "combatStarterSynchronize_dialog",
+      "trees": 1,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 4,
+        "sites": 23
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/sa_city.xml",
+      "families": {
+        "daycycle_lifecycle": 2,
+        "link_types": 2,
+        "lua": 17,
+        "op_no_contract": 24,
+        "typed_variables": 16
+      },
+      "handed": [],
+      "held": [],
+      "included_by": [
+        "catchpoll_chasesHenry"
+      ],
+      "operations": 11,
+      "sites": 61,
+      "tree": "dressUp",
+      "trees": 2,
+      "unblocks": []
+    }
+  ],
   "lua_shapes": [
     {
       "calls": "Contexts.ClearOption XGenAIModule.GetEntityByWUID",
@@ -593,7 +824,7 @@
     "completed_branches": 15,
     "implicit_links": 23,
     "initialisers": 24,
-    "rename_blocked": 618,
+    "rename_blocked": 582,
     "renamed": {
       "AreaPresence->AreaPresenceGate": 34,
       "AreaPresence->AreaPresenceListener": 7,
@@ -603,7 +834,7 @@
       "StateMachineGate->ActorStateBarrier": 16,
       "StreamingInstallGate->IfGate": 2,
       "Teleport->TeleportAction": 30,
-      "TurnBody->Turn": 63
+      "TurnBody->Turn": 99
     },
     "scope_resolutions": 274,
     "stand_ins": {
