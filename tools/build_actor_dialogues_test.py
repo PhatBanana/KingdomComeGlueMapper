@@ -133,9 +133,15 @@ def build(a):
         roles = {r['role_id']:r for r in tables.get('rpg/role')['rows']}
         meta = {r['metarole_id']:r['metarole_name'] for r in tables.get('rpg/metarole')['rows']}
         needed = {r for r in needed if meta[roles[r]['metarole_id']] == 'NPC'}
+        # bind_souls (soul names): a stage that imports its own speakers binds roles only to them, so a
+        # source role shared by another registered soul (one person at two story points) is not a second speaker.
+        only = set(getattr(a, 'bind_souls', None) or ())
+        candidates = {i for i, n in souls.items() if not only or n in only}
+        if only - {souls[i] for i in candidates}:
+            raise ValueError('Dialogue speakers are not registered: ' + ', '.join(sorted(only - set(souls.values()))))
         bindings = {}
         for r in tables.get('rpg/soul2role')['rows']:
-            if r['role_id'] in needed and r['soul_id'] in souls:
+            if r['role_id'] in needed and r['soul_id'] in candidates:
                 bindings.setdefault(r['soul_id'], []).append(dict(roles[r['role_id']], metarole_name='NPC'))
     bound = {r['role_id'] for rs in bindings.values() for r in rs}
     if needed - bound:

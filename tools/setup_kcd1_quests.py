@@ -1008,7 +1008,8 @@ def migrate_quest(package, source, target, row, marker, notify):
                 archive=quest_travel, quest_ir=files, start_topic=[t for _, t in row['branches']],
                 namespace=row['namespace'], kind='FaderDialog', container=ENTRY.removeprefix('Quests/'),
                 container_name=CONTAINER, activation=HOST + '.active', skill_upgrade=[],
-                participant_asset=['Dude=' + DIALOGUE_PLAYER], area_asset=[]))
+                participant_asset=['Dude=' + DIALOGUE_PLAYER], area_asset=[],
+                bind_souls=list(row['people'])))
             dialogue_travel = temporary / 'dialogues' / 'package' / TRAVEL
             staged = read_travel(dialogue_travel, ('Quests/',))
             quest_travel.unlink()
@@ -1507,14 +1508,19 @@ def quest_checks(package, kcd1, kcd2):
     with zipfile.ZipFile(package / LEVEL_PAK) as archive:
         level = (ET.fromstring(read(archive, 'objects_mission0.xml')), ET.fromstring(read(archive, 'whdata_0')),
                  ET.fromstring(read(archive, 'tables/ai/scheduler.xml')))
-    text = {}
+    text, ui_text = {}, {}
     for locale in (kcd2 / 'Localization/English_xml.pak', package / ENGLISH_XML):
         with zipfile.ZipFile(locale) as archive:
-            for member in ('text_ui_items.xml', 'text_ui_quest.xml', 'text_ui_dialog.xml'):
-                if member in archive.namelist():
-                    text.setdefault(member, {}).update(string_rows(read(archive, member)))
+            for member in archive.namelist():
+                if not re.fullmatch(r'text_ui_[^/]+\.xml', member): continue
+                rows = string_rows(read(archive, member))
+                # The game loads every text_ui_*.xml, so an item's name may sit in another stage's file
+                # (text_ui_container_items.xml for KCD1 container loot).
+                ui_text.update(rows)
+                if member in ('text_ui_items.xml', 'text_ui_quest.xml', 'text_ui_dialog.xml'):
+                    text.setdefault(member, {}).update(rows)
     items = native_items(kcd2, package_item_patches(package))
-    item_names = {k: text['text_ui_items.xml'].get(row.get('UIName') or '') for k, row in items.items()}
+    item_names = {k: ui_text.get(row.get('UIName') or '') for k, row in items.items()}
     with zipfile.ZipFile(package / ENGLISH) as archive:
         audio = [n for n in archive.namelist() if n.lower().startswith('dialog/') and n.lower().endswith('.ogg')]
         depot = read(archive, DEPOT)
