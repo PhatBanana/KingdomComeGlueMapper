@@ -1008,7 +1008,8 @@ def migrate_quest(package, source, target, row, marker, notify):
                 archive=quest_travel, quest_ir=files, start_topic=[t for _, t in row['branches']],
                 namespace=row['namespace'], kind='FaderDialog', container=ENTRY.removeprefix('Quests/'),
                 container_name=CONTAINER, activation=HOST + '.active', skill_upgrade=[],
-                participant_asset=['Dude=' + DIALOGUE_PLAYER], area_asset=[]))
+                participant_asset=['Dude=' + DIALOGUE_PLAYER], area_asset=[],
+                bind_souls=list(row['people'])))
             dialogue_travel = temporary / 'dialogues' / 'package' / TRAVEL
             staged = read_travel(dialogue_travel, ('Quests/',))
             quest_travel.unlink()
