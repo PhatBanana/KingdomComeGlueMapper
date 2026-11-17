@@ -8,6 +8,7 @@ import xml.etree.ElementTree as E
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 import campaign_scenes as scenes
+import setup_kcd1_scenes as stage
 from campaign_quest_graph import emit_project
 from quest_lab.runner import Runner
 from quest_lab.source import Source
@@ -501,7 +502,7 @@ class LedgerTests(unittest.TestCase):
     def test_every_record_is_converted_or_typed_residue(self):
         ledger = converted()['ledger']
         self.assertEqual(ledger['residue_by_kind'], dict(callback_op_deferred=7, dialogue_scene=1, fader_scene=1,
-            playback_duty_deferred=10, profile_group_conflict=1, profile_layer_unconverted=5, profile_nav_variant=2, request_save_deferred=2,
+            playback_duty_deferred=11, playback_duty_native_player=4, profile_group_conflict=1, profile_layer_unconverted=5, profile_nav_variant=2, request_save_deferred=2,
             scene_handoff=1, video_not_selected=1))
         self.assertEqual(ledger['lowered'], dict(objective=4, profile=2, **{'await': 2}))
         for callback in ledger['callbacks']:
@@ -510,6 +511,114 @@ class LedgerTests(unittest.TestCase):
         self.assertFalse(ledger['runtime_verified'])
         golden = scenes.golden(ledger, converted()['module'], converted()['rows'])
         self.assertEqual(golden, json.loads(json.dumps(golden)))
+
+    def test_every_playback_duty_is_the_native_player_s_or_residue(self):
+        rows = lambda ledger, kind: {r['duty']: r['scenes'] for r in ledger['residue'] if r['kind'] == kind}
+        ledger = converted()['ledger']                                  # 2 converted videos of 6 requested scenes
+        native, deferred = rows(ledger, 'playback_duty_native_player'), rows(ledger, 'playback_duty_deferred')
+        self.assertEqual(set(native) | set(deferred), set(scenes.PLAYBACK_DUTIES))
+        self.assertEqual(native, {duty: 2 for duty, player in scenes.PLAYBACK_DUTIES.items() if player})
+        self.assertEqual(deferred, {duty: 4 if player else 6 for duty, player in scenes.PLAYBACK_DUTIES.items()})
+        self.assertIn('post-scene fade-in', native)
+        nothing = converted(selection=())['ledger']                     # no picture converted: nothing is the player's
+        self.assertEqual(rows(nothing, 'playback_duty_native_player'), {})
+        self.assertEqual(set(rows(nothing, 'playback_duty_deferred').values()), {6})
+
+
+class ControllerProfileTests(unittest.TestCase):
+    def switching(self):
+        m = source()
+        trees = m['behavior_documents'][DOCUMENT]['trees']
+        trees['onUpdate']['root']['children'][0]['children'][0]['children'].append(switch('cameras', ''))
+        trees['later'] = tree(node('Then', switch('', 'cameras')), switch('horses', 'house'))
+        return m
+
+    def test_the_controller_s_own_switches_are_read_from_every_tree(self):
+        self.assertEqual(scenes.controller_switches(self.switching()),
+                         [('cameras', None), ('attack', 'normal'), ('horses', 'house'), (None, 'cameras'), ('horses', 'house')])
+
+    def test_profiles_only_the_controller_switches_are_planned_and_registered_too(self):
+        m = self.switching()
+        profiles = whdata().replace(b'<Name>' + QUEST.encode() + b'_cutscene_quarrel</Name>', b'<Name>cameras</Name>')
+        run = lambda **more: scenes.convert(m, VIDEOS, profiles, layers(), LEVEL | {'native-50'}, native, CUTSCENES, ('forge', 'visit'),
+                                             'helper.xml', controller_owned=('forge', 'visit'), **more)
+        self.assertEqual(run()['plan'], {})                             # C5 lowers nothing, so it plans nothing by itself
+        plan = run(extra_switches=scenes.controller_switches(m))['plan']
+        self.assertEqual(list(plan), ['cameras', 'attack', 'normal', 'horses', 'house'])
+        self.assertEqual(plan['cameras']['totals'], dict(layers=1, shared=0, entities=1, in_level=1, unconverted=0))
+        self.assertEqual(plan['normal']['layers'][0]['status'], 'shared')        # the pairing still decides what stays flat
+        level = ProfileTests().level()
+        level['objects_mission0.xml'] = level['objects_mission0.xml'].replace(b'</Objects>', b'<Entity Name="c" EntityGuid="native-50"/></Objects>')
+        files, report = scenes.register_profiles(level, plan)
+        self.assertEqual([(r['profile'], r['moved']) for r in report][:1], [('gm_cameras', 1)])
+        self.assertIn('layers/gm_cameras_layer.xml', files)
+
+
+class StageTests(unittest.TestCase):
+    ROW = '<Row><Cell>%s</Cell><Cell>%s</Cell><Cell>%s</Cell></Row>'
+
+    def table(self, *rows):
+        return ('<Table>' + ''.join(self.ROW % r for r in rows) + '</Table>').encode()
+
+    def test_two_cuts_of_one_scene_share_their_subtitle_rows(self):
+        native = self.table(('old', 'a', 'a'))
+        merged, counts = stage.merge_subtitles(native, [self.table(('k1', 'x', 'x'), ('k2', 'y', 'y')), self.table(('k1', 'x', 'x'), ('k3', 'z', 'z'))])
+        self.assertEqual([r.findtext('Cell') for r in E.fromstring(merged)], ['old', 'k1', 'k2', 'k3'])
+        self.assertEqual(counts, dict(added=3, shared=1))
+        self.assertTrue(merged.startswith(native[:-len(b'</Table>')]))             # every original byte is kept
+        again, counts = stage.merge_subtitles(merged, [self.table(('k1', 'x', 'x'))])
+        self.assertEqual((again, counts), (merged, dict(added=0, shared=1)))
+        with self.assertRaisesRegex(ValueError, 'collision: k1'):
+            stage.merge_subtitles(native, [self.table(('k1', 'x', 'x')), self.table(('k1', 'x', 'other'))])
+        with self.assertRaisesRegex(ValueError, 'collision: old'):
+            stage.merge_subtitles(native, [self.table(('old', 'b', 'b'))])
+
+    def level(self):
+        return {'objects_mission0.xml': b'<Objects><Entity Name="Example" EntityClass="SmartObjectHolder" EntityId="4" '
+                                        b'EntityGuid="00000004-0000-0000" Pos="1,2,3"/><Entity Name="x" EntityId="9" EntityGuid="9"/></Objects>',
+                'waitinglinks.xml': b''}
+
+    PROJECT = b'<Root><Skald><Project Name="Example"><Assets><SoulAsset Name="player"/></Assets></Project></Skald></Root>'
+
+    def test_each_converted_video_gets_a_holder_bound_through_the_project(self):
+        wanted = converted()['report']['world_requirements']
+        self.assertEqual(len(wanted), 2)
+        files, project, records = stage.place_holders(self.level(), self.PROJECT, wanted)
+        mission = E.fromstring(files['objects_mission0.xml'])
+        holders = [e for e in mission if e.get('EntityClass') == 'CutsceneHolder']
+        self.assertEqual([(h.get('Name'), h.find('Properties').get('esCutsceneName'), h.get('EntityId'), h.get('Pos')) for h in holders],
+                         [(w['alias'], w['cutscene'], str(10 + i), '1,2,3') for i, w in enumerate(wanted)])
+        self.assertEqual(len({h.get('EntityGuid') for h in holders}), 2)
+        links = mission[0].findall('EntityLinks/Link')
+        self.assertEqual([(l.get('Name'), l.get('TargetGuid')) for l in links],
+                         [("asset['" + w['alias'] + "']", h.get('EntityGuid')) for w, h in zip(wanted, holders)])
+        self.assertEqual([a.get('Name') for a in E.fromstring(project).findall('.//Assets/CutsceneHolderAsset')], [w['alias'] for w in wanted])
+        self.assertEqual(len(E.fromstring(files['waitinglinks.xml']).findall('.//WaitingLinks/*')), 2)
+        self.assertEqual([r['placed'] for r in records], [True, True])
+        again, project_again, records = stage.place_holders(files, project, wanted)
+        self.assertEqual((again['objects_mission0.xml'], project_again, [r['placed'] for r in records]),
+                         (files['objects_mission0.xml'], project, [False, False]))
+        other = [dict(wanted[0], cutscene='another')]
+        with self.assertRaisesRegex(ValueError, 'holder conflict'):
+            stage.place_holders(files, project, other)
+        with self.assertRaisesRegex(ValueError, 'project holder'):
+            stage.place_holders(dict(self.level(), **{'objects_mission0.xml': b'<Objects><Entity EntityId="1"/></Objects>'}), self.PROJECT, wanted)
+
+    def test_the_people_summary_names_every_actor_that_is_not_in_the_level(self):
+        actor = lambda name, soul: dict(name=name, soul_id=soul)
+        report = dict(source_profile_actors=[actor('a', '1'), actor('b', '2'), actor('c', '3'), actor('d', '4')],
+                      converted=[dict(person='a', soul_id='1')], existing=[dict(person='b', soul_id='2')],
+                      pending=[dict(asset='profile_actor_x', person='c', reason='no head')])
+        self.assertEqual(stage.people_summary(report, ('attack',)),
+                         dict(profiles=['attack'], actors=4, converted=1, existing=1, failed=[dict(person='c', reason='no head')],
+                              missing=['c', 'd']))
+
+    def test_a_stage_folder_is_never_reused(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as temporary:
+            (Path(temporary) / 'overlay').mkdir()
+            with self.assertRaisesRegex(FileExistsError, 'fresh'):
+                stage.stage(temporary, temporary, temporary, 'q_skalitz', temporary, temporary, people=Path(temporary) / 'people')
 
 
 @unittest.skipUnless((KCD1 / 'Data/Tables.pak').exists() and (KCD2 / 'Data/Tables.pak').exists(),
@@ -572,6 +681,21 @@ class RetailTests(unittest.TestCase):
             self.assertTrue(receipt['encoder']['known'])
         rows = {r['name']: r for r in self.result['rows']}
         self.assertEqual(set(rows), {r['cutscene'] for r in receipts})
+
+    def test_the_profiles_the_controller_asks_for_are_planned(self):
+        switches = scenes.controller_switches(self.result['model'])
+        names = {n for pair in switches for n in pair if n}
+        self.assertLessEqual({'q_skalitz_mother_dialog_cameras', 'q_skalitz_wanderer', 'q_skalitz_attack', 'q_skalitz_normal',
+                              'q_skalitz_givenhorse', 'q_skalitz_skinnerhouse'}, names)
+        owned = scenes.convert_retail(KCD1, KCD2, 'q_skalitz', model=self.result['model'], controller_owned=scenes.EVERY,
+                                      controller_profiles=True)
+        self.assertEqual((owned['programs'], owned['report']['wiring']), ([], []))     # the controller runs all 15 callbacks
+        self.assertEqual(owned['ledger']['residue_by_kind']['callback_handed_to_controller'], 15)
+        self.assertNotIn('request_save_deferred', owned['ledger']['residue_by_kind'])
+        self.assertEqual(set(owned['plan']), names)
+        self.assertEqual(owned['plan']['q_skalitz_attack']['totals']['shared'], 7)
+        check = scenes.equivalence(self.result['model'], owned, {})
+        self.assertEqual((check['verdict'], check['failed']), ('PASS', 0))
 
     def test_objective_actions_are_real_inputs_of_the_emitted_quest(self):
         files, _ = emit_project([self.result['model']], 'Example')

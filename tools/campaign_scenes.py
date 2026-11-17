@@ -50,13 +50,32 @@ INSTANT = {'InstantSendMessageToNPC', 'RemoveBuffs', 'AddBuff', 'ExecuteLua', 'E
            'VariableExistsGate', 'Then', 'Else', 'AtomicDecorator', 'GraphSearch', 'LinkTagFilter', 'EvaLLyzer',
            'Success', 'Sequence', 'SetQuestObjective', 'EnableProfile'}
 OWNERS = {'ExecuteLua': 'C4'}
+EVERY = 'every requested scene'      # controller_owned: the controller converter runs every callback tree
 STREAMING = 'streamprofileshandling'
 
 
-PLAYBACK_DUTIES = ('save lock while the scene runs', 'fader and sound mute', 'player-not-in-scene lock',
-                   'dropping a carried body', 'combat prevention and its two player buffs', 'player pre-teleport',
-                   'actor restrictions and scene clothes', 'time of day', 'scene subscriptions',
-                   'actor teleports with the readiness wait')
+# What the KCD1 cutsceneAutomaton does around playback (read from Libs/AI/final/questUtils.xml by the
+# controller converter, which hands these to C5). True: the native player of a rendered cutscene does it
+# for a converted video. **Inference** from how retail rendered cutscenes behave; not runtime-verified.
+# False: nothing does it yet, for any scene.
+PLAYBACK_DUTIES = {'save lock while the scene runs': True, 'fader and sound mute': True,
+                   'player-not-in-scene lock': True, 'post-scene fade-in': True,
+                   'dropping a carried body': False, 'combat prevention and its two player buffs': False,
+                   'player pre-teleport': False, 'actor restrictions and scene clothes': False, 'time of day': False,
+                   'scene subscriptions': False, 'actor teleports with the readiness wait': False}
+
+
+def controller_switches(model):
+    """[(enable, disable)] of every EnableProfile in the quest's own controller document, in tree order."""
+    found = []
+    for tree in own_document(model)['trees'].values():
+        for node in (tree['root'], *_descendants(tree['root'])):
+            if node['op'] == 'EnableProfile':
+                attributes = {k: literal(v) for k, v in node.get('attributes', {}).items()}
+                pair = (attributes.get('profileEnable') or None, attributes.get('profileDisable') or None)
+                if any(pair):
+                    found.append(pair)
+    return found
 
 
 def wire_bridge(entry_blob, bridge, wiring, module, module_blob):
@@ -621,9 +640,13 @@ def ledger(model, records, programs, plan, emitted, rows):
                 if field in request['fields'] and record.get('callback_owner') != 'C2':
                     residue.append(dict(kind='request_save_deferred', alias=record['alias'], field=field,
                                         value=request['fields'][field], owner='C2'))
-    # What the KCD1 cutsceneAutomaton does around playback (read from Libs/AI/final/questUtils.xml by the
-    # controller converter); declared to be C5 work, none built.
-    residue.extend(dict(kind='playback_duty_deferred', duty=duty) for duty in PLAYBACK_DUTIES)
+    played = [r['alias'] for r in records if r['status'] == 'converted']
+    passed = [r['alias'] for r in records if r['status'] != 'converted']
+    for duty, native in PLAYBACK_DUTIES.items():
+        if native and played:
+            residue.append(dict(kind='playback_duty_native_player', duty=duty, scenes=len(played), basis='inference'))
+        if not native or passed:
+            residue.append(dict(kind='playback_duty_deferred', duty=duty, scenes=len(records) if not native else len(passed)))
     for record in records:
         if record.get('callback_owner') == 'C2' and record['callback']:
             residue.append(dict(kind='callback_handed_to_controller', alias=record['alias'], tree=record['callback'], owner='C2'))
@@ -755,17 +778,20 @@ def golden(ledger_, module_blob, table_rows):
 
 
 def convert(model, video_names, whdata, layer_entities, level_guids, native_guid, native_cutscenes, selection,
-            streaming_path=STREAMING + '.xml', controller_owned=()):
+            streaming_path=STREAMING + '.xml', controller_owned=(), extra_switches=(), subtitled=()):
     """Run C5 on one quest model. Returns dict(module, table, ledger, records, programs, plan, report).
 
-    controller_owned names the aliases whose callback tree the controller converter (C2) emits. For those
+    controller_owned names the aliases whose callback tree the controller converter (C2) emits (EVERY: all
+    of them, which is what its dispatcher does: it stands where the automaton included the tree). For those
     C5 lowers nothing of the tree: the module only plays the scene and fires `callback_<alias>`, and the
-    tree is listed as handed over. Profiles such a tree switches are then C2's to register.
+    tree is listed as handed over. extra_switches are profile switches somebody else performs (the
+    controller's own, `controller_switches`): they are planned and accounted like the scenes' own, so
+    `register_profiles` registers every profile the quest uses. subtitled: aliases that ship subtitles.
     """
     videos = video_sources(video_names).get(model['quest'].lower(), {})
     profiles = source_profiles(whdata)
     records = scenes(model, videos, profiles, selection)
-    owned = set(controller_owned)
+    owned = {r['alias'] for r in records} if controller_owned == EVERY else set(controller_owned)
     unknown = sorted(owned - {r['alias'] for r in records})
     if unknown:
         raise Unsupported('Controller-owned scenes are not requested scenes: ' + ', '.join(unknown))
@@ -773,12 +799,13 @@ def convert(model, video_names, whdata, layer_entities, level_guids, native_guid
         record['callback_owner'] = 'C2' if record['alias'] in owned else 'C5'
     programs = [p for p in (program(model, r['alias']) for r in records if r['alias'] not in owned) if p is not None]
     switches = [(s.get('enable'), s.get('disable')) for p in programs for s in _flat(p['steps']) if s['kind'] == 'profile']
-    plan = profile_plan(switches, profiles, layer_entities, level_guids, native_guid)
+    plan = profile_plan([*switches, *(pair for pair in extra_switches if pair not in switches)], profiles,
+                        layer_entities, level_guids, native_guid)
     awaited = {s['profile'] for p in programs for s in _flat(p['steps']) if s['kind'] == 'await'}
     if awaited - plan.keys():
         raise Unsupported('A callback waits for a profile it never switches: ' + ', '.join(sorted(awaited - plan.keys())))
     module, report = emit(model, records, programs, streaming_path)
-    table, rows = movie_rows(native_cutscenes, records, model['quest'])
+    table, rows = movie_rows(native_cutscenes, records, model['quest'], subtitled)
     return dict(module=module, table=table, records=records, programs=programs, plan=plan, report=report,
                 ledger=ledger(model, records, programs, plan, report, rows), rows=rows)
 
@@ -800,8 +827,13 @@ def layer_census(root):
     return found
 
 
-def convert_retail(kcd1, kcd2, quest, selection=None, package=None, model=None, controller_owned=()):
-    """C5 on retail KCD1 (and, for entity accounting, a built package's level). Reads only."""
+def convert_retail(kcd1, kcd2, quest, selection=None, package=None, model=None, controller_owned=(), guids=None,
+                   controller_profiles=False, cutscenes=None, subtitled=()):
+    """C5 on retail KCD1 (and, for entity accounting, a built package's level). Reads only.
+
+    guids replaces the package's level GUIDs (a staged level). controller_profiles also plans the profiles
+    the quest's own controller switches. cutscenes replaces the native cutscene table as the base.
+    """
     from pathlib import Path
     import zipfile
     from campaign_entity_links import native_guid
@@ -827,14 +859,19 @@ def convert_retail(kcd1, kcd2, quest, selection=None, package=None, model=None, 
         wanted = {layer for profile in source_profiles(whdata).values() for layer in profile['layers']}
         layers = {layer: layer_census(ET.fromstring(read(archive, index['layers/' + layer.lower() + '.xml'])))
                   for layer in wanted if 'layers/' + layer.lower() + '.xml' in index}
-    guids = set()
-    if package is not None:
+    if guids is not None:
+        guids = set(guids)
+    elif package is None:
+        guids = set()
+    else:
         with zipfile.ZipFile(Path(package) / 'Data/Levels/kcd1_travel/level.pak') as archive:
             guids = {e.get('EntityGuid') for e in ET.fromstring(read(archive, 'objects_mission0.xml')).iter('Entity')}
-    with zipfile.ZipFile(kcd2 / 'Data/Tables.pak') as archive:
-        cutscenes = read(archive, 'Libs/Tables/ui/cutscene.xml')
+    if cutscenes is None:
+        with zipfile.ZipFile(kcd2 / 'Data/Tables.pak') as archive:
+            cutscenes = read(archive, 'Libs/Tables/ui/cutscene.xml')
     return dict(convert(model, names, whdata, layers, guids, native_guid, cutscenes,
-                        selection if selection is not None else MAIN_PATH[quest], controller_owned=controller_owned),
+                        selection if selection is not None else MAIN_PATH[quest], controller_owned=controller_owned,
+                        extra_switches=controller_switches(model) if controller_profiles else (), subtitled=subtitled),
                 model=model)
 
 
