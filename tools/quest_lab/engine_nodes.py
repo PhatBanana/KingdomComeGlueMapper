@@ -8,6 +8,8 @@ adds the node types converted KCD1 controllers use on top of it:
                     DetailBehaviorBarrier, ProfileLoadedGate, FaderBarrier
     engine actions  Move, ExactMove, Turn, CallBehavior, StopMovement, DrawAction,
                     TeleportAction, Look
+    native calls    Function_speech_polylogInitiator, Function_moveInFormation_inFormation
+                    (the library stand-ins of campaign_controller_library)
     queries         GraphSearch with its filters, LuaGate, AreaPresenceListener
     structure       FuseBox, For, LoopUntil, AtomicDecorator, InstantSemaphore
     messages        SendMessageToNPC, InstantMultiSendMessageToNPC
@@ -40,7 +42,16 @@ ENGINE_GATES = {'DistanceGate', 'AreaPresenceGate', 'DialogGate', 'ActorStateBar
 GATES = LAB_GATES | ENGINE_GATES
 # Rechecked while their child runs: the lab can see the condition change.
 HALTABLE = {'GameContextBarrier', 'IfGate', 'ExternalLock'}
-ENGINE_ACTIONS = {'Move', 'ExactMove', 'Turn', 'CallBehavior', 'StopMovement', 'DrawAction', 'TeleportAction', 'Look'}
+# Calls of a native KCD2 function the lab does not have the tree of. Under `behavior.native_function` each is one
+# engine action; the attribute sets are the parameters the retail definitions declare.
+NATIVE_FUNCTIONS = {
+    'Function_speech_polylogInitiator': {'alias', 'animationApproach', 'context', 'customParameters', 'metarole',
+                                         'participants', 'participantsMetaroles', 'preset'},
+    'Function_moveInFormation_inFormation': {'destination', 'followEnabled', 'followFormationParams', 'pathOffset',
+                                             'successDistance'},
+}
+ENGINE_ACTIONS = {'Move', 'ExactMove', 'Turn', 'CallBehavior', 'StopMovement', 'DrawAction', 'TeleportAction',
+                  'Look'} | set(NATIVE_FUNCTIONS)
 EFFECTS = {'AddBuff', 'RemoveBuffs', 'GameOver', 'AddLink', 'RemoveLink', 'SetSpatialInfo', 'GetSpatialInfo',
            'GetTime', 'SetExternalLock', 'ExecuteLua', 'InstantMultiSendMessageToNPC'}
 FILTERS = {'LinkTagFilter', 'LinkDataFilter', 'WUIDFilter', 'EvaLLyzer', 'Nodalyzer'}
@@ -96,6 +107,7 @@ SCHEMA = {
     'DrawAction': {'WeaponSet', 'fullBody', 'tags', 'useSelectedWeaponSet'},
     'TeleportAction': {'Position', 'EndInterruptOnActionStart'},
     'Look': None,
+    **NATIVE_FUNCTIONS,
     'GraphSearch': {'Origin', 'Borders', 'depth', 'selection', 'SearchPattern', 'EdgePruning', 'AllowedEdges', 'SubGraph',
                     'AllowSubtraph', 'includeOrigin', 'excludeOrigin', 'failOnEmpty', 'SetOperationChoice',
                     'errorOnEmpty', 'shortCircuit', 'skipTraversed'},
@@ -175,6 +187,9 @@ class EngineNodes:
                 found.append('FuseBox needs one Child and at most one OnSuccess and one OnFail')
             if node.get('StatusPropagation') not in ('Child', 'Success', 'CleanUp') or node.get('OneCleanup') not in ('true', 'false'):
                 found.append('FuseBox needs StatusPropagation and OneCleanup')
+        if tag in NATIVE_FUNCTIONS:
+            missing = sorted(NATIVE_FUNCTIONS[tag] - set(node.attrib))
+            if missing: found.append(tag + ' is modelled only with every parameter written: ' + ', '.join(missing))
         if tag == 'LoopUntil' and node.get('until') not in ('Success', 'Fail'):
             found.append('LoopUntil needs until Success or Fail')
         if tag == 'SendMessageToNPC' and (literal(node.get('timeout', '')) not in (-1, '-1')
@@ -446,6 +461,8 @@ class EngineNodes:
             self.record('behavior_gate', task=name, node=path, operation=tag, state='open')
             self._push(task, frame, 0)
         elif tag in ENGINE_ACTIONS:
+            if tag in NATIVE_FUNCTIONS and self.assume('behavior.native_function') != 'one_engine_action':
+                raise Unsupported('Unknown native function policy')
             self._boundary(name, task, 'action', path, node)
         elif tag == 'AtomicDecorator':
             if self.assume('behavior.atomic') != 'not_interrupted': raise Unsupported('Unknown atomic policy')
@@ -484,8 +501,10 @@ class EngineNodes:
             if type(limit) is not int or limit < -1: raise Unsupported('LoopUntil attempt count must be an integer: ' + path)
             if 'child_result' in frame:
                 if frame.pop('child_result') == (node.get('until') == 'Success'): finish(True); return
-                frame['attempts'] = frame.get('attempts', 0) + 1
-                if limit > 0 and frame['attempts'] >= limit: finish(False); return
+                # Without a limit the attempts are not state: a body that fails the same way again is a loop.
+                if limit > 0:
+                    frame['attempts'] = frame.get('attempts', 0) + 1
+                    if frame['attempts'] >= limit: finish(False); return
             self._push(task, frame, 0)
         elif tag == 'SendMessageToNPC':
             typ, content = self._message(node, path, expr)

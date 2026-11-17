@@ -283,6 +283,44 @@ class BoundaryTests(unittest.TestCase):
         unknown, _ = lab('<Move destinationSpecification="$spot" throughWalls="true"/>', start=False)
         self.assertTrue(any('throughWalls' in u['reason'] for u in unknown.unsupported))
 
+    def test_a_native_function_call_is_one_engine_action_under_its_assumption(self):
+        calls = {'Function_speech_polylogInitiator': (
+                     ['alias="$alias"', 'animationApproach="$enum:animationApproach.dontPlayDialogAnimations"',
+                      'context="$__null"', 'customParameters="$parameters"', 'metarole=""', 'participants="$who"',
+                      'participantsMetaroles=""', 'preset="$enum:dialogPreset.ignored"'], 'participants', 'recipient'),
+                 'Function_moveInFormation_inFormation': (
+                     ['destination="$spot"', 'followEnabled="false"', 'followFormationParams="$formation"',
+                      'pathOffset="0.000000"', 'successDistance="0.000000"'], 'destination', 'changeNPCState')}
+        for tag, (parameters, required, undeclared) in calls.items():
+            fields = ' '.join(parameters)
+            for outcome in ('success', 'fail'):
+                b, _ = lab('<Sequence><%s %s/>%s</Sequence>' % (tag, fields, BUMP))
+                self.assertEqual((b.unsupported, pending(b)), ([], [(tag, 'action')]), tag)
+                self.assertEqual(b.variables['count'], 0)  # nothing after the call runs before the engine answers
+                b.resolve('main', outcome)
+                self.assertEqual((status(b), b.variables['count']), (outcome, int(outcome == 'success')), tag)
+                self.assertTrue(b.graph.world.report()['assumptions']['behavior.native_function']['used'])
+            # Mutations: a parameter the retail definition does not declare, a parameter left out, no assumption.
+            extra, _ = lab('<%s %s %s="true"/>' % (tag, fields, undeclared), start=False)
+            self.assertTrue(any(undeclared in u['reason'] for u in extra.unsupported), tag)
+            missing, _ = lab('<%s %s/>' % (tag, ' '.join(p for p in parameters if not p.startswith(required + '='))), start=False)
+            self.assertTrue(any('every parameter written: ' + required in u['reason'] for u in missing.unsupported), tag)
+            with self.assertRaisesRegex(Unsupported, 'behavior.native_function'):
+                lab('<%s %s/>' % (tag, fields), assumptions={k: v for k, v in ASSUMED.items() if k != 'behavior.native_function'})
+            with self.assertRaises(ValueError):
+                lab('<%s %s/>' % (tag, fields), assumptions=dict(ASSUMED, **{'behavior.native_function': 'succeeds'}))
+        # A dialogue that fails is tried again by the loop the source put around it; one that succeeds ends it.
+        loop = '<LoopUntil until="Success" attemptCount="0"><Sequence>%s<Function_speech_polylogInitiator %s/></Sequence></LoopUntil>' % (
+            BUMP, ' '.join(calls['Function_speech_polylogInitiator'][0]))
+        b, _ = lab(loop)
+        b.resolve('main', 'fail')
+        self.assertEqual((status(b), b.variables['count'], pending(b)), ('external', 2, [('Function_speech_polylogInitiator', 'action')]))
+        b.resolve('main', 'success')
+        self.assertEqual((status(b), b.variables['count']), ('success', 2))
+        # The fight stand-in is not modelled: a tree that has it is not walked as if it were.
+        other, _ = lab('<Function_combat_fightRepeated_template target="$spot"/>', start=False)
+        self.assertTrue(other.unsupported)
+
     def test_a_scenario_contract_can_still_stand_in_for_an_engine_action(self):
         b, _ = lab(MOVE, contracts={'Move': dict(reason='explicit fixture')})
         self.assertEqual((status(b), b.boundaries()), ('external', []))
@@ -433,6 +471,73 @@ class ExpressionTests(unittest.TestCase):
             local = b.tasks['main']['locals']
             self.assertEqual(local['t'], dict(name='Wait', tries=2))
             self.assertEqual(local['move'], dict(engine_record='additionalMoveParams', initializer="destChangedThreshold('2s')"))
+
+    def start(self, variables, expressions, assumed=ASSUMED, types=b'<Root/>'):
+        tree = ('<BehaviorTree name="main"><Variables>%s</Variables><Root><Behavior><Expression expressions="%s"/>'
+                '</Behavior></Root></BehaviorTree>' % (variables, expressions)).encode()
+        b = Behavior('test', tree, Graph(Source.blobs({'graph.xml': PROJECT, 'types.xml': types}), 'Test', assumptions=assumed))
+        b.start('main', 'main')
+        return b, b.tasks['main']['locals']
+
+    def without(self, name):
+        return {k: v for k, v in ASSUMED.items() if k != name}
+
+    def test_a_member_of_an_engine_record_is_kept_only_once_a_tree_assigns_it(self):
+        declared = ('<Variable name="f" type="followFormationParams" values="" form="single"/>'
+                    '<Variable name="p" type="dialog:parameters:initiator" values="" form="single"/>'
+                    '<Variable name="on" type="_bool" values="true" form="single"/>')
+        b, local = self.start(declared, "$f.formation.type = 'followNPC'&#10;$p.enableGreeting = !$on&#10;$p.movePlayer = $on")
+        self.assertEqual((status(b), b.unsupported), ('success', []))
+        self.assertEqual(local['f'], dict(engine_record='followFormationParams', initializer='',
+                                          formation=dict(engine_record='followFormationParams.formation', type='followNPC')))
+        self.assertEqual({k: v for k, v in local['p'].items() if k not in ('engine_record', 'initializer')},
+                         dict(enableGreeting=False, movePlayer=True))
+        self.assertTrue(b.graph.world.report()['assumptions']['behavior.engine_record.member']['used'])
+        # Mutations: no assumption; a member nothing assigned is still unreadable; a record the lab knows stays closed.
+        with self.assertRaisesRegex(Unsupported, 'Unbound assignment'):
+            self.start(declared, "$f.formation.type = 'followNPC'", self.without('behavior.engine_record.member'))
+        with self.assertRaises(Unsupported): self.start(declared, '$on = $p.chat')
+        with self.assertRaises(Unsupported): self.start(declared, '$on = $f.formation.leader == $on')
+        types = b'<Root><Types version="1"><Type Name="next"><Member Name="name" Type="_string"/></Type></Types></Root>'
+        with self.assertRaisesRegex(Unsupported, 'Unbound assignment member: other'):
+            self.start('<Variable name="t" type="next" values="" form="single"/>', "$t.other = 'x'", types=types)
+        _, quiet = self.start('<Variable name="on" type="_bool" values="true" form="single"/>', '$on = false')
+        self.assertEqual(quiet, dict(on=False))
+
+    def test_assigning_just_past_the_end_of_an_array_appends(self):
+        declared = '<Variable name="who" type="_wuid" values="" form="array"/>'
+        b, local = self.start(declared, "$who[0] = 'a'&#10;$who[1] = 'b'&#10;$who[2] = 'c'&#10;$who[0] = 'z'")
+        self.assertEqual((local['who'], b.graph.world.report()['assumptions']['behavior.array.assign_at_end']['used']),
+                         (['z', 'b', 'c'], True))
+        with self.assertRaisesRegex(Unsupported, 'Invalid assignment array index'): self.start(declared, "$who[1] = 'b'")
+        with self.assertRaisesRegex(Unsupported, 'Invalid assignment array index'): self.start(declared, "$who[-1] = 'b'")
+        with self.assertRaisesRegex(Unsupported, 'Invalid assignment array index'):
+            self.start(declared, "$who[0] = 'a'", self.without('behavior.array.assign_at_end'))
+
+    def test_an_entity_reference_member_is_unset_until_assigned(self):
+        types = (b'<Root><Types version="1"><Type Name="talk"><Member Name="alias" Type="string"/>'
+                 b'<Member Name="lookAtId" Type="wuid"/><Member Name="greet" Type="bool" InitialValue="true"/></Type></Types></Root>')
+        declared = '<Variable name="t" type="talk" values="" form="single"/>'
+        _, local = self.start(declared, "$t.alias = 'hello'&#10;$t.lookAtId = 'npc'", types=types)
+        self.assertEqual(local['t'], dict(alias='hello', lookAtId='npc', greet=True))
+        # Mutations: without the unset-member assumption the record does not exist; a default is not invented.
+        with self.assertRaises(Unsupported):
+            self.start(declared, "$t.alias = 'hello'", self.without('behavior.record.unset_member'), types)
+        with self.assertRaises(Unsupported):
+            self.start(declared, "$t.alias = 'hello'", types=types.replace(b'Type="wuid"', b'Type="wuid" InitialValue="x"'))
+
+    def test_an_unlimited_loop_until_is_the_same_state_after_a_failed_attempt(self):
+        loop = '<LoopUntil until="Success" attemptCount="%d">' + MOVE + '</LoopUntil>'
+        keys = {}
+        for limit in (0, 3):
+            b, _ = lab(loop % limit)
+            first = b.state_key()
+            b.resolve('main', 'fail')
+            keys[limit] = (first == b.state_key(), pending(b))
+        self.assertEqual(keys, {0: (True, [('Move', 'action')]), 3: (False, [('Move', 'action')])})
+        b, _ = lab(loop % 2)
+        b.resolve('main', 'fail'); b.resolve('main', 'fail')
+        self.assertEqual(status(b), 'fail')
 
 
 if __name__ == '__main__': unittest.main()

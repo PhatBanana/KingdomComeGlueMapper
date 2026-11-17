@@ -508,7 +508,8 @@ class LedgerTests(unittest.TestCase):
         good = E.Element('Root'); E.SubElement(good, 'Success')
         led = c2.ledger(self.run_([], good))
         self.assertEqual(led['layers']['source_equivalence']['summary'],
-                         dict(checked=1, passed=1, failed=0, residue=0, nodes_compared=2, rewritten_nodes=0, stand_in_nodes=0))
+                         dict(checked=1, passed=1, failed=0, residue=0, nodes_compared=2, rewritten_nodes=0, stand_in_nodes=0,
+                              stand_in_contract_sites=0))
         for broken in (E.Element('Root'), E.fromstring('<Root><Fail/></Root>')):
             self.assertEqual(c2.ledger(self.run_([], broken))['layers']['source_equivalence']['verdict'], 'FAIL')
 

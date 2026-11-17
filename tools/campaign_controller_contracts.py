@@ -395,6 +395,9 @@ def _no_old_save(node):
 # Stand-ins: KCD1 operations with no faithful KCD2 form, replaced by the
 # closest native one by decision. Each use is reported as `stand_in`, never as
 # a faithful conversion. source op -> (native shape, rule, approval).
+# A stand-in that needs more than its own node is a pass of its own and adds
+# its entries to the report's `stand_in_rules`: the library trees a controller
+# includes (campaign_controller_library.rules, decisions 14 to 16).
 APPROVED = 'Sean, 2026-11-14 (relayed by the coordinator)'
 STAND_INS = {'MakeMeIdle': ('StopMovement', _stop_movement, APPROVED),
              'InstantDrawWeapon': ('DrawAction', _draw_action, APPROVED),
@@ -562,7 +565,10 @@ def register():
     import campaign_controller_combat
     for op, fields in campaign_controller_combat.CONTRACTS.items():
         CONTRACTS.setdefault(op, fields)
-    for source, target in ENGINE_TYPES.items():
+    import campaign_controller_library
+    for op, fields in campaign_controller_library.CONTRACTS.items():
+        CONTRACTS.setdefault(op, fields)
+    for source, target in {**ENGINE_TYPES, **campaign_controller_library.ENGINE_TYPES}.items():
         campaign_ai_types.ENGINE_TYPE_ADAPTERS.setdefault(source, target)
     added = [op for op in CONTRACTS if op not in campaign_behavior.CONTRACTS]
     for op in added:

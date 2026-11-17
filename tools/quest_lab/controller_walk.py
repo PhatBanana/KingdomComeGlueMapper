@@ -76,6 +76,8 @@ ASSUMED = {
     'behavior.loop_until': 'reached_succeeds_exhausted_fails', 'behavior.loop.body_failure': 'fails',
     'behavior.for.end_index': 'inclusive', 'behavior.record.unset_member': 'assignable', 'behavior.loop.instant_body': 'next_tick', 'behavior.area_listener': 'keeps_listening',
     'behavior.message.bare_word': 'string', 'behavior.context_check.missing_branch': 'succeeds',
+    'behavior.native_function': 'one_engine_action', 'behavior.engine_record.member': 'assignable',
+    'behavior.array.assign_at_end': 'appends',
     'rewards.load_does_not_replay': True, 'soul_death.inactive_trigger': 'missed', 'area.inactive_trigger': 'missed',
 }
 ACTIONS = {'StartObjective': 'start', 'CompleteObjective': 'complete', 'CancelObjective': 'cancel', 'FailObjective': 'fail'}
@@ -734,7 +736,12 @@ def summary(results):
 
 
 def run_retail(kcd1, kcd2, quest, spec, work, with_quests=(), output=None, progress=lambda *a: None, **options):
-    """Convert `quest` with C1 (quest graph) and C2 (controller), then walk the graph alone and every emitted tree."""
+    """Convert `quest` with C1 (quest graph) and C2 (controller), then walk the graph alone and every emitted tree.
+
+    `conversion` is passed to the C2 conversion (the walk wires no scene module, lease or ownership port, so
+    `level`, `scenes` and `profiles` are not usable here yet); `only` limits the tree walks to those names and
+    `objectives=False` leaves out the walk of the quest graph alone.
+    """
     from pathlib import Path
     from campaign_compile import wire_bridge
     from campaign_quest_graph import objective_identifier
@@ -744,7 +751,8 @@ def run_retail(kcd1, kcd2, quest, spec, work, with_quests=(), output=None, progr
     progress('convert', 'objectives')
     graph = c1.convert(kcd1, kcd2, [quest], list(with_quests))
     progress('convert', 'controller')
-    run = c2.convert(kcd1, kcd2, quest, Path(work) / 'c2', with_quests)
+    only, objectives = options.pop('only', None), options.pop('objectives', True)
+    run = c2.convert(kcd1, kcd2, quest, Path(work) / 'c2', with_quests, **(options.pop('conversion', None) or {}))
     files = dict(graph['files'])
     wire_bridge(files, graph['project'], run['bridges'], run['conversion'])
     files.update({n.removeprefix('Quests/'): b for n, b in run['bridges'].items() if n.startswith('Quests/')})
@@ -759,13 +767,15 @@ def run_retail(kcd1, kcd2, quest, spec, work, with_quests=(), output=None, progr
     common = dict(identifier=objective_identifier, wiring=run['conversion']['wiring'],
                   aliases=options.pop('aliases', None) or player_aliases(files), **options)
     results = []
-    progress('walk', 'objectives')
-    result = ControllerWalk(source, graph['project'], quest, spec, **common).run()
-    result['end_problems'] = expected_end(spec, result)
-    if result['end_problems'] and result['status'] == 'PASS': result['status'] = 'FAIL'
-    results.append(result)
+    if objectives:
+        progress('walk', 'objectives')
+        result = ControllerWalk(source, graph['project'], quest, spec, **common).run()
+        result['end_problems'] = expected_end(spec, result)
+        if result['end_problems'] and result['status'] == 'PASS': result['status'] = 'FAIL'
+        results.append(result)
     trees = run['model']['behavior_documents'][own]['trees']
     for tree in emitted:
+        if only is not None and tree not in only: continue
         progress('walk', tree)
         results.append(ControllerWalk(source, graph['project'], quest, spec, behavior=document, tree=tree,
                                       operations=source_operations(trees[tree]['root'], quest), **common).run())

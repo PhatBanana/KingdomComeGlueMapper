@@ -158,7 +158,12 @@ def assignment_statements(text):
     return result
 
 
-def assignments(text, values, enum_resolver=None):
+def assignments(text, values, enum_resolver=None, open_records=None, append=None):
+    """Apply `$target = expression` statements to `values`; return {target: value}.
+
+    `open_records` and `append` are asked (called) only when a statement needs them: a member of an
+    engine-owned record the lab has no layout of, and the element just past the end of an array.
+    """
     changes = {}
     for statement in assignment_statements(text):
         # Parse the target using the same allowlisted expression syntax, but
@@ -180,13 +185,19 @@ def assignments(text, values, enum_resolver=None):
             parent, key = location(n.value)
             try: obj = parent[key]
             except (KeyError, IndexError, TypeError) as error:
-                raise Unsupported('Unbound assignment container: ' + target) from error
+                # A record inside an engine-owned record: it exists once a tree writes into it.
+                if not (isinstance(parent, dict) and 'engine_record' in parent and open_records and open_records()):
+                    raise Unsupported('Unbound assignment container: ' + target) from error
+                obj = parent[key] = dict(engine_record=parent['engine_record'] + '.' + str(key))
             if isinstance(n, ast.Attribute):
                 if not isinstance(obj, dict) or n.attr not in obj:
-                    raise Unsupported('Unbound assignment member: ' + n.attr)
+                    if not (isinstance(obj, dict) and 'engine_record' in obj and open_records and open_records()):
+                        raise Unsupported('Unbound assignment member: ' + n.attr)
                 return obj, n.attr
             key = evaluate(ast.unparse(n.slice), values)
             if isinstance(obj, list):
+                if type(key) is int and key == len(obj) and append and append():
+                    obj.append(None)
                 if type(key) is not int or not 0 <= key < len(obj):
                     raise Unsupported('Invalid assignment array index')
             elif isinstance(obj, dict):

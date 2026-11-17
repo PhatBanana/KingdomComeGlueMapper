@@ -80,6 +80,13 @@ ASSUMPTIONS = {
     'behavior.record.unset_member': (('assignable',),
         'a declared record without an initialiser exists from the start; a member without a default is unset until '
         'a tree assigns it'),
+    'behavior.engine_record.member': (('assignable',),
+        'a member of a record the engine owns (followFormationParams, dialog:parameters:initiator, ...) can be '
+        'assigned although the lab has no layout of the record: the lab keeps what the trees assign and nothing '
+        'else, so reading a member no tree assigned stays an error'),
+    'behavior.array.assign_at_end': (('appends',),
+        'assigning the element just past the end of an array (`$a[0] = x` on an empty one, then `$a[1] = y`) '
+        'appends it; an index further out stays an error (the length operator `#a` is not modelled)'),
     'behavior.for.end_index': (('inclusive',),
         'an explicit For endIndex is the last index visited'),
     'behavior.area_listener': (('keeps_listening',),
@@ -87,6 +94,10 @@ ASSUMPTIONS = {
     'behavior.context_check.missing_branch': (('succeeds', 'fails'),
         'what a GameContextCheck returns when the branch it selects is not written (the native node has no '
         'FailWithSubtreeMissing field)'),
+    'behavior.native_function': (('one_engine_action',),
+        'a call of a native function the lab has no tree of (Function_speech_polylogInitiator, '
+        'Function_moveInFormation_inFormation) is one engine action: the scenario says whether it succeeds or '
+        'fails, it sends no quest signal and writes no variable of the caller (its parameters are In or ConstReference)'),
     'behavior.message.bare_word': (('string',),
         'an unquoted word in a message field (alias(q_x)) is that string, as KCD1 authored it'),
 }

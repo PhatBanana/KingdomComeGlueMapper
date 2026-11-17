@@ -9,7 +9,7 @@ from .expressions import evaluate, parts
 
 # Records the engine owns: a tree declares and passes them, the lab never reads their fields.
 ENGINE_RECORDS = {'additionalMoveParams', 'pathFindingParams', 'followFormationParams', 'transform',
-                  'hearingInfo', 'perceptionInfo'}
+                  'hearingInfo', 'perceptionInfo', 'dialog:parameters:initiator'}
 
 
 class MissingDefault(Unsupported):
@@ -23,6 +23,11 @@ def record_value(source, typ, raw=None, stack=(), member_text=False, unset=False
     (assumption behavior.record.unset_member); reading it as a boolean or a number stays an error.
     """
     scalar = typ.removeprefix('_')
+    if scalar == 'wuid':
+        # An entity reference has no literal: it is unset until a tree or a search assigns it.
+        if raw: raise Unsupported('Record member default for an entity reference is not modelled')
+        if unset: return None
+        raise MissingDefault('Missing declared default for '+typ)
     if scalar in ('bool','int','int64','float','string') or typ.startswith('enum:'):
         if raw is None:
             if unset: return None

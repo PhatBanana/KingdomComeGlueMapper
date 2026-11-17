@@ -10,6 +10,10 @@ and reports, for the quest's own controller document:
     layer 1    shape equivalence of every emitted tree with its source tree as
                prepared; rewritten operations are counted, and each rewrite
                rule is checked against its source form by the unit tests
+    library    the includes replaced by a native function (decisions 14 to
+               16, campaign_controller_library): per site the nodes written
+               and the KCD1 fields and behaviours kept, approximated or
+               dropped; layer 1 compares the emitted nodes with them
     libraries  every tree of another document the controller includes and
                that is not emitted: the blocked sites in everything it
                includes in turn, and the controller trees it holds back
@@ -38,6 +42,7 @@ import zipfile
 import campaign_controller_contracts
 
 FAMILIES = (
+    (r'^Library stand-in', 'library_stand_in'),
     (r'^Inexpressible', 'op_inexpressible'), (r'^Native operation (lacks|has no|lives)', 'op_partial'),
     (r'[Dd]aycycle|[Ss]chedule', 'daycycle_lifecycle'), (r'Lua|script requires', 'lua'),
     (r'operation needs an adapter', 'op_no_contract'), (r'attributes', 'op_attributes'),
@@ -143,8 +148,23 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
         # Combat requests become interrupts; a fight the combat converter accepts is handed to it.
         # First, so that converter reads the fight trees as the source wrote them.
         import campaign_controller_combat
+        import campaign_controller_library
+        from campaign_sources import MissingRetailSource
         own = 'libs/ai/quests/' + models[0]['quest'].lower() + '.xml'
-        combat = campaign_controller_combat.apply(models[0], campaign_controller_combat.handed_fights(models[0]))
+        fights = campaign_controller_combat.handed_fights(models[0])
+        # Library trees with an approved native stand-in (decisions 14 to 16). Before the other source passes:
+        # the fight stand-in consumes the options Expression the combat pass would otherwise block.
+        try:
+            formations = campaign_controller_library.formation_spots(
+                reader(kcd1, dict(formations=('Scripts.pak', 'Libs/AI/FormationDefinitions.xml')))['formations']['data'])
+        except MissingRetailSource:
+            formations = {}
+        native = campaign_controller_library.native_evidence(scripts)
+        campaign_controller_library.supplement(catalog, native)
+        library = campaign_controller_library.apply(
+            models[0], native, formations,
+            skip={fight['tree'] for fight in fights if fight['document'] == own})
+        combat = campaign_controller_combat.apply(models[0], fights)
         prepared.setdefault('stand_ins', []).extend(dict(site, quest=models[0]['quest'], document=own)
                                                     for site in combat.pop('stand_ins'))
         # The scene converter's aliases: requests fire its module, a generated dispatcher runs the callbacks.
@@ -175,6 +195,10 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
                                           windows=len(requests['windows']), left=len(requests['left']),
                                           boundaries=len(requests['boundaries']),
                                           boundary_approved=campaign_controller_schedule.BOUNDARY)
+        # The other passes may have moved or rewritten the stand-in nodes: read them as they now stand.
+        campaign_controller_library.finish(library)
+        prepared['stand_ins'].extend(dict(site, quest=models[0]['quest'], document=own) for site in library['stand_ins'])
+        prepared['stand_in_rules'].update(campaign_controller_library.rules())
         behaviors, bridges, conversion = convert_behaviors(models, 'C2', catalog, importer=importer,
                                                            profile_streaming=read(scripts, STREAMING_SOURCE),
                                                            schedule_adapter=lease)
@@ -183,7 +207,7 @@ def convert(kcd1, kcd2, quest, work, with_quests=(), level=None, scenes=(), prof
                      if job.get('status') == 'conversion_failed' and group in ('buffs', 'items'))
     return dict(model=models[0], prepared=prepared, behaviors=behaviors, bridges=bridges, conversion=conversion,
                 import_failures=[dict(group=group, reason=reason, count=count) for (group, reason), count in failed.most_common()],
-                schedule=schedule, scenes=scene_seam, ownership=ownership, combat=combat,
+                schedule=schedule, scenes=scene_seam, ownership=ownership, combat=combat, library=library,
                 native_nodes=set(catalog['nodes']),
                 # For `campaign_controller_schedule.install` on the converted level; not part of the ledger.
                 lease=dict(adapter=lease, windows=requests['windows'], boundaries=requests['boundaries']),
@@ -291,7 +315,7 @@ def ledger(run):
             emitted.setdefault(tree.get('name'), []).append(tree)
     trees, blockers = [], defaultdict(lambda: dict(sites=0, trees=set()))
     lua = defaultdict(lambda: dict(sites=0, trees=set()))
-    checked = passed = nodes = rewritten = stand_ins = verbatim = 0
+    checked = passed = nodes = rewritten = stand_ins = verbatim = contract_sites = 0
     failures = []
     waiting = (run.get('schedule') or {}).get('sites', {})
     # Trees of a fight the combat converter owns: not C2's to emit, and their sites are not C2 residue.
@@ -336,6 +360,12 @@ def ledger(run):
                 declared = [v.get('name') for v in candidates[0].findall('./Variables/*')]
                 if declared != [v['name'] for v in source['variables']]:
                     problems.append('variable declarations differ from the source')
+                # A library stand-in is compared with the nodes its site declares, attribute by attribute.
+                if run.get('library') and len(candidates) == 1:
+                    import campaign_controller_library
+                    found = campaign_controller_library.check(run['library'], {name: candidates[0].find('Root')})
+                    problems.extend(found.get(name, []))
+                    contract_sites += sum(site['tree'] == name for site in run['library']['sites'])
             if problems: failures.append(dict(tree=name, problems=problems[:10]))
             else: passed += 1
         trees.append(entry)
@@ -360,14 +390,15 @@ def ledger(run):
                               value_renames=len(run['prepared'].get('value_renames', ())), verbatim_lua=verbatim,
                               completed_branches=len(run['prepared'].get('completed_branches', ()))),
                 schedule=run.get('schedule'), scenes=run.get('scenes'), ownership=run.get('ownership'),
-                profiles=run.get('profiles'), combat=run.get('combat'),
+                profiles=run.get('profiles'), combat=run.get('combat'), library=run.get('library'),
                 libraries=libraries(model, conversion, run.get('native_nodes', ()), handed),
                 lua_shapes=[dict(calls=calls, sites=v['sites'], trees=sorted(v['trees']))
                             for calls, v in sorted(lua.items(), key=lambda p: (-p[1]['sites'], p[0]))],
                 layers=dict(source_equivalence=dict(verdict='FAIL' if failures else 'PASS',
                     summary=dict(checked=checked, passed=passed, failed=len(failures),
                                  residue=len(trees) - checked, nodes_compared=nodes,
-                                 rewritten_nodes=rewritten, stand_in_nodes=stand_ins), failures=failures)),
+                                 rewritten_nodes=rewritten, stand_in_nodes=stand_ins,
+                                 stand_in_contract_sites=contract_sites), failures=failures)),
                 runtime_verified=False)
 
 
@@ -381,7 +412,9 @@ def markdown(led, main_path=()):
                  led['trees'].get('blocked_by_include', 0), led['trees'].get('handed', 0)),
              '**Layer 1 (emitted trees vs source shape):** checked %(checked)d, passed %(passed)d, failed %(failed)d; '
              '%(residue)d trees not emitted; %(rewritten_nodes)d nodes of the emitted trees are rewritten operations, '
-             '%(stand_in_nodes)d of them stand-ins.' % led['layers']['source_equivalence']['summary'], '',
+             '%(stand_in_nodes)d of them stand-ins.' % led['layers']['source_equivalence']['summary']
+             + ' %d library stand-in sites of emitted trees compared with the nodes they declare.' % (
+                 led['layers']['source_equivalence']['summary'].get('stand_in_contract_sites', 0)), '',
              '**Stand-ins (not faithful; approved replacements) in this controller:** '
              + (', '.join('`%s` x%d' % item for item in sorted(led['prepared'].get('stand_ins', {}).items())) or 'none') + '.', '',
              '## By family', '', '| Family | Reasons | Sites | Trees |', '|---|---:|---:|---:|']
@@ -463,6 +496,8 @@ def markdown(led, main_path=()):
         if fight['opponents']:
             lines += ['', '| Tree | `AddOpponent` of | Stand-in | Approval |', '|---|---|---|---|']
             lines += ['| %s | `%s` | `%s` | %s |' % (s['tree'], s['who'], s['target'], s['approved']) for s in fight['opponents']]
+    if led.get('library') and (led['library']['sites'] or led['library']['left']):
+        lines += library_markdown(led)
     if led.get('libraries'):
         lines += ['', '## Included library trees that are not emitted', '',
                   'A tree of another document that a controller tree includes. Sites are counted over the tree and '
@@ -486,6 +521,39 @@ def markdown(led, main_path=()):
     return '\n'.join(lines) + '\n'
 
 
+def library_markdown(led):
+    seam = led['library']
+    status = {t['tree']: t['status'] for t in led['tree_status']}
+    lines = ['', '## Library trees replaced by native functions (stand-ins 14 to 16)', '',
+             'Approved: %s. Each include below is a native function call, not a conversion of the KCD1 tree. '
+             '"Not carried" are the KCD1 fields the native function has no parameter for, with the value in effect '
+             '(assigned in the tree, or the KCD1 default); the full rows, with what each field did, are `library.sites` '
+             'of the golden fixture.' % seam['approved'], '',
+             '| Tree (status) | Include | Native call | Carried | Not carried |', '|---|---|---|---|---|']
+
+    def value(field):
+        return ' / '.join(sorted({a['value'] for a in field['assigned']})) or ('default ' + str(field['kcd1_default']))
+    for site in seam['sites']:
+        carried = ['%s -> %s' % (f['field'], f['native']) for f in site['fields'] if f['native']]
+        lost = ['%s (%s) = %s' % (f['field'], f['handling'], value(f)) for f in site['fields']
+                if f['handling'] in ('dropped', 'unread')]
+        call = next(n for n in site['nodes'] if n['op'] == site['target'])
+        lines.append('| %s (%s) | `%s` | `%s %s` | %s | %s |' % (
+            site['tree'], status.get(site['tree'], '?'), site['include'].rsplit(':', 1)[-1], site['target'],
+            ' '.join('%s="%s"' % item for item in call['attributes'].items()).replace('|', '/'),
+            '; '.join(carried).replace('|', '/') or '-', '; '.join(lost).replace('|', '/') or '-'))
+    lines += ['| %s (%s) | `%s` | left: %s | | |' % (s['tree'], status.get(s['tree'], '?'), s['include'].rsplit(':', 1)[-1],
+                                                 s['reason'].replace('|', '/')) for s in seam['left']]
+    kinds = {}
+    for site in seam['sites']:
+        kinds.setdefault(site['include'].rsplit(':', 1)[-1], site['behaviours_dropped'])
+    lines += ['', 'KCD1 behaviour with no counterpart in the native call, per library tree:']
+    lines += ['- `%s`: %s.' % (name, '; '.join(items)) for name, items in sorted(kinds.items())]
+    lines += ['', 'In-game checks these leave:']
+    lines += ['%d. (decision %d) %s.' % (i, c['decision'], c['check']) for i, c in enumerate(seam['in_game_checks'], 1)]
+    return lines
+
+
 def golden(led):
     return dict(schema=1, quest=led['quest'], converter='C2', trees=led['trees'], families=led['families'],
                 emitted=sorted(t['tree'] for t in led['tree_status'] if t['status'] == 'emitted'),
@@ -494,7 +562,7 @@ def golden(led):
                 lua_shapes=[dict(calls=r['calls'], sites=r['sites']) for r in led.get('lua_shapes', [])],
                 schedule={k: v for k, v in (led.get('schedule') or {}).items() if k != 'sites'} or None,
                 scenes=led.get('scenes'), ownership=led.get('ownership'), profiles=led.get('profiles'),
-                combat=led.get('combat'), libraries=led.get('libraries'))
+                combat=led.get('combat'), libraries=led.get('libraries'), library=led.get('library'))
 
 
 def main():

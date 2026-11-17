@@ -139,6 +139,10 @@ class Behavior(EngineNodes):
     def record(self, kind, **values):
         self.graph.record(kind, controller=self.name, **values)
 
+    def _assumed(self, name, value):
+        """Whether the scenario declares `name` as `value`; counted as used only when asked."""
+        return name in self.graph.world.assumptions and self.assume(name) == value
+
     def _unset_members(self):
         declared = 'behavior.record.unset_member' in self.graph.world.assumptions
         return declared and self.assume('behavior.record.unset_member') == 'assignable'
@@ -323,7 +327,9 @@ class Behavior(EngineNodes):
             finish(True if tag == 'SuppressFailure' else not result)
         elif tag in ('Success', 'Fail'): finish(tag == 'Success')
         elif tag == 'Expression':
-            changes = assignments(node.get('expressions', ''), variables, self.graph.source.enum_value)
+            changes = assignments(node.get('expressions', ''), variables, self.graph.source.enum_value,
+                                  open_records=lambda: self._assumed('behavior.engine_record.member', 'assignable'),
+                                  append=lambda: self._assumed('behavior.array.assign_at_end', 'appends'))
             self.record('assignment', task=name, node=path, changes=changes); finish()
         elif tag == 'Concatenation':
             if len(node) or set(node.attrib) != {'OutString','Pattern'}:
