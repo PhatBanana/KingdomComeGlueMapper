@@ -42,6 +42,53 @@ ASSUMPTIONS = {
         'a sequence that ends its topic inside a nested decision returns to the root decision'),
     'dialogue.unprompted_sequence': (('first_eligible',),
         'a decision plays its first eligible sequence without a UiPrompt; prompted ones are the player choices'),
+    # Behaviour-tree nodes (engine_nodes.py). None of these is established by retail data.
+    'behavior.gate.run_logic': (('halt_restarts',),
+        'a gate or barrier waits until its condition holds, then runs its child and returns the child result; with '
+        'RunLogic Halt the child is stopped when the condition stops holding and starts again when it holds; with '
+        'KeepRunning the child finishes regardless'),
+    'behavior.gate.engine_state': (('scenario',),
+        'DistanceGate, AreaPresenceGate, DialogGate, ActorStateBarrier, DetailBehaviorBarrier, ProfileLoadedGate and '
+        'FaderBarrier open and close only when the scenario says so (the engine decides, negation included)'),
+    'behavior.external_lock.open_when': (('locked', 'unlocked'),
+        'the state of the named lock in which an ExternalLock lets its child run'),
+    'behavior.external_lock.unset': (('locked', 'unlocked'),
+        'the state of a lock no SetExternalLock has written yet'),
+    'behavior.lock.scope': (('controller_npc_global',),
+        'LockManagerType Local is shared by the tasks of one controller program, Intellect belongs to one NPC task, '
+        'Global is shared by everything (in the lab: by one Behavior)'),
+    'behavior.synchronize': (('opens_at_count',),
+        'Synchronize opens for all waiting tasks at once when SemaphoreCount tasks wait on the name'),
+    'behavior.semaphore': (('counted_holders',),
+        'a semaphore admits SemaphoreCount holders; InstantSemaphore fails when it is full, Semaphore waits; a '
+        'holder releases it when its child ends or is interrupted'),
+    'behavior.atomic': (('not_interrupted',),
+        'an AtomicDecorator returns its child result and its child is never interrupted (the lab refuses to '
+        'interrupt one that is waiting)'),
+    'behavior.fusebox': (('cleanup_by_result',),
+        'a FuseBox runs Child, then OnSuccess or OnFail by its result, and returns per StatusPropagation'),
+    'behavior.fusebox.interrupted': (('on_fail',),
+        'a FuseBox whose Child is interrupted from above runs OnFail'),
+    'behavior.loop_until': (('reached_succeeds_exhausted_fails',),
+        'LoopUntil repeats its child until it returns `until` and then succeeds; after attemptCount other results '
+        'it fails; 0 and -1 mean no limit'),
+    'behavior.loop.body_failure': (('fails',),
+        'a Loop or For whose body fails stops and fails'),
+    'behavior.loop.instant_body': (('next_tick',),
+        'an endless Loop whose body returns without waiting runs it again on the next engine update, not in the '
+        'same one (the scenario supplies the update)'),
+    'behavior.record.unset_member': (('assignable',),
+        'a declared record without an initialiser exists from the start; a member without a default is unset until '
+        'a tree assigns it'),
+    'behavior.for.end_index': (('inclusive',),
+        'an explicit For endIndex is the last index visited'),
+    'behavior.area_listener': (('keeps_listening',),
+        'an AreaPresenceListener runs its child on each tracked enter or leave and keeps listening afterwards'),
+    'behavior.context_check.missing_branch': (('succeeds', 'fails'),
+        'what a GameContextCheck returns when the branch it selects is not written (the native node has no '
+        'FailWithSubtreeMissing field)'),
+    'behavior.message.bare_word': (('string',),
+        'an unquoted word in a message field (alias(q_x)) is that string, as KCD1 authored it'),
 }
 REWARDS = {'MoneyReward', 'SoulReputationReward', 'FactionReputationReward', 'StatReward', 'SkillReward',
            'ItemReward', 'PerkReward'}

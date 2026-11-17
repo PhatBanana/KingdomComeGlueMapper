@@ -1,0 +1,1218 @@
+{
+  "blockers": [
+    {
+      "reason": "Daycycle request fits the lease adapter; its tree holds one that does not",
+      "sites": 23,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced message_type conversion did not complete: cutscene",
+      "sites": 13,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle patch end needs the scheduled-activity lease: FinishPatch",
+      "sites": 12,
+      "trees": 11
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: runtime_actor",
+      "sites": 12,
+      "trees": 8
+    },
+    {
+      "reason": "Source Lua requires a semantic adapter",
+      "sites": 8,
+      "trees": 5
+    },
+    {
+      "reason": "Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer",
+      "sites": 8,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: removal_without_addition",
+      "sites": 3,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_exitCombatSubbrain",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_mother_dialog_cameras",
+      "sites": 3,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: lease_from_two_scopes",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: lease_in_a_waiting_tree",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Monologue request fields need an ABI adapter",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Objective condition needs an adapter: IsObjectiveTrackedCompleted",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: rapeDoor",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Graph edge type did not convert: combat_attacker",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Graph edge type did not convert: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightOptions",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightParams",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightParams, t_state",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Quest lifecycle policy needs an adapter: CancelQuest",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: combat_attacker",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: crimeDistrict",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: reserved",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: reservedHavels",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: terezaSafeSpot",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: testDoorAnim",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_wanderer",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Schedule request source differs from its controller scope",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted temporary faction context use",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted variable type: cutscene",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unregistered or dynamic objective: q_skalitz.meetInFrontOfKunes",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unsupported source variable reference: inhabitant,child,QuestActor",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unverified native item property: Questible",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation lacks a compatible native human fragment: SkalitzAbuse",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation requires event/context/alignment conversion: AnimationWUID",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation requires event/context/alignment conversion: SlavedObject",
+      "sites": 1,
+      "trees": 1
+    }
+  ],
+  "combat": {
+    "handed": [
+      {
+        "actor": "kunes",
+        "converter": "campaign_combat",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "objective": "kunesIsUpset",
+        "outcomes": {
+          "lost": {
+            "cutscene": "dialogAfterKunesWon",
+            "schedule_tag": "kunes_winningOverHenry"
+          },
+          "won": {
+            "cutscene": "dialogAfterKunesBeaten",
+            "schedule_tag": "kunes_sitting"
+          }
+        },
+        "partners": [
+          "matej",
+          "matus",
+          "fricek"
+        ],
+        "sites": [
+          {
+            "behavior": "friends_kunes_fight",
+            "operation": "InstantMultiSendMessageToNPC",
+            "path": "Root/0/0/0/0/6/0/1/8/0/0/20/0/0",
+            "role": "partners",
+            "tree": "onUpdate"
+          },
+          {
+            "behavior": "kunes_battle_fight",
+            "operation": "InstantSendMessageToNPC",
+            "path": "Root/0/0/0/0/6/0/1/8/0/0/26/0",
+            "role": "actor",
+            "tree": "onUpdate"
+          }
+        ],
+        "tag": "kunes_battle_fight",
+        "tree": "kunes_battle_fight",
+        "trees": [
+          "kunes_battle_fight",
+          "friends_kunes_fight"
+        ]
+      }
+    ],
+    "interrupts": [
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0",
+        "signature": "empty",
+        "tree": "cuman_rape"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/1",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/2",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/3",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "behavior_tree": "enemies_battle_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/0/0/3",
+        "signature": "wuidData",
+        "tree": "boys_battle"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "behavior_tree": "enemies_battle_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/2/0",
+        "signature": "wuidData",
+        "tree": "enemies_battleTargetting"
+      },
+      {
+        "behavior": "johanka_goingToSkinner_fight",
+        "behavior_tree": "johanka_goingToSkinner_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0/0/6/0/1/7/0/0/0/0/0/1",
+        "signature": "empty",
+        "tree": "onUpdate"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "behavior_tree": "tereza_rape_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0",
+        "signature": "empty",
+        "tree": "tereza_rape"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "behavior_tree": "tereza_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/0",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      }
+    ],
+    "left": [],
+    "opponents": [
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/1/0/0/0/0/1/0/1",
+        "target": "InstantSetTarget",
+        "tree": "enemies_battle_fight",
+        "who": "opponent"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/0/0/1/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "__player"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/1/0/1/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "hitReaction.attacker"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/2/0/1/0/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "percept.perceptible"
+      }
+    ],
+    "policy": {
+      "approved": "Sean, 2026-11-16 (relayed by Build), decision 12a: priority 161, urgency Fast (retail attackClosedCastle)",
+      "priority": 161,
+      "urgency": "Fast"
+    },
+    "quest": "q_skalitz",
+    "registrations": [
+      {
+        "behavior": "cuman_rape_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "cuman_rape_fight"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "wuidData",
+        "tree": "enemies_battle_fight"
+      },
+      {
+        "behavior": "johanka_goingToSkinner_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "johanka_goingToSkinner_fight"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "tereza_rape_fight"
+      }
+    ],
+    "runtime_verified": false,
+    "subbrain_state": [
+      {
+        "operation": "VarOperation",
+        "path": "Root/0/0/2",
+        "tree": "cuman_rape_fight",
+        "variables": [
+          "t_fightParams"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/0/0/3",
+        "tree": "cuman_rape_fight",
+        "variables": [
+          "t_fightParams",
+          "t_state"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/0/0/0/4/0/0/5/1/0/0/0/0",
+        "tree": "enemies_battle_fight",
+        "variables": [
+          "t_fightOptions"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/1/0/6",
+        "tree": "enemies_battle_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/2",
+        "tree": "johanka_goingToSkinner_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/1/0/1",
+        "tree": "tereza_rape_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      }
+    ]
+  },
+  "converter": "C2",
+  "emitted": [
+    "anybody_runAway",
+    "catchpoll_sitsDown",
+    "cutscene_forging_father_insert",
+    "cutscene_game_over",
+    "cutscene_kovani_otcem",
+    "cutscene_nemec_hospodska_hadka",
+    "fatherPatch",
+    "friends_meetingBeforeKunes",
+    "friends_patch",
+    "friends_work",
+    "gambler_playDiceTillYouRunOutOfMoney",
+    "guard_goesToTheGate",
+    "johanka_goingToSkinner",
+    "matej_waitsInfrontOfPub",
+    "matus_runAway",
+    "mother_goingShopping",
+    "tereza_waitsForNails",
+    "varlet_sellPlace"
+  ],
+  "families": {
+    "animation": {
+      "reasons": 4,
+      "sites": 5,
+      "trees": 3
+    },
+    "combat_dispatch": {
+      "reasons": 7,
+      "sites": 9,
+      "trees": 5
+    },
+    "daycycle_lifecycle": {
+      "reasons": 8,
+      "sites": 63,
+      "trees": 21
+    },
+    "items": {
+      "reasons": 1,
+      "sites": 1,
+      "trees": 1
+    },
+    "link_types": {
+      "reasons": 8,
+      "sites": 9,
+      "trees": 6
+    },
+    "lua": {
+      "reasons": 1,
+      "sites": 8,
+      "trees": 5
+    },
+    "message_type": {
+      "reasons": 2,
+      "sites": 15,
+      "trees": 3
+    },
+    "profile": {
+      "reasons": 2,
+      "sites": 4,
+      "trees": 2
+    },
+    "quest_state": {
+      "reasons": 3,
+      "sites": 4,
+      "trees": 2
+    },
+    "typed_variables": {
+      "reasons": 2,
+      "sites": 2,
+      "trees": 1
+    }
+  },
+  "libraries": [
+    {
+      "absent": {
+        "operations": 3,
+        "sites": 3
+      },
+      "blocked_trees": 4,
+      "document": "libs/ai/final/dialogutils.xml",
+      "families": {
+        "buff": 1,
+        "lua": 3,
+        "op_no_contract": 4
+      },
+      "handed": [],
+      "held": [
+        "blanka_givesBeer",
+        "janek_dialogAtTheGate",
+        "janek_waitsAtTheGate",
+        "kunes_sitting",
+        "kunes_winningOverHenry",
+        "matej_goingToSarka",
+        "matus_afterBattleWithKunes",
+        "matus_lureWifeHenry",
+        "matus_waitsInfrontOfPub",
+        "sarka_goBackHome"
+      ],
+      "included_by": [
+        "blanka_givesBeer",
+        "german_returnHome",
+        "janek_dialogAtTheGate",
+        "janek_waitsAtTheGate",
+        "kunes_readyForBattleWithFriends",
+        "kunes_sitting",
+        "kunes_winningOverHenry",
+        "matej_goingToSarka",
+        "matus_afterBattleWithKunes",
+        "matus_afterChase",
+        "matus_lureWifeHenry",
+        "matus_talkBeforeKunes",
+        "matus_waitsForHenry",
+        "matus_waitsInfrontOfPub",
+        "sarka_goBackHome",
+        "sarka_goToGerman",
+        "tereza_rape_fight",
+        "zbysek_runAway"
+      ],
+      "operations": 6,
+      "sites": 8,
+      "tree": "dialogInitiator",
+      "trees": 5,
+      "unblocks": [
+        "blanka_givesBeer",
+        "cutscene_blankaGivesBeer",
+        "cutscene_dialogAfterKunesBeaten",
+        "cutscene_dialogAfterKunesWon",
+        "cutscene_dialogBeforePainting",
+        "cutscene_dialogWithGuards",
+        "janek_dialogAtTheGate",
+        "janek_waitsAtTheGate",
+        "kunes_sitting",
+        "kunes_winningOverHenry",
+        "matej_goingToSarka",
+        "matus_afterBattleWithKunes",
+        "matus_lureWifeHenry",
+        "matus_waitsInfrontOfPub",
+        "sarka_goBackHome"
+      ]
+    },
+    {
+      "absent": {
+        "operations": 3,
+        "sites": 4
+      },
+      "blocked_trees": 2,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "op_attributes": 1,
+        "op_no_contract": 8,
+        "other": 1
+      },
+      "handed": [],
+      "held": [
+        "fricek_goingToSkinner",
+        "matej_goingToSkinner",
+        "matus_goingToSkinner"
+      ],
+      "included_by": [
+        "fricek_goingToSkinner",
+        "matej_goingToSkinner",
+        "matus_goingToSkinner"
+      ],
+      "operations": 8,
+      "sites": 10,
+      "tree": "followNPC_inFormation",
+      "trees": 3,
+      "unblocks": [
+        "fricek_goingToSkinner",
+        "matej_goingToSkinner",
+        "matus_goingToSkinner"
+      ]
+    },
+    {
+      "absent": {
+        "operations": 23,
+        "sites": 36
+      },
+      "blocked_trees": 16,
+      "document": "libs/ai/final/sb_combat_fight.xml",
+      "families": {
+        "buff": 1,
+        "combat_dispatch": 3,
+        "link_types": 3,
+        "lua": 3,
+        "op_attributes": 2,
+        "op_inexpressible": 5,
+        "op_no_contract": 72,
+        "other": 4
+      },
+      "handed": [
+        "friends_kunes_fight",
+        "kunes_battle_fight"
+      ],
+      "held": [],
+      "included_by": [
+        "enemies_battle_fight",
+        "friends_kunes_fight",
+        "kunes_battle_fight"
+      ],
+      "operations": 49,
+      "sites": 93,
+      "tree": "fight",
+      "trees": 17,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 0,
+        "sites": 0
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/dialogutils.xml",
+      "families": {
+        "op_no_contract": 1
+      },
+      "handed": [],
+      "held": [
+        "motherPatch"
+      ],
+      "included_by": [
+        "catchpoll_chasesHenry",
+        "motherPatch"
+      ],
+      "operations": 1,
+      "sites": 1,
+      "tree": "dialogInitiator_instant",
+      "trees": 1,
+      "unblocks": [
+        "motherPatch"
+      ]
+    },
+    {
+      "absent": {
+        "operations": 0,
+        "sites": 0
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "link_types": 5
+      },
+      "handed": [],
+      "held": [],
+      "included_by": [
+        "cutscene_navsteva_racka",
+        "onUpdate"
+      ],
+      "operations": 1,
+      "sites": 5,
+      "tree": "loadAllReferences",
+      "trees": 1,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 1,
+        "sites": 2
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "op_no_contract": 2
+      },
+      "handed": [
+        "kunes_battle_fight"
+      ],
+      "held": [],
+      "included_by": [
+        "kunes_battle_fight"
+      ],
+      "operations": 1,
+      "sites": 2,
+      "tree": "combatStarterSynchronize_dialog",
+      "trees": 1,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 4,
+        "sites": 23
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/sa_city.xml",
+      "families": {
+        "daycycle_lifecycle": 2,
+        "link_types": 2,
+        "lua": 17,
+        "op_no_contract": 24,
+        "typed_variables": 16
+      },
+      "handed": [],
+      "held": [],
+      "included_by": [
+        "catchpoll_chasesHenry"
+      ],
+      "operations": 11,
+      "sites": 61,
+      "tree": "dressUp",
+      "trees": 2,
+      "unblocks": []
+    }
+  ],
+  "lua_shapes": [
+    {
+      "calls": "Contexts.ClearOption XGenAIModule.GetEntityByWUID",
+      "sites": 2
+    },
+    {
+      "calls": "<entity>:DoPlayAnimation XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "<entity>:GetDefaultAuxAudioProxyID <entity>:SetAudioRtpcValue AudioUtils.LookupRtpcID XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.ClearOption Contexts.SetNonpersistentOption",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.SetNonpersistentOption Shops.OpenShop XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.SetPersistentOption XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Dump data= string.sub tonumber",
+      "sites": 1
+    },
+    {
+      "calls": "EnvironmentModule.BlendTimeOfDay EnvironmentModule.ForceImmediateWeatherUpdate",
+      "sites": 1
+    }
+  ],
+  "ownership": {
+    "left": [],
+    "owned": [
+      {
+        "alias": "q_skalitz_entity_QuestItem__kunes_chest___580ea511_6786_4168_7f71d56bdb86",
+        "asset_type": "StashAsset",
+        "operation": "ExecuteLua",
+        "path": "Root/0/0/0/0/6/0/0/3/0/3",
+        "port": "own_kunes_chest",
+        "reference": "t_qItems['kunes_chest']",
+        "stand_in": true,
+        "tree": "onUpdate"
+      },
+      {
+        "alias": "q_skalitz_entity_QuestPlace__henrysHome___b781d1d0_f368_4437_ce5bec8e9da0",
+        "asset_type": "SmartAreaAsset",
+        "operation": "SetOwner",
+        "path": "Root/0/0/0/0/6/0/1/6/0/0/0/0/12",
+        "port": "own_henrysHome",
+        "reference": "t_places['henrysHome']",
+        "stand_in": false,
+        "tree": "onUpdate"
+      }
+    ],
+    "quest": "q_skalitz",
+    "runtime_verified": false,
+    "stand_ins": [
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build)",
+        "decision": "9a",
+        "effect": "the owner stays as the level has it",
+        "operation": "SetOwner",
+        "path": "Root/0/0/0/0/6/0/0/3/0/1/0",
+        "target": "Success",
+        "tree": "onUpdate"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build)",
+        "decision": "10a",
+        "effect": "looting the NPC who runs the tree stays theft",
+        "fields": [
+          "onEnter",
+          "onExit"
+        ],
+        "operation": "SetLootLegal",
+        "path": "Root/1/0/0/0",
+        "target": "removed statement",
+        "tree": "enemies_battle_fight"
+      }
+    ]
+  },
+  "prepared": {
+    "completed_branches": 15,
+    "implicit_links": 23,
+    "initialisers": 24,
+    "rename_blocked": 582,
+    "renamed": {
+      "AreaPresence->AreaPresenceGate": 34,
+      "AreaPresence->AreaPresenceListener": 7,
+      "JoinedAnimationSynchronize->Synchronize": 16,
+      "LODGuardian->DetailBehaviorBarrier": 66,
+      "LODGuardian->Sequence": 2,
+      "StateMachineGate->ActorStateBarrier": 16,
+      "StreamingInstallGate->IfGate": 2,
+      "Teleport->TeleportAction": 30,
+      "TurnBody->Turn": 99
+    },
+    "scope_resolutions": 274,
+    "stand_ins": {
+      "AddOpponent->InstantSetTarget": 4,
+      "DrawWeapon->DrawAction": 1,
+      "IfCondition->IfCondition": 4,
+      "InstantDrawWeapon->DrawAction": 2,
+      "LODCheck->SuppressFailure": 1,
+      "MakeMeIdle->StopMovement": 4,
+      "PlayAnimation->Sequence": 1,
+      "SetLootLegal->SetOwner": 1,
+      "SetLootLegal->removed statement": 1,
+      "SetOwner->Success": 1,
+      "customBehaviorRequest->AddInterrupt_empty": 7,
+      "customBehaviorRequest->AddInterrupt_wuidData": 2,
+      "daycycle:change waiting->lease, urgency Slow": 18
+    },
+    "value_renames": 21,
+    "verbatim_lua": 7
+  },
+  "profiles": {
+    "registered": [
+      "q_skalitz_attack",
+      "q_skalitz_givenhorse",
+      "q_skalitz_normal",
+      "q_skalitz_skinnerhouse"
+    ],
+    "runtime_verified": false,
+    "to_register": {
+      "q_escapetotalmberk_afternightmare": 2,
+      "q_escapetotalmberk_morningalarm": 4,
+      "q_escapetotalmberk_riders": 3,
+      "q_escapetotalmberk_seek": 4,
+      "q_escapetotalmberk_shelter": 4,
+      "q_escapetotalmberk_sound": 3,
+      "q_escapetotalmberk_stephdialog_props": 3,
+      "q_escapetotalmberk_talkers": 3,
+      "q_escapetotalmberk_talmberkbarrier": 1,
+      "q_sazavamonastery_guards1": 12,
+      "q_sazavamonastery_guards2": 12,
+      "q_skalitz_barriertutorial": 2,
+      "q_skalitz_burned": 1,
+      "q_skalitz_mother_dialog_cameras": 3,
+      "q_skalitz_wanderer": 1,
+      "rovne_original": 1,
+      "tal_castle_gn_wn_closed": 2,
+      "tal_castle_gn_wn_open": 1,
+      "tal_fort_normal": 1
+    },
+    "used": {
+      "q_skalitz_attack": {
+        "native": "gm_q_skalitz_attack",
+        "sites": 4
+      },
+      "q_skalitz_givenhorse": {
+        "native": "gm_q_skalitz_givenhorse",
+        "sites": 2
+      },
+      "q_skalitz_normal": {
+        "native": "gm_q_skalitz_normal",
+        "sites": 4
+      },
+      "q_skalitz_skinnerhouse": {
+        "native": "gm_q_skalitz_skinnerhouse",
+        "sites": 4
+      }
+    }
+  },
+  "quest": "q_skalitz",
+  "scenes": {
+    "aliases": {
+      "forging_father_insert": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": null
+      },
+      "kovani_otcem": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": null
+      },
+      "navsteva_racka": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": {
+          "objective": "save_questStarted",
+          "quest": "q_escapeToTalmberk"
+        }
+      }
+    },
+    "converted_requests": 3,
+    "dispatcher": "q_skalitz_scene_dispatch",
+    "handed_to_playback": [
+      "save lock while the scene runs",
+      "fader and sound mute",
+      "player-not-in-scene lock",
+      "dropping a carried body",
+      "combat prevention and its buffs",
+      "player pre-teleport",
+      "actor restrictions and scene clothes",
+      "time of day",
+      "scene subscriptions",
+      "actor teleports and readiness wait",
+      "post-scene fade-in"
+    ],
+    "module": "gm_q_skalitz_scenes",
+    "not_owned": {
+      "(no alias)": 1,
+      "blankaGivesBeer": 1,
+      "dialogAfterKunesBeaten": 1,
+      "dialogAfterKunesWon": 4,
+      "dialogAfterSarka": 1,
+      "dialogBeforeKunes": 1,
+      "dialogBeforePainting": 1,
+      "dialogWithGuards": 1,
+      "manure_throw_nohenry": 1,
+      "nemec_hazeni_hnoje": 2,
+      "nemec_hospodska_hadka": 1,
+      "stribrna_skalice": 3
+    },
+    "requests": 21,
+    "runtime_verified": false,
+    "wiring": [
+      {
+        "alias": "forging_father_insert",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_forging_father_insert",
+        "type": "trigger"
+      },
+      {
+        "alias": "forging_father_insert",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_forging_father_insert",
+        "type": "bool"
+      },
+      {
+        "alias": "forging_father_insert",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_forging_father_insert",
+        "type": "trigger"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_kovani_otcem",
+        "type": "trigger"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_kovani_otcem",
+        "type": "bool"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_kovani_otcem",
+        "type": "trigger"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_navsteva_racka",
+        "type": "trigger"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_navsteva_racka",
+        "type": "bool"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_navsteva_racka",
+        "type": "trigger"
+      }
+    ]
+  },
+  "schedule": {
+    "accepted_requests": 16,
+    "accepted_shape_in_a_rejected_tree": 23,
+    "accepted_trees": [
+      "cutscene_blankaGivesBeer",
+      "cutscene_dialogAfterKunesBeaten",
+      "cutscene_dialogAfterKunesWon",
+      "cutscene_dialogBeforeKunes",
+      "cutscene_dialogBeforePainting",
+      "cutscene_dialogWithGuards",
+      "cutscene_forging_father_insert",
+      "cutscene_janek_dialogAtTheGate",
+      "cutscene_kovani_otcem",
+      "cutscene_manure_throw_nohenry",
+      "cutscene_nemec_hazeni_hnoje",
+      "cutscene_stribrna_skalice"
+    ],
+    "controller": "af5538b6-25f3-4be2",
+    "leases": [
+      {
+        "actor": "4730390356553801077",
+        "behavior": "matus_afterChase",
+        "handle": "q_skalitz_matus_afterChase",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "4730390356553801077",
+        "behavior": "matus_lureWifeHenry",
+        "handle": "q_skalitz_matus_lureWifeHenry",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "4957497055038492328",
+        "behavior": "johanka_goingToSkinner",
+        "handle": "q_skalitz_johanka_goingToSkinner",
+        "once": true,
+        "priority": 60,
+        "sites": 2
+      },
+      {
+        "actor": "5252032958896979226",
+        "behavior": "tereza_waitsForNails",
+        "handle": "q_skalitz_tereza_waitsForNails",
+        "once": true,
+        "priority": 60,
+        "sites": 2
+      },
+      {
+        "actor": "5384355815172519055",
+        "behavior": "blanka_givesBeer",
+        "handle": "q_skalitz_blanka_givesBeer",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5454785426552837238",
+        "behavior": "idleUntilNextPatch",
+        "handle": "q_skalitz_idleUntilNextPatch",
+        "once": false,
+        "priority": 15,
+        "sites": 1
+      },
+      {
+        "actor": "5583684733691733578",
+        "behavior": "motherPatch",
+        "handle": "q_skalitz_motherPatch",
+        "once": false,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5588471628078498641",
+        "behavior": "fatherPatch",
+        "handle": "q_skalitz_fatherPatch",
+        "once": false,
+        "priority": 60,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunesPatch",
+        "handle": "q_skalitz_kunesPatch",
+        "once": false,
+        "priority": 60,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunes_sitting",
+        "handle": "q_skalitz_kunes_sitting",
+        "once": false,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunes_winningOverHenry",
+        "handle": "q_skalitz_kunes_winningOverHenry",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "idleUntilNextPatch",
+        "handle": "q_skalitz_idleUntilNextPatch",
+        "once": false,
+        "priority": 15,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "janek_dialogAtTheGate",
+        "handle": "q_skalitz_janek_dialogAtTheGate",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "janek_waitsAtTheGate",
+        "handle": "q_skalitz_janek_waitsAtTheGate",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      }
+    ],
+    "level": "rataje",
+    "normalised": {
+      "boundaries": 18,
+      "boundary_approved": "Sean, 2026-11-16 (relayed by Build), decision 11a: urgency Slow stands for the next activity boundary",
+      "left": 0,
+      "requests": 31,
+      "rules": {
+        "boundary": 18,
+        "critical": 8,
+        "immediate": 18,
+        "removal": 4,
+        "window:immediate": 2,
+        "window:kept": 6,
+        "window:whole_day": 2
+      },
+      "windows": 6
+    },
+    "publishable": false,
+    "rejected": {
+      "lease_from_two_scopes": 2,
+      "lease_in_a_waiting_tree": 2,
+      "removal_without_addition": 3,
+      "runtime_actor": 12
+    },
+    "requests": 58,
+    "runtime_verified": false,
+    "trees_with_requests": 23
+  },
+  "schema": 1,
+  "source_equivalence": {
+    "checked": 18,
+    "failed": 0,
+    "nodes_compared": 224,
+    "passed": 18,
+    "residue": 56,
+    "rewritten_nodes": 2,
+    "stand_in_nodes": 1
+  },
+  "trees": {
+    "blocked": 29,
+    "blocked_by_include": 25,
+    "emitted": 18,
+    "handed": 2,
+    "total": 74
+  }
+}

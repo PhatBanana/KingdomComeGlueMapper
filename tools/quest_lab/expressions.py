@@ -33,11 +33,35 @@ def syntax(text):
         s = re.sub(r'\$([A-Za-z_]\w*)', r'\1', chunks[i])
         s = re.sub(r'\btrue\b', 'True', s)
         s = re.sub(r'\bfalse\b', 'False', s)
-        s = re.sub(r'!(?!=)', ' not ', s).replace('&&', ' and ').replace('||', ' or ')
+        s = re.sub(r'!(?!=)', ' not ', s).replace('~', ' not ').replace('&&', ' and ').replace('||', ' or ')
         s = s.replace('&', ' and ').replace('|', ' or ')
         chunks[i] = s
-    try: return ast.parse(''.join(chunks).strip(), mode='eval').body
+    try: return ast.parse(conditional(''.join(chunks).strip()), mode='eval').body
     except SyntaxError as exc: raise Unsupported('Unsupported expression: ' + text) from exc
+
+
+def conditional(text):
+    """`c ? a : b` (native) as `(a) if (c) else (b)`; quotes and brackets are respected."""
+    depth, quote, escaped, question = 0, '', False, None
+    pending = 0
+    for i, char in enumerate(text):
+        if quote:
+            if escaped: escaped = False
+            elif char == '\\': escaped = True
+            elif char == quote: quote = ''
+        elif char in "'\"": quote = char
+        elif char in '([{': depth += 1
+        elif char in ')]}': depth -= 1
+        elif depth == 0 and char == '?':
+            if question is None: question = i
+            else: pending += 1
+        elif depth == 0 and char == ':' and question is not None:
+            if pending: pending -= 1
+            else:
+                return '(%s) if (%s) else (%s)' % (conditional(text[question + 1:i]), conditional(text[:question]),
+                                                   conditional(text[i + 1:]))
+    if question is not None: raise Unsupported('Unbalanced conditional expression: ' + text)
+    return text
 
 
 BIN = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
@@ -78,6 +102,8 @@ def evaluate(text, values, enum_resolver=None):
             if not isinstance(obj, (dict, list)): raise Unsupported('Unsupported indexed value')
             try: return obj[key]
             except (KeyError, IndexError, TypeError) as exc: raise Unsupported('Unbound expression index') from exc
+        if isinstance(n, ast.IfExp):
+            return visit(n.body) if boolean(visit(n.test)) else visit(n.orelse)
         if isinstance(n, ast.UnaryOp):
             v = visit(n.operand)
             if isinstance(n.op, ast.Not): return not boolean(v)
@@ -141,6 +167,11 @@ def assignments(text, values, enum_resolver=None):
         if len(fields) < 2 or not fields[0]:
             raise Unsupported('Unsupported assignment: ' + statement)
         target, expr = fields[0], '='.join(fields[1:])
+        # `$x -= 1` and its siblings read the target first.
+        compound = target[-1:] if target[-1:] in '+-*/' and len(target) > 1 else ''
+        if compound:
+            target = target[:-1].strip()
+            expr = '(' + target + ') ' + compound + ' (' + expr + ')'
         node = syntax(enum_text(target, enum_resolver))
         def location(n):
             if isinstance(n, ast.Name): return values, n.id

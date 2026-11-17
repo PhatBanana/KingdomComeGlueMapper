@@ -1,0 +1,584 @@
+"""Converter C2 (controller trees): source preparation, blocker ledger, golden."""
+import json
+import os
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+import xml.etree.ElementTree as E
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
+import campaign_controller_contracts as contracts
+import quest_controller_conversion as c2
+
+FIXTURES = Path(__file__).resolve().parent / 'fixtures' / 'quest_conversion'
+KCD1 = Path(os.environ.get('GLUEMAPPER_KCD1', 'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance'))
+KCD2 = Path(os.environ.get('GLUEMAPPER_KCD2', 'D:/SteamLibrary/steamapps/common/KingdomComeDeliverance2'))
+RETAIL = (KCD1 / 'Data/Scripts.pak').is_file() and (KCD2 / 'Data/Scripts.pak').is_file()
+
+
+def node(op, children=(), **attributes):
+    return dict(op=op, attributes=attributes, children=list(children), text='')
+
+
+def model(callee, entry_variables, callee_variables=()):
+    trees = dict(entry=dict(variables=list(entry_variables), root=node('Root')),
+                 callback=dict(variables=list(callee_variables), root=node('Root', [callee])))
+    return dict(quest='q_example', behavior_documents={'libs/ai/quests/q_example.xml': dict(trees=trees)})
+
+
+ACTORS = dict(name='t_actors', type='common:wuid', form='associative')
+
+
+class PrepareTests(unittest.TestCase):
+    def test_a_callback_tree_types_a_bare_index_from_its_document(self):
+        source = model(node('Send', target='t_actors[worker]', values="handle('a[b]')", code='x[y]'), [ACTORS])
+        prepared, report = contracts.prepare([source])
+        attrs = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]['attributes']
+        self.assertEqual(attrs, dict(target="t_actors['worker']", values="handle('a[b]')", code='x[y]'))
+        self.assertEqual([r['source'] for r in report['scope_resolutions']], ['t_actors[worker]'])
+        self.assertEqual(source['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+                         ['attributes']['target'], 't_actors[worker]')
+        self.assertEqual(prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['variables'], [])
+
+    def test_an_index_is_left_alone_when_its_type_or_key_is_not_proven(self):
+        cases = [([dict(ACTORS, form='array')], ()),                                   # not a string-keyed map
+                 ([ACTORS, dict(name='worker', type='_string', form='single')], ()),   # a string variable could be the key
+                 ([ACTORS], [dict(name='t_actors', type='_int', form='array')]),       # the tree declares it itself
+                 ([], ())]                                                             # nobody declares it
+        for entry, own in cases:
+            prepared, report = contracts.prepare([model(node('Send', target='$t_actors[worker]'), entry, own)])
+            self.assertEqual(report['scope_resolutions'], [])
+        conflicting = model(node('Send', target='t_actors[worker]'), [ACTORS])
+        conflicting['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['other'] = dict(
+            variables=[dict(ACTORS, form='array')], root=node('Root'))
+        self.assertEqual(contracts.prepare([conflicting])[1]['scope_resolutions'], [])
+
+    def test_a_bare_key_is_a_literal_even_when_a_wuid_variable_has_its_name(self):
+        worker = dict(name='worker', type='common:wuid', form='single')
+        for entry, own in (([ACTORS, worker], ()), ([ACTORS], [worker]), ([], [ACTORS, worker])):
+            prepared, report = contracts.prepare([model(node('Send', target='t_actors[worker]', other='$t_actors[$worker]'), entry, own)])
+            attrs = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]['attributes']
+            self.assertEqual(attrs, dict(target="t_actors['worker']", other='$t_actors[$worker]'))
+        other_tree = model(node('Send', target='t_actors[worker]'), [ACTORS])
+        other_tree['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['other'] = dict(
+            variables=[dict(name='worker', type='_string', form='single')], root=node('Root'))
+        self.assertEqual(contracts.prepare([other_tree])[1]['scope_resolutions'], [])
+
+    def test_a_bare_time_initialiser_is_quoted_as_native_ones_are(self):
+        def values(variable):
+            prepared, report = contracts.prepare([model(node('Success'), [variable])])
+            return prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['entry']['variables'][0]['values'], report
+        move = dict(name='addPars', type='additionalMoveParams', form='single')
+        self.assertEqual(values(dict(move, values='destChangedThreshold(250ms)'))[0], "destChangedThreshold('250ms')")
+        self.assertEqual(values(dict(move, values='destChangedThreshold(500)'))[0], "destChangedThreshold('500')")
+        for untouched in ("destChangedThreshold('2s')", 'destChangedThreshold($delay)', 'continueWhenHalting(true)', ''):
+            value, report = values(dict(move, values=untouched))
+            self.assertEqual((value, report['initialisers']), (untouched, []))
+        self.assertEqual(values(dict(move, type='_string', values='destChangedThreshold(250ms)'))[0], 'destChangedThreshold(250ms)')
+
+    def test_an_undeclared_link_tag_converts_only_when_a_tree_writes_it(self):
+        data = dict(name='linkData', type='crime:suppress', form='single')
+        source = model(node('Sequence', [
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"suppress"', Data='"$linkData"'),
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"suppress"', Data='""'),
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"plain"', Data='""'),
+            node('AddLink', From='"this.id"', To='"__player"', Tag='"$dynamic"', Data='""'),
+            node('LinkTagFilter', tag='"levelOnly"'), node('RemoveLink', Tag='"removedOnly"')]), [], [data])
+        self.assertEqual(contracts.prepare([source])[1]['implicit_links'],
+                         dict(suppress=dict(name='suppress', type='crime:suppress'), plain=dict(name='plain')))
+        mixed = model(node('Sequence', [node('AddLink', Tag='"mixed"', Data='"a"'), node('AddLink', Tag='"mixed"', Data='"b"')]), [],
+                      [dict(name='a', type='one', form='single'), dict(name='b', type='two', form='single')])
+        self.assertEqual(contracts.prepare([mixed])[1]['implicit_links'], dict(mixed=dict(name='mixed')))
+
+    def test_an_engine_record_keeps_its_native_type_when_the_catalog_has_it(self):
+        import campaign_behavior
+        contracts.register()
+        for source, target in contracts.ENGINE_TYPES.items():
+            variable = dict(name='v', type=source, form='single')
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', dict(nodes={}, variable_types=[target], enum_types=[]))
+            self.assertEqual(compiler.variable(variable).get('type'), target)
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', dict(nodes={}, variable_types=[], enum_types=[]))
+            with self.assertRaises(campaign_behavior.UnsupportedOperation):
+                compiler.variable(variable)
+
+    def child(self, prepared):
+        return prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+
+    def test_an_after_reset_gate_is_the_unchanged_state(self):
+        gate = node('QuestObjectiveGate', [node('Success')], questName='""', objectiveName='"endQuest"',
+                    objectiveState='"AfterReset"', NegateTo='"true"', RunLogic='"Halt"')
+        prepared, report = contracts.prepare([model(gate, [])])
+        self.assertEqual(self.child(prepared)['attributes'], dict(gate['attributes'], objectiveState='"Unchanged"'))
+        self.assertEqual([r['source'] for r in report['value_renames']], ['AfterReset'])
+        for other in ('Started', 'StartedTrackingDone', '$state'):
+            kept = dict(gate, attributes=dict(gate['attributes'], objectiveState='"%s"' % other))
+            prepared, report = contracts.prepare([model(kept, [])])
+            self.assertEqual((self.child(prepared)['attributes']['objectiveState'], report['value_renames']), ('"%s"' % other, []))
+        condition = node('QuestObjectiveCondition', objective='"endQuest"', function='"AfterReset"')
+        self.assertEqual(contracts.prepare([model(condition, [])])[1]['value_renames'], [])
+
+    def test_a_missing_branch_that_must_fail_is_written_out(self):
+        def branches(children, policy='"true"', op='QuestObjectiveCondition'):
+            prepared, report = contracts.prepare([model(node(op, children, failSubtMissing=policy), [])])
+            return [(c['op'], c['attributes'], [g['op'] for g in c['children']]) for c in self.child(prepared)['children']], report
+        then, otherwise = node('Then', [node('Success')], canSkip='1'), node('Else', [node('Success')], canSkip='1')
+        self.assertEqual(branches([then])[0], [('Then', dict(canSkip='1'), ['Success']), ('Else', dict(canSkip='1'), ['Fail'])])
+        self.assertEqual(branches([otherwise], '1', 'QuestCondition')[0],
+                         [('Then', dict(canSkip='1'), ['Fail']), ('Else', dict(canSkip='1'), ['Success'])])
+        for children, policy, op in (([then], '"false"', 'QuestObjectiveCondition'), ([then, otherwise], '"true"', 'QuestCondition'),
+                                     ([], '"true"', 'QuestCondition'), ([then], '"true"', 'IfElseCondition')):
+            result, report = branches(children, policy, op)
+            self.assertEqual((len(result), report['completed_branches']), (len(children), []))
+
+    def test_lua_sites_cluster_by_the_calls_they_make(self):
+        shape = contracts.lua_shape
+        unlock = shape("local door1 = XGenAIModule.GetEntityByWUID(data.t_places['doorKunes1']) \ndoor1:Unlock()")
+        self.assertEqual(unlock, ('<entity>:Unlock', 'XGenAIModule.GetEntityByWUID'))
+        self.assertEqual(shape("local d = XGenAIModule.GetEntityByWUID(data.other)\n\nd:Unlock() -- note"), unlock)
+        self.assertEqual(shape("XGenAIModule.GetEntityByWUID(data.chest):SetLootLegal(true)"),
+                         ('<call>:SetLootLegal', 'XGenAIModule.GetEntityByWUID'))
+        self.assertEqual(shape("data.expo = (System.GetCVar('wh_sys_specVersion') == 'expo')"), ('System.GetCVar', 'data='))
+        self.assertEqual(shape("if data.ds.id ~= __null then DialogModule.SetAIInteractionState(data.ds.id, false) end"),
+                         ('DialogModule.SetAIInteractionState',))
+        self.assertEqual(shape("return entity.inventory:GetMoney() >= SocialClass.GetEntitySocialClassData(entity).diceMinimumBet"),
+                         ('SocialClass.GetEntitySocialClassData', 'entity.inventory:GetMoney'))
+        self.assertEqual(shape("print('Unlock(')"), ('print',))
+        self.assertEqual(shape("x = 'unterminated"), ('<unparsed>',))
+
+    def test_a_renamed_operation_maps_every_attribute_or_is_left_blocked(self):
+        prepared, report = contracts.prepare([model(node('TurnBody', destinationSpecification='"__player"', alignWith='false'), [])])
+        turned = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+        self.assertEqual((turned['op'], turned['source_op'], turned['attributes']),
+                         ('Turn', 'TurnBody', dict(target='"__player"', align='false')))
+        prepared, report = contracts.prepare([model(node('TurnBody', somethingNew='1'), [])])
+        self.assertEqual(report['rename_blocked'][0]['unmapped'], ['somethingNew'])
+        self.assertEqual(prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]['op'], 'TurnBody')
+
+    def test_a_legacy_turn_field_converts_only_with_the_value_retail_writes(self):
+        def turn(**fields):
+            prepared, report = contracts.prepare([model(node('TurnBody', destinationSpecification='"t_opponent"', **fields), [])])
+            turned = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+            return turned['op'], turned['attributes'], [r['reason'] for r in report['rename_blocked']]
+        self.assertEqual(turn(allowInstantSuccess='true', stopWithinAngle='0.000000'),
+                         ('Turn', dict(target='"t_opponent"', allowInstantSuccess='true', stopWithinAngle='0.000000'), []))
+        self.assertEqual(turn(allowInstantSuccess='false')[::2], ('TurnBody', ['value has no native example: allowInstantSuccess false']))
+        self.assertEqual(turn(stopWithinAngle='10.000000')[::2], ('TurnBody', ['value has no native example: stopWithinAngle 10.000000']))
+        self.assertEqual(turn(stopRunninganimation='true')[0], 'TurnBody')
+        self.assertEqual(set(contracts.TURN_VALUES) | {'destinationSpecification', 'alignWith', 'destinationType'},
+                         set(contracts.RENAMES['TurnBody'][1]))
+
+    def test_register_never_replaces_an_existing_contract(self):
+        import campaign_behavior
+        before = dict(campaign_behavior.CONTRACTS['Parallel'])
+        contracts.register()
+        self.assertEqual(campaign_behavior.CONTRACTS['Parallel'], before)
+        self.assertEqual(campaign_behavior.CONTRACTS['GameOver'], dict(Reason='value'))
+
+
+def q(value):
+    return '"' + value + '"'
+
+
+class LinkTypes:
+    """A link-type importer with one declared data symbol."""
+    source = {'questactor': dict(name='QuestActor', type='_string')}
+
+    def plan(self, identity):
+        from campaign_dependencies import ImportPlan
+        return ImportPlan(source=dict(row=self.source[identity]))
+
+    def convert(self, identity, plan, registered): return 'c2_QuestActor', {}, {}
+
+
+class ContractTests(unittest.TestCase):
+    """Each operation contract, through the production compiler's node lowering."""
+
+    def lower(self, source, variables=(), registered=None, adapters=None):
+        import campaign_behavior
+        from campaign_dependencies import DependencyImporter
+        contracts.register()
+        catalog = dict(nodes={op: dict(attributes=list(fields), children=[])
+                              for op, fields in campaign_behavior.CONTRACTS.items()}, variable_types=[], enum_types=[])
+        catalog['nodes']['ExecuteLua'] = dict(attributes=['code'], children=[])
+        prepared, report = contracts.prepare([model(source, list(variables))])
+        prepared = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+        compiler = campaign_behavior.BehaviorCompiler([], 'C2', catalog,
+                                                      importer=DependencyImporter(adapters or {}, registered or {}))
+        compiler.variables = {v['name']: v for v in variables}
+        record = dict(unresolved=[], buff_dependencies=[], item_dependencies=[], includes=[])
+        emitted = compiler.lower_node(prepared, 'q_example', 'libs/ai/quests/q_example.xml', 'callback', 'Root/0', record)
+        return emitted, [u['reason'] for u in record['unresolved']], report
+
+    def xml(self, *args, **kwargs):
+        emitted, reasons, _ = self.lower(*args, **kwargs)
+        self.assertEqual(reasons, [])
+        return E.tostring(emitted, encoding='unicode')
+
+    def blocked(self, source, *args, **kwargs):
+        emitted, reasons, report = self.lower(source, *args, **kwargs)
+        self.assertIsNone(emitted)
+        return reasons, report
+
+    def test_same_name_operations_keep_their_fields(self):
+        self.assertEqual(self.xml(node('Look', destinationSpecification=q('__player'), destinationType='FromVariable')),
+                         '<Look destinationSpecification="$__player" destinationType="FromVariable" />')
+        self.assertEqual(self.xml(node('MoraleGate', [node('Success')], Target=q('this.id'), Low=q('0.000000'),
+                                       High=q('0.500000'), Negation=q('true'), RunLogic=q('KeepRunning'))),
+                         '<MoraleGate Target="$this.id" Low="0.000000" High="0.500000" Negation="true" '
+                         'RunLogic="KeepRunning"><Success /></MoraleGate>')
+        self.assertEqual(self.xml(node('AddPerceivableState', [node('Success')], PerceivableLabel=q('mercy'))),
+                         """<AddPerceivableState PerceivableLabel="'mercy'"><Success /></AddPerceivableState>""")
+        reasons, _ = self.blocked(node('Look', destinationSpecification=q('__player'), lookSpeed=q('1')))
+        self.assertEqual(reasons, ['Unconverted attributes on Look: lookSpeed'])
+
+    def test_a_profile_gate_names_the_converted_profile(self):
+        gate = node('ProfileLoadedGate', [node('Success')], LayerName=q('q_example_attack'), NegateTo=q('false'),
+                    RunLogic=q('Halt'))
+        self.assertEqual(self.xml(gate, registered=dict(world_profiles={'q_example_attack': 'gm_q_example_attack'})),
+                         """<ProfileLoadedGate LayerName="'gm_q_example_attack'" NegateTo="false" RunLogic="Halt">"""
+                         '<Success /></ProfileLoadedGate>')
+        self.assertEqual(self.blocked(gate)[0], ['Referenced world profile conversion did not complete: q_example_attack'])
+        self.assertEqual(self.blocked(dict(gate, attributes=dict(gate['attributes'], LayerName=q('$layer'))))[0],
+                         ['Dynamic profile identity requires runtime mapping: $layer'])
+
+    def test_a_buff_decorator_names_the_converted_buff(self):
+        buff = '8e9cb93a-eb5f-4846-be2c-2c7010872704'
+        decorator = node('DecoratorBuff', [node('Success')], BuffId=q(buff), SoulWUID=q('this.id'))
+        self.assertEqual(self.xml(decorator, registered=dict(buffs={buff: 'native-buff'})),
+                         """<DecoratorBuff BuffId="'native-buff'" SoulWUID="$this.id"><Success /></DecoratorBuff>""")
+        self.assertEqual(self.blocked(decorator)[0], ['Referenced buff conversion did not complete: ' + buff])
+
+    def test_an_evalyzer_reads_link_data_through_the_native_symbol(self):
+        name = dict(name='questName', type='_string', form='single')
+        links = dict(adapters=dict(link_types=LinkTypes()))
+        source = node('EvaLLyzer', Expresion=q('$questName = $QuestActor'), Quantifiers=q('Exists'), saveVersion='2')
+        self.assertEqual(self.xml(source, [name], **links),
+                         '<EvaLLyzer Expresion="$questName = $__link_c2_QuestActor" Quantifiers="Exists" saveVersion="2" />')
+        text = node('EvaLLyzer', Expresion=q("$questName = 'the $QuestActor'"), Quantifiers=q('ForAll'), saveVersion='2')
+        self.assertIn("""Expresion="$questName = 'the $QuestActor'" """, self.xml(text, [name], **links))
+        self.assertEqual(self.blocked(source, [name])[0], ['Missing or ambiguous link-data symbol: QuestActor'])
+        unknown = node('EvaLLyzer', Expresion=q('$questName = $Elsewhere'), Quantifiers=q('Exists'), saveVersion='2')
+        self.assertEqual(self.blocked(unknown, [name], **links)[0], ['Missing or ambiguous link-data symbol: Elsewhere'])
+
+    def test_only_a_self_teleport_is_a_teleport_action(self):
+        self.assertEqual(self.xml(node('Teleport', Position=q('safeSpot'), Target=q('this.id'))),
+                         '<TeleportAction Position="$safeSpot" />')
+        reasons, report = self.blocked(node('Teleport', Position=q('safeSpot'), Target=q('__player')))
+        self.assertEqual(reasons, ['Behavior operation needs an adapter: Teleport'])
+        self.assertEqual(report['rename_blocked'][0]['reason'], 'teleport of another entity has no native action')
+
+    def test_a_joined_animation_gate_is_a_synchronize_with_the_same_fields(self):
+        fields = dict(SemaphoreCount=q('4'), InsideTimerValue=q('-1'), InvalidateOnExpire=q('false'), atomic=q('false'),
+                      OutsideQueuePosVariable=q(''), InsidePosVariable=q(''), TimerType=q('GameTime'),
+                      OutsideTimerValue=q('-1'), LockManagerType=q('Local'), SemaphoreName=q('scene'), RunLogic=q('Halt'))
+        self.assertEqual(self.xml(node('JoinedAnimationSynchronize', [node('Success')], **fields)),
+                         """<Synchronize SemaphoreCount="4" InsideTimerValue="'-1'" InvalidateOnExpire="false" """
+                         """atomic="false" OutsideQueuePosVariable="" InsidePosVariable="" TimerType="GameTime" """
+                         """OutsideTimerValue="'-1'" LockManagerType="Local" SemaphoreName="'scene'" RunLogic="Halt">"""
+                         '<Success /></Synchronize>')
+        reasons, report = self.blocked(node('JoinedAnimationSynchronize', [node('Success')], AlignTo=q('door'), **fields))
+        self.assertEqual(report['rename_blocked'][0]['unmapped'], ['AlignTo'])
+
+    def test_a_state_machine_gate_is_an_actor_state_barrier_for_a_known_state(self):
+        gate = node('StateMachineGate', [node('Success')], Who=q(''), State=q('Combat'), NegateTo=q('true'),
+                    RunLogic=q('KeepRunning'))
+        self.assertEqual(self.xml(gate), '<ActorStateBarrier Who="" NegateTo="true" RunLogic="KeepRunning" ToState="combat">'
+                                         '<Success /></ActorStateBarrier>')
+        reasons, report = self.blocked(dict(gate, attributes=dict(gate['attributes'], State=q('Rider'))))
+        self.assertEqual(report['rename_blocked'][0]['reason'], 'actor state has no native example: Rider')
+
+    def test_an_install_gate_is_an_always_open_gate(self):
+        gate = node('StreamingInstallGate', [node('Success')], Content=q('AdditionalContent'), RunLogic=q('KeepRunning'))
+        self.assertEqual(self.xml(gate), '<IfGate atomic="false" condition="true" RunLogic="KeepRunning"><Success /></IfGate>')
+        reasons, report = self.blocked(dict(gate, attributes=dict(gate['attributes'], Content=q('Disc2'))))
+        self.assertEqual(report['rename_blocked'][0]['reason'], 'unknown install content: Disc2')
+
+    def area(self, **changes):
+        fields = dict(NPCs=q('__player'), Area=q("t_places['home']"), TrackIn=q('true'), TrackOut=q('false'),
+                      Once=q('true'), Atomic=q('false'), OutNPC=q(''), OutEvent=q(''), ReportInitialState=q(''))
+        fields.update({k: q(v) for k, v in changes.items()})
+        return node('AreaPresence', [node('Success')], **fields)
+
+    def test_area_presence_is_a_gate_once_and_a_listener_when_repeating(self):
+        places = [dict(name='t_places', type='common:wuid', form='associative')]
+        self.assertEqual(self.xml(self.area(), places),
+                         """<AreaPresenceGate aiObjects="$__player" area="$t_places['home']" amount="AtLeastOne" """
+                         'RunLogic="KeepRunning" presence="Present"><Success /></AreaPresenceGate>')
+        self.assertIn('presence="NotThere"', self.xml(self.area(TrackIn='false', TrackOut='true'), places))
+        self.assertEqual(self.xml(self.area(Once='false', TrackOut='true'), places),
+                         """<AreaPresenceListener aiObjects="$__player" area="$t_places['home']" trackIn="true" """
+                         'trackOut="true" reportInitialState="true"><Success /></AreaPresenceListener>')
+        self.assertIn('<AtomicDecorator><Success /></AtomicDecorator></AreaPresenceGate>',
+                      self.xml(self.area(Atomic='true'), places))
+        for changes, reason in ((dict(OutEvent='event'), 'output variable has no native field: OutEvent'),
+                                (dict(TrackOut='true'), 'a one-shot gate needs exactly one of TrackIn and TrackOut'),
+                                (dict(Once='false', TrackIn='false'), 'nothing is tracked'),
+                                (dict(Once='$once'), 'flag is not a literal boolean')):
+            reasons, report = self.blocked(self.area(**changes), places)
+            self.assertEqual((reasons, report['rename_blocked'][0]['reason']),
+                             (['Behavior operation needs an adapter: AreaPresence'], reason))
+
+    def guardian(self, detail, lod=None, **fields):
+        fields = dict(dict(LODTerm=q('OnBoth'), StatProp=q('PropagateChild'), saveVersion='2'), **fields)
+        lod = lod or node('Wait', duration=q('-1'), timeType=q('GameTime'), doFail=q('false'), variation=q(''),
+                          skipInLOD=q('false'))
+        return node('LODGuardian', [node('LOD', [lod], canSkip='1'), node('Detail', [detail], canSkip='1')], **fields)
+
+    def test_a_waiting_lod_guardian_is_a_detail_barrier(self):
+        self.assertEqual(self.xml(self.guardian(node('Success'))),
+                         '<DetailBehaviorBarrier RunLogic="Halt"><Success /></DetailBehaviorBarrier>')
+        self.assertEqual(self.xml(self.guardian(node('LODLock', [node('Success')]))),
+                         '<DetailBehaviorBarrier RunLogic="KeepRunning"><Success /></DetailBehaviorBarrier>')
+        self.assertEqual(self.xml(self.guardian(node('Success'), StatProp=q('FailAlways'))),
+                         '<Sequence><DetailBehaviorBarrier RunLogic="Halt"><Success /></DetailBehaviorBarrier><Fail /></Sequence>')
+        reasons, report = self.blocked(self.guardian(node('Success'), lod=node('Success')))
+        self.assertEqual(report['rename_blocked'][0]['reason'], 'the LOD branch does more than wait')
+        self.assertEqual(reasons, [contracts.RESIDUE[op] for op in ('LODGuardian', 'LOD', 'Detail')])
+        reasons, report = self.blocked(self.guardian(node('Success'), LODTerm=q('OnLOD')))
+        self.assertEqual(report['rename_blocked'][0]['reason'], 'unknown LODTerm or StatProp')
+
+    def test_an_operation_without_a_native_equivalent_gets_a_typed_reason(self):
+        for op, kind, status in (('FinishPatch', 'daycycle_lifecycle', 'open'),
+                                 ('AddOpponent', 'op_inexpressible', 'inexpressible'),
+                                 ('SetOwner', 'op_partial', 'open'), ('NeverHeardOf', 'op_no_contract', 'open')):
+            reasons, _ = self.blocked(node(op))
+            self.assertEqual(reasons, [contracts.RESIDUE.get(op, 'Behavior operation needs an adapter: ' + op)])
+            self.assertEqual((c2.family(reasons[0]), c2.STATUS.get(c2.family(reasons[0]), 'open')), (kind, status))
+        self.assertEqual({c2.family(reason) for reason in contracts.RESIDUE.values()},
+                         {'daycycle_lifecycle', 'op_inexpressible', 'op_partial'})
+
+    def stand_in(self, source, **kwargs):
+        emitted, reasons, report = self.lower(source, **kwargs)
+        self.assertEqual((reasons, [r['source'] for r in report['stand_ins']], report['renamed']), ([], [source['op']], []))
+        return E.tostring(emitted, encoding='unicode')
+
+    def test_stand_ins_are_reported_as_stand_ins_and_keep_a_node(self):
+        idle = node('MakeMeIdle', WaitForFinish=q('true'), KeepStance=q('true'), AbortAnimation=q('false'), Target=q(''))
+        self.assertEqual(self.stand_in(idle), '<StopMovement waitUntilStopped="true" />')
+        self.assertEqual(self.blocked(dict(idle, attributes=dict(idle['attributes'], Target=q('__player'))))[0],
+                         [contracts.RESIDUE['MakeMeIdle']])
+        draw = '<DrawAction WeaponSet="Primary" fullBody="false" tags="" useSelectedWeaponSet="false" />'
+        self.assertEqual(self.stand_in(node('InstantDrawWeapon', who=q(''), WeaponSet=q('Primary'))), draw)
+        self.assertEqual(self.stand_in(node('DrawWeapon', ToCombatGuard=q('true'), tags=q('$actorName'), who=q(''),
+                                            WeaponSet=q('Primary'), noAnimation=q('false'))), draw)
+        self.assertEqual(self.blocked(node('InstantDrawWeapon', who=q('other'), WeaponSet=q('Primary')))[0],
+                         [contracts.RESIDUE['InstantDrawWeapon']])
+        self.assertEqual(self.blocked(node('DrawWeapon', who=q(''), WeaponSet=q('$set')))[1]['rename_blocked'][0]['reason'],
+                         'weapon set has no native example: $set')
+        check = node('LODCheck', [node('LOD', [node('Success')], canSkip='1'), node('Detail', [node('Fail')], canSkip='1')],
+                     saveVersion='2')
+        self.assertEqual(self.stand_in(check), '<Fail />')
+        self.assertEqual(self.blocked(dict(check, children=check['children'][:1]))[1]['rename_blocked'][0]['reason'],
+                         'expected one Detail branch with one child')
+
+    def test_an_end_event_continues_after_the_animation(self):
+        def play(event='End', captured='', body=(node('Success'), node('Fail'))):
+            catch = node('AnimationEventCatch', [node('OnEvent', list(body), canSkip='1')], EventName=q(event),
+                         InterruptSafe=q('KEEP'), CapturedVariablesByValue=q(captured), saveVersion='2')
+            return node('PlayAnimation', [catch], animation=q('ToCombat'))
+        prepared, report = contracts.prepare([model(play(), [])])
+        rewritten = prepared[0]['behavior_documents']['libs/ai/quests/q_example.xml']['trees']['callback']['root']['children'][0]
+        self.assertEqual((rewritten['op'], [(c['op'], len(c['children'])) for c in rewritten['children']]),
+                         ('Sequence', [('PlayAnimation', 0), ('Success', 0), ('Fail', 0)]))
+        self.assertEqual((rewritten['children'][0]['attributes'], [r['source'] for r in report['stand_ins']]),
+                         (dict(animation=q('ToCombat')), ['PlayAnimation']))
+        for changed in (play(event='Hit'), play(captured='x'), play(body=())):
+            prepared, report = contracts.prepare([model(changed, [])])
+            self.assertEqual((report['stand_ins'], len(report['rename_blocked'])), ([], 1))
+        plain, report = contracts.prepare([model(node('PlayAnimation', animation=q('Idle')), [])])
+        self.assertEqual((report['stand_ins'], report['rename_blocked']), ([], []))
+
+    def test_lua_made_of_native_calls_and_no_foreign_constant_is_emitted_verbatim(self):
+        import campaign_behavior
+        contracts.register()
+        accepted = ("local door1 = XGenAIModule.GetEntityByWUID(data.t_places['doorKunes1']) \ndoor1:Unlock()",
+                    "data.expo = (System.GetCVar('wh_sys_specVersion') == 'expo')",
+                    "local horseEnt = XGenAIModule.GetEntityByWUID(data.horse) \n \nplayer.player:SetPlayerHorse(horseEnt.id)",
+                    "if  data.ds.id ~= __null then  \n    DialogModule.SetAIInteractionState(data.ds.id, false) \nend")
+        for script in accepted:
+            emitted, reasons, _ = self.lower(node('ExecuteLua', code=q(script)))
+            self.assertEqual((reasons, emitted.get('code')), ([], script))
+        gate = "return entity.inventory:GetMoney() >= SocialClass.GetEntitySocialClassData(entity).diceMinimumBet"
+        self.assertTrue(contracts.verbatim_lua(gate))
+        for script in ("XGenAIModule.GetEntityByWUID(data.chest):SetLootLegal(true)",
+                       "Contexts.SetPersistentOption(entity, 'suppressTrainerLessons', 'q_x')",
+                       "data.expo = (System.GetCVar('wh_other') == 'expo')", "Shops.OpenShop(17)", "x = 'unterminated", ""):
+            self.assertFalse(contracts.verbatim_lua(script), script)
+        self.assertIsNone(self.lower(node('ExecuteLua', code=q("Shops.OpenShop(17)")))[0])
+
+    def test_a_script_naming_a_global_outside_the_list_is_not_verbatim(self):
+        contracts.register()
+        wrapper = node('LuaWrapper', [node('Success')], onEnter=q('entity.actor:SetDialogAnimationState(false)'),
+                       onExit=q('entity.actor:SetDialogAnimationState(true)'))
+        emitted, reasons, _ = self.lower(wrapper)
+        self.assertEqual((reasons, emitted.get('onEnter'), emitted.get('onExit')),
+                         ([], 'entity.actor:SetDialogAnimationState(false)', 'entity.actor:SetDialogAnimationState(true)'))
+        order = "local wuid1 = tostring(data.dialogReceiver) \nlocal wuid2 = tostring(entity.this.id) \n \nreturn wuid1 < wuid2"
+        self.assertTrue(contracts.verbatim_lua(order))
+        self.assertTrue(contracts.verbatim_lua('data.limit = RPG.LowHealthThreshold'))
+        for script in ("if data.p.defaultAnimState == enum_animationOverride.userControlled then entity.actor:SetDialogAnimationState(false) end",
+                       "data.modified.defaultAnimState = enum_animationOverride.userControlled",
+                       "local a = tostring(data.x) return a < other", "data.x = Game.Something",
+                       "player.human:InterruptDialog()", "for _, e in ipairs(data.list) do data.x = e end"):
+            self.assertFalse(contracts.verbatim_lua(script), script)
+        self.assertIsNone(self.lower(node('ExecuteLua', code=q("data.x = enum_animationOverride.userControlled")))[0])
+
+    def test_a_turn_with_a_value_retail_never_writes_is_typed_residue(self):
+        turn = node('TurnBody', destinationSpecification=q('t_opponent'), alignWith='false', allowInstantSuccess='true')
+        self.assertEqual(self.xml(turn), '<Turn target="$t_opponent" align="false" allowInstantSuccess="true" />')
+        emitted, reasons, _ = self.lower(dict(turn, attributes=dict(turn['attributes'], stopWithinAngle='10.000000')))
+        self.assertEqual((emitted, reasons),
+                         (None, ['Native operation lacks source fields: TurnBody (Turn reads target, align and destinationType)']))
+
+    def test_a_threat_gate_keeps_its_three_fields(self):
+        gate = node('HasActiveThreatsGate', [node('Success')], Who=q('__player'), Negation=q('true'), RunLogic=q('KeepRunning'))
+        self.assertEqual(self.xml(gate), '<HasActiveThreatsGate Who="$__player" Negation="true" RunLogic="KeepRunning"><Success /></HasActiveThreatsGate>')
+        emitted, reasons, _ = self.lower(dict(gate, attributes=dict(gate['attributes'], Other=q('1'))))
+        self.assertEqual((emitted, len(reasons)), (None, 1))
+
+    def test_normalize_keeps_its_operation_when_the_game_has_it(self):
+        import campaign_behavior
+        from campaign_dependencies import DependencyImporter
+        contracts.register()
+        source = node('NumericalOperation', In1VariableName='opponentOri', In2VariableName='', In3VariableName='',
+                      OutVariableName='opponentOri', Operation='normalize')
+        def lower(operations):
+            catalog = dict(nodes={op: dict(attributes=list(fields), children=[]) for op, fields in campaign_behavior.CONTRACTS.items()},
+                           variable_types=[], enum_types=[], numerical_operations=operations)
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', catalog, importer=DependencyImporter({}, {}))
+            record = dict(unresolved=[], buff_dependencies=[], item_dependencies=[], includes=[])
+            return compiler.lower_node(source, 'q', 'libs/ai/quests/q.xml', 't', 'Root', record), record['unresolved']
+        emitted, unresolved = lower(['round', 'normalize'])
+        self.assertEqual((unresolved, emitted.get('Operation'), emitted.get('In1VariableName'), emitted.get('OutVariableName')),
+                         ([], 'normalize', 'opponentOri', '$opponentOri'))
+        self.assertIsNone(lower(['round'])[0])
+        self.assertIsNone(lower(['normalize'])[0])
+
+    def test_a_native_wuid_distance_keeps_its_operation(self):
+        import campaign_behavior
+        from campaign_dependencies import DependencyImporter
+        contracts.register()
+        source = node('NumericalOperation', In1VariableName='this.id', In2VariableName='home', In3VariableName='',
+                      OutVariableName='dist', Operation='distance2dSq_wuid')
+        def lower(operations):
+            catalog = dict(nodes={op: dict(attributes=list(fields), children=[]) for op, fields in campaign_behavior.CONTRACTS.items()},
+                           variable_types=[], enum_types=[], numerical_operations=operations)
+            compiler = campaign_behavior.BehaviorCompiler([], 'C2', catalog, importer=DependencyImporter({}, {}))
+            record = dict(unresolved=[], buff_dependencies=[], item_dependencies=[], includes=[])
+            return compiler.lower_node(source, 'q', 'libs/ai/quests/q.xml', 't', 'Root', record), record['unresolved']
+        emitted, unresolved = lower(['distance2dSq', 'distance2dSq_wuid'])
+        self.assertEqual((unresolved, emitted.get('Operation'), emitted.get('In1VariableName'), emitted.get('OutVariableName')),
+                         ([], 'distance2dSq_wuid', 'this.id', '$dist'))
+        self.assertIsNone(lower(['distance2dSq'])[0])
+        self.assertEqual(source['attributes']['Operation'], 'distance2dSq_wuid')
+
+    def test_a_kcd1_save_version_check_is_a_flagged_always_false_stand_in(self):
+        check = node('IfCondition', [node('Success')], failOnCondition=q('false'),
+                     condition=q('$__version.loaded < $enum:gameVersion.Ver_01_05'))
+        self.assertEqual(self.stand_in(check), '<IfCondition failOnCondition="false" condition="false"><Success /></IfCondition>')
+        for other in ('$__version.loaded >= $enum:gameVersion.Ver_01_05', '$count < $enum:gameVersion.Ver_01_05',
+                      '$__version.loaded < $enum:gameVersion.Ver_01_05 & $ready', '$ready'):
+            _, _, report = self.lower(dict(check, attributes=dict(check['attributes'], condition=q(other))),
+                                      [dict(name='ready', type='_bool', form='single'), dict(name='count', type='_int', form='single')])
+            self.assertEqual((report['stand_ins'], report['rename_blocked']), ([], []))
+        self.assertIn('2026-11-16', contracts.STAND_INS['IfCondition'][2])
+
+    def test_every_rewrite_target_and_hook_has_a_contract(self):
+        import campaign_behavior
+        contracts.register()
+        for target in ('TeleportAction', 'ActorStateBarrier', 'IfGate', 'AreaPresenceGate', 'AreaPresenceListener',
+                       'DetailBehaviorBarrier', 'Synchronize', 'Turn', 'AtomicDecorator', 'Sequence', 'Fail',
+                       'StopMovement', 'DrawAction'):
+            self.assertIn(target, campaign_behavior.CONTRACTS)
+        self.assertEqual(set(contracts.POST) - set(contracts.CONTRACTS), set())
+        self.assertEqual(set(contracts.RESIDUE) & set(contracts.CONTRACTS), set())
+
+
+class LedgerTests(unittest.TestCase):
+    def run_(self, unresolved, emitted_root):
+        source = model(node('Success'), [])
+        document = 'libs/ai/quests/q_example.xml'
+        del source['behavior_documents'][document]['trees']['entry']
+        tree = E.Element('BehaviorTree', name='callback'); E.SubElement(tree, 'Variables'); tree.append(emitted_root)
+        record = dict(document=document, tree='callback', unresolved=unresolved, native_emitted=not unresolved)
+        return dict(model=source, prepared=dict(scope_resolutions=[], renamed=[], rename_blocked=[]),
+                    behaviors={} if unresolved else {'AI/x.xml': E.tostring(tree)}, conversion=dict(trees=[record]))
+
+    def test_an_emitted_tree_must_keep_the_source_shape(self):
+        good = E.Element('Root'); E.SubElement(good, 'Success')
+        led = c2.ledger(self.run_([], good))
+        self.assertEqual(led['layers']['source_equivalence']['summary'],
+                         dict(checked=1, passed=1, failed=0, residue=0, nodes_compared=2, rewritten_nodes=0, stand_in_nodes=0))
+        for broken in (E.Element('Root'), E.fromstring('<Root><Fail/></Root>')):
+            self.assertEqual(c2.ledger(self.run_([], broken))['layers']['source_equivalence']['verdict'], 'FAIL')
+
+    def test_blockers_are_counted_by_reason_and_family(self):
+        sites = [dict(reason='Behavior operation needs an adapter: X')] * 2 + [dict(reason='Referenced buff conversion did not complete: g')]
+        led = c2.ledger(self.run_(sites, E.Element('Root')))
+        self.assertEqual(led['trees'], dict(total=1, blocked=1))
+        self.assertEqual([(b['family'], b['sites'], b['status']) for b in led['blockers']],
+                         [('op_no_contract', 2, 'open'), ('buff', 1, 'needs_importer')])
+        self.assertIn('| Behavior operation needs an adapter: X | op_no_contract | 2 | 1 | open |', c2.markdown(led))
+
+    def test_a_blocked_library_tree_lists_its_sites_and_the_trees_it_holds(self):
+        own, lib = 'libs/ai/quests/q_example.xml', 'libs/ai/final/utils.xml'
+        tree = dict(variables=[], root=node('Root'))
+        source = dict(quest='q_example', behavior_documents={own: dict(trees=dict(clean=tree, busy=tree, both=tree, alone=tree, gone=tree))})
+        def record(document, name, includes=(), sites=()):
+            return dict(owner='q_example', document=document, tree=name, native_emitted=False,
+                        includes=[('q_example', *ref) for ref in includes],
+                        unresolved=[dict(reason='Behavior operation needs an adapter: ' + op, site=dict(operation=op)) for op in sites])
+        trees = [record(own, 'clean', [(lib, 'helper'), (lib, 'fine')]), record(own, 'busy', [(lib, 'helper')], ['Old']),
+                 record(own, 'both', [(lib, 'helper'), (lib, 'other')]), record(own, 'alone', [(own, 'clean')]),
+                 record(own, 'gone', [(lib, 'helper'), (lib, 'missing')]),
+                 record(lib, 'helper', [(lib, 'inner'), (lib, 'fine')], ['Known']), record(lib, 'inner', [], ['Old', 'Old']),
+                 record(lib, 'other', [], ['Lua']), dict(record(lib, 'fine'), native_emitted=True)]
+        led = c2.ledger(dict(model=source, prepared=dict(scope_resolutions=[], renamed=[], rename_blocked=[]), behaviors={},
+                             conversion=dict(trees=trees), native_nodes={'Known'}))
+        helper, other = led['libraries']
+        self.assertEqual(helper, dict(document=lib, tree='helper', trees=3, blocked_trees=2, sites=3,
+                                      families=dict(op_no_contract=3), operations=2, absent=dict(operations=1, sites=2),
+                                      included_by=['both', 'busy', 'clean', 'gone'], handed=[], held=['both', 'clean', 'gone'],
+                                      unblocks=['alone', 'clean']))
+        self.assertEqual((other['tree'], other['sites'], other['unblocks'], other['absent']),
+                         ('other', 1, [], dict(operations=1, sites=1)))
+        self.assertIn('| `helper` (utils.xml) | 3 (2) | 3 | op_no_contract 3 | 2 (1 ops, 2 sites) | 4: both, busy, clean, gone | 2: alone, clean |',
+                      c2.markdown(led))
+        self.assertEqual(c2.golden(led)['libraries'], led['libraries'])
+        # A tree that is emitted already is not something the library holds back.
+        source['behavior_documents'][own]['trees']['free'] = tree
+        emitted = E.Element('BehaviorTree', name='free'); E.SubElement(emitted, 'Variables'); E.SubElement(emitted, 'Root')
+        led = c2.ledger(dict(model=source, prepared=dict(scope_resolutions=[], renamed=[], rename_blocked=[]),
+                             behaviors={'AI/x.xml': E.tostring(emitted)}, native_nodes={'Known'},
+                             conversion=dict(trees=trees + [dict(record(own, 'free'), native_emitted=True)])))
+        self.assertEqual(led['libraries'][0]['unblocks'], ['alone', 'clean'])
+
+    def test_a_refused_schedule_request_names_the_capability_it_waits_on(self):
+        refusal = 'Schedule request differs from its resolved source site'
+        sites = [dict(reason=refusal, site=dict(path='Root/0')), dict(reason=refusal, site=dict(path='Root/1')),
+                 dict(reason=refusal, site=dict(path='Root/2')), dict(reason='Other', site=dict(path='Root/0'))]
+        run = self.run_(sites, E.Element('Root'))
+        run['schedule'] = dict(sites=dict(callback={'Root/0': 'runtime_actor', 'Root/1': 'tree'}), requests=3)
+        led = c2.ledger(run)
+        self.assertEqual(sorted((b['reason'], b['family'], b['sites']) for b in led['blockers']), [
+            ('Daycycle request fits the lease adapter; its tree holds one that does not', 'daycycle_lifecycle', 1),
+            ('Daycycle request needs a lease capability: runtime_actor', 'daycycle_lifecycle', 1),
+            ('Other', 'other', 1), (refusal, 'daycycle_lifecycle', 1)])
+        self.assertEqual(c2.golden(led)['schedule'], dict(requests=3))
+
+
+@unittest.skipUnless(RETAIL, 'requires installed retail KCD1 and KCD2 scripts')
+class RetailTests(unittest.TestCase):
+    def test_q_skalitz_matches_its_golden_fixture(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            led = c2.ledger(c2.convert(KCD1, KCD2, 'q_skalitz', Path(tmp) / 'work',
+                                       ['q_tutorials', 'q_tutorial_swordOne', 'q_escapeToTalmberk'], 'rataje',
+                                       ['kovani_otcem', 'forging_father_insert', 'navsteva_racka'],
+                                       # the profiles the scene converter registers (q_skalitz.c5.golden.json)
+                                       ['q_skalitz_attack', 'q_skalitz_givenhorse', 'q_skalitz_normal', 'q_skalitz_skinnerhouse']))
+        self.assertEqual(led['layers']['source_equivalence']['failures'], [])
+        self.assertEqual(json.loads(json.dumps(c2.golden(led), sort_keys=True)),
+                         json.loads((FIXTURES / 'q_skalitz.c2.golden.json').read_text(encoding='utf-8')))
+
+
+if __name__ == '__main__': unittest.main()
