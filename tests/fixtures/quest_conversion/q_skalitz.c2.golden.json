@@ -6,13 +6,13 @@
       "trees": 2
     },
     {
-      "reason": "Referenced message_type conversion did not complete: cutscene",
-      "sites": 18,
-      "trees": 3
-    },
-    {
       "reason": "Daycycle request needs a lease capability: next_activity_boundary",
       "sites": 14,
+      "trees": 2
+    },
+    {
+      "reason": "Referenced message_type conversion did not complete: cutscene",
+      "sites": 13,
       "trees": 2
     },
     {
@@ -36,19 +36,9 @@
       "trees": 2
     },
     {
-      "reason": "Inexpressible as one native operation: AddOpponent (AddToSkirmish holds only while it runs)",
-      "sites": 7,
-      "trees": 4
-    },
-    {
-      "reason": "Custom combat dispatch requires a native behavior-consumer adapter",
-      "sites": 6,
-      "trees": 5
-    },
-    {
-      "reason": "Unconverted custom behavior request fields",
-      "sites": 4,
-      "trees": 1
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_exitCombatSubbrain",
+      "sites": 3,
+      "trees": 3
     },
     {
       "reason": "Referenced world profile conversion did not complete: q_skalitz_mother_dialog_cameras",
@@ -87,6 +77,21 @@
     },
     {
       "reason": "Graph edge type did not convert: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightOptions",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightParams",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightParams, t_state",
       "sites": 1,
       "trees": 1
     },
@@ -181,6 +186,246 @@
       "trees": 1
     }
   ],
+  "combat": {
+    "handed": [
+      {
+        "actor": "kunes",
+        "converter": "campaign_combat",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "objective": "kunesIsUpset",
+        "outcomes": {
+          "lost": {
+            "cutscene": "dialogAfterKunesWon",
+            "schedule_tag": "kunes_winningOverHenry"
+          },
+          "won": {
+            "cutscene": "dialogAfterKunesBeaten",
+            "schedule_tag": "kunes_sitting"
+          }
+        },
+        "partners": [
+          "matej",
+          "matus",
+          "fricek"
+        ],
+        "sites": [
+          {
+            "behavior": "friends_kunes_fight",
+            "operation": "InstantMultiSendMessageToNPC",
+            "path": "Root/0/0/0/0/6/0/1/8/0/0/20/0/0",
+            "role": "partners",
+            "tree": "onUpdate"
+          },
+          {
+            "behavior": "kunes_battle_fight",
+            "operation": "InstantSendMessageToNPC",
+            "path": "Root/0/0/0/0/6/0/1/8/0/0/26/0",
+            "role": "actor",
+            "tree": "onUpdate"
+          }
+        ],
+        "tag": "kunes_battle_fight",
+        "tree": "kunes_battle_fight",
+        "trees": [
+          "kunes_battle_fight",
+          "friends_kunes_fight"
+        ]
+      }
+    ],
+    "interrupts": [
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0",
+        "signature": "empty",
+        "tree": "cuman_rape"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/1",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/2",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/3",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "behavior_tree": "enemies_battle_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/0/0/3",
+        "signature": "wuidData",
+        "tree": "boys_battle"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "behavior_tree": "enemies_battle_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/2/0",
+        "signature": "wuidData",
+        "tree": "enemies_battleTargetting"
+      },
+      {
+        "behavior": "johanka_goingToSkinner_fight",
+        "behavior_tree": "johanka_goingToSkinner_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0/0/6/0/1/7/0/0/0/0/0/1",
+        "signature": "empty",
+        "tree": "onUpdate"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "behavior_tree": "tereza_rape_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0",
+        "signature": "empty",
+        "tree": "tereza_rape"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "behavior_tree": "tereza_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/0",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      }
+    ],
+    "left": [],
+    "opponents": [
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/1/0/0/0/0/1/0/1",
+        "target": "InstantSetTarget",
+        "tree": "enemies_battle_fight",
+        "who": "opponent"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/0/0/1/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "__player"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/1/0/1/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "hitReaction.attacker"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/2/0/1/0/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "percept.perceptible"
+      }
+    ],
+    "policy": {
+      "approved": "Sean, 2026-11-16 (relayed by Build), decision 12a: priority 161, urgency Fast (retail attackClosedCastle)",
+      "priority": 161,
+      "urgency": "Fast"
+    },
+    "quest": "q_skalitz",
+    "registrations": [
+      {
+        "behavior": "cuman_rape_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "cuman_rape_fight"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "wuidData",
+        "tree": "enemies_battle_fight"
+      },
+      {
+        "behavior": "johanka_goingToSkinner_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "johanka_goingToSkinner_fight"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "tereza_rape_fight"
+      }
+    ],
+    "runtime_verified": false,
+    "subbrain_state": [
+      {
+        "operation": "VarOperation",
+        "path": "Root/0/0/2",
+        "tree": "cuman_rape_fight",
+        "variables": [
+          "t_fightParams"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/0/0/3",
+        "tree": "cuman_rape_fight",
+        "variables": [
+          "t_fightParams",
+          "t_state"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/0/0/0/4/0/0/5/1/0/0/0/0",
+        "tree": "enemies_battle_fight",
+        "variables": [
+          "t_fightOptions"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/1/0/6",
+        "tree": "enemies_battle_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/2",
+        "tree": "johanka_goingToSkinner_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/1/0/1",
+        "tree": "tereza_rape_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      }
+    ]
+  },
   "converter": "C2",
   "emitted": [
     "anybody_runAway",
@@ -209,9 +454,9 @@
       "trees": 3
     },
     "combat_dispatch": {
-      "reasons": 4,
+      "reasons": 7,
       "sites": 9,
-      "trees": 7
+      "trees": 5
     },
     "daycycle_lifecycle": {
       "reasons": 7,
@@ -234,14 +479,9 @@
       "trees": 5
     },
     "message_type": {
-      "reasons": 3,
-      "sites": 24,
-      "trees": 5
-    },
-    "op_inexpressible": {
-      "reasons": 1,
-      "sites": 7,
-      "trees": 4
+      "reasons": 2,
+      "sites": 15,
+      "trees": 3
     },
     "profile": {
       "reasons": 2,
@@ -362,6 +602,7 @@
     },
     "scope_resolutions": 274,
     "stand_ins": {
+      "AddOpponent->InstantSetTarget": 4,
       "DrawWeapon->DrawAction": 1,
       "IfCondition->IfCondition": 4,
       "InstantDrawWeapon->DrawAction": 2,
@@ -370,7 +611,9 @@
       "PlayAnimation->Sequence": 1,
       "SetLootLegal->SetOwner": 1,
       "SetLootLegal->removed statement": 1,
-      "SetOwner->Success": 1
+      "SetOwner->Success": 1,
+      "customBehaviorRequest->AddInterrupt_empty": 7,
+      "customBehaviorRequest->AddInterrupt_wuidData": 2
     },
     "value_renames": 21,
     "verbatim_lua": 7
@@ -693,9 +936,10 @@
     "stand_in_nodes": 1
   },
   "trees": {
-    "blocked": 33,
-    "blocked_by_include": 23,
+    "blocked": 28,
+    "blocked_by_include": 26,
     "emitted": 18,
+    "handed": 2,
     "total": 74
   }
 }

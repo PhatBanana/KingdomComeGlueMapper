@@ -528,6 +528,9 @@ def register():
     LOWERINGS.update(campaign_controller_scenes.LOWERINGS)
     import campaign_controller_ownership
     LOWERINGS.update(campaign_controller_ownership.LOWERINGS)
+    import campaign_controller_combat
+    for op, fields in campaign_controller_combat.CONTRACTS.items():
+        CONTRACTS.setdefault(op, fields)
     for source, target in ENGINE_TYPES.items():
         campaign_ai_types.ENGINE_TYPE_ADAPTERS.setdefault(source, target)
     added = [op for op in CONTRACTS if op not in campaign_behavior.CONTRACTS]
@@ -536,6 +539,12 @@ def register():
     original = campaign_behavior.BehaviorCompiler.lower_node
     if not hasattr(original, 'controller_contracts'):
         def lower_node(self, source, owner, document, tree, path, record, animation_controllers=None):
+            # A rewritten node may name trees it needs emitted (`requires`) and
+            # reasons it cannot be published yet (`blocked`).
+            record['includes'].extend((owner, *needed) for needed in source.get('requires', ()))
+            record['unresolved'].extend(
+                dict(site=dict(owner=owner, document=document, tree=tree, path=path, operation=source['op'],
+                               arguments=source['attributes']), reason=reason) for reason in source.get('blocked', ()))
             before = len(record['unresolved'])
             handler = LOWERINGS.get(source['op'])
             if handler is not None:
