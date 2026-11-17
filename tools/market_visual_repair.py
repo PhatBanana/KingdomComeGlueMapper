@@ -16,10 +16,12 @@ def owned_layers(mission, entities, layers, template_id):
               if e.get('Name', '').startswith('gm_schedule_') and
               e.find('Properties') is not None and
               e.find('Properties').get('guidSmartObjectType') == template_id}
+    from character_market_jobs import POINTS
+    tags = set(POINTS.values())  # merchantPoint, and the bathhouse abbessWorkSpot
     selected = {}
     for point in sorted(points):
         areas = [e for e in entities.values() if e.get('EntityClass') == 'SmartAreaShape'
-                 and any(l.get('TargetId') == point and 'merchantPoint' in l.get('Name', '').split(',')
+                 and any(l.get('TargetId') == point and tags & set(l.get('Name', '').split(','))
                          for l in e.findall('EntityLinks/Link'))]
         if len(areas) != 1:
             raise ValueError('Registered seller has ambiguous source shop: '+point)

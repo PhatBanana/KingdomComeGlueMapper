@@ -146,6 +146,57 @@ def world_entity(archive, entity, entities, provenance=None):
     return result
 
 
+def initial_future_links(actor):
+    """Apply the source init of default future links (utils.xml initDynamicHome).
+
+    An NPC without a Home link gets one to its futureHome whose event is empty;
+    without a Work link, a Work[occupation] link to its un-evented futureWork.
+    Evented future links stay quest-only. Returns a copy when anything is added.
+    Links are matched by tag, not spelling: a link can carry several tags
+    ('futureHome,owner'), and link data is typed. Source TypeDefinitions:
+    futureHome(event), futureWork(work, event); positional arguments fill the
+    members in that order, so futureHome[('x')] is evented.
+    """
+    from campaign_bindings import parse_link_labels
+    links = actor.find('EntityLinks')
+    if links is None: return actor
+    MEMBERS = {'futureHome': ('event',), 'futureWork': ('work', 'event')}
+    parsed = []
+    for link in links:
+        if not link.get('Name', '').strip(): continue  # 281 source NPC links (e.g. rat_konyas) carry no tag
+        for tag in parse_link_labels(link.get('Name', '')):
+            data = {}
+            if tag['tag'] in MEMBERS:
+                members = MEMBERS[tag['tag']]
+                if len(tag['positional']) > len(members):
+                    raise ValueError('Unsupported source future link data: ' + link.get('Name', ''))
+                data = dict(zip(members, tag['positional']), **tag['named'])
+                if set(data) - set(members) or any(not isinstance(v, str) for v in data.values()):
+                    raise ValueError('Unsupported source future link data: ' + link.get('Name', ''))
+            parsed.append((tag['tag'], data, link))
+    tags = {tag for tag, _, _ in parsed}
+    def default(kind):
+        return [(data, link) for tag, data, link in parsed if tag == kind and not data.get('event')]
+    added = []
+    if 'Home' not in tags:
+        homes = default('futureHome')
+        if len(homes) > 1: raise ValueError('Ambiguous default future home')
+        added += [('Home', homes[0][1])] if homes else []
+    if 'Work' not in tags:
+        works = default('futureWork')
+        if len(works) > 1: raise ValueError('Ambiguous default future work')
+        if works:
+            occupation = works[0][0].get('work')
+            if not occupation: raise ValueError('Default future work has no occupation')
+            added.append(("Work[('%s')]" % occupation, works[0][1]))
+    if not added: return actor
+    import copy
+    actor = copy.deepcopy(actor); links = actor.find('EntityLinks')
+    for label, link in added:
+        new = ET.SubElement(links, 'Link', dict(link.attrib)); new.set('Name', label)
+    return actor
+
+
 def resolve_person(source, name, level='rataje', *, include_ai=True):
     with RetailSourceReader(source) as reader:
         tables = SourceTables(source, reader)
@@ -166,6 +217,7 @@ def resolve_person(source, name, level='rataje', *, include_ai=True):
                             actor_sources[entry] = hashlib.sha256(blob).hexdigest()
         actor = unique((e for e in entities if e.get('Name') == name and
                         e.get('EntityClass') in ('NPC', 'NPC_Female')), 'source person')
+        actor = initial_future_links(actor)
         if include_ai:
             entities = resolve_link_targets(archive, actor, entities, actor_sources)
         instance = unique((s for s in ET.fromstring(read(archive, 'whdata_0')).findall('./SoulList/Souls/Soul')

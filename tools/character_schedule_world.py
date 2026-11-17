@@ -67,6 +67,10 @@ def resolve_arrivals(schedule, archive, person=None, source=None, reader=None, t
         if market_supports(entry):
             result.append(market_resolve(entry, archive))
             continue
+        from character_inn_work import supports as inn_supports, resolve as inn_resolve
+        if inn_supports(entry):
+            result.append(inn_resolve(entry, archive, person, source, target))
+            continue
         import character_work_adapters
         registered = character_work_adapters.resolve(entry, archive, source, reader)
         if registered is not None:
