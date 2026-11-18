@@ -26,7 +26,9 @@ class CoverageTests(unittest.TestCase):
             blob=next(data for path,data in files.items() if path.startswith('AI/') and path.endswith('/quests/q_test.xml'))
             node=E.fromstring(blob).find('.//LinkDataFilter')
             self.assertEqual(node.get('condition'),"$__link_imported_StoryActor == 'worker'")
-            self.assertTrue(any('GraphSearch' in item['reason'] for c in report['controllers'] for item in c['findings']))
+            # The search is modelled as a scenario boundary: structurally covered, still not executed.
+            self.assertEqual([item for c in report['controllers'] for item in c['findings']],[])
+            self.assertFalse(any(c['executed'] for c in report['controllers']))
             self.assertFalse(report['native_runtime_verified'])
 
     def test_mailbox_dependencies_are_emitted_but_not_claimed_as_runtime_delivery(self):
@@ -65,11 +67,19 @@ class CoverageTests(unittest.TestCase):
         self.assertTrue(report['conversion_blockers'])
         self.assertEqual(report['files'],{p:hashlib.sha256(b).hexdigest() for p,b in files.items()})
 
-    def test_native_convertible_operation_can_still_lack_interpreter_support(self):
+    def test_modelled_operation_outside_its_schema_is_a_finding(self):
         model=source('<Root><Behavior><LoopUntil until="Success" attemptCount="3"><Success/></LoopUntil></Behavior></Root>')
-        _, report=inspect([model],catalog(),DependencyImporter({}))
+        files, report=inspect([model],catalog(),DependencyImporter({}))
         self.assertEqual(report['conversion']['whole_trees_emitted'],1)
-        self.assertTrue(any('LoopUntil' in f['reason'] for c in report['controllers'] for f in c['findings']))
+        self.assertEqual([f for c in report['controllers'] for f in c['findings']],[])
+        from quest_lab.behavior import Behavior
+        from quest_lab.graph import Graph
+        from quest_lab.source import Source
+        path=next(p for p in files if p.startswith('AI/') and p.endswith('/quests/q_test.xml'))
+        broken=files[path].replace(b'until="Success"',b'until="Sometimes"')
+        self.assertNotEqual(broken,files[path])
+        behavior=Behavior(path,broken,Graph(Source.blobs(files),'ControllerCoverageProject'))
+        self.assertTrue(any('LoopUntil needs until' in f['reason'] for f in behavior.unsupported))
 
 
 if __name__ == '__main__': unittest.main()

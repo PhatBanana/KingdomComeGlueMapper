@@ -7,15 +7,31 @@ from . import Unsupported
 from .expressions import evaluate, parts
 
 
+# Records the engine owns: a tree declares and passes them, the lab never reads their fields.
+ENGINE_RECORDS = {'additionalMoveParams', 'pathFindingParams', 'followFormationParams', 'transform',
+                  'hearingInfo', 'perceptionInfo', 'dialog:parameters:initiator'}
+
+
 class MissingDefault(Unsupported):
     pass
 
 
-def record_value(source, typ, raw=None, stack=(), member_text=False):
-    """Construct only declared fields with explicit defaults/overrides."""
+def record_value(source, typ, raw=None, stack=(), member_text=False, unset=False):
+    """Construct only declared fields with explicit defaults/overrides.
+
+    With `unset`, a scalar member without a default is None until a tree assigns it
+    (assumption behavior.record.unset_member); reading it as a boolean or a number stays an error.
+    """
     scalar = typ.removeprefix('_')
+    if scalar == 'wuid':
+        # An entity reference has no literal: it is unset until a tree or a search assigns it.
+        if raw: raise Unsupported('Record member default for an entity reference is not modelled')
+        if unset: return None
+        raise MissingDefault('Missing declared default for '+typ)
     if scalar in ('bool','int','int64','float','string') or typ.startswith('enum:'):
-        if raw is None: raise MissingDefault('Missing declared default for '+typ)
+        if raw is None:
+            if unset: return None
+            raise MissingDefault('Missing declared default for '+typ)
         value = raw if scalar == 'string' and member_text else evaluate(raw,{},source.enum_value)
         valid = {'bool':type(value) is bool,'string':type(value) is str,
             'int':type(value) is int and -(2**31)<=value<2**31,
@@ -49,11 +65,11 @@ def record_value(source, typ, raw=None, stack=(), member_text=False):
             overrides[match[1]]=match[2]
     return {name:record_value(source, field.get('Type'),
                 overrides.get(name,field.get('InitialValue')), stack+(typ,),
-                member_text=name not in overrides)
+                member_text=name not in overrides, unset=unset)
             for name,field in fields.items()}
 
 
-def initialize(declarations, inputs, enum_resolver, source=None):
+def initialize(declarations, inputs, enum_resolver, source=None, unset=False):
     result = {}
     seen = set()
     for node in declarations:
@@ -74,8 +90,11 @@ def initialize(declarations, inputs, enum_resolver, source=None):
             value = [] if form == 'array' else {}
         else:
             raw = node.get('values','')
+            if form == 'single' and typ in ENGINE_RECORDS and (source is None or typ not in source.types):
+                result[name] = dict(engine_record=typ, initializer=raw)
+                continue
             if form == 'single' and source is not None and typ in source.types:
-                try: value = record_value(source,typ,raw or None)
+                try: value = record_value(source,typ,raw or None,unset=unset)
                 except MissingDefault:
                     if raw: raise
                     continue

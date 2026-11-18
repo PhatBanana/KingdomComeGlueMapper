@@ -1,0 +1,5129 @@
+{
+  "blockers": [
+    {
+      "reason": "Daycycle request fits the lease adapter; its tree holds one that does not",
+      "sites": 23,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced message_type conversion did not complete: cutscene",
+      "sites": 13,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle patch end needs the scheduled-activity lease: FinishPatch",
+      "sites": 12,
+      "trees": 11
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: runtime_actor",
+      "sites": 12,
+      "trees": 8
+    },
+    {
+      "reason": "Source Lua requires a semantic adapter",
+      "sites": 8,
+      "trees": 5
+    },
+    {
+      "reason": "Source daycycle change requires a native scheduled-activity lifecycle; registering its message type does not install a consumer",
+      "sites": 8,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: removal_without_addition",
+      "sites": 3,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_exitCombatSubbrain",
+      "sites": 3,
+      "trees": 3
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_mother_dialog_cameras",
+      "sites": 3,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: lease_from_two_scopes",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Daycycle request needs a lease capability: lease_in_a_waiting_tree",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Dynamic or malformed work animation tags require runtime variant conversion",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Monologue request fields need an ABI adapter",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Objective condition needs an adapter: IsObjectiveTrackedCompleted",
+      "sites": 2,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: rapeDoor",
+      "sites": 2,
+      "trees": 2
+    },
+    {
+      "reason": "Graph edge type did not convert: combat_attacker",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Graph edge type did not convert: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightParams",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Interrupt behaviour uses combat sub-brain state: t_fightParams, t_state",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Quest lifecycle policy needs an adapter: CancelQuest",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: combat_attacker",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: combat_threat",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: crimeDistrict",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: reserved",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: reservedHavels",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: terezaSafeSpot",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced AI link type conversion did not complete: testDoorAnim",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Referenced world profile conversion did not complete: q_skalitz_wanderer",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Schedule request source differs from its controller scope",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted temporary faction context use",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unconverted variable type: cutscene",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unregistered or dynamic objective: q_skalitz.meetInFrontOfKunes",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unsupported source variable reference: inhabitant,child,QuestActor",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Unverified native item property: Questible",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation lacks a compatible native human fragment: SkalitzAbuse",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation requires event/context/alignment conversion: AnimationWUID",
+      "sites": 1,
+      "trees": 1
+    },
+    {
+      "reason": "Work animation requires event/context/alignment conversion: SlavedObject",
+      "sites": 1,
+      "trees": 1
+    }
+  ],
+  "combat": {
+    "handed": [
+      {
+        "actor": "kunes",
+        "converter": "campaign_combat",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "objective": "kunesIsUpset",
+        "outcomes": {
+          "lost": {
+            "cutscene": "dialogAfterKunesWon",
+            "schedule_tag": "kunes_winningOverHenry"
+          },
+          "won": {
+            "cutscene": "dialogAfterKunesBeaten",
+            "schedule_tag": "kunes_sitting"
+          }
+        },
+        "partners": [
+          "matej",
+          "matus",
+          "fricek"
+        ],
+        "sites": [
+          {
+            "behavior": "friends_kunes_fight",
+            "operation": "InstantMultiSendMessageToNPC",
+            "path": "Root/0/0/0/0/6/0/1/8/0/0/20/0/0",
+            "role": "partners",
+            "tree": "onUpdate"
+          },
+          {
+            "behavior": "kunes_battle_fight",
+            "operation": "InstantSendMessageToNPC",
+            "path": "Root/0/0/0/0/6/0/1/8/0/0/26/0",
+            "role": "actor",
+            "tree": "onUpdate"
+          }
+        ],
+        "tag": "kunes_battle_fight",
+        "tree": "kunes_battle_fight",
+        "trees": [
+          "kunes_battle_fight",
+          "friends_kunes_fight"
+        ]
+      }
+    ],
+    "interrupts": [
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0",
+        "signature": "empty",
+        "tree": "cuman_rape"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/1",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/2",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "cuman_rape_fight",
+        "behavior_tree": "cuman_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/3",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "behavior_tree": "enemies_battle_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/0/0/3",
+        "signature": "wuidData",
+        "tree": "boys_battle"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "behavior_tree": "enemies_battle_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/2/0",
+        "signature": "wuidData",
+        "tree": "enemies_battleTargetting"
+      },
+      {
+        "behavior": "johanka_goingToSkinner_fight",
+        "behavior_tree": "johanka_goingToSkinner_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0/0/6/0/1/7/0/0/0/0/0/1",
+        "signature": "empty",
+        "tree": "onUpdate"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "behavior_tree": "tereza_rape_fight",
+        "entity_not_passed": true,
+        "path": "Root/0/0/0",
+        "signature": "empty",
+        "tree": "tereza_rape"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "behavior_tree": "tereza_rape_fight",
+        "entity_not_passed": false,
+        "path": "Root/0/0/1/0",
+        "signature": "empty",
+        "tree": "cutscene_navsteva_racka"
+      }
+    ],
+    "left": [],
+    "opponents": [
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/1/0/0/0/0/1/0/1",
+        "target": "InstantSetTarget",
+        "tree": "enemies_battle_fight",
+        "who": "opponent"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/0/0/1/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "__player"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/1/0/1/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "hitReaction.attacker"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build), decision 13a; pending the in-game check that a targeted enemy is fought",
+        "path": "Root/0/0/1/0/0/0/0/2/0/1/0/0/0",
+        "target": "InstantSetTarget",
+        "tree": "cuman_rape_fight",
+        "who": "percept.perceptible"
+      }
+    ],
+    "policy": {
+      "approved": "Sean, 2026-11-16 (relayed by Build), decision 12a: priority 161, urgency Fast (retail attackClosedCastle)",
+      "priority": 161,
+      "urgency": "Fast"
+    },
+    "quest": "q_skalitz",
+    "registrations": [
+      {
+        "behavior": "cuman_rape_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "cuman_rape_fight"
+      },
+      {
+        "behavior": "enemies_battle_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "wuidData",
+        "tree": "enemies_battle_fight"
+      },
+      {
+        "behavior": "johanka_goingToSkinner_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "johanka_goingToSkinner_fight"
+      },
+      {
+        "behavior": "tereza_rape_fight",
+        "document": "libs/ai/quests/q_skalitz.xml",
+        "initial_state": "Enabled",
+        "signature": "empty",
+        "tree": "tereza_rape_fight"
+      }
+    ],
+    "runtime_verified": false,
+    "subbrain_state": [
+      {
+        "operation": "VarOperation",
+        "path": "Root/0/0/2",
+        "tree": "cuman_rape_fight",
+        "variables": [
+          "t_fightParams"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/0/0/3",
+        "tree": "cuman_rape_fight",
+        "variables": [
+          "t_fightParams",
+          "t_state"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/1/0/6",
+        "tree": "enemies_battle_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/2",
+        "tree": "johanka_goingToSkinner_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      },
+      {
+        "operation": "Expression",
+        "path": "Root/1/0/1/0/1",
+        "tree": "tereza_rape_fight",
+        "variables": [
+          "t_exitCombatSubbrain"
+        ]
+      }
+    ]
+  },
+  "converter": "C2",
+  "emitted": [
+    "anybody_runAway",
+    "blanka_givesBeer",
+    "catchpoll_sitsDown",
+    "cutscene_blankaGivesBeer",
+    "cutscene_dialogAfterKunesBeaten",
+    "cutscene_dialogAfterKunesWon",
+    "cutscene_dialogBeforePainting",
+    "cutscene_dialogWithGuards",
+    "cutscene_forging_father_insert",
+    "cutscene_game_over",
+    "cutscene_kovani_otcem",
+    "cutscene_nemec_hospodska_hadka",
+    "fatherPatch",
+    "fricek_goingToSkinner",
+    "friends_meetingBeforeKunes",
+    "friends_patch",
+    "friends_work",
+    "gambler_playDiceTillYouRunOutOfMoney",
+    "guard_goesToTheGate",
+    "janek_dialogAtTheGate",
+    "janek_waitsAtTheGate",
+    "johanka_goingToSkinner",
+    "kunes_sitting",
+    "kunes_winningOverHenry",
+    "matej_goingToSarka",
+    "matej_goingToSkinner",
+    "matej_waitsInfrontOfPub",
+    "matus_afterBattleWithKunes",
+    "matus_goingToSkinner",
+    "matus_lureWifeHenry",
+    "matus_runAway",
+    "matus_waitsInfrontOfPub",
+    "motherPatch",
+    "mother_goingShopping",
+    "sarka_goBackHome",
+    "tereza_waitsForNails",
+    "varlet_sellPlace"
+  ],
+  "families": {
+    "animation": {
+      "reasons": 4,
+      "sites": 5,
+      "trees": 3
+    },
+    "combat_dispatch": {
+      "reasons": 6,
+      "sites": 8,
+      "trees": 5
+    },
+    "daycycle_lifecycle": {
+      "reasons": 8,
+      "sites": 63,
+      "trees": 21
+    },
+    "items": {
+      "reasons": 1,
+      "sites": 1,
+      "trees": 1
+    },
+    "link_types": {
+      "reasons": 8,
+      "sites": 9,
+      "trees": 6
+    },
+    "lua": {
+      "reasons": 1,
+      "sites": 8,
+      "trees": 5
+    },
+    "message_type": {
+      "reasons": 2,
+      "sites": 15,
+      "trees": 3
+    },
+    "profile": {
+      "reasons": 2,
+      "sites": 4,
+      "trees": 2
+    },
+    "quest_state": {
+      "reasons": 3,
+      "sites": 4,
+      "trees": 2
+    },
+    "typed_variables": {
+      "reasons": 2,
+      "sites": 2,
+      "trees": 1
+    }
+  },
+  "libraries": [
+    {
+      "absent": {
+        "operations": 0,
+        "sites": 0
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "link_types": 5
+      },
+      "handed": [],
+      "held": [],
+      "included_by": [
+        "cutscene_navsteva_racka",
+        "onUpdate"
+      ],
+      "operations": 1,
+      "sites": 5,
+      "tree": "loadAllReferences",
+      "trees": 1,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 23,
+        "sites": 36
+      },
+      "blocked_trees": 16,
+      "document": "libs/ai/final/sb_combat_fight.xml",
+      "families": {
+        "buff": 1,
+        "combat_dispatch": 3,
+        "link_types": 3,
+        "lua": 3,
+        "op_attributes": 2,
+        "op_inexpressible": 5,
+        "op_no_contract": 72,
+        "other": 4
+      },
+      "handed": [
+        "friends_kunes_fight",
+        "kunes_battle_fight"
+      ],
+      "held": [],
+      "included_by": [
+        "friends_kunes_fight",
+        "kunes_battle_fight"
+      ],
+      "operations": 49,
+      "sites": 93,
+      "tree": "fight",
+      "trees": 17,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 1,
+        "sites": 2
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/questutils.xml",
+      "families": {
+        "op_no_contract": 2
+      },
+      "handed": [
+        "kunes_battle_fight"
+      ],
+      "held": [],
+      "included_by": [
+        "kunes_battle_fight"
+      ],
+      "operations": 1,
+      "sites": 2,
+      "tree": "combatStarterSynchronize_dialog",
+      "trees": 1,
+      "unblocks": []
+    },
+    {
+      "absent": {
+        "operations": 4,
+        "sites": 23
+      },
+      "blocked_trees": 1,
+      "document": "libs/ai/final/sa_city.xml",
+      "families": {
+        "daycycle_lifecycle": 2,
+        "link_types": 2,
+        "lua": 17,
+        "op_no_contract": 24,
+        "typed_variables": 16
+      },
+      "handed": [],
+      "held": [],
+      "included_by": [
+        "catchpoll_chasesHenry"
+      ],
+      "operations": 11,
+      "sites": 61,
+      "tree": "dressUp",
+      "trees": 2,
+      "unblocks": []
+    }
+  ],
+  "library": {
+    "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+    "in_game_checks": [
+      {
+        "check": "An NPC-to-player dialogue started by the stand-in begins (e.g. Kunes after the fight, the gate guard), and the quest moves on after it ends",
+        "decision": 14
+      },
+      {
+        "check": "An NPC-to-NPC dialogue with NPC receivers begins (Matus with Fricek and Matej before the pub) although no receiver is suspended and nobody sends dialog:requestDone",
+        "decision": 14
+      },
+      {
+        "check": "Where KCD1 walked the initiator to the receiver (moveToTarget true), does the dialogue start from where he stands, and from how far",
+        "decision": 14
+      },
+      {
+        "check": "preset ignored with customParameters: greeting and ending follow the copied fields (Blanka, Kunes sitting and the gate guard have both off); useTwinsAsInitiator is copied as KCD1 has it (true unless a tree clears it), where retail KCD2 clears it for its ingame and chat presets",
+        "decision": 14
+      },
+      {
+        "check": "A dialogue whose alias KCD1 wrote as a bare word and the stand-in quoted starts (Matus before the pub, the gate guard trialogue)",
+        "decision": 14
+      },
+      {
+        "check": "blanka_givesBeer: the maintainer's quest-side ForcedDialog (campaign_dialogue_requests) and this tree may both start q_skalitz_blankaGivesBeer",
+        "decision": 14
+      },
+      {
+        "check": "The boys fight with fists: does combat_forceUnarmed held by the tree survive the attack interrupt the template raises",
+        "decision": 15
+      },
+      {
+        "check": "Does the attack interrupt (scheduled priority + 1) pre-empt the interrupt behaviour that called it (priority 161), and does the brawl stop when that tree ends",
+        "decision": 15
+      },
+      {
+        "check": "Matej and Fricek follow Matus in the followNPC formation to the skinner and release when he arrives; Matus walks where KCD1 ran",
+        "decision": 16
+      }
+    ],
+    "left": [
+      {
+        "include": "final/sb_combat_fight.xml:fight",
+        "path": "Root/1/0/0/0/2/3",
+        "reason": "nothing follows fight in its sequence: the native call returns at once and nothing would hold the unarmed context",
+        "tree": "friends_kunes_fight"
+      }
+    ],
+    "quest": "q_skalitz",
+    "runtime_verified": false,
+    "sites": [
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "the dialogSynchronization locks",
+          "ForceLook at lookAtId",
+          "movePlayer, rotatePlayer and hideNearbyNpcs keep the native defaults: KCD1 passes no AllowPositioning, DisableRotations or DisableRestrictions here"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/1/0/1",
+                "value": "'q_skalitz_characterCreation'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/1/0/1",
+                "value": "true"
+              }
+            ],
+            "effect": "dialogInitiator_instant does not read it",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "unread",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator_instant",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/1/0/2"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0/1/0/2/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/0/1/0/2/1"
+          }
+        ],
+        "path": "Root/1/0/0/0/1/0/2",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "motherPatch",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/5",
+                "value": "'q_skalitz_skinnerIsBack'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/6"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/6/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/6/1"
+          }
+        ],
+        "path": "Root/1/0/6",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "german_returnHome",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1",
+                "value": "'q_skalitz_sarkaAndSkinner_inPub'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/2"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/2/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/2/1"
+          }
+        ],
+        "path": "Root/1/0/2",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "sarka_goToGerman",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "follower movement: KCD1 runs Move (Walk) / SweetSpotFollower with formation.speedLimit under FollowFormation; native FormationFollower has no child and no speed limit",
+          "formation.type: KCD1 falls back to followNPC when empty; the stand-in sets followNPC"
+        ],
+        "decision": 16,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/0/0",
+                "value": "<search result>"
+              }
+            ],
+            "effect": "the same member of the engine record",
+            "field": "formation.leader",
+            "handling": "passed",
+            "kcd1_default": null,
+            "native": "followFormationParams.formation.leader"
+          }
+        ],
+        "formation": {
+          "kcd1_spots": [
+            [
+              "left",
+              "-0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "6.9",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "6.9",
+              "0.5"
+            ]
+          ],
+          "kcd2_spots": [
+            [
+              "left",
+              "-0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "6.9",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "6.9",
+              "0.5"
+            ]
+          ],
+          "name": "followNPC",
+          "spots_equal": true
+        },
+        "include": "final/questUtils.xml:followNPC_inFormation",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/1"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_followFormationParams.formation.type = 'followNPC'"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/1/0"
+          },
+          {
+            "attributes": {
+              "destination": "$__null",
+              "followEnabled": "false",
+              "followFormationParams": "$t_followFormationParams",
+              "pathOffset": "0.000000",
+              "successDistance": "0.000000"
+            },
+            "op": "Function_moveInFormation_inFormation",
+            "path": "Root/1/0/0/1/1"
+          }
+        ],
+        "path": "Root/1/0/0/1",
+        "role": "no callback",
+        "target": "Function_moveInFormation_inFormation",
+        "tree": "matej_goingToSkinner"
+      },
+      {
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "follower movement: KCD1 runs Move (Walk) / SweetSpotFollower with formation.speedLimit under FollowFormation; native FormationFollower has no child and no speed limit",
+          "formation.type: KCD1 falls back to followNPC when empty; the stand-in sets followNPC"
+        ],
+        "decision": 16,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/0/0",
+                "value": "<search result>"
+              }
+            ],
+            "effect": "the same member of the engine record",
+            "field": "formation.leader",
+            "handling": "passed",
+            "kcd1_default": null,
+            "native": "followFormationParams.formation.leader"
+          }
+        ],
+        "formation": {
+          "kcd1_spots": [
+            [
+              "left",
+              "-0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "6.9",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "6.9",
+              "0.5"
+            ]
+          ],
+          "kcd2_spots": [
+            [
+              "left",
+              "-0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "6.9",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "6.9",
+              "0.5"
+            ]
+          ],
+          "name": "followNPC",
+          "spots_equal": true
+        },
+        "include": "final/questUtils.xml:followNPC_inFormation",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_followFormationParams.formation.type = 'followNPC'"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0"
+          },
+          {
+            "attributes": {
+              "destination": "$__null",
+              "followEnabled": "false",
+              "followFormationParams": "$t_followFormationParams",
+              "pathOffset": "0.000000",
+              "successDistance": "0.000000"
+            },
+            "op": "Function_moveInFormation_inFormation",
+            "path": "Root/1/0/0/1"
+          }
+        ],
+        "path": "Root/1/0/0",
+        "role": "no callback",
+        "target": "Function_moveInFormation_inFormation",
+        "tree": "fricek_goingToSkinner"
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/0/0/1"
+          }
+        ],
+        "path": "Root/1/0/0/0/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matej_goingToSarka",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [
+          {
+            "alias": "q_skalitz_afterQuarrelDialog",
+            "path": "Root/1/0/1"
+          }
+        ],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1",
+                "value": "'q_skalitz_afterQuarrelDialog'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1",
+                "value": "$__player"
+              }
+            ],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/2/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/2/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/2/0/1"
+          }
+        ],
+        "path": "Root/1/0/2/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_waitsInfrontOfPub",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "distanceMove: horse use, light, rain speed-up, AllowSituations, stop distance and variation, destChangedThreshold; the native leader is one Move to the destination",
+          "follower movement: KCD1 runs Move (Walk) / SweetSpotFollower with formation.speedLimit under FollowFormation; native FormationFollower has no child and no speed limit",
+          "formation.type: KCD1 falls back to followNPC when empty; the stand-in sets followNPC"
+        ],
+        "decision": 16,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/1",
+                "value": "$this.id"
+              }
+            ],
+            "effect": "the same member of the engine record",
+            "field": "formation.leader",
+            "handling": "passed",
+            "kcd1_default": null,
+            "native": "followFormationParams.formation.leader"
+          },
+          {
+            "assigned": [
+              {
+                "value": "'final/moveUtils.xml'"
+              },
+              {
+                "value": "'distanceMove'"
+              }
+            ],
+            "effect": "the native leader moves to the callback's target itself",
+            "field": "leaderCallback (distanceMove)",
+            "handling": "approximated",
+            "kcd1_default": null,
+            "native": "destination"
+          },
+          {
+            "assigned": [
+              {
+                "value": "$enum:movementSpeed.run"
+              }
+            ],
+            "effect": "the leader runs distanceMove at this speed; the native leader moves at formation.speedLimit, Walk when unset",
+            "field": "t_distanceMove_params.speed",
+            "handling": "dropped",
+            "kcd1_default": null,
+            "native": null
+          }
+        ],
+        "formation": {
+          "kcd1_spots": [
+            [
+              "left",
+              "-0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "6.9",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "6.9",
+              "0.5"
+            ]
+          ],
+          "kcd2_spots": [
+            [
+              "left",
+              "-0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "1.7",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "3.5",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "5.2",
+              "0.5"
+            ],
+            [
+              "left",
+              "-0.7",
+              "6.9",
+              "0.5"
+            ],
+            [
+              "right",
+              "0.7",
+              "6.9",
+              "0.5"
+            ]
+          ],
+          "name": "followNPC",
+          "spots_equal": true
+        },
+        "include": "final/questUtils.xml:followNPC_inFormation",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/1"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_followFormationParams.formation.type = 'followNPC'"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/1/0"
+          },
+          {
+            "attributes": {
+              "destination": "$t_distanceMove_params.target",
+              "followEnabled": "false",
+              "followFormationParams": "$t_followFormationParams",
+              "pathOffset": "0.000000",
+              "successDistance": "0.000000"
+            },
+            "op": "Function_moveInFormation_inFormation",
+            "path": "Root/1/0/0/1/1"
+          }
+        ],
+        "path": "Root/1/0/0/1",
+        "role": "leader callback named",
+        "target": "Function_moveInFormation_inFormation",
+        "tree": "matus_goingToSkinner"
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1/1/0/1/0/0",
+                "value": "'q_skalitz_matusDialog'"
+              },
+              {
+                "on_init": false,
+                "path": "Root/1/0/2/1/0/0",
+                "value": "'q_skalitz_matej_lureAwayWife'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/2/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/1/1/0/1/0/1/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/1/1/0/1/0/1/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/1/1/0/1/0/1/0/1"
+          }
+        ],
+        "path": "Root/1/0/1/1/0/1/0/1/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_waitsForHenry",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1/1/0/1/0/0",
+                "value": "'q_skalitz_matusDialog'"
+              },
+              {
+                "on_init": false,
+                "path": "Root/1/0/2/1/0/0",
+                "value": "'q_skalitz_matej_lureAwayWife'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/2/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/2/1/0/1/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/2/1/0/1/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/2/1/0/1/0/1"
+          }
+        ],
+        "path": "Root/1/0/2/1/0/1/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_waitsForHenry",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "the KCD1 fight state machine (opponent selection, guard, block, sweet-spot movement, weapon automation, morale and surrender handling of sb_combat_fight.xml): the native attack interrupt decides all of it",
+          "combat:fightOptions fields left at their defaults (standStill, guardByDrawnWeapon, combatBarkModificator, startInDefenseOnly, useMeleeShoutAutomation)"
+        ],
+        "decision": 15,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "value": "$enum:combatTreeExecutionRegime.keepRunning"
+              }
+            ],
+            "effect": "keepRunning: KCD1 fight runs until the surrounding tree ends it; the native template raises the attack interrupt and returns, and nothing ends that interrupt with the tree",
+            "field": "combatRegimeOverride",
+            "handling": "dropped",
+            "kcd1_default": null,
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "value": "$this.id"
+              }
+            ],
+            "effect": "the entity that receives combat events of this fight; no native parameter",
+            "field": "listener",
+            "handling": "dropped",
+            "kcd1_default": null,
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "value": "$t_customBehaviorParams.entity"
+              }
+            ],
+            "effect": "passed as written",
+            "field": "opponent",
+            "handling": "parameter",
+            "kcd1_default": null,
+            "native": "target"
+          },
+          {
+            "assigned": [
+              {
+                "value": "$enum:weaponChange.unarmed"
+              }
+            ],
+            "effect": "unarmed: approximated by the entity context combat_forceUnarmed held over the call and the rest of the sequence",
+            "field": "preferredWeaponKind",
+            "handling": "approximated",
+            "kcd1_default": null,
+            "native": "EntityContextElement combat_forceUnarmed"
+          }
+        ],
+        "held": [
+          "Wait"
+        ],
+        "include": "final/sb_combat_fight.xml:fight",
+        "nodes": [
+          {
+            "attributes": {
+              "context": "combat_forceUnarmed"
+            },
+            "op": "EntityContextElement",
+            "path": "Root/1/0/0/0/0/4/0/0/5/1/0/0/0/0"
+          },
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/0/4/0/0/5/1/0/0/0/0/0"
+          },
+          {
+            "attributes": {
+              "target": "$data"
+            },
+            "op": "Function_combat_fightRepeated_template",
+            "path": "Root/1/0/0/0/0/4/0/0/5/1/0/0/0/0/0/0"
+          }
+        ],
+        "path": "Root/1/0/0/0/0/4/0/0/5/1/0/0/0/0",
+        "target": "Function_combat_fightRepeated_template",
+        "tree": "enemies_battle_fight",
+        "unarmed": {
+          "context": "combat_forceUnarmed",
+          "proven_offline": false
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "the dialogSynchronization locks",
+          "ForceLook at lookAtId",
+          "movePlayer, rotatePlayer and hideNearbyNpcs keep the native defaults: KCD1 passes no AllowPositioning, DisableRotations or DisableRestrictions here"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/3/1/0/1/0/0/1",
+                "value": "'q_skalitz_catchPoll_wins'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/3/1/0/1/0/0/1",
+                "value": "true"
+              }
+            ],
+            "effect": "dialogInitiator_instant does not read it",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "unread",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator_instant",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/3/1/0/1/0/0/2"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/3/1/0/1/0/0/2/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/3/1/0/1/0/0/2/1"
+          }
+        ],
+        "path": "Root/1/0/3/1/0/1/0/0/2",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "catchpoll_chasesHenry",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/4",
+                "value": "'q_skalitz_afterBattleIdiot'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/4",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "allowPositioning",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.movePlayer"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/4",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/4",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/0/0/5"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/0/0/5/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/0/0/5/1"
+          }
+        ],
+        "path": "Root/0/0/5",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "zbysek_runAway",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [
+          {
+            "alias": "q_skalitz_crossguard_trialog",
+            "path": "Root/1/0/0/0/0"
+          }
+        ],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "'q_skalitz_crossguard_trialog'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "true"
+              }
+            ],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "true"
+              }
+            ],
+            "effect": "no tree of dialogUtils.xml reads it",
+            "field": "isForcedDialog",
+            "handling": "unread",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "true"
+              }
+            ],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/1"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0/1/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/0/1/1"
+          }
+        ],
+        "path": "Root/1/0/0/0/1",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "janek_waitsAtTheGate",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1/0",
+                "value": "'q_skalitz_kunesLost'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1/0",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "enableEnding",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.enableEnding"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/1/0",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "enableGreeting",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.enableGreeting"
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/1/1/0/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/1/1/0/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/1/1/0/0/1"
+          }
+        ],
+        "path": "Root/1/0/1/1/0/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "kunes_sitting",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [
+          {
+            "alias": "q_skalitz_rape_quadrulog",
+            "path": "Root/0/0/5"
+          },
+          {
+            "alias": "q_skalitz_rape_escape",
+            "path": "Root/1/0/0/0/0/1/1/0/0/0"
+          }
+        ],
+        "animation": {
+          "assigned": true,
+          "kcd1": "$enum:animationOverride.userControlled",
+          "native": "$enum:animationApproach.dontPlayDialogAnimations"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "'q_skalitz_rape_quadrulog'"
+              },
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0/1/1/0/0/0",
+                "value": "'q_skalitz_rape_escape'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "$enum:animationOverride.userControlled"
+              }
+            ],
+            "effect": "read from the tree when converting",
+            "field": "defaultAnimState",
+            "handling": "static",
+            "kcd1_default": "$enum:animationOverride.noOverride",
+            "native": "animationApproach"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "true"
+              },
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0/1/1/0/0/0",
+                "value": "true"
+              }
+            ],
+            "effect": "no tree of dialogUtils.xml reads it",
+            "field": "isForcedDialog",
+            "handling": "unread",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/0/0/0/0/0/0/1/0/0/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0/0/0/0/0/0/0/1/0/0/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.dontPlayDialogAnimations",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/0/0/0/0/0/0/0/1/0/0/0/1"
+          }
+        ],
+        "path": "Root/1/0/0/0/0/0/0/0/0/0/1/0/0/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "tereza_rape_fight",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": true,
+          "kcd1": "$enum:animationOverride.userControlled",
+          "native": "$enum:animationApproach.dontPlayDialogAnimations"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "'q_skalitz_rape_quadrulog'"
+              },
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0/1/1/0/0/0",
+                "value": "'q_skalitz_rape_escape'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "$enum:animationOverride.userControlled"
+              }
+            ],
+            "effect": "read from the tree when converting",
+            "field": "defaultAnimState",
+            "handling": "static",
+            "kcd1_default": "$enum:animationOverride.noOverride",
+            "native": "animationApproach"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "true"
+              },
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0/1/1/0/0/0",
+                "value": "true"
+              }
+            ],
+            "effect": "no tree of dialogUtils.xml reads it",
+            "field": "isForcedDialog",
+            "handling": "unread",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": true,
+                "path": "Root/0/0/5",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/0/1/1/0/0/1"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0/0/1/1/0/0/1/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.dontPlayDialogAnimations",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/0/0/1/1/0/0/1/1"
+          }
+        ],
+        "path": "Root/1/0/0/0/0/1/1/0/0/1",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "tereza_rape_fight",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [
+          {
+            "alias": "q_skalitz_partyRunAway",
+            "path": "Root/1/0/0/1/0/0"
+          }
+        ],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/1/0/0",
+                "value": "'q_skalitz_partyRunAway'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/1/0/0",
+                "value": "true"
+              }
+            ],
+            "effect": "no tree of dialogUtils.xml reads it",
+            "field": "isForcedDialog",
+            "handling": "unread",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/1/0/1/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/1/0/1/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/1/0/1/0/1"
+          }
+        ],
+        "path": "Root/1/0/0/1/0/1/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_talkBeforeKunes",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "'q_skalitz_afterFight'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/1"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0/1/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/0/1/1"
+          }
+        ],
+        "path": "Root/1/0/0/0/1",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_afterBattleWithKunes",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [
+          {
+            "alias": "q_skalitz_henry_lureAwayWife",
+            "path": "Root/1/0/0"
+          }
+        ],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "'q_skalitz_henry_lureAwayWife'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/1"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/1/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/1/1"
+          }
+        ],
+        "path": "Root/1/0/1",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_lureWifeHenry",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "'q_skalitz_partyBeforeKunes'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "allowPositioning",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.movePlayer"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/2/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/2/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/2/0/1"
+          }
+        ],
+        "path": "Root/1/0/2/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_afterChase",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/4",
+                "value": "'q_skalitz_sarkaAndSkinner_return'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/0/0/5/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/0/0/5/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/0/0/5/0/1"
+          }
+        ],
+        "path": "Root/0/0/5/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "sarka_goBackHome",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [
+          {
+            "alias": "q_skalitz_kunesDialog",
+            "path": "Root/1/0/0/0/1"
+          }
+        ],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/1",
+                "value": "'q_skalitz_kunesDialog'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/0/0/2/0/0/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/0/0/2/0/0/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/0/0/2/0/0/0/1"
+          }
+        ],
+        "path": "Root/1/0/0/0/2/0/0/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "kunes_readyForBattleWithFriends",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/0/0",
+                "value": "'q_skalitz_henryGivesUpDistance'"
+              },
+              {
+                "on_init": false,
+                "path": "Root/1/0/0/1/0",
+                "value": "'q_skalitz_kunesWonDialog'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/1/0/1"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/1/0/1/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/1/0/1/1"
+          }
+        ],
+        "path": "Root/1/0/1",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "kunes_winningOverHenry",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/0/0/0",
+                "value": "'q_skalitz_blankaGivesBeer'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/0/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "enableEnding",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.enableEnding"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/0/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "enableGreeting",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.enableGreeting"
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/0/0/0",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/0/0/0/0/1/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/0/0/0/0/1/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/0/0/0/0/1/0/1"
+          }
+        ],
+        "path": "Root/0/0/0/0/1/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "blanka_givesBeer",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      },
+      {
+        "alias_quoted": [],
+        "animation": {
+          "assigned": false,
+          "kcd1": "$enum:animationOverride.noOverride",
+          "native": "$enum:animationApproach.playDialogAnimationsIfFaderDialog"
+        },
+        "approved": "Sean, 2026-11-17 (first-hand): \"approve 14-16 use b for now and will see if we can fix later\"",
+        "behaviours_dropped": [
+          "context suppression of greeting and farewell ($b_context suppressGreeting / suppressFarewell)",
+          "dialogue animations switched off by script for userControlled (actor:SetDialogAnimationState)",
+          "pairwise mutex between initiator and receiver (dialogSubtreeMutex_key) and the dialogSynchronization locks",
+          "AllowSituations false while the tree runs",
+          "placeBody message to a player receiver (the native function sends it only with preset fader)",
+          "inDialog buff 053b4122 on the initiator while the dialogue runs",
+          "DialogGate that holds the request until the initiator is in no dialogue",
+          "the result written to t_dialogInitiator_result (a tree that names it is blocked)",
+          "success and failure: KCD1 fails on receiver refusal, time-out or interruption; the native function returns what RequestDialog and DoDialog return"
+        ],
+        "decision": 14,
+        "fields": [
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "'q_skalitz_crossguard_dialog'"
+              }
+            ],
+            "effect": "passed as written at run time",
+            "field": "alias",
+            "handling": "parameter",
+            "kcd1_default": "",
+            "native": "alias"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "true"
+              }
+            ],
+            "effect": "when true the player's dialogue is interrupted and fast travel stopped; when false the request waits until the player has no threats and is out of combat",
+            "field": "bruteForceDialogOnPlayer",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "enableEnding",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.enableEnding"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "copied at run time",
+            "field": "enableGreeting",
+            "handling": "copied",
+            "kcd1_default": "true",
+            "native": "customParameters.enableGreeting"
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "true"
+              }
+            ],
+            "effect": "no tree of dialogUtils.xml reads it",
+            "field": "isForcedDialog",
+            "handling": "unread",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "RequestDialog IsInterruptibleByPlayer; the native node has no such field",
+            "field": "isInterruptibleByPlayer",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [],
+            "effect": "ForceLook at this entity while the dialogue runs",
+            "field": "lookAtId",
+            "handling": "dropped",
+            "kcd1_default": "",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator walks to the first receiver (Move, AlertedWalk) before the request; the native function does not move",
+            "field": "moveToTarget",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "true"
+              }
+            ],
+            "effect": "when false (and moveToTarget true) the initiator steps in front of the receiver and turns (moveInfrontOfOpponent); the native record has turnBody, which no retail tree reads",
+            "field": "noTurnBody",
+            "handling": "dropped",
+            "kcd1_default": "false",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the request is sent with SendMessage and the initiator waits for one dialog:requestDone per NPC receiver, 1 minute at most; native RequestDialog has SendMessage false",
+            "field": "suspendRecievers",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          },
+          {
+            "assigned": [
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "false"
+              },
+              {
+                "on_init": false,
+                "path": "Root/0/0/1",
+                "value": "false"
+              }
+            ],
+            "effect": "when true the initiator waits until no participant is in a dialogue; when false it interrupts their dialogues (human:InterruptDialog); neither happens",
+            "field": "waitOnReceiverDialogEnd",
+            "handling": "dropped",
+            "kcd1_default": "true",
+            "native": null
+          }
+        ],
+        "include": "final/dialogUtils.xml:dialogInitiator",
+        "nodes": [
+          {
+            "attributes": {},
+            "op": "Sequence",
+            "path": "Root/0/0/2/0"
+          },
+          {
+            "attributes": {
+              "expressions": "$t_polylogParameters.enableGreeting = $t_dialogParameters.enableGreeting\n$t_polylogParameters.enableEnding = $t_dialogParameters.enableEnding\n$t_polylogParameters.useTwinsAsInitiator = $t_dialogParameters.useTwinsAsInitiator\n$t_polylogParameters.movePlayer = $t_dialogParameters.allowPositioning\n$t_polylogParameters.rotatePlayer = !$t_dialogParameters.disableRotations\n$t_polylogParameters.hideNearbyNpcs = !$t_dialogParameters.disableRestrictions"
+            },
+            "op": "Expression",
+            "path": "Root/0/0/2/0/0"
+          },
+          {
+            "attributes": {
+              "alias": "$t_dialogParameters.alias",
+              "animationApproach": "$enum:animationApproach.playDialogAnimationsIfFaderDialog",
+              "context": "$__null",
+              "customParameters": "$t_polylogParameters",
+              "metarole": "",
+              "participants": "$t_dialogParticipants",
+              "participantsMetaroles": "",
+              "preset": "$enum:dialogPreset.ignored"
+            },
+            "op": "Function_speech_polylogInitiator",
+            "path": "Root/0/0/2/0/1"
+          }
+        ],
+        "path": "Root/0/0/2/0",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "janek_dialogAtTheGate",
+        "variable": {
+          "name": "t_polylogParameters",
+          "type": "dialog:parameters:initiator"
+        }
+      }
+    ],
+    "stand_ins": [
+      {
+        "path": "Root/1/0/0/0/1/0/2",
+        "source": "IncludeTree dialogInitiator_instant",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "motherPatch"
+      },
+      {
+        "path": "Root/1/0/6",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "german_returnHome"
+      },
+      {
+        "path": "Root/1/0/2",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "sarka_goToGerman"
+      },
+      {
+        "path": "Root/1/0/0/1",
+        "source": "IncludeTree followNPC_inFormation",
+        "target": "Function_moveInFormation_inFormation",
+        "tree": "matej_goingToSkinner"
+      },
+      {
+        "path": "Root/1/0/0",
+        "source": "IncludeTree followNPC_inFormation",
+        "target": "Function_moveInFormation_inFormation",
+        "tree": "fricek_goingToSkinner"
+      },
+      {
+        "path": "Root/1/0/0/0/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matej_goingToSarka"
+      },
+      {
+        "path": "Root/1/0/2/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_waitsInfrontOfPub"
+      },
+      {
+        "path": "Root/1/0/0/1",
+        "source": "IncludeTree followNPC_inFormation",
+        "target": "Function_moveInFormation_inFormation",
+        "tree": "matus_goingToSkinner"
+      },
+      {
+        "path": "Root/1/0/1/1/0/1/0/1/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_waitsForHenry"
+      },
+      {
+        "path": "Root/1/0/2/1/0/1/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_waitsForHenry"
+      },
+      {
+        "path": "Root/1/0/0/0/0/4/0/0/5/1/0/0/0/0",
+        "source": "IncludeTree fight",
+        "target": "Function_combat_fightRepeated_template",
+        "tree": "enemies_battle_fight"
+      },
+      {
+        "path": "Root/1/0/3/1/0/1/0/0/2",
+        "source": "IncludeTree dialogInitiator_instant",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "catchpoll_chasesHenry"
+      },
+      {
+        "path": "Root/0/0/5",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "zbysek_runAway"
+      },
+      {
+        "path": "Root/1/0/0/0/1",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "janek_waitsAtTheGate"
+      },
+      {
+        "path": "Root/1/0/1/1/0/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "kunes_sitting"
+      },
+      {
+        "path": "Root/1/0/0/0/0/0/0/0/0/0/1/0/0/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "tereza_rape_fight"
+      },
+      {
+        "path": "Root/1/0/0/0/0/1/1/0/0/1",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "tereza_rape_fight"
+      },
+      {
+        "path": "Root/1/0/0/1/0/1/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_talkBeforeKunes"
+      },
+      {
+        "path": "Root/1/0/0/0/1",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_afterBattleWithKunes"
+      },
+      {
+        "path": "Root/1/0/1",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_lureWifeHenry"
+      },
+      {
+        "path": "Root/1/0/2/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "matus_afterChase"
+      },
+      {
+        "path": "Root/0/0/5/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "sarka_goBackHome"
+      },
+      {
+        "path": "Root/1/0/0/0/2/0/0/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "kunes_readyForBattleWithFriends"
+      },
+      {
+        "path": "Root/1/0/1",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "kunes_winningOverHenry"
+      },
+      {
+        "path": "Root/0/0/0/0/1/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "blanka_givesBeer"
+      },
+      {
+        "path": "Root/0/0/2/0",
+        "source": "IncludeTree dialogInitiator",
+        "target": "Function_speech_polylogInitiator",
+        "tree": "janek_dialogAtTheGate"
+      }
+    ]
+  },
+  "lua_shapes": [
+    {
+      "calls": "Contexts.ClearOption XGenAIModule.GetEntityByWUID",
+      "sites": 2
+    },
+    {
+      "calls": "<entity>:DoPlayAnimation XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "<entity>:GetDefaultAuxAudioProxyID <entity>:SetAudioRtpcValue AudioUtils.LookupRtpcID XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.ClearOption Contexts.SetNonpersistentOption",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.SetNonpersistentOption Shops.OpenShop XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Contexts.SetPersistentOption XGenAIModule.GetEntityByWUID",
+      "sites": 1
+    },
+    {
+      "calls": "Dump data= string.sub tonumber",
+      "sites": 1
+    },
+    {
+      "calls": "EnvironmentModule.BlendTimeOfDay EnvironmentModule.ForceImmediateWeatherUpdate",
+      "sites": 1
+    }
+  ],
+  "ownership": {
+    "left": [],
+    "owned": [
+      {
+        "alias": "q_skalitz_entity_QuestItem__kunes_chest___580ea511_6786_4168_7f71d56bdb86",
+        "asset_type": "StashAsset",
+        "operation": "ExecuteLua",
+        "path": "Root/0/0/0/0/6/0/0/3/0/3",
+        "port": "own_kunes_chest",
+        "reference": "t_qItems['kunes_chest']",
+        "stand_in": true,
+        "tree": "onUpdate"
+      },
+      {
+        "alias": "q_skalitz_entity_QuestPlace__henrysHome___b781d1d0_f368_4437_ce5bec8e9da0",
+        "asset_type": "SmartAreaAsset",
+        "operation": "SetOwner",
+        "path": "Root/0/0/0/0/6/0/1/6/0/0/0/0/12",
+        "port": "own_henrysHome",
+        "reference": "t_places['henrysHome']",
+        "stand_in": false,
+        "tree": "onUpdate"
+      }
+    ],
+    "quest": "q_skalitz",
+    "runtime_verified": false,
+    "stand_ins": [
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build)",
+        "decision": "9a",
+        "effect": "the owner stays as the level has it",
+        "operation": "SetOwner",
+        "path": "Root/0/0/0/0/6/0/0/3/0/1/0",
+        "target": "Success",
+        "tree": "onUpdate"
+      },
+      {
+        "approved": "Sean, 2026-11-16 (relayed by Build)",
+        "decision": "10a",
+        "effect": "looting the NPC who runs the tree stays theft",
+        "fields": [
+          "onEnter",
+          "onExit"
+        ],
+        "operation": "SetLootLegal",
+        "path": "Root/1/0/0/0",
+        "target": "removed statement",
+        "tree": "enemies_battle_fight"
+      }
+    ]
+  },
+  "prepared": {
+    "completed_branches": 15,
+    "implicit_links": 23,
+    "initialisers": 24,
+    "rename_blocked": 582,
+    "renamed": {
+      "AreaPresence->AreaPresenceGate": 34,
+      "AreaPresence->AreaPresenceListener": 7,
+      "JoinedAnimationSynchronize->Synchronize": 16,
+      "LODGuardian->DetailBehaviorBarrier": 66,
+      "LODGuardian->Sequence": 2,
+      "StateMachineGate->ActorStateBarrier": 16,
+      "StreamingInstallGate->IfGate": 2,
+      "Teleport->TeleportAction": 30,
+      "TurnBody->Turn": 99
+    },
+    "scope_resolutions": 274,
+    "stand_ins": {
+      "AddOpponent->InstantSetTarget": 4,
+      "DrawWeapon->DrawAction": 1,
+      "IfCondition->IfCondition": 4,
+      "IncludeTree dialogInitiator->Function_speech_polylogInitiator": 20,
+      "IncludeTree dialogInitiator_instant->Function_speech_polylogInitiator": 2,
+      "IncludeTree fight->Function_combat_fightRepeated_template": 1,
+      "IncludeTree followNPC_inFormation->Function_moveInFormation_inFormation": 3,
+      "InstantDrawWeapon->DrawAction": 2,
+      "LODCheck->SuppressFailure": 1,
+      "MakeMeIdle->StopMovement": 4,
+      "PlayAnimation->Sequence": 1,
+      "SetLootLegal->SetOwner": 1,
+      "SetLootLegal->removed statement": 1,
+      "SetOwner->Success": 1,
+      "customBehaviorRequest->AddInterrupt_empty": 7,
+      "customBehaviorRequest->AddInterrupt_wuidData": 2,
+      "daycycle:change waiting->lease, urgency Slow": 18
+    },
+    "value_renames": 21,
+    "verbatim_lua": 7
+  },
+  "profiles": {
+    "registered": [
+      "q_skalitz_attack",
+      "q_skalitz_givenhorse",
+      "q_skalitz_normal",
+      "q_skalitz_skinnerhouse"
+    ],
+    "runtime_verified": false,
+    "to_register": {
+      "q_escapetotalmberk_afternightmare": 2,
+      "q_escapetotalmberk_morningalarm": 4,
+      "q_escapetotalmberk_riders": 3,
+      "q_escapetotalmberk_seek": 4,
+      "q_escapetotalmberk_shelter": 4,
+      "q_escapetotalmberk_sound": 3,
+      "q_escapetotalmberk_stephdialog_props": 3,
+      "q_escapetotalmberk_talkers": 3,
+      "q_escapetotalmberk_talmberkbarrier": 1,
+      "q_sazavamonastery_guards1": 12,
+      "q_sazavamonastery_guards2": 12,
+      "q_skalitz_barriertutorial": 2,
+      "q_skalitz_burned": 1,
+      "q_skalitz_mother_dialog_cameras": 3,
+      "q_skalitz_wanderer": 1,
+      "rovne_original": 1,
+      "tal_castle_gn_wn_closed": 2,
+      "tal_castle_gn_wn_open": 1,
+      "tal_fort_normal": 1
+    },
+    "used": {
+      "q_skalitz_attack": {
+        "native": "gm_q_skalitz_attack",
+        "sites": 4
+      },
+      "q_skalitz_givenhorse": {
+        "native": "gm_q_skalitz_givenhorse",
+        "sites": 2
+      },
+      "q_skalitz_normal": {
+        "native": "gm_q_skalitz_normal",
+        "sites": 4
+      },
+      "q_skalitz_skinnerhouse": {
+        "native": "gm_q_skalitz_skinnerhouse",
+        "sites": 4
+      }
+    }
+  },
+  "quest": "q_skalitz",
+  "scenes": {
+    "aliases": {
+      "forging_father_insert": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": null
+      },
+      "kovani_otcem": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": null
+      },
+      "navsteva_racka": {
+        "converted": true,
+        "playback_fields": [],
+        "reason": null,
+        "requests": 1,
+        "save": {
+          "objective": "save_questStarted",
+          "quest": "q_escapeToTalmberk"
+        }
+      }
+    },
+    "converted_requests": 3,
+    "dispatcher": "q_skalitz_scene_dispatch",
+    "handed_to_playback": [
+      "save lock while the scene runs",
+      "fader and sound mute",
+      "player-not-in-scene lock",
+      "dropping a carried body",
+      "combat prevention and its buffs",
+      "player pre-teleport",
+      "actor restrictions and scene clothes",
+      "time of day",
+      "scene subscriptions",
+      "actor teleports and readiness wait",
+      "post-scene fade-in"
+    ],
+    "module": "gm_q_skalitz_scenes",
+    "not_owned": {
+      "(no alias)": 1,
+      "blankaGivesBeer": 1,
+      "dialogAfterKunesBeaten": 1,
+      "dialogAfterKunesWon": 4,
+      "dialogAfterSarka": 1,
+      "dialogBeforeKunes": 1,
+      "dialogBeforePainting": 1,
+      "dialogWithGuards": 1,
+      "manure_throw_nohenry": 1,
+      "nemec_hazeni_hnoje": 2,
+      "nemec_hospodska_hadka": 1,
+      "stribrna_skalice": 3
+    },
+    "requests": 21,
+    "runtime_verified": false,
+    "wiring": [
+      {
+        "alias": "forging_father_insert",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_forging_father_insert",
+        "type": "trigger"
+      },
+      {
+        "alias": "forging_father_insert",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_forging_father_insert",
+        "type": "bool"
+      },
+      {
+        "alias": "forging_father_insert",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_forging_father_insert",
+        "type": "trigger"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_kovani_otcem",
+        "type": "trigger"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_kovani_otcem",
+        "type": "bool"
+      },
+      {
+        "alias": "kovani_otcem",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_kovani_otcem",
+        "type": "trigger"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": true,
+        "module_port": "play_navsteva_racka",
+        "type": "trigger"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "context",
+        "direction": "Out",
+        "exists_in_c5": false,
+        "module_port": "pending_navsteva_racka",
+        "type": "bool"
+      },
+      {
+        "alias": "navsteva_racka",
+        "bridge": "signal",
+        "direction": "In",
+        "exists_in_c5": false,
+        "module_port": "done_navsteva_racka",
+        "type": "trigger"
+      }
+    ]
+  },
+  "schedule": {
+    "accepted_requests": 16,
+    "accepted_shape_in_a_rejected_tree": 23,
+    "accepted_trees": [
+      "cutscene_blankaGivesBeer",
+      "cutscene_dialogAfterKunesBeaten",
+      "cutscene_dialogAfterKunesWon",
+      "cutscene_dialogBeforeKunes",
+      "cutscene_dialogBeforePainting",
+      "cutscene_dialogWithGuards",
+      "cutscene_forging_father_insert",
+      "cutscene_janek_dialogAtTheGate",
+      "cutscene_kovani_otcem",
+      "cutscene_manure_throw_nohenry",
+      "cutscene_nemec_hazeni_hnoje",
+      "cutscene_stribrna_skalice"
+    ],
+    "controller": "af5538b6-25f3-4be2",
+    "leases": [
+      {
+        "actor": "4730390356553801077",
+        "behavior": "matus_afterChase",
+        "handle": "q_skalitz_matus_afterChase",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "4730390356553801077",
+        "behavior": "matus_lureWifeHenry",
+        "handle": "q_skalitz_matus_lureWifeHenry",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "4957497055038492328",
+        "behavior": "johanka_goingToSkinner",
+        "handle": "q_skalitz_johanka_goingToSkinner",
+        "once": true,
+        "priority": 60,
+        "sites": 2
+      },
+      {
+        "actor": "5252032958896979226",
+        "behavior": "tereza_waitsForNails",
+        "handle": "q_skalitz_tereza_waitsForNails",
+        "once": true,
+        "priority": 60,
+        "sites": 2
+      },
+      {
+        "actor": "5384355815172519055",
+        "behavior": "blanka_givesBeer",
+        "handle": "q_skalitz_blanka_givesBeer",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5454785426552837238",
+        "behavior": "idleUntilNextPatch",
+        "handle": "q_skalitz_idleUntilNextPatch",
+        "once": false,
+        "priority": 15,
+        "sites": 1
+      },
+      {
+        "actor": "5583684733691733578",
+        "behavior": "motherPatch",
+        "handle": "q_skalitz_motherPatch",
+        "once": false,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5588471628078498641",
+        "behavior": "fatherPatch",
+        "handle": "q_skalitz_fatherPatch",
+        "once": false,
+        "priority": 60,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunesPatch",
+        "handle": "q_skalitz_kunesPatch",
+        "once": false,
+        "priority": 60,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunes_sitting",
+        "handle": "q_skalitz_kunes_sitting",
+        "once": false,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5620114491592384554",
+        "behavior": "kunes_winningOverHenry",
+        "handle": "q_skalitz_kunes_winningOverHenry",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "idleUntilNextPatch",
+        "handle": "q_skalitz_idleUntilNextPatch",
+        "once": false,
+        "priority": 15,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "janek_dialogAtTheGate",
+        "handle": "q_skalitz_janek_dialogAtTheGate",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      },
+      {
+        "actor": "5717939758722087850",
+        "behavior": "janek_waitsAtTheGate",
+        "handle": "q_skalitz_janek_waitsAtTheGate",
+        "once": true,
+        "priority": 95,
+        "sites": 1
+      }
+    ],
+    "level": "rataje",
+    "normalised": {
+      "boundaries": 18,
+      "boundary_approved": "Sean, 2026-11-16 (relayed by Build), decision 11a: urgency Slow stands for the next activity boundary",
+      "left": 0,
+      "requests": 31,
+      "rules": {
+        "boundary": 18,
+        "critical": 8,
+        "immediate": 18,
+        "removal": 4,
+        "window:immediate": 2,
+        "window:kept": 6,
+        "window:whole_day": 2
+      },
+      "windows": 6
+    },
+    "publishable": false,
+    "rejected": {
+      "lease_from_two_scopes": 2,
+      "lease_in_a_waiting_tree": 2,
+      "removal_without_addition": 3,
+      "runtime_actor": 12
+    },
+    "requests": 58,
+    "runtime_verified": false,
+    "trees_with_requests": 23
+  },
+  "schema": 1,
+  "source_equivalence": {
+    "checked": 37,
+    "failed": 0,
+    "nodes_compared": 499,
+    "passed": 37,
+    "residue": 37,
+    "rewritten_nodes": 16,
+    "stand_in_contract_sites": 14,
+    "stand_in_nodes": 15
+  },
+  "trees": {
+    "blocked": 29,
+    "blocked_by_include": 6,
+    "emitted": 37,
+    "handed": 2,
+    "total": 74
+  }
+}

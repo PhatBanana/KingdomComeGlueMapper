@@ -14,25 +14,27 @@ from . import Unsupported
 from .expressions import assignments, boolean, duration, evaluate, literal, parts
 from .variables import initialize
 from .patterns import concatenate
+from .engine_nodes import BRANCHES, ENGINE_ACTIONS, ENGINE_NODES, EngineNodes
 
 
-WRAPPERS = {'Sequence', 'Then', 'Else', 'Behavior', 'OnInit', 'Child', 'DefaultBranch'}
-SUPPORTED = WRAPPERS | {'Root', 'Success', 'Fail', 'Expression', 'IfCondition',
+WRAPPERS = {'Sequence', 'Then', 'Else', 'Behavior', 'OnInit', 'Child', 'DefaultBranch'} | BRANCHES
+SUPPORTED = WRAPPERS | ENGINE_NODES | {'Root', 'Success', 'Fail', 'Expression', 'IfCondition',
     'IfElseCondition', 'Switch', 'Selector', 'While', 'Wait', 'ProcessMessage',
     'SmartObjSetBehaviorState', 'Callback_empty', 'GameContextCheck', 'IncludeTree', 'Parallel', 'Loop',
     'InstantSendMessageToNPC', 'SuppressFailure', 'Invertor', 'VarOperation', 'Concatenation'}
 
 
-class Behavior:
-    def __init__(self, name, blob, graph, variables=None, contracts=None, callbacks=None):
+class Behavior(EngineNodes):
+    def __init__(self, name, blob, graph, variables=None, contracts=None, callbacks=None, lua=None):
         self.name, self.graph = name, graph
         self.contracts, self.callbacks = copy.deepcopy(contracts or {}), dict(callbacks or {})
-        self.fingerprint = hashlib.sha256(b'concatenation-v1\0' + blob + json.dumps([self.contracts, self.callbacks], sort_keys=True).encode()).hexdigest()
+        self.fingerprint = hashlib.sha256(b'concatenation-v1\0' + blob + json.dumps([self.contracts, self.callbacks] + ([lua] if lua else []), sort_keys=True).encode()).hexdigest()
         self.root = E.fromstring(blob)
         self.nodes, self.trees = {}, {}
         self.declarations = {}
         self.variables = copy.deepcopy(variables or {})
         self.availability, self.tasks, self.inboxes = {}, {}, {}
+        self._init_engine(lua)
         self.unsupported, self.visited = [], set()
         self.serial = 0
         trees = [self.root] if self.root.tag == 'BehaviorTree' else self.root.findall('BehaviorTree')
@@ -53,7 +55,7 @@ class Behavior:
                            for p,_,_ in declarations})
         self.fingerprint = hashlib.sha256((self.fingerprint+json.dumps(enum_files,sort_keys=True)).encode()).hexdigest()
         for tag, contract in self.contracts.items():
-            if tag in SUPPORTED or tag.startswith('SendAIConceptSignal_'):
+            if (tag in SUPPORTED and tag not in ENGINE_ACTIONS) or tag.startswith('SendAIConceptSignal_'):
                 raise ValueError('Cannot stub interpreted behavior: ' + tag)
             if not contract.get('reason'): raise ValueError('Behavior contract requires a reason')
 
@@ -113,6 +115,7 @@ class Behavior:
             self.unsupported.append(dict(node=path, reason='Unsupported behavior: ' + node.tag))
         if node.tag in self.contracts and len(node):
             self.unsupported.append(dict(node=path, reason='Engine contract cannot replace a subtree'))
+        for reason in self._schema(node): self.unsupported.append(dict(node=path, reason=reason))
         if node.tag == 'Wait' and node.get('skipInLOD', 'false') != 'false':
             self.unsupported.append(dict(node=path, reason='Native LOD-dependent wait skipping is not emulated'))
         if node.tag == 'Concatenation' and (len(node) or set(node.attrib) != {'OutString','Pattern'}):
@@ -129,14 +132,27 @@ class Behavior:
             self.unsupported.append(dict(node=path,reason='Unsupported collection operation: '+node.get('operation','')))
         if node.tag == 'InstantSendMessageToNPC' and (len(node) or set(node.attrib) - {'target','type','variable','values'}):
             self.unsupported.append(dict(node=path, reason='Immediate NPC message requires a leaf and known payload fields'))
-        if node.tag == 'GameContextCheck' and (
-                set(node.attrib) != {'context', 'saveVersion'} or node.get('saveVersion') != '2'
-                or sorted(c.tag for c in node) != ['Else', 'Then']):
+        if node.tag == 'GameContextCheck' and not self._context_check_schema(node):
             self.unsupported.append(dict(node=path, reason='GameContextCheck requires explicit Then/Else branches and version 2'))
         for index, child in enumerate(node): self._index(child, path + '/' + str(index))
 
     def record(self, kind, **values):
         self.graph.record(kind, controller=self.name, **values)
+
+    def _assumed(self, name, value):
+        """Whether the scenario declares `name` as `value`; counted as used only when asked."""
+        return name in self.graph.world.assumptions and self.assume(name) == value
+
+    def _unset_members(self):
+        declared = 'behavior.record.unset_member' in self.graph.world.assumptions
+        return declared and self.assume('behavior.record.unset_member') == 'assignable'
+
+    def _context_check_schema(self, node):
+        """Both branches, or one of them when the scenario declares what a missing branch returns."""
+        branches = sorted(c.tag for c in node)
+        one = branches in (['Then'], ['Else']) and 'behavior.context_check.missing_branch' in self.graph.world.assumptions
+        return (set(node.attrib) == {'context', 'saveVersion'} and node.get('saveVersion') == '2'
+                and (branches == ['Else', 'Then'] or one))
 
     @staticmethod
     def _parallel_schema(node):
@@ -148,9 +164,10 @@ class Behavior:
         self.serial += 1
         task = task or tree + ':' + str(self.serial)
         if task in self.tasks: raise ValueError('Duplicate task: ' + task)
-        local = initialize(self.declarations[tree], self.variables, self.graph.source.enum_value, self.graph.source)
+        local = initialize(self.declarations[tree], self.variables, self.graph.source.enum_value, self.graph.source,
+                           unset=self._unset_members())
         self.tasks[task] = dict(frames=[dict(path=self.trees[tree], index=0)], status='running',
-                               scope=task, locals=local,
+                               scope=task, locals=local, tree=tree,
                                declared=[n.get('name') for n in self.declarations[tree]])
         self.record('behavior_start', task=task, tree=tree)
         self.pump()
@@ -165,9 +182,13 @@ class Behavior:
         self.record('message', inbox=inbox, value=value, sender=sender)
         self.pump()
 
-    def resolve(self, task_name, outcome):
+    def resolve(self, task_name, outcome, values=None):
         task = self.tasks[task_name]
-        if task['status'] != 'external' or outcome not in ('success', 'fail'):
+        if task['status'] == 'external' and 'boundary' in task:
+            self._resolve_boundary(task_name, task, outcome, values)
+            self.pump()
+            return
+        if task['status'] != 'external' or outcome not in ('success', 'fail') or values:
             raise ValueError('Outcome requires an outstanding external task and success/fail')
         self.record('behavior_outcome', task=task_name, node=task['frames'][-1]['path'], outcome=outcome)
         task['status'] = 'running'
@@ -190,10 +211,7 @@ class Behavior:
     def _cancel(self, name):
         task = self.tasks[name]
         if task['status'] in ('success','fail','canceled'): return
-        for frame in task['frames']:
-            for child in frame.get('parallel_children', []): self._cancel(child)
-            if frame.get('call_scope') and frame['path'] in self.declarations:
-                self.tasks[task.get('scope',name)].get('call_scopes',{}).pop(frame['call_scope'],None)
+        self._unwind(name, 0)
         self.record('behavior_cancel', task=name, previous_status=task['status'])
         task['frames'] = []
         task['status'] = 'canceled'
@@ -202,10 +220,9 @@ class Behavior:
         task['frames'].append(dict(path=frame['path'] + '/' + str(index), index=0,
                                    call_scope=frame.get('call_scope')))
 
-    def _step(self, name):
+    def _environment(self, name, frame):
+        """(variables, expr) as the node of `frame` sees them: globals, then the task's and its calls' locals."""
         task = self.tasks[name]
-        frame = task['frames'][-1]
-        path = frame['path']; node = self.nodes[path]; tag = node.tag
         owner = self.tasks[task.get('scope',name)]
         calls=owner.setdefault('call_scopes',{})
         chain=[]; scope=frame.get('call_scope')
@@ -222,13 +239,23 @@ class Behavior:
                 destinations.get(key,self.variables)[key]=value
                 super().__setitem__(key,value)
         variables = Environment(bindings)
+        def expr(text): return evaluate(text, variables, self.graph.source.enum_value)
+        return variables, expr
+
+    def _step(self, name):
+        task = self.tasks[name]
+        frame = task['frames'][-1]
+        path = frame['path']; node = self.nodes[path]; tag = node.tag
+        owner = self.tasks[task.get('scope',name)]
+        calls=owner.setdefault('call_scopes',{})
+        variables, expr = self._environment(name, frame)
         self.visited.add(path)
         self.graph.tick()
-        def expr(text): return evaluate(text, variables, self.graph.source.enum_value)
         def finish(result=True): self._finish(name, result)
         if tag.startswith('SendAIConceptSignal_'):
             if len(node) or node.attrib:
                 raise Unsupported('AI concept signal must be an argument-free leaf: ' + path)
+            self.record('behavior_signal', task=name, node=path, notification=tag.removeprefix('SendAIConceptSignal_'))
             self.graph.signal(tag.removeprefix('SendAIConceptSignal_')); finish()
         elif tag == 'IncludeTree':
             if path in self.include_errors: raise Unsupported(self.include_errors[path])
@@ -239,27 +266,19 @@ class Behavior:
             declarations=self.declarations[target]
             calls[scope]=dict(parent=frame.get('call_scope'),
                 declared=[n.get('name') for n in declarations],
-                locals=initialize(declarations,{},self.graph.source.enum_value,self.graph.source))
+                locals=initialize(declarations,{},self.graph.source.enum_value,self.graph.source,
+                                  unset=self._unset_members()))
             self.record('behavior_include', task=name, node=path, target=target)
             task['frames'].append(dict(path=target,index=0,call_scope=scope))
         elif tag == 'InstantSendMessageToNPC':
             if len(node) or set(node.attrib) - {'target','type','variable','values'}:
                 raise Unsupported('Unsupported immediate NPC message schema: '+path)
-            typ = node.get('type','')
-            if not re.fullmatch(r'[A-Za-z_]\w*(?::[A-Za-z_]\w*)*',typ):
-                raise Unsupported('Immediate NPC message needs an explicit type: '+path)
-            variable, values = node.get('variable',''), node.get('values','')
-            if variable and values:
-                raise Unsupported('Combined message variable and initializer needs an adapter: '+path)
-            content = expr(variable) if variable else {}
-            if values:
-                for field in parts(values):
-                    match = re.fullmatch(r'([A-Za-z_]\w*)\s*\((.*)\)',field,re.S)
-                    if not match or match[1] in content:
-                        raise Unsupported('Malformed or duplicate message field: '+field)
-                    content[match[1]] = expr(match[2])
+            # The type is a quoted name in emitted trees and a bare one in older fixtures.
+            typ, content = self._message(node, path, expr)
             self.graph.queue_message(self.name+':'+path, typ, expr(node.get('target','')), content)
             finish()
+        elif tag in ENGINE_NODES and tag not in self.contracts:
+            self._engine_step(name, task, frame, node, variables, expr, finish)
         elif tag in self.contracts:
             if len(node): raise Unsupported('Engine contract cannot replace a subtree: ' + path)
             task['status'] = 'external'
@@ -308,7 +327,9 @@ class Behavior:
             finish(True if tag == 'SuppressFailure' else not result)
         elif tag in ('Success', 'Fail'): finish(tag == 'Success')
         elif tag == 'Expression':
-            changes = assignments(node.get('expressions', ''), variables, self.graph.source.enum_value)
+            changes = assignments(node.get('expressions', ''), variables, self.graph.source.enum_value,
+                                  open_records=lambda: self._assumed('behavior.engine_record.member', 'assignable'),
+                                  append=lambda: self._assumed('behavior.array.assign_at_end', 'appends'))
             self.record('assignment', task=name, node=path, changes=changes); finish()
         elif tag == 'Concatenation':
             if len(node) or set(node.attrib) != {'OutString','Pattern'}:
@@ -342,14 +363,16 @@ class Behavior:
             self.availability[behavior] = state
             self.record('availability', task=name, behavior=behavior, state=state); finish()
         elif tag == 'GameContextCheck':
-            if (set(node.attrib) != {'context', 'saveVersion'} or node.get('saveVersion') != '2'
-                    or sorted(c.tag for c in node) != ['Else', 'Then']):
+            if not self._context_check_schema(node):
                 raise Unsupported('Unsupported game-context branch schema: ' + path)
             if 'child_result' in frame: finish(frame.pop('child_result')); return
             result = self.graph.game_context(node.get('context'))
             branch = 'Then' if result else 'Else'
-            self.record('game_context_check', task=name, context=node.get('context'), result=result)
-            self._push(task, frame, next(i for i,c in enumerate(node) if c.tag == branch))
+            self.record('game_context_check', task=name, node=path, context=node.get('context'), result=result)
+            index = next((i for i,c in enumerate(node) if c.tag == branch), None)
+            if index is None:
+                finish(self.assume('behavior.context_check.missing_branch') == 'succeeds'); return
+            self._push(task, frame, index)
         elif tag in ('IfCondition', 'IfElseCondition'):
             if 'child_result' in frame: finish(frame.pop('child_result')); return
             result = boolean(expr(node.get('condition', '')))
@@ -381,10 +404,24 @@ class Behavior:
                 if type(count) is not int or count == 0 or count < -1:
                     raise Unsupported('Loop count must be a positive integer or -1: '+path)
                 frame['loop_count'], frame['iterations'] = count, 0
+                frame['stamp'] = task.get('blocks', 0)
             if 'child_result' in frame:
                 if not frame.pop('child_result'):
-                    raise Unsupported('Loop body failure policy needs native verification: '+path)
+                    if 'behavior.loop.body_failure' not in self.graph.world.assumptions:
+                        raise Unsupported('Loop body failure policy needs native verification: '+path)
+                    if self.assume('behavior.loop.body_failure') != 'fails': raise Unsupported('Unknown loop failure policy')
+                    finish(False); return
                 frame['iterations'] += 1
+                if (frame['loop_count'] == -1 and frame['stamp'] == task.get('blocks', 0)
+                        and 'behavior.loop.instant_body' in self.graph.world.assumptions):
+                    # The body of an endless loop came back without waiting for anything. The engine
+                    # runs it again on its next update; the lab stops here until the scenario ticks.
+                    # Without the declared assumption the loop spins into the operation budget, as before.
+                    if self.assume('behavior.loop.instant_body') != 'next_tick': raise Unsupported('Unknown loop policy')
+                    frame['stamp'] = task.get('blocks', 0) + 1       # pump counts this stop as a wait
+                    self.record('behavior_tick_wait', task=name, node=path)
+                    task['status'] = 'tick'; return
+                frame['stamp'] = task.get('blocks', 0)
             if frame['iterations'] == frame['loop_count']:
                 finish(); return
             self._push(task, frame, 0)
@@ -447,13 +484,34 @@ class Behavior:
         # Stable task creation order is the emulator policy. Native arbitration
         # and concurrent mailbox locking have not been replicated.
         for task in self.tasks.values():
-            if task['status'] in ('waiting', 'message'): task['status'] = 'running'
+            if task['status'] in ('waiting', 'message', 'gate'): task['status'] = 'running'
+        progressed, woken = False, set()
         while True:
+            self._recheck_gates()
             name = next((n for n,t in self.tasks.items() if t['status'] == 'running'), None)
-            if name is None: break
+            if name is None:
+                # Something ran since the lab gates were last read (a lock was set, a variable
+                # written): read them once more, and stop when that changes nothing.
+                woken = {n for n,t in self.tasks.items() if t['status'] == 'gate'}
+                if not progressed or not woken: break
+                for n in woken: self.tasks[n]['status'] = 'running'
+                progressed = False
+                continue
             # Re-select after each step so a returned branch wakes its parent
             # before another branch can execute effects after cancellation.
             self._step(name)
+            task = self.tasks.get(name)
+            if task is not None and task['status'] not in ('running', 'success', 'fail', 'canceled'):
+                task['blocks'] = task.get('blocks', 0) + 1
+            if not (name in woken and task is not None and task['status'] == 'gate'): progressed = True
+            woken.discard(name)
+
+    def tick(self):
+        """The next engine update: endless loops whose body returned at once run again."""
+        waiting = [t for t in self.tasks.values() if t['status'] == 'tick']
+        for task in waiting: task['status'] = 'running'
+        self.record('behavior_tick', tasks=len(waiting))
+        self.pump()
 
     def next_deadline(self):
         return min((t['frames'][-1]['deadline'] for t in self.tasks.values()
@@ -461,16 +519,21 @@ class Behavior:
 
     def snapshot(self):
         return copy.deepcopy(dict(fingerprint=self.fingerprint, variables=self.variables,
-            availability=self.availability, tasks=self.tasks, inboxes=self.inboxes, serial=self.serial))
+            availability=self.availability, tasks=self.tasks, inboxes=self.inboxes, serial=self.serial,
+            **self._engine_state()))
 
     def restore(self, data):
         if data.get('fingerprint') != self.fingerprint: raise ValueError('Behavior snapshot mismatch')
         for key in ('variables','availability','tasks','inboxes','serial'):
             setattr(self, key, copy.deepcopy(data[key]))
+        for key in self._engine_state():
+            setattr(self, key, copy.deepcopy(data.get(key, [] if key in ('effects', 'links') else {})))
 
     def report(self):
         return dict(fingerprint=self.fingerprint, variables=self.variables, availability=self.availability,
             tasks={k: v['status'] for k,v in self.tasks.items()}, visited=sorted(self.visited),
+            effects=copy.deepcopy(self.effects), locks=dict(self.locks), buffs=copy.deepcopy(self.buffs),
+            pending_boundaries=[dict(task=n, **b) for n, b in self.boundaries()],
             unvisited=sorted(set(self.nodes)-self.visited), unsupported=self.unsupported,
             scheduling_policy='Deterministic creation order with parent outcome propagation; native arbitration unverified',
             external_contracts=self.contracts)

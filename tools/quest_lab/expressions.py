@@ -33,11 +33,35 @@ def syntax(text):
         s = re.sub(r'\$([A-Za-z_]\w*)', r'\1', chunks[i])
         s = re.sub(r'\btrue\b', 'True', s)
         s = re.sub(r'\bfalse\b', 'False', s)
-        s = re.sub(r'!(?!=)', ' not ', s).replace('&&', ' and ').replace('||', ' or ')
+        s = re.sub(r'!(?!=)', ' not ', s).replace('~', ' not ').replace('&&', ' and ').replace('||', ' or ')
         s = s.replace('&', ' and ').replace('|', ' or ')
         chunks[i] = s
-    try: return ast.parse(''.join(chunks).strip(), mode='eval').body
+    try: return ast.parse(conditional(''.join(chunks).strip()), mode='eval').body
     except SyntaxError as exc: raise Unsupported('Unsupported expression: ' + text) from exc
+
+
+def conditional(text):
+    """`c ? a : b` (native) as `(a) if (c) else (b)`; quotes and brackets are respected."""
+    depth, quote, escaped, question = 0, '', False, None
+    pending = 0
+    for i, char in enumerate(text):
+        if quote:
+            if escaped: escaped = False
+            elif char == '\\': escaped = True
+            elif char == quote: quote = ''
+        elif char in "'\"": quote = char
+        elif char in '([{': depth += 1
+        elif char in ')]}': depth -= 1
+        elif depth == 0 and char == '?':
+            if question is None: question = i
+            else: pending += 1
+        elif depth == 0 and char == ':' and question is not None:
+            if pending: pending -= 1
+            else:
+                return '(%s) if (%s) else (%s)' % (conditional(text[question + 1:i]), conditional(text[:question]),
+                                                   conditional(text[i + 1:]))
+    if question is not None: raise Unsupported('Unbalanced conditional expression: ' + text)
+    return text
 
 
 BIN = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
@@ -78,6 +102,8 @@ def evaluate(text, values, enum_resolver=None):
             if not isinstance(obj, (dict, list)): raise Unsupported('Unsupported indexed value')
             try: return obj[key]
             except (KeyError, IndexError, TypeError) as exc: raise Unsupported('Unbound expression index') from exc
+        if isinstance(n, ast.IfExp):
+            return visit(n.body) if boolean(visit(n.test)) else visit(n.orelse)
         if isinstance(n, ast.UnaryOp):
             v = visit(n.operand)
             if isinstance(n.op, ast.Not): return not boolean(v)
@@ -132,7 +158,12 @@ def assignment_statements(text):
     return result
 
 
-def assignments(text, values, enum_resolver=None):
+def assignments(text, values, enum_resolver=None, open_records=None, append=None):
+    """Apply `$target = expression` statements to `values`; return {target: value}.
+
+    `open_records` and `append` are asked (called) only when a statement needs them: a member of an
+    engine-owned record the lab has no layout of, and the element just past the end of an array.
+    """
     changes = {}
     for statement in assignment_statements(text):
         # Parse the target using the same allowlisted expression syntax, but
@@ -141,6 +172,11 @@ def assignments(text, values, enum_resolver=None):
         if len(fields) < 2 or not fields[0]:
             raise Unsupported('Unsupported assignment: ' + statement)
         target, expr = fields[0], '='.join(fields[1:])
+        # `$x -= 1` and its siblings read the target first.
+        compound = target[-1:] if target[-1:] in '+-*/' and len(target) > 1 else ''
+        if compound:
+            target = target[:-1].strip()
+            expr = '(' + target + ') ' + compound + ' (' + expr + ')'
         node = syntax(enum_text(target, enum_resolver))
         def location(n):
             if isinstance(n, ast.Name): return values, n.id
@@ -149,13 +185,19 @@ def assignments(text, values, enum_resolver=None):
             parent, key = location(n.value)
             try: obj = parent[key]
             except (KeyError, IndexError, TypeError) as error:
-                raise Unsupported('Unbound assignment container: ' + target) from error
+                # A record inside an engine-owned record: it exists once a tree writes into it.
+                if not (isinstance(parent, dict) and 'engine_record' in parent and open_records and open_records()):
+                    raise Unsupported('Unbound assignment container: ' + target) from error
+                obj = parent[key] = dict(engine_record=parent['engine_record'] + '.' + str(key))
             if isinstance(n, ast.Attribute):
                 if not isinstance(obj, dict) or n.attr not in obj:
-                    raise Unsupported('Unbound assignment member: ' + n.attr)
+                    if not (isinstance(obj, dict) and 'engine_record' in obj and open_records and open_records()):
+                        raise Unsupported('Unbound assignment member: ' + n.attr)
                 return obj, n.attr
             key = evaluate(ast.unparse(n.slice), values)
             if isinstance(obj, list):
+                if type(key) is int and key == len(obj) and append and append():
+                    obj.append(None)
                 if type(key) is not int or not 0 <= key < len(obj):
                     raise Unsupported('Invalid assignment array index')
             elif isinstance(obj, dict):
