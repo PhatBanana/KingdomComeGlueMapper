@@ -11,7 +11,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 
-from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer, is_collision_designer
+from building_brushes import read_brush, convert_brush, resource_table, is_uberlod_proxy, is_landscape_designer, is_collision_designer, is_collision_proxy_record
 from compiled_terrain import parse
 from static_assets import character_definition, asset_pack, install_staged
 from upgrade_map import read, xml
@@ -179,6 +179,18 @@ def main():
             if baseline.tables["meshes"]["paths"] != base_meshes:
                 raise ValueError("Base mesh table changed during build")
             materials = list(baseline.tables["materials"]["paths"])
+            # Collision proxies keep their (converted) material on the brush
+            # record too, as native KCD2 does; see COLLISION_PROXY_FLAG.
+            proxy_materials = {}
+            for record in selected:
+                group = (record["mesh"], record["material"])
+                if (group in proxy_materials or group not in mesh_map or group[1] < 0
+                        or not is_collision_proxy_record(source.data, record["offset"])):
+                    continue
+                name = material(source.tables["materials"]["paths"][group[1]])
+                if name not in materials:
+                    materials.append(name)
+                proxy_materials[group] = materials.index(name)
             # Overrides are bound into each geometry variant, including LODs.
             start = baseline.tables["meshes"]["offset"] - 4
             terrain = bytearray(baseline.data[:start] + resource_table(meshes) + resource_table(materials)
@@ -200,7 +212,10 @@ def main():
             before = verify_target_hlods(hlod_data)
             hlod = ET.fromstring(archive.read("terrain/hlods.xml"))
             for (x,y), records in sorted(sectors.items()):
-                payload = b"".join(convert_brush(source.data, r["offset"], mesh_map[(r["mesh"],r["material"])], -1) for r in records)
+                payload = b"".join(convert_brush(source.data, r["offset"], mesh_map[(r["mesh"],r["material"])],
+                                                 proxy_materials.get((r["mesh"],r["material"]), -1)
+                                                 if is_collision_proxy_record(source.data, r["offset"]) else -1)
+                                   for r in records)
                 offset = len(hlod_data)
                 hlod_data.extend(struct.pack("<I", len(payload)) + payload)
                 z = sum(r["position"][2] for r in records) / len(records)

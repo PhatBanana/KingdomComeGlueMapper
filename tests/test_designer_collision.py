@@ -6,7 +6,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 from building_brushes import (COLLISION_PROXY_MATERIALS, LANDSCAPE_DESIGNER_MATERIALS,
-                              is_collision_designer, is_landscape_designer, convert_brush)
+                              is_collision_designer, is_landscape_designer, convert_brush,
+                              is_collision_proxy_record, COLLISION_PROXY_FLAG)
 
 
 class DesignerCollisionTests(unittest.TestCase):
@@ -50,6 +51,19 @@ class DesignerCollisionTests(unittest.TestCase):
         flags = struct.unpack_from("<Q", result, 32)[0]
         self.assertFalse(flags & (1 << 8))
         self.assertFalse(flags & (1 << 20))
+
+    def test_collision_proxy_record_keeps_brush_material(self):
+        # Native KCD2 (Trosky): all 2764 ERF_COLLISION_PROXY brush records carry
+        # a collision_proxy_* material index; -1 clears the flag at load.
+        source = bytearray(100)
+        struct.pack_into("<I", source, 0, 1)
+        struct.pack_into("<I", source, 32, 0x40400408)
+        self.assertTrue(is_collision_proxy_record(bytes(source), 0))
+        result = convert_brush(bytes(source), 0, 9000, 42)
+        self.assertEqual(struct.unpack_from("<i", result, 96)[0], 42)
+        self.assertTrue(struct.unpack_from("<Q", result, 32)[0] & COLLISION_PROXY_FLAG)
+        struct.pack_into("<I", source, 32, 0x40000408)
+        self.assertFalse(is_collision_proxy_record(bytes(source), 0))
 
 
 if __name__ == "__main__":

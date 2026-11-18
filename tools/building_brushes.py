@@ -5,6 +5,11 @@ import struct
 # KCD1 serialized static-instancing bit. The imported brushes are ordinary
 # KCD2 HLOD placements, not members of a rebuilt native instancing graph.
 LEGACY_STATIC_INSTANCING = 1 << 20
+# ERF_COLLISION_PROXY. The engine re-derives it from the brush record's own
+# material when the brush loads; with material -1 (baked into the mesh only)
+# the bit is cleared and the volume renders and collides with everything.
+# Native KCD2 gives every such record its collision_proxy_* material.
+COLLISION_PROXY_FLAG = 1 << 22
 
 
 # Explicitly audited visible materials in the excluded level-local brush set.
@@ -46,6 +51,11 @@ def is_collision_designer(path, material):
     """Designer volume with an authored collision/barrier surface type."""
     return (path.replace('\\', '/').lower().startswith('%level%/brush/designer_')
             and material.replace('\\', '/').lower().removesuffix('.mtl') in COLLISION_PROXY_MATERIALS)
+
+
+def is_collision_proxy_record(data, offset):
+    """Source brush flagged as a collision proxy (invisible, filtered physics)."""
+    return bool(struct.unpack_from("<I", data, offset + 32)[0] & COLLISION_PROXY_FLAG)
 
 
 def is_uberlod_proxy(path):
