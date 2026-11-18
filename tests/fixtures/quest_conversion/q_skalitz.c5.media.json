@@ -1,0 +1,145 @@
+{
+  "note": "Receipts of the three encoded main-path videos; the movies are not in the repository.",
+  "quest": "q_skalitz",
+  "receipts": [
+    {
+      "alias": "forging_father_insert",
+      "bytes": 943309520,
+      "cutscene": "gm_q_skalitz_forging_father_insert",
+      "demux": {
+        "audio_packets": 9430,
+        "subtitle_cues": 65,
+        "video_packets": 9440
+      },
+      "encoded": {
+        "audio_streams": 6,
+        "audio_tracks": 6,
+        "height": 1080,
+        "nb_frames": "9439",
+        "r_frame_rate": "30/1",
+        "signature": "BIKi",
+        "width": 1920
+      },
+      "encoder": {
+        "container": "Bink 1 under the .bk2 name",
+        "known": true,
+        "sha256": "ee6aaf85c20aeb265826b272b63e805ba5accf6896d2f16e5d17d70a417dd7d1",
+        "version": "2026.10"
+      },
+      "expected": {
+        "height": 1080,
+        "nb_frames": "9440",
+        "r_frame_rate": "30/1",
+        "width": 1920
+      },
+      "frames_short": 1,
+      "runtime_verified": false,
+      "seconds": 314.6666666666667,
+      "sha256": "07891bf14663cfeb57469d5cf0a34f1810978d7dcb108561e1f5cff4bc19d48b",
+      "source": {
+        "archive": "videos-part3.pak",
+        "entry": "Videos/q_skalitz/cin_35806_forging_father_insert.usm",
+        "id": "35806"
+      },
+      "source_bytes": 868380096,
+      "source_sha256": null,
+      "subtitles": {
+        "cues": 65,
+        "rows": 65
+      }
+    },
+    {
+      "alias": "kovani_otcem",
+      "bytes": 981978536,
+      "cutscene": "gm_q_skalitz_kovani_otcem",
+      "demux": {
+        "audio_packets": 9817,
+        "subtitle_cues": 65,
+        "video_packets": 9825
+      },
+      "encoded": {
+        "audio_streams": 6,
+        "audio_tracks": 6,
+        "height": 1080,
+        "nb_frames": "9825",
+        "r_frame_rate": "30/1",
+        "signature": "BIKi",
+        "width": 1920
+      },
+      "encoder": {
+        "container": "Bink 1 under the .bk2 name",
+        "known": true,
+        "sha256": "ee6aaf85c20aeb265826b272b63e805ba5accf6896d2f16e5d17d70a417dd7d1",
+        "version": "2026.10"
+      },
+      "expected": {
+        "height": 1080,
+        "nb_frames": "9825",
+        "r_frame_rate": "30/1",
+        "width": 1920
+      },
+      "frames_short": 0,
+      "runtime_verified": false,
+      "seconds": 327.5,
+      "sha256": "5dcae47dc1a65a534eeb381e7e1a1f85273b6d40e02a08b9a4c72eb59c714473",
+      "source": {
+        "archive": "videos-part4.pak",
+        "entry": "Videos/q_skalitz/cin_8924_kovani_otcem.usm",
+        "id": "8924"
+      },
+      "source_bytes": 904330176,
+      "source_sha256": "eec519a04d2e01a775f73b11cdd3db0e31a079427cb5b7700669145c33883557",
+      "subtitles": {
+        "cues": 65,
+        "rows": 65
+      }
+    },
+    {
+      "alias": "navsteva_racka",
+      "bytes": 1500254220,
+      "cutscene": "gm_q_skalitz_navsteva_racka",
+      "demux": {
+        "audio_packets": 15048,
+        "subtitle_cues": 76,
+        "video_packets": 15062
+      },
+      "encoded": {
+        "audio_streams": 6,
+        "audio_tracks": 6,
+        "height": 1080,
+        "nb_frames": "15061",
+        "r_frame_rate": "30/1",
+        "signature": "BIKi",
+        "width": 1920
+      },
+      "encoder": {
+        "container": "Bink 1 under the .bk2 name",
+        "known": true,
+        "sha256": "ee6aaf85c20aeb265826b272b63e805ba5accf6896d2f16e5d17d70a417dd7d1",
+        "version": "2026.10"
+      },
+      "expected": {
+        "height": 1080,
+        "nb_frames": "15062",
+        "r_frame_rate": "30/1",
+        "width": 1920
+      },
+      "frames_short": 1,
+      "runtime_verified": false,
+      "seconds": 502.06666666666666,
+      "sha256": "3a31a7f0e9cd681b166e658e48f358052330c9f31e6660b826c887bec17c8256",
+      "source": {
+        "archive": "videosb-part1.pak",
+        "entry": "Videos/q_skalitz/cin_9017_navsteva_racka.usm",
+        "id": "9017"
+      },
+      "source_bytes": 1386091488,
+      "source_sha256": null,
+      "subtitles": {
+        "cues": 76,
+        "rows": 76
+      }
+    }
+  ],
+  "schema": 1
+}

@@ -1,0 +1,1549 @@
+{
+  "callbacks": [
+    {
+      "alias": "stribrna_skalice",
+      "deferred_operations": 11,
+      "lowered": {},
+      "source_operations": 11,
+      "tree": "cutscene_stribrna_skalice"
+    },
+    {
+      "alias": "nemec_hospodska_hadka",
+      "deferred_operations": 0,
+      "lowered": {
+        "objective": 3
+      },
+      "source_operations": 3,
+      "tree": "cutscene_nemec_hospodska_hadka"
+    },
+    {
+      "alias": "dialogAfterSarka",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogAfterSarka"
+    },
+    {
+      "alias": "nemec_hazeni_hnoje",
+      "deferred_operations": 4,
+      "lowered": {
+        "objective": 1,
+        "profile": 1
+      },
+      "source_operations": 6,
+      "tree": "cutscene_nemec_hazeni_hnoje"
+    },
+    {
+      "alias": "manure_throw_nohenry",
+      "deferred_operations": 2,
+      "lowered": {
+        "profile": 1
+      },
+      "source_operations": 3,
+      "tree": "cutscene_manure_throw_nohenry"
+    },
+    {
+      "alias": "navsteva_racka",
+      "deferred_operations": 21,
+      "lowered": {
+        "await": 2,
+        "objective": 2,
+        "profile": 2
+      },
+      "source_operations": 27,
+      "tree": "cutscene_navsteva_racka"
+    },
+    {
+      "alias": "kovani_otcem",
+      "deferred_operations": 1,
+      "lowered": {
+        "objective": 1
+      },
+      "source_operations": 2,
+      "tree": "cutscene_kovani_otcem"
+    },
+    {
+      "alias": "forging_father_insert",
+      "deferred_operations": 1,
+      "lowered": {
+        "objective": 1
+      },
+      "source_operations": 2,
+      "tree": "cutscene_forging_father_insert"
+    },
+    {
+      "alias": "dialogWithGuards",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogWithGuards"
+    },
+    {
+      "alias": "dialogBeforeKunes",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogBeforeKunes"
+    },
+    {
+      "alias": "dialogBeforePainting",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_dialogBeforePainting"
+    },
+    {
+      "alias": "blankaGivesBeer",
+      "deferred_operations": 1,
+      "lowered": {},
+      "source_operations": 1,
+      "tree": "cutscene_blankaGivesBeer"
+    },
+    {
+      "alias": "dialogAfterKunesBeaten",
+      "deferred_operations": 7,
+      "lowered": {},
+      "source_operations": 7,
+      "tree": "cutscene_dialogAfterKunesBeaten"
+    },
+    {
+      "alias": "dialogAfterKunesWon",
+      "deferred_operations": 1,
+      "lowered": {
+        "objective": 4
+      },
+      "source_operations": 5,
+      "tree": "cutscene_dialogAfterKunesWon"
+    },
+    {
+      "alias": "game_over",
+      "deferred_operations": 4,
+      "lowered": {},
+      "source_operations": 4,
+      "tree": "cutscene_game_over"
+    }
+  ],
+  "converter": "C5",
+  "lowered": {
+    "await": 2,
+    "objective": 12,
+    "profile": 4
+  },
+  "module": {
+    "name": "gm_q_skalitz_scenes",
+    "profiles": {
+      "q_skalitz_attack": {
+        "asset": "profile_q_skalitz_attack_asset",
+        "instance": "profile_q_skalitz_attack",
+        "native": "gm_q_skalitz_attack"
+      },
+      "q_skalitz_givenhorse": {
+        "asset": "profile_q_skalitz_givenhorse_asset",
+        "instance": "profile_q_skalitz_givenhorse",
+        "native": "gm_q_skalitz_givenhorse"
+      },
+      "q_skalitz_normal": {
+        "asset": "profile_q_skalitz_normal_asset",
+        "instance": "profile_q_skalitz_normal",
+        "native": "gm_q_skalitz_normal"
+      },
+      "q_skalitz_skinnerhouse": {
+        "asset": "profile_q_skalitz_skinnerhouse_asset",
+        "instance": "profile_q_skalitz_skinnerhouse",
+        "native": "gm_q_skalitz_skinnerhouse"
+      }
+    },
+    "wiring": [
+      {
+        "input": "start_letsGoPainting",
+        "port": "start_letsGoPainting",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_henryHearsSkinnerTalk",
+        "port": "start_henryHearsSkinnerTalk",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_pubQuarrelEnds",
+        "port": "start_pubQuarrelEnds",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_henryWasPainting",
+        "port": "start_henryWasPainting",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_unloadNormalSkalitz",
+        "port": "start_unloadNormalSkalitz",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "complete_henryGetsTheSword",
+        "port": "complete_henryGetsTheSword",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "complete_fatherAndHenryMakeSword",
+        "port": "complete_fatherAndHenryMakeSword",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "cancel_getDebtMoney",
+        "port": "cancel_getDebtMoney",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_getDebtMoneyDifferently",
+        "port": "start_getDebtMoneyDifferently",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "start_kunesBeatsHenry",
+        "port": "start_kunesBeatsHenry",
+        "quest": "q_skalitz"
+      },
+      {
+        "input": "cancel_kunesIsUpset",
+        "port": "cancel_kunesIsUpset",
+        "quest": "q_skalitz"
+      }
+    ],
+    "world_requirements": [
+      {
+        "alias": "gm_q_skalitz_scene_navsteva_racka",
+        "cutscene": "gm_q_skalitz_navsteva_racka",
+        "kind": "CutsceneHolder"
+      },
+      {
+        "alias": "gm_q_skalitz_scene_kovani_otcem",
+        "cutscene": "gm_q_skalitz_kovani_otcem",
+        "kind": "CutsceneHolder"
+      },
+      {
+        "alias": "gm_q_skalitz_scene_forging_father_insert",
+        "cutscene": "gm_q_skalitz_forging_father_insert",
+        "kind": "CutsceneHolder"
+      }
+    ]
+  },
+  "module_sha256": "2f92831052eb629594db5d8c60786682eb2ddb33549f688af22c6d2417eb5f60",
+  "movies": [
+    {
+      "file": "Videos/gluemapper/q_skalitz/navsteva_racka/cinematic.bk2",
+      "name": "gm_q_skalitz_navsteva_racka",
+      "root": "Videos/gluemapper/q_skalitz/navsteva_racka",
+      "source": {
+        "archive": "videosb-part1.pak",
+        "entry": "Videos/q_skalitz/cin_9017_navsteva_racka.usm",
+        "id": "9017"
+      }
+    },
+    {
+      "file": "Videos/gluemapper/q_skalitz/kovani_otcem/cinematic.bk2",
+      "name": "gm_q_skalitz_kovani_otcem",
+      "root": "Videos/gluemapper/q_skalitz/kovani_otcem",
+      "source": {
+        "archive": "videos-part4.pak",
+        "entry": "Videos/q_skalitz/cin_8924_kovani_otcem.usm",
+        "id": "8924"
+      }
+    },
+    {
+      "file": "Videos/gluemapper/q_skalitz/forging_father_insert/cinematic.bk2",
+      "name": "gm_q_skalitz_forging_father_insert",
+      "root": "Videos/gluemapper/q_skalitz/forging_father_insert",
+      "source": {
+        "archive": "videos-part3.pak",
+        "entry": "Videos/q_skalitz/cin_35806_forging_father_insert.usm",
+        "id": "35806"
+      }
+    }
+  ],
+  "profiles": {
+    "q_skalitz_attack": {
+      "layers": [
+        {
+          "entities": 1254,
+          "layer": "sv_state0_prefabs{90C64322-1DED-4574-9B92-FE97AF9FDE77}",
+          "status": "shared"
+        },
+        {
+          "entities": 82,
+          "in_level": 0,
+          "kinds": {
+            "Horse": 11,
+            "NPC": 46,
+            "NPC_Female": 16,
+            "PredefinedNavigationPath": 7,
+            "SmartObjectHolder": 1,
+            "TagPoint": 1
+          },
+          "layer": "pursuit{3216053C-BCE5-42FA-9911-90AC2A075B04}",
+          "missing_kinds": {
+            "Horse": 11,
+            "NPC": 46,
+            "NPC_Female": 16,
+            "PredefinedNavigationPath": 7,
+            "SmartObjectHolder": 1,
+            "TagPoint": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 415,
+          "layer": "sv_state0{43A2A55D-8075-4D80-B649-097D8826E196}",
+          "status": "shared"
+        },
+        {
+          "entities": 0,
+          "layer": "pc{4057005E-F1B0-4E8F-B087-7E236B8A581B}",
+          "status": "shared"
+        },
+        {
+          "entities": 6,
+          "in_level": 0,
+          "kinds": {
+            "AnimDoor": 1,
+            "NPC": 3,
+            "TagPoint": 2
+          },
+          "layer": "ska_cumans{02D60768-5DDE-4339-9540-9A1A354BB8CA}",
+          "missing_kinds": {
+            "AnimDoor": 1,
+            "NPC": 3,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 24,
+          "layer": "ska{4DB05E6C-3363-453F-9B4B-62468776A13D}",
+          "status": "shared"
+        },
+        {
+          "entities": 119,
+          "layer": "q_skalitz_questItems{5D788781-117D-496F-8A16-AE07656E4FFB}",
+          "status": "shared"
+        },
+        {
+          "entities": 4,
+          "layer": "sv_state0_uberlod{75562D92-DAAE-4E69-B0A9-026B36D0CDD4}",
+          "status": "shared"
+        },
+        {
+          "entities": 0,
+          "layer": "sv_state0_lightshafts{07297792-29B0-4AA0-8DC0-F411FFB85F79}",
+          "status": "shared"
+        }
+      ],
+      "native": "gm_q_skalitz_attack",
+      "source_id": "805",
+      "totals": {
+        "entities": 88,
+        "in_level": 0,
+        "layers": 9,
+        "shared": 7,
+        "unconverted": 88
+      }
+    },
+    "q_skalitz_givenhorse": {
+      "layers": [
+        {
+          "entities": 4,
+          "in_level": 0,
+          "kinds": {
+            "Horse": 4
+          },
+          "layer": "givenHorses{42C2A0BC-446D-49CB-9494-8BD4DB7CD69E}",
+          "missing_kinds": {
+            "Horse": 4
+          },
+          "status": "own"
+        }
+      ],
+      "native": "gm_q_skalitz_givenhorse",
+      "source_id": "812",
+      "totals": {
+        "entities": 4,
+        "in_level": 0,
+        "layers": 1,
+        "shared": 0,
+        "unconverted": 4
+      }
+    },
+    "q_skalitz_normal": {
+      "layers": [
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "Stash": 1
+          },
+          "layer": "sv_grave_state0{7AA9B505-1AC5-4902-912C-84F23D5FF773}",
+          "missing_kinds": {
+            "Stash": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_hans{5A07B719-E5C1-4AC8-8708-00FA38101E6D}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_zbysek{56FEB21E-B10A-4A5E-9B72-E86E75FE9DD6}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1254,
+          "layer": "sv_state0_prefabs{90C64322-1DED-4574-9B92-FE97AF9FDE77}",
+          "status": "shared"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_matej{EECA5824-D3F7-4169-A627-BDDB4AC9E16D}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 10,
+          "in_level": 0,
+          "kinds": {
+            "AreaBox": 2,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 1,
+            "TagPoint": 5
+          },
+          "layer": "shop4{D9BA7B26-B58C-418E-A453-057E0378F940}",
+          "missing_kinds": {
+            "AreaBox": 2,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 1,
+            "TagPoint": 5
+          },
+          "status": "own"
+        },
+        {
+          "entities": 6,
+          "in_level": 0,
+          "kinds": {
+            "Horse": 6
+          },
+          "layer": "ska_state0{5ADD1427-F739-4DAD-9D3A-D640C99D1CB4}",
+          "missing_kinds": {
+            "Horse": 6
+          },
+          "status": "own"
+        },
+        {
+          "entities": 8,
+          "in_level": 0,
+          "kinds": {
+            "AreaBox": 2,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 1,
+            "TagPoint": 3
+          },
+          "layer": "shop2{B34BEC29-D140-45C1-9FC6-041473B076F3}",
+          "missing_kinds": {
+            "AreaBox": 2,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 1,
+            "TagPoint": 3
+          },
+          "status": "own"
+        },
+        {
+          "entities": 5,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 1,
+            "TagPoint": 2
+          },
+          "layer": "Home14{11DB2E2A-A984-4462-BA1F-E3BCC5046164}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 1,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 16,
+          "in_level": 0,
+          "kinds": {
+            "ItemSlot": 1,
+            "PickableItem": 1,
+            "PredefinedNavigationPath": 10,
+            "SmartAreaShape": 1,
+            "TagPoint": 3
+          },
+          "layer": "Home11{10B27833-56B6-4ED7-AA86-88821808B39A}",
+          "missing_kinds": {
+            "ItemSlot": 1,
+            "PickableItem": 1,
+            "PredefinedNavigationPath": 10,
+            "SmartAreaShape": 1,
+            "TagPoint": 3
+          },
+          "status": "own"
+        },
+        {
+          "entities": 17,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 16
+          },
+          "layer": "Garrison{B3F2A139-A1DF-4606-9703-64F5462DC3BD}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 16
+          },
+          "status": "own"
+        },
+        {
+          "entities": 15,
+          "in_level": 0,
+          "kinds": {
+            "TagPoint": 15
+          },
+          "layer": "CityWalk{77655D3A-4371-4D07-B51B-8B6158E64ED4}",
+          "missing_kinds": {
+            "TagPoint": 15
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "TagPoint": 1
+          },
+          "layer": "Farm1{D0E4D43E-E647-46C2-B373-4EAA5B66E175}",
+          "missing_kinds": {
+            "TagPoint": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_matus{92C27C42-640E-47B2-9E27-3D9A13086854}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_jan{A8F57843-EB33-4A82-9B64-8CA8C1BB8CA2}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_fatherOfHenry{0FE1D245-6E90-48EE-BD76-93A176558A49}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_collierVarlet{15FF3248-BAD7-4BBB-87A6-952715B9988A}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 2,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 1
+          },
+          "layer": "stables{2554C050-DBA2-4628-B557-B5E821A35F07}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 6,
+          "in_level": 0,
+          "kinds": {
+            "Shop": 1,
+            "SmartAreaShape": 2,
+            "Stash": 1,
+            "TagPoint": 2
+          },
+          "layer": "pub1{BB790751-48A7-4D84-99F7-1F13C4D757E8}",
+          "missing_kinds": {
+            "Shop": 1,
+            "SmartAreaShape": 2,
+            "Stash": 1,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_fricek{88442B51-1EA0-4392-BB6E-C0F0A50D6863}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 7,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 2,
+            "SmartObjectHolder": 1,
+            "TagPoint": 2
+          },
+          "layer": "Home6{19AF0852-2C91-46D6-84C9-CFB133641BA6}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 2,
+            "SmartObjectHolder": 1,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 9,
+          "in_level": 0,
+          "kinds": {
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 3,
+            "TagPoint": 4
+          },
+          "layer": "shop_grocery{2DCB2752-8BCF-4382-BB0A-ADA5E8994539}",
+          "missing_kinds": {
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 3,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_blanka{F65C5F54-708A-4BB6-803C-DDCC042AE105}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 7,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 2,
+            "TagPoint": 2
+          },
+          "layer": "Home12{2EF00256-E7C2-484D-BCD9-FEEFED78C58A}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 2,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 5,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "layer": "Farm2{B29A0756-E2D4-468B-BBCC-BDF0708440F9}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 415,
+          "layer": "sv_state0{43A2A55D-8075-4D80-B649-097D8826E196}",
+          "status": "shared"
+        },
+        {
+          "entities": 0,
+          "layer": "pc{4057005E-F1B0-4E8F-B087-7E236B8A581B}",
+          "status": "shared"
+        },
+        {
+          "entities": 5,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "layer": "Farm3{AF5DC25E-731A-4062-8D56-E18541816856}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 5,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "layer": "Farm8{76398D5F-5136-4825-B2EC-65EE11F708DE}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_beranMrs{981BF962-B9E4-4A60-94BF-0CE48C279FF8}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_motherOfHenry{00C74663-A502-46C3-93D4-DBD830EEF767}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_merchant{938AA36A-658D-455F-800E-A2122856B468}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 24,
+          "layer": "ska{4DB05E6C-3363-453F-9B4B-62468776A13D}",
+          "status": "shared"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_jana{C6FD776C-23B4-4785-A356-E69EFB98D68B}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_bailiff{9E251B70-0DD0-40B7-B53D-6E9169D28082}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 23,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 13,
+            "NPC_Female": 10
+          },
+          "layer": "_other{85F99372-1FFA-40B4-B308-A47A8FE8093E}",
+          "missing_kinds": {
+            "NPC": 13,
+            "NPC_Female": 10
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_insomniac{704CBE72-9E7C-40EC-822D-909CA44A9271}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_enemyOfHenry{0912CB74-CBC5-49A8-9646-4CB58BE45C8C}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_tonka_husband{A8441179-84DB-4C5B-84F2-B3359C66AA87}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 6,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 1,
+            "TagPoint": 2
+          },
+          "layer": "Home4{A8A3907A-692C-4509-9EB3-8A14DC99D7F4}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 1,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 9,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 2,
+            "TagPoint": 4
+          },
+          "layer": "HomeForge{D741697B-59F3-4AE8-BD47-CBBC56CF66D4}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 2,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 119,
+          "layer": "q_skalitz_questItems{5D788781-117D-496F-8A16-AE07656E4FFB}",
+          "status": "shared"
+        },
+        {
+          "entities": 9,
+          "in_level": 0,
+          "kinds": {
+            "AreaBox": 1,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "SmartObjectHolder": 1,
+            "Stash": 1,
+            "TagPoint": 4
+          },
+          "layer": "shop1{564BC184-7FFD-42B8-A1BB-D925A3C53189}",
+          "missing_kinds": {
+            "AreaBox": 1,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "SmartObjectHolder": 1,
+            "Stash": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_adam{C95D6785-EFE6-4C90-88F8-3BB6AF03FD9E}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_kunes{95956A89-E7E6-40EB-95A4-0B7B741075F4}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 4,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 1,
+            "TagPoint": 1
+          },
+          "layer": "Home3{B77FC48F-1A7C-4D4C-A403-43CBDC499206}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 1,
+            "TagPoint": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 7,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 2,
+            "SmartObjectHolder": 1,
+            "TagPoint": 2
+          },
+          "layer": "Home5{BB3C8F91-510B-4929-8C2C-48AD04DBF3F4}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 2,
+            "SmartObjectHolder": 1,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 4,
+          "layer": "sv_state0_uberlod{75562D92-DAAE-4E69-B0A9-026B36D0CDD4}",
+          "status": "shared"
+        },
+        {
+          "entities": 0,
+          "layer": "sv_state0_lightshafts{07297792-29B0-4AA0-8DC0-F411FFB85F79}",
+          "status": "shared"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_catchpoll{CE546093-3207-4B27-AF02-C5159092A829}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 6,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 4,
+            "SmartAreaShape": 1,
+            "TagPoint": 1
+          },
+          "layer": "Home1{70EFDD94-0587-4B3D-9710-CE840B3FEA16}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 4,
+            "SmartAreaShape": 1,
+            "TagPoint": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_ales{DF557E98-86C8-4062-8B94-14B1203B6B13}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_flip{E7840BA4-66BC-4929-A6E7-A9518FBB694B}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_havel{3900E0B4-F5CB-429D-9F87-A6F232CFB95A}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_masterSmelter{93E2FAB7-8537-4833-8BCE-A59C46EC3267}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_beranMr{561AB0B8-9727-4BB5-A38E-7C9C6EE5C706}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 34,
+          "in_level": 0,
+          "kinds": {
+            "AreaShape": 15,
+            "AudioAreaAmbience": 12,
+            "AudioAreaEntity": 4,
+            "AudioAreaRandom": 1,
+            "AudioTriggerSpot": 2
+          },
+          "layer": "skalice_state0{DB3A1DBA-02FC-40FC-B655-D9F06CE549CC}",
+          "missing_kinds": {
+            "AreaShape": 15,
+            "AudioAreaAmbience": 12,
+            "AudioAreaEntity": 4,
+            "AudioAreaRandom": 1,
+            "AudioTriggerSpot": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_sarka{C6DCE5BC-C4F6-462D-8AEA-F82B1E74C57B}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 5,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "layer": "Farm5{281A33CF-FF1E-4D8C-9D30-793832DBA1DF}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_maruna{F30893D1-39B9-40F2-864C-F1F14E1B7B41}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 9,
+          "in_level": 0,
+          "kinds": {
+            "ItemSlot": 1,
+            "PickableItem": 1,
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 1,
+            "TagPoint": 3
+          },
+          "layer": "Home7{BD7BA2D1-D8CB-43A0-B361-0D53595E7D55}",
+          "missing_kinds": {
+            "ItemSlot": 1,
+            "PickableItem": 1,
+            "PredefinedNavigationPath": 3,
+            "SmartAreaShape": 1,
+            "TagPoint": 3
+          },
+          "status": "own"
+        },
+        {
+          "entities": 10,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 5,
+            "SmartAreaShape": 3,
+            "TagPoint": 2
+          },
+          "layer": "Home15{9E8D7DD3-09D1-4A8C-ACC6-70025F86BCD7}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 5,
+            "SmartAreaShape": 3,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_tonka{C61BDED3-B265-449C-B784-CF91F9134165}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 6,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 2,
+            "TagPoint": 2
+          },
+          "layer": "Home13{78EEAAD9-6DF5-4695-A66A-4CA00EA7C2A0}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 2,
+            "SmartAreaShape": 2,
+            "TagPoint": 2
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "Stash": 1
+          },
+          "layer": "shop_pub{555CB0DA-E81D-4C7F-AC8A-288CF35B7020}",
+          "missing_kinds": {
+            "Stash": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC_Female": 1
+          },
+          "layer": "ska_johanka{BA718ADC-ACF1-43E0-AF7A-25DFD9F0A4B5}",
+          "missing_kinds": {
+            "NPC_Female": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_skinner{47D7D9DC-5BC6-483E-875E-AE84E9406EB9}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 5,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "layer": "Farm4{B59732DF-84C7-4F8B-B9E0-E04E67B74FEA}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "ska_vit_synMojmira{58E873E0-EF08-4640-835E-0BFAE226CAF6}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 9,
+          "in_level": 0,
+          "kinds": {
+            "PredefinedNavigationPath": 4,
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "layer": "Home2{4EEF18EF-97B7-49B0-9B66-05D38C87ADF6}",
+          "missing_kinds": {
+            "PredefinedNavigationPath": 4,
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 1,
+          "in_level": 0,
+          "kinds": {
+            "NPC": 1
+          },
+          "layer": "vra_vanek{E0B079EF-28FC-42E3-A125-8D6F1FD8E871}",
+          "missing_kinds": {
+            "NPC": 1
+          },
+          "status": "own"
+        },
+        {
+          "entities": 5,
+          "in_level": 0,
+          "kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "layer": "Farm6{060F02F3-CBEF-4BE0-ABBC-5016413281C9}",
+          "missing_kinds": {
+            "SmartAreaShape": 1,
+            "TagPoint": 4
+          },
+          "status": "own"
+        },
+        {
+          "entities": 11,
+          "in_level": 0,
+          "kinds": {
+            "AreaBox": 2,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 1,
+            "TagPoint": 6
+          },
+          "layer": "shop3{0E2C57FE-C12A-47AF-872B-35AD565E68CC}",
+          "missing_kinds": {
+            "AreaBox": 2,
+            "Shop": 1,
+            "SmartAreaShape": 1,
+            "Stash": 1,
+            "TagPoint": 6
+          },
+          "status": "own"
+        }
+      ],
+      "native": "gm_q_skalitz_normal",
+      "source_id": "814",
+      "totals": {
+        "entities": 316,
+        "in_level": 0,
+        "layers": 73,
+        "shared": 7,
+        "unconverted": 316
+      }
+    },
+    "q_skalitz_skinnerhouse": {
+      "layers": [
+        {
+          "entities": 19,
+          "in_level": 0,
+          "kinds": {
+            "Object:Decal": 19
+          },
+          "layer": "house02_interiors_decals_state1{BBBF5F17-BBE4-4DDD-86C2-AD5C6F716E23}",
+          "missing_kinds": {
+            "Object:Decal": 19
+          },
+          "status": "own"
+        }
+      ],
+      "native": "gm_q_skalitz_skinnerhouse",
+      "source_id": "815",
+      "totals": {
+        "entities": 19,
+        "in_level": 0,
+        "layers": 1,
+        "shared": 0,
+        "unconverted": 19
+      }
+    }
+  },
+  "quest": "q_skalitz",
+  "residue_by_kind": {
+    "callback_op_deferred": 44,
+    "dialogue_scene": 6,
+    "fader_scene": 1,
+    "playback_duty_deferred": 11,
+    "playback_duty_native_player": 4,
+    "profile_layer_unconverted": 70,
+    "profile_nav_variant": 2,
+    "request_save_deferred": 4,
+    "scene_handoff": 3,
+    "video_not_selected": 2
+  },
+  "scenes": {
+    "aliases": 15,
+    "categories": {
+      "dialogue": 6,
+      "fader": 1,
+      "in_engine": 3,
+      "video": 5
+    },
+    "converted": [
+      "navsteva_racka",
+      "kovani_otcem",
+      "forging_father_insert"
+    ],
+    "records": [
+      {
+        "alias": "stribrna_skalice",
+        "callback": "cutscene_stribrna_skalice",
+        "category": "video",
+        "requests": 3,
+        "status": "residue",
+        "video": {
+          "archive": "ipl_videosb.pak",
+          "entry": "Videos/q_skalitz/cin_7805_stribrna_skalice.usm",
+          "id": "7805"
+        }
+      },
+      {
+        "alias": "nemec_hospodska_hadka",
+        "callback": "cutscene_nemec_hospodska_hadka",
+        "category": "in_engine",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "dialogAfterSarka",
+        "callback": "cutscene_dialogAfterSarka",
+        "category": "fader",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "nemec_hazeni_hnoje",
+        "callback": "cutscene_nemec_hazeni_hnoje",
+        "category": "in_engine",
+        "requests": 2,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "manure_throw_nohenry",
+        "callback": "cutscene_manure_throw_nohenry",
+        "category": "in_engine",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "navsteva_racka",
+        "callback": "cutscene_navsteva_racka",
+        "category": "video",
+        "requests": 1,
+        "status": "converted",
+        "video": {
+          "archive": "videosb-part1.pak",
+          "entry": "Videos/q_skalitz/cin_9017_navsteva_racka.usm",
+          "id": "9017"
+        }
+      },
+      {
+        "alias": "kovani_otcem",
+        "callback": "cutscene_kovani_otcem",
+        "category": "video",
+        "requests": 1,
+        "status": "converted",
+        "video": {
+          "archive": "videos-part4.pak",
+          "entry": "Videos/q_skalitz/cin_8924_kovani_otcem.usm",
+          "id": "8924"
+        }
+      },
+      {
+        "alias": "forging_father_insert",
+        "callback": "cutscene_forging_father_insert",
+        "category": "video",
+        "requests": 1,
+        "status": "converted",
+        "video": {
+          "archive": "videos-part3.pak",
+          "entry": "Videos/q_skalitz/cin_35806_forging_father_insert.usm",
+          "id": "35806"
+        }
+      },
+      {
+        "alias": "dialogWithGuards",
+        "callback": "cutscene_dialogWithGuards",
+        "category": "dialogue",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "dialogBeforeKunes",
+        "callback": "cutscene_dialogBeforeKunes",
+        "category": "dialogue",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "dialogBeforePainting",
+        "callback": "cutscene_dialogBeforePainting",
+        "category": "dialogue",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "blankaGivesBeer",
+        "callback": "cutscene_blankaGivesBeer",
+        "category": "dialogue",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "dialogAfterKunesBeaten",
+        "callback": "cutscene_dialogAfterKunesBeaten",
+        "category": "dialogue",
+        "requests": 1,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "dialogAfterKunesWon",
+        "callback": "cutscene_dialogAfterKunesWon",
+        "category": "dialogue",
+        "requests": 4,
+        "status": "residue",
+        "video": null
+      },
+      {
+        "alias": "game_over",
+        "callback": "cutscene_game_over",
+        "category": "video",
+        "requests": 1,
+        "status": "residue",
+        "video": {
+          "archive": "ipl_videos.pak",
+          "entry": "Videos/q_skalitz/cin_15059_game_over.usm",
+          "id": "15059"
+        }
+      }
+    ],
+    "requests": 21
+  },
+  "schema": 1
+}
