@@ -5,6 +5,7 @@ missing role makes the service silently do nothing, so each contract row
 cites where its requirement comes from. Role names are derived from the
 native customOperation macros wherever possible, not hard-coded.
 """
+import posixpath
 import re
 import xml.etree.ElementTree as E
 
@@ -15,7 +16,12 @@ SUFFIX = {'man': 'MUZ', 'woman': 'ZENA'}
 
 TRADE_SOURCE = ('8edd58f (tools/shop_roles.py): trade confirmation needs SMLOUVANI_<g>, VYJEDNAVANI_<g> and the '
                 'addShopRoles_ending_<g> roles; found and fixed in game 2026-10-21. The remaining '
-                'addShopRoles_essential_<g> roles open a second Trade option.')
+                'addShopRoles_essential_<g> roles open a second Trade option. The shop finds the haggle by its '
+                'SMLOUVANI metarole, so any one role.xml row with that metarole meets the haggle requirement; '
+                'a keeper on a ported KCD1 haggle role (kcd1_shop_install) has no ending roles, since KCD1 had '
+                'no trade farewell and the native ending dialogs carry no scripts.')
+HAGGLE_METAROLE = 'SMLOUVANI'
+PORTED_TRADE_ROLE = 'GM_KCD1_OBCHODNIK'
 MERCHANT_ROLE = re.compile(r'^(SMLOUVANI|VYJEDNAVANI|OPRAVAR|OBCHODNIK|OBCHODNICE|PODKONI)(_|$)')
 
 
@@ -31,6 +37,31 @@ def keepers(mounts):
             if any(l.get('Name') == 'shopKeeper' and l.get('TargetGuid') in shops
                    for l in entity.findall('EntityLinks/Link')):
                 result[entity.get('Name')] = dict(gender=GENDER[entity.get('EntityClass')], level=member)
+    return result
+
+
+def generated_trade_dialogs(mounts):
+    """{soul: [FaderDialog names]} for mod trade dialogs a Skald Project, Level or Quest registers: a Shop
+    sequence that hands off to an OpenShop sequence the soul responds in. Definition paths are relative to the
+    registering file."""
+    result = {}
+    for member in mounts.names('quests/', 'mod'):
+        data = mounts.read(member, 'mod')
+        if b'<Definition ' not in data: continue
+        for definition in parse(data).iter('Definition'):
+            path = posixpath.normpath(posixpath.join(posixpath.dirname(member), definition.get('File', '')))
+            dialog = mounts.read(path, 'mod')
+            if not dialog or b'OpenShop' not in dialog: continue
+            for fader in parse(dialog).iter('FaderDialog'):
+                souls = {s.get('Role'): s.get('Soul') for s in fader.iter('SelectedSoul') if s.get('Soul')}
+                for shop in fader.iter('Sequence'):
+                    if shop.get('Type') != 'Shop': continue
+                    for handoff in shop.iter('Sequence'):
+                        if handoff.get('Type') != 'OpenShop': continue
+                        for response in handoff.iter('Response'):
+                            soul = souls.get(response.get('Role'))
+                            if soul and fader.get('Name') not in result.setdefault(soul, []):
+                                result[soul].append(fader.get('Name'))
     return result
 
 
@@ -58,11 +89,15 @@ def merchant_side_roles(program):
     return roles
 
 
-def trade_contract(program, tables, results, shop_keepers):
+def trade_contract(program, tables, results, shop_keepers, generated=None):
+    """The essential macro's dialog roles (Z_DIALOGU/Z_CHATU) open the native trade dialog. They duplicate
+    trade only when a generated trade FaderDialog already serves the keeper; otherwise they are its trade path."""
+    generated = generated or {}
     rows = []
     for person, info in sorted(shop_keepers.items()):
         g = info['gender']
-        haggle = ['SMLOUVANI_' + SUFFIX[g], 'VYJEDNAVANI_' + SUFFIX[g]]
+        native_haggle, negotiation = 'SMLOUVANI_' + SUFFIX[g], 'VYJEDNAVANI_' + SUFFIX[g]
+        haggle = [native_haggle, negotiation]
         ending = macro_roles(program, 'addShopRoles_ending_' + g)
         essential = macro_roles(program, 'addShopRoles_essential_' + g)
         row = dict(contract='trade', soul=person, gender=g, source=TRADE_SOURCE)
@@ -72,18 +107,26 @@ def trade_contract(program, tables, results, shop_keepers):
         elif result is None:
             row.update(status='FAIL', detail='shopKeeper entity has no soul row in the package')
         else:
-            required = haggle + ending
+            # The shop finds the haggle by metarole: the native role, or any role mapped to SMLOUVANI.
+            bound = [r for r in sorted(result.roles)
+                     if r == native_haggle or tables.roles.get(r, {}).get('metarole_name') == HAGGLE_METAROLE]
+            ported = [r for r in bound if r != native_haggle]
+            required = (ported or [native_haggle]) + [negotiation] + ([] if ported else ending)
             forbidden = [r for r in essential if r not in haggle]
-            missing = [r for r in required if r not in result.roles]
-            conditional = [r for r in required if r in result.roles and not result.roles[r].definite]
-            duplicate = [r for r in forbidden if r in result.roles]
-            row.update(required=required, forbidden=forbidden, missing=missing, conditional=conditional,
-                       duplicate_trade=duplicate,
+            missing = ([] if bound else [native_haggle]) + [r for r in required[1:] if r not in result.roles]
+            conditional = [r for r in bound + required[1:] if r in result.roles and not result.roles[r].definite]
+            dialogs = generated.get(person, [])
+            native_path = [r for r in forbidden if r in result.roles]
+            duplicate = native_path if dialogs else []
+            row.update(required=required, forbidden=forbidden if dialogs else [], missing=missing,
+                       conditional=conditional, duplicate_trade=duplicate, generated_trade_dialogs=dialogs,
+                       native_trade_roles=native_path, haggle_roles=bound, ported_kcd1_haggle=bool(ported),
+                       trade_path=PORTED_TRADE_ROLE if PORTED_TRADE_ROLE in result.roles else None,
                        negotiation_metarole=dict(
                            storm='VYJEDNAVANI' in result.metaroles,
                            role_table=any(tables.roles.get(r, {}).get('metarole_name') == 'VYJEDNAVANI'
                                           for r in result.roles)))
-            if missing or any(result.roles[r].definite for r in duplicate):
+            if missing or len(bound) > 1 or any(result.roles[r].definite for r in duplicate):
                 row['status'] = 'FAIL'
             elif conditional or duplicate:
                 row['status'] = 'UNSUPPORTED'

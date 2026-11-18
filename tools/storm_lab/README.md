@@ -53,9 +53,17 @@ pass only for DEFINITE roles; CONDITIONAL makes them UNSUPPORTED, never PASS.
 ## Contracts and findings
 
 - `trade` for each NPC linked to a `Shop` as `shopKeeper` in a mod mission
-  file: requires `SMLOUVANI_<g>`, `VYJEDNAVANI_<g>` and the
-  `addShopRoles_ending_<g>` roles; forbids the other `addShopRoles_essential_<g>`
-  roles (second Trade option). Source: `8edd58f`, `tools/shop_roles.py`.
+  file: requires exactly one haggle role (`SMLOUVANI_<g>`, or any role whose
+  role.xml row has metarole `SMLOUVANI`, which is how the shop finds the haggle),
+  `VYJEDNAVANI_<g>`, and the `addShopRoles_ending_<g>` roles unless the keeper is
+  on a ported KCD1 haggle role (KCD1 had no trade farewell; the native ending
+  dialogs carry no scripts; `kcd1_shop_install`). A bound `GM_KCD1_OBCHODNIK` is
+  reported as the keeper's trade path. The other `addShopRoles_essential_<g>` roles
+  (`Z_DIALOGU`/`Z_CHATU`) open the native trade dialog: they are forbidden
+  (second Trade option) only while a mod Skald Project/Level/Quest registers a
+  generated FaderDialog whose `Shop` -> `OpenShop` sequence the keeper answers;
+  otherwise they are the keeper's trade path. Source: `8edd58f`,
+  `tools/shop_roles.py`.
 - Findings: missing skald character or voice, `voice_group_name` without a
   skald character (a shape native data never has), merchant-side roles on a
   soul that is not a linked keeper, unknown roles, unknown inventory presets,

@@ -69,7 +69,7 @@ def write_audit(report, output):
     html.append('<section><h2>Service contracts</h2>' + _table(
         ['Status', 'Contract', 'Soul', 'Detail'],
         [(Markup('<span class="%s">%s</span>' % (c['status'], c['status'])), c['contract'], c['soul'],
-          _pre({k: c.get(k) for k in ('missing', 'conditional', 'duplicate_trade', 'negotiation_metarole', 'detail')}))
+          _pre({k: c.get(k) for k in ('missing', 'conditional', 'duplicate_trade', 'haggle_roles', 'trade_path', 'negotiation_metarole', 'detail')}))
          for c in report['contracts']]) + '</section>')
     html.append('<section><h2>Findings</h2><input id="f" placeholder="Filter findings">' + _table(
         ['Severity', 'Kind', 'Soul', 'Detail'],

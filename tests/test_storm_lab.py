@@ -75,8 +75,8 @@ def native_blobs(roles_xml, extra_sources=()):
                                                        dict(gender_id='2', gender_name='female')]),
         'Libs/Tables/rpg/social_class.xml': table('social_class', [dict(social_class_id='1', social_class_name='villager'),
                                                                    dict(social_class_id='2', social_class_name='blacksmith')]),
-        'Libs/Tables/rpg/role.xml': table('role', [dict(role_name=r, metarole_name=('VYJEDNAVANI' if r.startswith('VYJ') else 'NPC'))
-                                                   for r in ROLE_NAMES]),
+        'Libs/Tables/rpg/role.xml': table('role', [dict(role_name=r, metarole_name=(
+            'VYJEDNAVANI' if r.startswith('VYJ') else 'SMLOUVANI' if r.startswith('SMLOUVANI') else 'NPC')) for r in ROLE_NAMES]),
         'Libs/Tables/rpg/FactionTree.xml': '<database><FactionTree version="1"><Faction Name="region"><Children>'
                                            '<Faction Name="region_town" Labels="settlement"/><Faction Name="region_bad" '
                                            'Labels="publicEnemy"/></Children></Faction></FactionTree></database>',
@@ -245,11 +245,62 @@ class Contracts(unittest.TestCase):
         missing = storm(rule('k', '<hasName name="keeper"/>', add('SMLOUVANI_MUZ'), '<addShopRoles_ending_man/>'))
         row = self.audit(missing, [soul('keeper')], [('keeper', 'NPC')])['contracts'][0]
         self.assertEqual((row['status'], row['missing']), ('FAIL', ['VYJEDNAVANI_MUZ']))
-        duplicate = storm(rule('k', '<hasName name="keeper"/>', '<addShopRoles_essential_man/>', '<addShopRoles_ending_man/>'))
-        row = self.audit(duplicate, [soul('keeper')], [('keeper', 'NPC')])['contracts'][0]
-        self.assertEqual((row['status'], row['duplicate_trade']), ('FAIL', ['OBCHODNIK_Z_CHATU']))
         woman = self.audit(good, [soul('keeper', soul_archetype_id='1')], [('keeper', 'NPC_Female')])['contracts'][0]
         self.assertEqual(woman['status'], 'FAIL')     # man's roles on a woman keeper
+
+    def test_dialog_trade_role_duplicates_only_a_generated_trade_dialog(self):
+        native_path = storm(rule('k', '<hasName name="keeper"/>', '<addShopRoles_essential_man/>',
+                                 '<addShopRoles_ending_man/>'))
+        level = ('<Database><Skald><Level Name="entry"><Definitions><Definition File="dialogs/gm_trade.xml"/>'
+                 '</Definitions></Level></Skald></Database>')
+        fader = ('<Database><Skald><FaderDialog Name="gm_trade"><Dialogue><SelectedSouls>'
+                 '<SelectedSoul Role="HENRY" Voice="v"/><SelectedSoul Role="keeper_role" Soul="keeper"/></SelectedSouls>'
+                 '<Sequence Name="trade" Type="Shop"><Decision><Sequences><Sequence Name="open_shop" Type="OpenShop">'
+                 '<Elements><Response Role="keeper_role"/></Elements></Sequence></Sequences></Decision></Sequence>'
+                 '</Dialogue></FaderDialog></Skald></Database>')
+
+        def contract(extra):
+            return audit(None, None, mounts=mounts(storm(rule('base', '<isHuman/>', add('NPC'))), [soul('keeper')],
+                                                   mod_roles=native_path, mission=mission(('keeper', 'NPC')),
+                                                   extra=extra))['contracts'][0]
+        # Native dialog roles alone are the keeper's trade path.
+        row = contract({})
+        self.assertEqual((row['status'], row['duplicate_trade'], row['native_trade_roles']),
+                         ('PASS', [], ['OBCHODNIK_Z_CHATU']))
+        # A registered generated trade dialog for the same keeper makes them a second Trade option.
+        row = contract({'Quests/Test/entry.xml': level, 'Quests/Test/dialogs/gm_trade.xml': fader})
+        self.assertEqual((row['status'], row['duplicate_trade'], row['generated_trade_dialogs']),
+                         ('FAIL', ['OBCHODNIK_Z_CHATU'], ['gm_trade']))
+        # An unregistered dialog file, or one for another soul, does not count.
+        row = contract({'Quests/Test/dialogs/gm_trade.xml': fader})
+        self.assertEqual(row['status'], 'PASS')
+        row = contract({'Quests/Test/entry.xml': level,
+                        'Quests/Test/dialogs/gm_trade.xml': fader.replace('Soul="keeper"', 'Soul="other"')})
+        self.assertEqual(row['status'], 'PASS')
+
+    def test_ported_kcd1_haggle_meets_the_contract_without_ending_roles(self):
+        ported_roles = {'Libs/Tables/rpg/role__gm_kcd1_shop.xml': table('role', [
+            dict(role_name='GM_KCD1_SMLOUVANI_MUZ', metarole_name='SMLOUVANI'),
+            dict(role_name='GM_KCD1_OBCHODNIK', metarole_name='NPC')])}
+
+        def contract(*ops, extra=ported_roles):
+            mod = storm(rule('k', '<hasName name="keeper"/>', *ops))
+            return audit(None, None, mounts=mounts(storm(rule('base', '<isHuman/>', add('NPC'))), [soul('keeper')],
+                                                   mod_roles=mod, mission=mission(('keeper', 'NPC')), extra=extra))['contracts'][0]
+        row = contract(add('GM_KCD1_SMLOUVANI_MUZ'), add('VYJEDNAVANI_MUZ'), add('GM_KCD1_OBCHODNIK'))
+        self.assertEqual((row['status'], row['missing'], row['haggle_roles']), ('PASS', [], ['GM_KCD1_SMLOUVANI_MUZ']))
+        self.assertEqual((row['ported_kcd1_haggle'], row['trade_path']), (True, 'GM_KCD1_OBCHODNIK'))
+        self.assertNotIn('OBCHODNIK_SE_LOUCI', row['required'])
+        # A second haggle role (the native one beside the port) binds two haggle dialogs.
+        row = contract(add('GM_KCD1_SMLOUVANI_MUZ'), add('SMLOUVANI_MUZ'), add('VYJEDNAVANI_MUZ'), add('GM_KCD1_OBCHODNIK'))
+        self.assertEqual((row['status'], row['haggle_roles']), ('FAIL', ['GM_KCD1_SMLOUVANI_MUZ', 'SMLOUVANI_MUZ']))
+        # Without a role-table row mapping it to SMLOUVANI the ported role meets nothing.
+        row = contract(add('GM_KCD1_SMLOUVANI_MUZ'), add('VYJEDNAVANI_MUZ'), extra={})
+        self.assertEqual((row['status'], row['missing'][0]), ('FAIL', 'SMLOUVANI_MUZ'))
+        self.assertIsNone(row['trade_path'])
+        # Negotiation is still required.
+        row = contract(add('GM_KCD1_SMLOUVANI_MUZ'), add('GM_KCD1_OBCHODNIK'))
+        self.assertEqual((row['status'], row['missing']), ('FAIL', ['VYJEDNAVANI_MUZ']))
 
     def test_keeper_without_soul_fails(self):
         report = self.audit(storm(), [soul('other')], [('keeper', 'NPC')])

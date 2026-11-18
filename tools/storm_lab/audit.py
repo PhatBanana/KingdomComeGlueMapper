@@ -3,7 +3,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 from . import VERSION
-from .contracts import findings, keepers, trade_contract
+from .contracts import findings, generated_trade_dialogs, keepers, trade_contract
 from .engine import Engine
 from .mounts import Mounts
 from .program import Program
@@ -55,7 +55,7 @@ def run(package, target, output=None, native_selfcheck=0, mounts=None):
     mounts = mounts or Mounts.from_paths(package, target)
     program, tables, engine, results, native = evaluate(mounts, native_selfcheck)
     shop_keepers = keepers(mounts)
-    contracts = trade_contract(program, tables, results, shop_keepers)
+    contracts = trade_contract(program, tables, results, shop_keepers, generated_trade_dialogs(mounts))
     found = findings(program, tables, results, shop_keepers)
     unsupported = Counter(); assumptions = Counter(); status = Counter()
     for r in results.values():

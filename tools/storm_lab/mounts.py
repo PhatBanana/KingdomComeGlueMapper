@@ -2,7 +2,7 @@
 
 Archives are read in place with zipfile; nothing is extracted or modified.
 Only the members the evaluator needs are indexed (Storm sources, RPG/Skald
-tables, inventory presets and level mission files), so a full package is
+tables, inventory presets, level mission files and Skald quest files), so a full package is
 indexed in seconds. Every member that is read is hashed for the report.
 """
 import hashlib
@@ -18,7 +18,8 @@ def _key(name):
 
 
 def _wanted(key):
-    return key.startswith(WANTED) or key.endswith('objects_mission0.xml')
+    return key.startswith(WANTED) or key.endswith('objects_mission0.xml') or (
+        key.startswith('quests/') and key.endswith('.xml'))
 
 
 class Layer:
